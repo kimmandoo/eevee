@@ -26,6 +26,8 @@ const ITEM_LIMIT: usize = 128;
 type Events = Arc<Mutex<VecDeque<Event>>>;
 mod files;
 use files::{PendingWrite, capture_files};
+mod terminal;
+use terminal::Terminals;
 
 pub struct Worker {
     requests: Option<SyncSender<Request>>,
@@ -176,7 +178,7 @@ fn worker(
                     let mut lines = trust.lines.clone();
                     lines.extend([
                         "Private owned ACPv1 stdio process; initialize and session authentication happen only after Run consent.".into(),
-                        "Client file callbacks read safe current-project working bytes; Implement writes require separate exact deny/allow-once content and parent review. Terminal callbacks remain disabled.".into(),
+                        "Client callbacks are operation-scoped. Implement permits separately reviewed exact file writes and commands through Eevee's existing owned runner; terminal allocation is not approval. Plan/Review/inspection do not advertise or permit terminal callbacks.".into(),
                         "Agent-owned tools, project instructions, MCP, configuration, hooks and history are EXTERNAL PROVIDER POLICY. ACP is not a path/network sandbox or a read-only guarantee.".into(),
                         "Only exact reject-once/allow-once provider permission IDs are offered; persistent grants are filtered. Unknown questions/elicitation extensions are refused, not advertised.".into(),
                         "No authenticate/login action is invoked. Provider-owned auth/account/product eligibility must succeed at session creation; installed is not authenticated.".into(),
@@ -407,10 +409,11 @@ fn payload(
     let sources = input.source_payload(&workspace.exclusions)?;
     let text = crate::workspace::context::optimizer::encode_context(json!({
         "purpose": if input.operation == Operation::Implement {
-            "Implement the requested project changes. Client fs/read_text_file reads actual working files and fs/write_text_file creates/replaces full UTF-8 files at absolute paths under session cwd. Mediated delete, rename and original-snapshot multi-hunk tools are unsupported on this ACP route; do not claim those operations or emulate them with empty writes or agent-owned shell tools. Each client write requires exact separate user consent; preserve unrelated dirty bytes. Local Rust syntax disclosure applies to mediated full-file writes, not agent-owned tools. Fenced code is not file creation. Agent-owned tools remain external provider policy, not client confinement. No check or success may be claimed without observed results."
+            "Implement the requested project changes. Client fs/read_text_file reads actual working files and fs/write_text_file creates/replaces full UTF-8 files at absolute paths under session cwd. Mediated delete, rename and original-snapshot multi-hunk tools are unsupported on this ACP route; do not claim those operations or emulate them with empty writes or agent-owned shell tools. Each client write requires exact separate user consent; preserve unrelated dirty bytes. For builds/tests/programs use terminal/create with a literal executable and argv (no implicit shell), then terminal/wait_for_exit and terminal/output; release every terminal. Each command requires fresh exact user approval through Eevee's owned runner. Allocation is not a grant; output remains empty/pending until durable settlement. Use the actual exitCode and stderr to repair failures, then request a newly reviewed retry. Nonempty env and PTY/extensions are unsupported. cwd must remain inside the project. No file writes or overlapping command allocations are permitted while a command is pending. Local Rust syntax disclosure applies to mediated full-file writes, not agent-owned tools. Fenced code is not file creation. Agent-owned tools remain external provider policy, not client confinement. No check or success may be claimed without observed results."
         } else {
             "Answer the current request directly. Inspect actual admitted project files through fs/read_text_file when needed; plan only when asked. Do not implement or write files. Agent-owned tools remain external provider policy; this instruction is not an enforced sandbox."
         },
+        "unsupported_host_observations":"eevee_structural_search and Eevee observation-cache guarantees are unsupported on this mediated ACP route. Do not emulate structural search with shell/network tools or label provider-native search as Eevee structural/cache evidence.",
         "client_write_restrictions":input.edit_paths,
         "task":{"id":input.task.id,"revision":input.task.revision,"goal":input.task.goal,"acceptance_criteria":input.task.criteria,"next_action":crate::workspace::handoff::without_local_provenance(&input.task.next_action)},
         "project_context": super::project_context(files.ok_or("ACP project scope missing")?, input.agent),
@@ -588,7 +591,7 @@ fn session_list_report(
 fn client_capabilities(input: &Input) -> Value {
     let active =
         !input.inspect_models && !input.inspect_sessions && input.operation != Operation::Review;
-    json!({"fs":{"readTextFile":active,"writeTextFile":active && input.operation == Operation::Implement},"terminal":false})
+    json!({"fs":{"readTextFile":active,"writeTextFile":active && input.operation == Operation::Implement},"terminal":active && input.operation == Operation::Implement})
 }
 fn permission_options(params: &Value) -> Result<Vec<PermissionOption>, String> {
     let mut options = vec![PermissionOption {
@@ -1189,6 +1192,7 @@ struct Engine<'a> {
     pending_write: Option<PendingWrite>,
     callback_sequence: u64,
     reported_files: HashMap<String, Vec<(String, String)>>,
+    terminals: Terminals,
 }
 fn transport(
     workspace: &Workspace,
@@ -1269,6 +1273,7 @@ fn transport(
         pending_write: None,
         callback_sequence: 0,
         reported_files: HashMap::new(),
+        terminals: Terminals::default(),
         journal_nonce: std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
@@ -1298,6 +1303,7 @@ fn transport(
                     Err(_) => return Err("ACP request owner disconnected".into()),
                 }
             }
+            engine.poll_terminals()?;
             engine.flush()?;
             let mut buffer = [0u8; 8192];
             for _ in 0..8 {
@@ -1537,7 +1543,17 @@ impl Engine<'_> {
                 if matches!(method, "fs/read_text_file" | "fs/write_text_file") {
                     return self.file_request(id.clone(), method, &params);
                 }
-                // Unadvertised terminal and extension methods never execute.
+                if matches!(
+                    method,
+                    "terminal/create"
+                        | "terminal/output"
+                        | "terminal/wait_for_exit"
+                        | "terminal/kill"
+                        | "terminal/release"
+                ) {
+                    return self.terminal_request(id.clone(), method, &params);
+                }
+                // Unsupported terminal and extension methods never execute.
                 self.status(&format!(
                     "Refused unsupported ACP client method: {}",
                     safe(method)
@@ -1606,7 +1622,7 @@ impl Engine<'_> {
                             .join(", ")
                     })
                     .unwrap_or_else(|| "not advertised".into());
-                self.status(&format!("Negotiated ACP1; capabilities {}; auth routes [{auth}] (availability not authentication); client fs callbacks operation-scoped, terminal disabled; question/elicitation unsupported; usage coverage unavailable",self.capabilities))?;
+                self.status(&format!("Negotiated ACP1; capabilities {}; auth routes [{auth}] (availability not authentication); client fs callbacks operation-scoped; terminal callbacks {} (separate exact command review, durable runner settlement; no special env/PTY); question/elicitation unsupported; usage coverage unavailable",self.capabilities, if client_capabilities(&self.run.input)["terminal"] == true { "Implement only" } else { "disabled" }))?;
                 if self.cancelling.is_some() {
                     self.terminal = Some((
                         Outcome::Cancelled,
@@ -1715,7 +1731,12 @@ impl Engine<'_> {
                     .get("stopReason")
                     .and_then(Value::as_str)
                     .ok_or("ACP prompt response lacks stopReason")?;
-                let outcome = prompt_outcome(reason);
+                let pending_command = self.terminals.busy();
+                let outcome = if pending_command {
+                    Outcome::Unknown
+                } else {
+                    prompt_outcome(reason)
+                };
                 self.close_permissions()?;
                 let ids = self.items.keys().cloned().collect::<Vec<_>>();
                 for id in ids {
@@ -1730,8 +1751,13 @@ impl Engine<'_> {
                 self.terminal = Some((
                     outcome,
                     format!(
-                        "ACP prompt stopped: {}; output is provider-origin, not verified local execution; token usage unavailable",
-                        safe(reason)
+                        "ACP prompt stopped: {}; provider prose is not verified local execution; mediated terminal runs have separate durable runner evidence; token usage unavailable{}",
+                        safe(reason),
+                        if pending_command {
+                            "; outstanding owned command cancelled, settlement/outcome not established by peer completion"
+                        } else {
+                            ""
+                        }
                     ),
                 ));
             }
@@ -1914,6 +1940,7 @@ impl Engine<'_> {
         )
     }
     fn close_permissions(&mut self) -> Result<(), String> {
+        self.terminals.cancel_all();
         self.close_file_permission()?;
         for id in self.permissions.invalidate() {
             self.send(
@@ -1930,6 +1957,7 @@ impl Engine<'_> {
         Ok(())
     }
     fn cancel(&mut self) -> Result<(), String> {
+        self.terminals.cancel_all();
         if self.cancelling.is_some() {
             return Ok(());
         }
@@ -2109,7 +2137,7 @@ impl Engine<'_> {
                             self.run.input.agent.label()
                         ),
                         coverage: format!(
-                            "Provider-reported {state} tool snapshot only. {} Agent-owned execution/config/MCP is external policy; client filesystem callbacks have separate mediated receipts, terminal callbacks disabled. Not local runner evidence, sandbox proof, or independent side-effect verification.",
+                            "Provider-reported {state} tool snapshot only. {} Agent-owned execution/config/MCP is external policy; client filesystem callbacks have separate mediated receipts and Implement terminal callbacks have separate durable owned-run evidence. This provider snapshot is not local runner evidence, sandbox proof, or independent side-effect verification.",
                             if item.complete {
                                 "Provider reported terminal tool status."
                             } else {
@@ -2131,6 +2159,7 @@ impl Engine<'_> {
         Ok(())
     }
     fn teardown(&mut self) -> bool {
+        self.terminals.cancel_all();
         // Teardown is never another chance to deliver a queued grant or model prompt.
         self.wire.clear();
         self.wire_offset = 0;

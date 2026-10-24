@@ -85,7 +85,7 @@ fn read_content(scope: &mut WriteSet, path: PathBuf, params: &Value) -> Result<S
     };
     let line = number("line", 1)?;
     let limit = number("limit", usize::MAX)?;
-    let result = scope.observe_tool(&FileTool::Read {
+    let result = scope.observe_unlabelled(&FileTool::Read {
         path,
         start_line: line,
         end_line: 0,
@@ -295,6 +295,9 @@ impl Engine<'_> {
         let proposal = (|| -> Result<WriteProposal, String> {
             if self.run.input.operation != Operation::Implement {
                 return Err("ACP Plan/Review does not permit client writes".into());
+            }
+            if self.terminals.busy() {
+                return Err("ACP file write refused while an owned command is pending; wait for durable command settlement first".into());
             }
             if self.pending_write.is_some() || !self.permissions.pending.is_empty() {
                 return Err("Concurrent ACP file permission refused".into());

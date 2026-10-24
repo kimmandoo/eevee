@@ -172,6 +172,15 @@ pub enum Operation {
         runs: Vec<crate::workspace::runner::RunRecord>,
         budget: usize,
     },
+    Impact {
+        report: Arc<repo::Report>,
+        request: u64,
+        partner: i64,
+        runs: Vec<crate::workspace::runner::RunRecord>,
+        failures: Vec<crate::workspace::records::FailureSignature>,
+        validations: Vec<Vec<String>>,
+        cancelled: Arc<AtomicBool>,
+    },
 }
 
 #[derive(Debug)]
@@ -187,6 +196,10 @@ pub enum Response {
     Assembled(Payload),
     Checked(Vec<Observation>),
     Optimized(optimizer::Plan),
+    Impact {
+        request: u64,
+        result: Result<crate::workspace::workflows::impact::Plan, String>,
+    },
 }
 
 pub struct Worker {
@@ -541,6 +554,29 @@ fn execute(
         return Err("Select a committed task before gathering context".into());
     }
     match operation {
+        Operation::Impact {
+            report,
+            request,
+            partner,
+            runs,
+            failures,
+            validations,
+            cancelled,
+        } => {
+            let result = crate::workspace::workflows::impact::recommend(
+                request,
+                task_id,
+                partner,
+                &report,
+                &runs,
+                &failures,
+                &validations,
+                exclusions,
+                &cancelled,
+            )
+            .map_err(|error| crate::workspace::privacy::redact(&error).into_owned());
+            Ok(Response::Impact { request, result })
+        }
         Operation::Optimize {
             report,
             excerpts,

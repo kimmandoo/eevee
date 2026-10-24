@@ -3,7 +3,212 @@ use super::*;
 use crate::workspace::runner;
 use std::{collections::BTreeMap, path::Path};
 
+pub(super) struct CommandCallback {
+    generation: u64,
+    claim: store::WorkClaim,
+    reply: std::sync::mpsc::SyncSender<Result<serde_json::Value, String>>,
+    run: Option<String>,
+    stdout: String,
+    stderr: String,
+    truncated: bool,
+    artifact:
+        Option<std::sync::mpsc::Receiver<Result<crate::workspace::artifacts::Response, String>>>,
+    cancelled: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
+
 impl App {
+    fn command_callback_owned(
+        &self,
+        partner: i64,
+        generation: u64,
+        claim: &store::WorkClaim,
+    ) -> bool {
+        claim.writing
+            && claim.task_id == self.task_id
+            && claim.owner.partner == partner
+            && self.planning_state(partner).is_some_and(|state| {
+                state.matches(generation, claim.task_id)
+                    && !state.cancelling
+                    && state.work_acquired
+                    && state.work.as_ref() == Some(claim)
+                    && state.operation == crate::providers::Operation::Implement
+            })
+    }
+
+    /// Denial may resolve this lead's exact callback, never borrow another writer.
+    pub(super) fn current_callback_command_deniable(&self) -> bool {
+        if !matches!(
+            self.execution.confirmation,
+            Some(execution::Confirmation::Approval)
+        ) {
+            return false;
+        }
+        let Some((task, partner, _, _)) = self.execution.approval_identity() else {
+            return false;
+        };
+        if task != self.task_id || partner != self.lead.id {
+            return false;
+        }
+        self.cooperation
+            .command_callbacks
+            .get(&partner)
+            .is_some_and(|callback| {
+                self.command_callback_owned(partner, callback.generation, &callback.claim)
+                    && !callback
+                        .cancelled
+                        .load(std::sync::atomic::Ordering::Acquire)
+            })
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn provider_command(
+        &mut self,
+        partner: i64,
+        generation: u64,
+        task: i64,
+        data_dir: std::path::PathBuf,
+        claim: store::WorkClaim,
+        call_id: String,
+        cwd: std::path::PathBuf,
+        command: runner::CommandSpec,
+        cancelled: std::sync::Arc<std::sync::atomic::AtomicBool>,
+        reply: std::sync::mpsc::SyncSender<Result<serde_json::Value, String>>,
+    ) -> bool {
+        let identity = (claim.request_id.clone(), call_id);
+        let ready = task == claim.task_id
+            && !identity.1.is_empty()
+            && identity.1.len() <= 512
+            && !identity.1.chars().any(char::is_control)
+            && self.command_callback_owned(partner, generation, &claim)
+            && !cancelled.load(std::sync::atomic::Ordering::Acquire)
+            && self.cooperation.cancel_review.is_none()
+            && self.cooperation.journal_discard.is_none()
+            && !self.cooperation.command_callbacks.contains_key(&partner)
+            && !self.cooperation.command_calls.contains(&identity)
+            && !self.tool_plans.busy()
+            && !self.execution_any_unknown()
+            && !self.planning_any_unknown_effects()
+            && !self
+                .execution_state(partner)
+                .is_some_and(|state| state.busy() || state.storage_pending())
+            && crate::providers::commands::validate_cwd(&cwd).is_ok();
+        if !ready {
+            let _ = reply.try_send(Err("Command refused before preparation: stale/cancelled/read-only ownership, duplicate call, unsafe cwd or owned work still pending".into()));
+            return false;
+        }
+        if !self.execution_state_mut(partner).prepare_callback_for(
+            claim.clone(),
+            &command,
+            cwd,
+            data_dir,
+            cancelled.clone(),
+        ) {
+            let _ = reply.try_send(Err("Command preparation refused; nothing executed".into()));
+            return false;
+        }
+        self.cooperation.command_calls.insert(identity);
+        self.cooperation.command_callbacks.insert(
+            partner,
+            CommandCallback {
+                generation,
+                claim,
+                reply,
+                run: None,
+                stdout: String::new(),
+                stderr: String::new(),
+                truncated: false,
+                artifact: None,
+                cancelled,
+            },
+        );
+        true
+    }
+
+    fn settle_command_callbacks(&mut self) {
+        let ids: Vec<_> = self.cooperation.command_callbacks.keys().copied().collect();
+        for id in ids {
+            let callback = &self.cooperation.command_callbacks[&id];
+            let authority = self.command_callback_owned(id, callback.generation, &callback.claim);
+            let owned = authority
+                && !callback
+                    .cancelled
+                    .load(std::sync::atomic::Ordering::Acquire);
+            if !owned {
+                self.execution_state_mut(id).request_cancel();
+            }
+            let Some(state) = self.execution_state(id) else {
+                continue;
+            };
+            if state.busy() || state.storage_pending() {
+                continue;
+            }
+            let mut artifact_result = None;
+            if authority && self.cooperation.command_callbacks[&id].run.is_some() {
+                let callback = self.cooperation.command_callbacks.get_mut(&id).unwrap();
+                if let Some(receiver) = &callback.artifact {
+                    match receiver.try_recv() {
+                        Ok(result) => artifact_result = Some(result),
+                        Err(std::sync::mpsc::TryRecvError::Empty) => continue,
+                        Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                            artifact_result =
+                                Some(Err("Artifact acknowledgment unavailable".into()))
+                        }
+                    }
+                } else {
+                    let (reply, receiver) = std::sync::mpsc::sync_channel(1);
+                    self.artifacts.enqueue_lookup(
+                        callback.claim.task_id,
+                        crate::workspace::artifacts::Operation::Load,
+                        reply,
+                    );
+                    callback.artifact = Some(receiver);
+                    continue;
+                }
+            }
+            let callback = self.cooperation.command_callbacks.remove(&id).unwrap();
+            let result = if !authority {
+                Err("Owned command cancelled or authority changed; no model continuation may execute".into())
+            } else if let Some(record) = callback.run.as_ref().and_then(|run| {
+                self.execution_state(id)?
+                    .history
+                    .iter()
+                    .find(|record| record.prepared.run_id == *run)
+            }) {
+                let mut value = crate::providers::commands::result(
+                    record,
+                    &callback.stdout,
+                    &callback.stderr,
+                    callback.truncated || record.dropped_live_bytes > 0,
+                );
+                if let Some(Ok(crate::workspace::artifacts::Response::Records(records))) =
+                    artifact_result
+                    && let Some(artifact) = records.iter().find(|artifact| matches!(&artifact.origin, crate::workspace::artifacts::Origin::OwnedRun { run_id } if run_id == &record.prepared.run_id))
+                {
+                    value["artifact"] = serde_json::json!(artifact.handle);
+                    value["artifact_captured_bytes"] = serde_json::json!(artifact.captured_bytes);
+                    value["artifact_omitted_bytes"] = serde_json::json!(artifact.omitted_bytes);
+                }
+                Ok(value)
+            } else {
+                Err("Command denied, cancelled before start or preparation unavailable; nothing was successfully executed. A new call requires new approval.".into())
+            };
+            let _ = callback.reply.try_send(result);
+        }
+        let planning = &self.planning;
+        let parked = &self.cooperation.parked;
+        self.cooperation.command_calls.retain(|(request, _)| {
+            std::iter::once(planning)
+                .chain(parked.values())
+                .any(|state| {
+                    state.work_acquired
+                        && state
+                            .work
+                            .as_ref()
+                            .is_some_and(|claim| &claim.request_id == request)
+                })
+        });
+    }
+
     pub(super) fn execution_state(&self, partner: i64) -> Option<&execution::State> {
         if partner == self.lead.id {
             Some(&self.execution)
@@ -37,6 +242,9 @@ impl App {
     }
 
     pub fn execution_any_pending(&self) -> bool {
+        if self.tool_plans.busy() {
+            return true;
+        }
         !self.cooperation.command_saves.is_empty()
             || std::iter::once(&self.execution)
                 .chain(self.cooperation.executions.values())
@@ -61,6 +269,7 @@ impl App {
         project: &Path,
     ) -> bool {
         let mut changed = false;
+        self.settle_command_callbacks();
         self.track_pending_command();
         if self.cooperation.cancel_review.is_none()
             && self.cooperation.journal_discard.is_none()
@@ -158,6 +367,31 @@ impl App {
                     break;
                 };
                 more |= index == 15;
+                if let Some(callback) = self.cooperation.command_callbacks.get_mut(&id) {
+                    match &event {
+                        runner::Event::Prepared(prepared) => {
+                            callback.run = Some(prepared.run_id.clone())
+                        }
+                        runner::Event::Output(output)
+                            if callback.run.as_deref() == Some(&output.run_id) =>
+                        {
+                            let target = match output.stream {
+                                runner::OutputStream::Stdout => &mut callback.stdout,
+                                runner::OutputStream::Stderr => &mut callback.stderr,
+                            };
+                            target.push_str(&output.text);
+                            if target.len() > 32 * 1024 {
+                                let mut cut = target.len() - 32 * 1024;
+                                while !target.is_char_boundary(cut) {
+                                    cut += 1;
+                                }
+                                target.drain(..cut);
+                                callback.truncated = true;
+                            }
+                        }
+                        _ => {}
+                    }
+                }
                 self.execution_state_mut(id).runner_event(event);
                 self.move_run_prepared(id);
                 changed = true;

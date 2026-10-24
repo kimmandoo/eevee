@@ -366,6 +366,9 @@ fn relative_open(
 }
 
 impl Directory {
+    pub(super) fn observation_identity(&self) -> String {
+        format!("{:?}", self.node.identity)
+    }
     fn retain(
         file: File,
         path: PathBuf,

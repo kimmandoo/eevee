@@ -564,6 +564,136 @@ fn durable_offer_ack_notnow_plus_three_and_never_do_not_count_duplicate_runs() {
 }
 
 #[test]
+fn ordinary_run_observations_keep_producer_form_without_granting_move_definition_authority() {
+    for form in [1, 3] {
+        let fixture = Fixture::new();
+        let mut store = fixture.open();
+        let task = fixture.task(&mut store, form);
+        let producer = owner(&store, 1);
+        assert_eq!(producer.form, form);
+        let mut last = None;
+        for (index, state) in [RunState::Failed, RunState::Succeeded, RunState::Cancelled]
+            .into_iter()
+            .enumerate()
+        {
+            let record = run_record(
+                &task,
+                producer.clone(),
+                &format!("ordinary-{form}-{index}"),
+                vec!["build".into()],
+                state,
+            );
+            commit_run(&mut store, &record);
+            let response = call(
+                &mut store,
+                &task,
+                1,
+                form,
+                Operation::ObserveRun {
+                    run_id: record.prepared.run_id.clone(),
+                },
+            )
+            .unwrap();
+            assert!(response.candidates.is_empty());
+            assert!(response.records.is_empty());
+            let connection = store.connection.as_ref().unwrap();
+            let observed_form: usize = connection
+                .query_row(
+                    "SELECT form FROM move_sources WHERE id=?1",
+                    [format!("run:{}", record.prepared.run_id)],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(observed_form, form);
+            let retained = journal_run(connection, task.id, 1, &record.prepared.run_id).unwrap();
+            assert_eq!(retained, record);
+            last = Some(record);
+        }
+        let last = last.unwrap();
+        assert!(
+            call(
+                &mut store,
+                &task,
+                1,
+                2,
+                Operation::ObserveRun {
+                    run_id: last.prepared.run_id.clone(),
+                },
+            )
+            .is_err(),
+            "observation must not relabel a producer as Jolteon"
+        );
+        let backfilled = run_record(
+            &task,
+            producer,
+            &format!("backfilled-{form}"),
+            vec!["build".into()],
+            RunState::Succeeded,
+        );
+        commit_run(&mut store, &backfilled);
+        assert!(
+            call(&mut store, &task, 1, 2, Operation::Load)
+                .unwrap()
+                .candidates
+                .is_empty()
+        );
+        assert!(
+            call(&mut store, &task, 1, form, Operation::Load)
+                .unwrap()
+                .candidates
+                .is_empty()
+        );
+        let connection = store.connection.as_ref().unwrap();
+        let observed: (usize, usize) = connection
+            .query_row(
+                "SELECT count(*),min(form) FROM move_sources WHERE partner=1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(observed, (4, form));
+        inspect(connection).unwrap();
+        let mut invalid = proposal(&task, 1, "Not a command move for this form", Scope::Project);
+        invalid.form = form;
+        assert!(
+            call(
+                &mut store,
+                &task,
+                1,
+                form,
+                Operation::Teach {
+                    proposal: invalid,
+                    replace: None,
+                },
+            )
+            .is_err()
+        );
+        let mut valid = proposal(&task, 1, "Explicit form-specific move", Scope::Project);
+        valid.form = form;
+        valid.steps = if form == 1 {
+            Steps::Pins {
+                pins: committed_pins(&mut store, &task),
+            }
+        } else {
+            Steps::Request {
+                instruction: "Review the actual build result".into(),
+                pins: Vec::new(),
+            }
+        };
+        assert_eq!(teach(&mut store, &task, valid).proposal.form, form);
+        drop(store);
+        let mut reopened = fixture.open();
+        assert_eq!(
+            call(&mut reopened, &task, 1, form, Operation::Load)
+                .unwrap()
+                .records
+                .len(),
+            1
+        );
+    }
+}
+
+#[test]
 fn run_observations_refuse_fabrication_wrong_owner_and_unstarted_shell_or_redacted_history() {
     let fixture = Fixture::new();
     let mut store = fixture.open();

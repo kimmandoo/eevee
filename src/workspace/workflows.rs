@@ -13,6 +13,7 @@ const MAX_STATE_BYTES: usize = 256 * 1024;
 const MAX_LINKS: usize = 16;
 
 pub mod authoring;
+pub mod impact;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -30,6 +31,10 @@ pub struct State {
     pub review_generation: u64,
     pub draft_relays: Vec<DraftRelay>,
     pub patch_authors: Vec<PatchAuthor>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_plans: Option<super::tool_plans::Plan>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tool_plan_history: Vec<super::tool_plans::Plan>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -576,6 +581,15 @@ pub struct ReviewGuard {
 
 impl State {
     pub fn validate(&self, task_id: i64) -> Result<(), String> {
+        if let Some(plan) = &self.tool_plans {
+            plan.validate(task_id)?;
+        }
+        if self.tool_plan_history.len() > 8 {
+            return Err("Retained tool plan history is full (8); no records were evicted".into());
+        }
+        for plan in &self.tool_plan_history {
+            plan.validate(task_id)?;
+        }
         if self.hypotheses.len() > MAX_ENTRIES || self.findings.len() > MAX_ENTRIES {
             return Err("Workflow board exceeds 32 entries".into());
         }

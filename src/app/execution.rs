@@ -230,6 +230,11 @@ pub struct State {
     pub location_index: usize,
     rerun_of: Option<String>,
     final_unknown: bool,
+    plan_uncommitted: bool,
+    plan_data_dir: Option<std::path::PathBuf>,
+    plan_cancelled: bool,
+    callback_claim: Option<store::WorkClaim>,
+    callback_cancelled: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
 }
 impl Default for State {
     fn default() -> Self {
@@ -296,6 +301,11 @@ impl Default for State {
             location_index: 0,
             rerun_of: None,
             final_unknown: false,
+            plan_uncommitted: false,
+            plan_data_dir: None,
+            plan_cancelled: false,
+            callback_claim: None,
+            callback_cancelled: None,
         }
     }
 }
@@ -587,7 +597,11 @@ impl State {
         true
     }
     pub fn invalidate(&mut self) {
+        self.plan_uncommitted = false;
+        self.plan_data_dir = None;
         self.invalidation = true;
+        self.callback_claim = None;
+        self.callback_cancelled = None;
         self.request_id = None;
         self.approval_review = None;
         self.confirmation_visible = false;
@@ -623,6 +637,14 @@ impl State {
         owner: Option<store::Attribution>,
         command_text: &str,
     ) -> bool {
+        if self.callback_claim.is_some() && self.busy() {
+            self.fail(
+                "Ownership",
+                "The exact provider command cannot be replaced by a manual command.",
+                "Deny/cancel and wait for its tool result, then prepare a separate command.",
+            );
+            return false;
+        }
         if task_id != self.task_id && self.busy() {
             self.fail(
                 "Ownership",
@@ -676,6 +698,66 @@ impl State {
                 self.fail("Command", message, "Use a JSON argv array or an explicit shell object; no command is split implicitly.");
                 false
             }
+        }
+    }
+    /// Borrow the exact provider writer while retaining ordinary per-command consent.
+    pub(super) fn prepare_callback_for(
+        &mut self,
+        claim: store::WorkClaim,
+        spec: &runner::CommandSpec,
+        cwd: std::path::PathBuf,
+        data_dir: std::path::PathBuf,
+        cancelled: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    ) -> bool {
+        if self.busy() || self.storage_pending() {
+            return false;
+        }
+        let Ok(text) = crate::workspace::tool_plans::command_text(spec) else {
+            return false;
+        };
+        if !self.prepare_command_for(claim.task_id, Some(claim.owner.clone()), &text) {
+            return false;
+        }
+        self.move_cwd = Some(if cwd.as_os_str().is_empty() {
+            std::path::PathBuf::from(".")
+        } else {
+            cwd
+        });
+        self.callback_claim = Some(claim);
+        self.plan_data_dir = Some(data_dir);
+        self.callback_cancelled = Some(cancelled);
+        true
+    }
+
+    /// A plan still uses this exact command review, reservation, runner and journal.
+    pub(super) fn prepare_plan_for(
+        &mut self,
+        task: i64,
+        owner: store::Attribution,
+        spec: &runner::CommandSpec,
+        data_dir: std::path::PathBuf,
+    ) -> bool {
+        let Ok(text) = crate::workspace::tool_plans::command_text(spec) else {
+            return false;
+        };
+        if !self.prepare_command_for(task, Some(owner), &text) {
+            return false;
+        }
+        self.plan_uncommitted = true;
+        self.plan_data_dir = Some(data_dir);
+        self.plan_cancelled = false;
+        true
+    }
+    pub(super) fn take_plan_cancellation(&mut self) -> bool {
+        std::mem::take(&mut self.plan_cancelled)
+    }
+    pub(super) fn release_plan_preparation(&mut self, run: &str) {
+        if self
+            .prepared
+            .as_ref()
+            .is_some_and(|prepared| prepared.run_id == run)
+        {
+            self.plan_uncommitted = false;
         }
     }
     /// Reuses normal preparation/approval, with a literal contained move cwd.
@@ -744,7 +826,22 @@ impl State {
             if current {
                 let request = permit.request_id.clone();
                 let run = permit.run_id.clone();
-                match worker.dispatch(&request, permit) {
+                let dispatched = if let (Some(data_dir), Some(cancelled)) =
+                    (&self.plan_data_dir, &self.callback_cancelled)
+                {
+                    worker.dispatch_callback(
+                        &request,
+                        permit,
+                        data_dir.clone(),
+                        cwd.to_path_buf(),
+                        cancelled.clone(),
+                    )
+                } else if self.plan_data_dir.is_some() {
+                    worker.dispatch_guarded(&request, permit, self.plan_data_dir.clone())
+                } else {
+                    worker.dispatch(&request, permit)
+                };
+                match dispatched {
                     Ok(()) => {
                         self.dispatching = true;
                         self.notice = "Committed capture reservation; dispatch is revalidating the one-shot approval.".into();
@@ -967,7 +1064,17 @@ impl State {
             return None;
         }
         let job = self.queue.pop_front()?;
-        let request = job.request();
+        let request = match (&job, &self.callback_claim) {
+            (StoreJob::Reserve(prepared, capacity), Some(claim)) => store::RunRequest {
+                task_id: prepared.task_id,
+                operation: store::RunOperation::ReserveOwned {
+                    prepared: prepared.clone(),
+                    capacity: *capacity,
+                    claim: claim.clone(),
+                },
+            },
+            _ => job.request(),
+        };
         self.inflight = Some(job);
         Some(request)
     }
@@ -1268,6 +1375,9 @@ impl State {
         }
     }
     fn cancel_or_deny(&mut self) {
+        if self.plan_data_dir.is_some() {
+            self.plan_cancelled = true;
+        }
         if self.active.as_ref().is_some_and(|r| {
             matches!(
                 r.state,
@@ -1458,6 +1568,10 @@ impl State {
                 self.notice = "Request denied. Nothing executed; command draft retained.".into();
             }
             "command-edit" => {
+                if self.callback_claim.is_some() && self.busy() {
+                    self.fail("Ownership", "A provider command's exact arguments cannot be edited in place.", "Deny/cancel this request; let the provider receive the refusal before a new command.");
+                    return None;
+                }
                 if matches!(self.confirmation, Some(Confirmation::Approval))
                     || (self.confirmation.is_none()
                         && self.active.is_none()
@@ -1753,6 +1867,7 @@ impl State {
                     && self.approval_review.as_ref() == Some(p)
                     && !self.reserving
                     && !self.dispatching
+                    && !self.plan_uncommitted
                 {
                     self.reserving = true;
                     self.critical(StoreJob::Reserve(
@@ -2106,6 +2221,10 @@ pub fn approval_details(p: &runner::Prepared, capacity: u64) -> String {
     }
     text.push_str(&format!("\nPermission duration: ONE command; no reusable grant or automatic retry. Runtime duration: until exit or deliberate cancellation; no promised completion time.\nScope: arbitrary filesystem/network effects UNKNOWN. Not read-only, not sandboxed.\nEnforcement: Eevee dispatch checks + {} cancellation ownership before user execution. Escaped POSIX sessions/external effects are not contained.\nNull stdin; no interactive-shell inheritance.\nPrivate output capacity: {} bytes, committed under local quota BEFORE dispatch. Sanitized/redacted best-effort capture; full capture/queues drain and discard with explicit partial-evidence notices.\nBefore source identity: {:?}\n", if cfg!(windows) { "Windows kill-on-close Job" } else { "POSIX process group" }, capacity.clamp(1024, 16 * 1024 * 1024), p.before));
     text.push_str("Storage additionally reserves 256 KiB of bounded journal/metadata headroom; shared quota may refuse the request before any execution.\n");
+    text.push_str("Environment boundary: inherits Eevee's current process environment; values are not reviewed, frozen or sanitized and may affect child execution. Model cannot supply an environment overlay. Explicit shells may interpret startup/configuration behavior; this is not an OS sandbox.\n");
+    if p.before.fingerprint.is_none() || !p.before.complete || !p.before.stable {
+        text.push_str("Source coverage UNKNOWN/PARTIAL: this approval permits execution without complete stable source identity (including plain non-Git folders). Known source identities are rechecked; unknown coverage is not invented. An exit code cannot establish fresh source verification for unavailable coverage.\n");
+    }
     text
 }
 pub fn evidence_label(record: &runner::RunRecord, latest: &runner::InputSnapshot) -> String {

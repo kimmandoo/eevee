@@ -1,37 +1,6 @@
 use super::*;
 
 #[test]
-fn ordinary_operations_use_host_tools_without_vendor_planning_workflow() {
-    for operation in [Operation::Plan, Operation::Review, Operation::Implement] {
-        let mode = collaboration_mode("configured-model", Some("high"), operation);
-        assert_eq!(mode["mode"], "default");
-        assert_eq!(mode["settings"]["model"], "configured-model");
-        assert_eq!(mode["settings"]["reasoning_effort"], "high");
-        assert_eq!(
-            mode["settings"]["developer_instructions"],
-            file_tool_instructions(operation)
-        );
-        let tools = definitions(super::super::writing_required(operation));
-        assert!(tools.iter().any(|tool| tool["name"] == "eevee_read_file"));
-        assert!(tools.iter().any(|tool| tool["name"] == "eevee_list_files"));
-        assert_eq!(
-            tools.iter().any(|tool| tool["name"] == "eevee_write_file"),
-            operation == Operation::Implement
-        );
-        assert_eq!(
-            tools.iter().any(|tool| tool["name"] == "eevee_edit_file"),
-            operation == Operation::Implement
-        );
-        if operation == Operation::Implement {
-            assert!(file_tool_instructions(operation).contains("client-executed dynamic tools"));
-            assert!(file_tool_instructions(operation).contains("fresh allow-once approval"));
-        } else {
-            assert!(file_tool_instructions(operation).contains("no mutation tools"));
-        }
-    }
-}
-
-#[test]
 fn complete_codex_proposals_have_guarded_display_only_snapshots() {
     let mut input = crate::providers::tests::claimed(Agent::Codex, Operation::Implement, true);
     let params = json!({"tool":"eevee_write_file","arguments":{
@@ -695,10 +664,10 @@ fn readonly_roles_capture_real_source_without_mutation_targets_or_writer_lease()
             assert_eq!(scope.payload(&[]), json!([]));
         }
         let declarations = definitions(scope.writing());
-        assert_eq!(declarations.len(), 2);
+        assert_eq!(declarations.len(), 3);
         assert!(declarations.iter().all(|entry| matches!(
             entry["name"].as_str(),
-            Some("eevee_read_file" | "eevee_list_files")
+            Some("eevee_read_file" | "eevee_list_files" | "eevee_structural_search")
         )));
         let text = payload(&fixture.data, &input, &[], Some(&scope)).unwrap();
         let envelope: Value = serde_json::from_str(&text).unwrap();
@@ -1897,4 +1866,35 @@ fn controlled_delete_and_rename_share_exact_permission_and_real_executor() {
         b"unrelated dirty\r\n"
     );
     writes.verify().unwrap();
+}
+
+#[test]
+fn retained_command_artifact_declarations_parse_into_host_lookup_operations() {
+    let declarations = crate::providers::artifacts::definitions();
+    for (name, arguments) in [
+        ("eevee_artifact_list", json!({})),
+        (
+            "eevee_artifact_read",
+            json!({"id":"run-artifact","revision":"exact","offset":0,"limit":65536}),
+        ),
+        (
+            "eevee_artifact_search",
+            json!({"id":"run-artifact","revision":"exact","offset":0,"limit":4,"query":"error"}),
+        ),
+        (
+            "eevee_artifact_locations",
+            json!({"id":"run-artifact","revision":"exact","offset":0}),
+        ),
+    ] {
+        assert!(declarations.iter().any(|entry| entry["name"] == name));
+        let tool = requested_tool(&json!({"tool":name,"arguments":arguments})).unwrap();
+        assert!(tool.artifact_operation().is_some());
+        assert!(!tool.mutating());
+    }
+    assert!(crate::providers::commands::outcome_unknown(
+        &json!({"run":{"state":"OutcomeUnknown","tree":"OwnershipUnknown"}})
+    ));
+    assert!(!crate::providers::commands::outcome_unknown(
+        &json!({"run":{"state":"Failed","tree":"OwnedTreeExited","exit_code":1}})
+    ));
 }

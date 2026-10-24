@@ -421,7 +421,9 @@ impl State {
             Operation::ObserveRun { run_id } => {
                 let record = journal_run(&transaction, request.task_id, request.partner, run_id)?;
                 let steps = domain::run_steps(Path::new(&self.project), &record)?;
-                domain::validate_steps(request.form, &steps)?;
+                if record.prepared.partner.as_ref().map(|owner| owner.form) != Some(request.form) {
+                    return Err("Run observation must retain its actual producer form".into());
+                }
                 observe(
                     &transaction,
                     &self.project,
@@ -757,6 +759,12 @@ fn observe(
     capacity(connection, "move_sources", MAX_SOURCES)?;
     let fingerprint = domain::fingerprint(steps)?;
     connection.execute("INSERT INTO move_sources(id,task_id,project,partner,form,fingerprint,steps) VALUES(?1,?2,?3,?4,?5,?6,?7)",params![id,request.task_id,project,request.partner,request.form as i64,fingerprint,bounded_json(steps,MAX_JSON)?]).map_err(sql)?;
+    // An actual command is evidence for its historical producer, even when that
+    // form cannot select a Run move. Do not turn execution facts into definition
+    // authority or relabel them as Jolteon to make a teachable candidate.
+    if !domain::form_accepts_steps(request.form, steps) {
+        return Ok(());
+    }
     let key = candidate_key(project, request.partner, request.form, &fingerprint);
     let previous: Option<(Candidate, i64, bool, bool)> = connection
         .query_row(
@@ -831,9 +839,6 @@ fn backfill_runs(
     project: &str,
     request: &Request,
 ) -> Result<bool, String> {
-    if !matches!(request.form, 2 | 5 | 6) {
-        return Ok(false);
-    }
     let mut statement = connection
         .prepare(
             "SELECT e.record FROM executions e JOIN tasks t ON t.id=e.task_id
@@ -853,12 +858,7 @@ fn backfill_runs(
         let Some(owner) = &run.prepared.partner else {
             continue;
         };
-        let form = if matches!(owner.form, 2 | 5 | 6) {
-            owner.form
-        } else {
-            2
-        };
-        if owner.partner != request.partner || form != request.form {
+        if owner.partner != request.partner || owner.form != request.form {
             continue;
         }
         // Rejected unsafe/shell/unstarted history never becomes a candidate.
@@ -1496,8 +1496,11 @@ fn inspect_observations(connection: &Connection) -> Result<(), String> {
         .map_err(sql)?;
     for (id, task, project, partner, form, fingerprint, steps, _) in &rows {
         reject_secret_identity(project)?;
-        domain::validate_steps(*form, steps)?;
-        if *task <= 0 || *partner <= 0 || domain::fingerprint(steps)? != *fingerprint {
+        if *task <= 0
+            || *partner <= 0
+            || *form >= crate::domain::FORMS.len()
+            || domain::fingerprint(steps)? != *fingerprint
+        {
             return Err("Invalid stored move observation".into());
         }
         if let Some(run) = id.strip_prefix("run:") {
@@ -1508,6 +1511,7 @@ fn inspect_observations(connection: &Connection) -> Result<(), String> {
                 return Err("Stored move observation differs from actual journal".into());
             }
         } else if let Some(request) = id.strip_prefix("request:") {
+            domain::validate_steps(*form, steps)?;
             validate_request_id(request)?;
             let receipt = dispatch_row(connection, request)?
                 .ok_or("Stored pin observation has no dispatch receipt")?;

@@ -31,6 +31,10 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         );
         return;
     }
+    if app.workflow.impact.active {
+        render_impact(frame, area, app, config, paint);
+        return;
+    }
     if app.workflow.authoring.active {
         render_authoring(frame, area, app, config, paint);
         return;
@@ -596,4 +600,42 @@ fn render_authoring(frame: &mut Frame, area: Rect, app: &mut App, config: &Confi
             );
         }
     }
+}
+
+fn render_impact(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &Paint) {
+    use crate::i18n::Message;
+    let area = centered(
+        row(area, 2, area.height.saturating_sub(4)),
+        116,
+        area.height.saturating_sub(4),
+    );
+    frame.render_widget(Clear, area);
+    let block = panel(paint.hint(Message::ImpactChecksTitle), config, paint, true);
+    let content = block.inner(area);
+    frame.render_widget(block, area);
+    let state = &mut app.workflow.impact;
+    let body = row(content, 0, content.height.saturating_sub(2));
+    let detail = if !state.error.is_empty() {
+        state.error.clone()
+    } else if let Some(plan) = &state.plan {
+        plan.review(paint.language.tag().starts_with("ko"))
+    } else {
+        paint.hint(Message::ImpactChecksPending).to_owned()
+    };
+    state.max_scroll = selection_details(
+        frame,
+        body,
+        Paragraph::new(detail)
+            .style(paint.surface)
+            .wrap(Wrap { trim: false }),
+        state.scroll,
+    );
+    state.scroll = state.scroll.min(state.max_scroll);
+    state.page = body.height.max(1);
+    text(
+        frame,
+        row(content, content.height.saturating_sub(2), 2),
+        paint.hint(Message::ImpactChecksControls),
+        paint.accent,
+    );
 }

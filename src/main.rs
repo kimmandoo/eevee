@@ -338,6 +338,7 @@ fn run(config: Config) -> io::Result<()> {
                 }
             }
             let activity = app.execution.activity_label();
+            dirty |= app.drive_tool_plans(&config.data_dir, &config.context_exclusions);
             dirty |= app.drive_executions(&mut execution, &project);
             // A deferred cancel-and-exit can become ready here, before input
             // polling. Do not wait for another key after ownership is settled.

@@ -7,11 +7,20 @@ pub fn key(command: &str) -> Option<Message> {
         return Some(message);
     }
     Some(match command {
+        "impact-checks" => Message::ImpactChecksCommand,
+        "stage-impact-plan" => Message::ImpactChecksStage,
         "formation" => Message::FormationCommand,
         "formation-save" => Message::FormationSaveCommand,
         "tools" => Message::ToolCatalogCommand,
         "tool-setup" => Message::ToolCatalogSetupCommand,
         "tool-clear" => Message::ToolCatalogClearCommand,
+        "tool-plan" => Message::ToolPlanAction,
+        "plan-start" => Message::ToolPlanStartAction,
+        "plan-resume" => Message::ToolPlanResumeAction,
+        "plan-cancel" => Message::ToolPlanCancelAction,
+        "plan-reconcile" => Message::ToolPlanReconcileAction,
+        "plan-serial" => Message::ToolPlanSerialAction,
+        "plan-history" => Message::ToolPlanHistoryAction,
         "optimize" => Message::ContextToolsOptimize,
         "compact" => Message::ContextToolsCompact,
         "context-apply" => Message::ContextToolsApply,

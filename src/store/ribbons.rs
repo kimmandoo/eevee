@@ -63,7 +63,7 @@ fn insert(
 
 /// Resolve real retained local journals and their anchored output identities. A
 /// missing/replaced spool is not verification even if its journal looks successful.
-fn observations(
+pub(super) fn observations(
     connection: &Connection,
     data_dir: &Path,
     task: i64,

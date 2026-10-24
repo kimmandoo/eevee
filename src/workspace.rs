@@ -12,5 +12,6 @@ pub mod records;
 pub mod repo;
 pub mod ribbons;
 pub mod runner;
+pub mod tool_plans;
 pub mod usage;
 pub mod workflows;

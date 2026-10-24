@@ -244,6 +244,7 @@ impl App {
         self.apply_relay_draft_role();
         self.records.restoring = false;
         self.records_invalidate();
+        self.restore_tool_plan();
     }
 
     pub(super) fn new_task(&mut self) {
@@ -450,6 +451,10 @@ impl App {
                 }
             }
             execution::Action::EditCommand => {
+                if self.tool_plans.busy() {
+                    self.notice = "Cancel or settle the task-owned tool plan before authoring a separate command; its exact pending command is unchanged.".into();
+                    return;
+                }
                 self.execution.invalidate();
                 self.pending_command = None;
                 self.begin_edit_field(store::EditorField::Command);

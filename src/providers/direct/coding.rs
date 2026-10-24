@@ -115,8 +115,8 @@ async fn inference_rounds(
         emit(events, Event::Status {
             generation: run.generation,
             task_id: run.input.task.id,
-            message: format!("Native HTTP round {round}/{ROUND_LIMIT}; requested model {model}; {}; no shell or command verification",
-                if native_writing(&run.input) { "file proposals require separate exact one-shot approval" } else { "read/list only; no mutation tools or permission" }),
+            message: format!("Native HTTP round {round}/{ROUND_LIMIT}; requested model {model}; {}",
+                if native_writing(&run.input) { "file effects and eevee_run_command require separate exact one-shot approval" } else { "read/list only; no mutations or commands" }),
         }).map_err(|error| (Outcome::Failed, error))?;
         // No retry, resend, redirect, model/account substitution or second dispatch receipt.
         let response = connection
@@ -200,7 +200,7 @@ async fn inference_rounds(
                 .publish_final(events, run, &connection.conversation_scope())
                 .map_err(|error| (Outcome::Failed, error))?;
             return Ok(format!(
-                "Native response completed after {round} HTTP round(s); requested model {model}; observed model {}. {} No commands or checks ran through this route.",
+                "Native response completed after {round} HTTP round(s); requested model {model}; observed model {}. {}",
                 stream
                     .model
                     .as_deref()
@@ -325,11 +325,54 @@ async fn inference_rounds(
                             workspace, run, events, control, incoming, connection, revalidate,
                             round, index, call.id.as_deref(), &proposal,
                         )
+                    } else if let crate::providers::writes::FileTool::RunCommand { cwd, command } = &call.tool {
+                        (|| -> Result<Value, String> {
+                        validate_active(workspace, run, connection, control, revalidate)?;
+                        if !native_writing(&run.input) {
+                            Ok(json!({"status":"refused","path":"","message":"Read-only operation cannot request execution"}))
+                        } else {
+                            let (reply, result) = mpsc::sync_channel(1);
+                            let cancellation = crate::providers::commands::Cancellation::new();
+                            emit(events, Event::RunCommand {
+                                generation: run.generation, task_id: run.input.task.id,
+                                data_dir: workspace.data_dir.clone(),
+                                claim: run.input.work.clone().ok_or("Missing exact command claim")?,
+                                call_id: call.id.clone().unwrap_or_else(|| format!("round-{round}-call-{index}")),
+                                cwd: cwd.clone(), command: command.clone(), reply,
+                                cancelled: cancellation.0.clone(),
+                            })?;
+                            match wait_command_reply(&result, run, control, incoming) {
+                                Ok(Ok(value)) if crate::providers::commands::outcome_unknown(&value) => {
+                                    emit(events, Event::LocalEffectsUnknown {
+                                        generation: run.generation, task_id: run.input.task.id,
+                                        message: "Owned command terminal tree/outcome is unknown; no further effects or continuation".into(),
+                                    })?;
+                                    Err("Owned command outcome unknown: terminal owned-tree evidence unavailable; no continuation".into())
+                                }
+                                Ok(Ok(value)) => Ok(value),
+                                Ok(Err(error)) => Ok(json!({"status":"refused","path":"","message":error})),
+                                Err(error) => {
+                                    if !control.cancelled() {
+                                        emit(events, Event::LocalEffectsUnknown {
+                                            generation: run.generation, task_id: run.input.task.id,
+                                            message: error.clone(),
+                                        })?;
+                                    }
+                                    Err(error)
+                                }
+                            }
+                        }
+                        })()
                     } else if let Some(operation) = call.tool.artifact_operation() {
                         artifact_lookup(run, events, control, incoming, operation)
                     } else {
                         let scope = run.writes.as_mut().ok_or_else(|| (Outcome::Failed, "Frozen file scope missing".into()))?;
-                        Ok(match scope.observe_tool(&call.tool) {
+                        let cancelled = || control.cancelled();
+                        let observation_control = crate::providers::writes::ObservationControl {
+                            stopped: control.stopped, cancelled: &cancelled,
+                            deadline: Instant::now() + Duration::from_secs(30),
+                        };
+                        Ok(match scope.observe_tool_controlled(&call.tool, &observation_control) {
                             Ok(result) => result,
                             Err(error) => json!({"status":"refused","path":call.tool.path(),"message":safe(&error, true)}),
                         })
@@ -338,6 +381,8 @@ async fn inference_rounds(
                         (
                             if control.cancelled() {
                                 Outcome::Cancelled
+                            } else if error.starts_with("Owned command outcome unknown:") {
+                                Outcome::Unknown
                             } else {
                                 Outcome::Failed
                             },
@@ -349,7 +394,7 @@ async fn inference_rounds(
             }
         }
         for ((call_id, tool), result) in artifact_calls.into_iter().zip(&mut results) {
-            if tool.starts_with("eevee_artifact_") {
+            if tool.starts_with("eevee_artifact_") || tool == crate::providers::commands::NAME {
                 // Existing retained bytes already have immutable identity; never
                 // recursively store their pages as fresh observations.
                 continue;
@@ -476,6 +521,38 @@ fn charge_request_bytes(total: usize, next: usize) -> Result<usize, String> {
             REQUEST_BYTES_LIMIT
         ))?;
     Ok(charged)
+}
+
+/// Command review/execution has no artifact-acknowledgment runtime deadline.
+/// A lost reply is not proof of pre-effect refusal and must stop this batch.
+fn wait_command_reply<T>(
+    reply: &Receiver<T>,
+    run: &Prepared,
+    control: &Control<'_>,
+    incoming: &Receiver<Request>,
+) -> Result<T, String> {
+    loop {
+        if control.cancelled() {
+            return Err("Owned command wait cancelled; no continuation".into());
+        }
+        match incoming.try_recv() {
+            Ok(Request::Cancel { generation }) if generation == run.generation => {
+                control.cancelled.store(run.generation, Ordering::Release);
+                return Err("Owned command wait cancelled; no continuation".into());
+            }
+            Ok(_) | Err(mpsc::TryRecvError::Empty) => {}
+            Err(mpsc::TryRecvError::Disconnected) => {
+                return Err("Owned command outcome unknown: request channel closed; cancelling owned command, no replay or continuation".into());
+            }
+        }
+        match reply.recv_timeout(Duration::from_millis(20)) {
+            Ok(result) => return Ok(result),
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                return Err("Owned command outcome unknown: durable reply lost; cancelling owned command, no replay or continuation".into());
+            }
+        }
+    }
 }
 
 fn wait_store_reply<T>(

@@ -196,6 +196,32 @@ impl State {
                     load_task(&transaction, &self.project, claim.task_id)?
                         .ok_or("Work task is missing or belongs to another project")?;
                 }
+                // A provider's cancellation/EOF cannot release its writer while
+                // a borrowed command still owns a live reservation or journal.
+                let mut statement = transaction
+                    .prepare("SELECT record FROM executions WHERE task_id=?1 AND reserved=1")
+                    .map_err(|error| error.to_string())?;
+                let nested = statement
+                    .query_map([claim.task_id], |row| {
+                        json_column::<crate::workspace::runner::RunRecord>(
+                            row,
+                            0,
+                            super::runs::MAX_RUN_BYTES,
+                        )
+                    })
+                    .map_err(|error| error.to_string())?;
+                for record in nested {
+                    if record
+                        .map_err(|error| error.to_string())?
+                        .prepared
+                        .partner
+                        .as_ref()
+                        == Some(&claim.owner)
+                    {
+                        return Err("Provider writer must remain owned until its nested command and critical journal settle".into());
+                    }
+                }
+                drop(statement);
                 release(&transaction, claim, "provider")?;
             }
         }
@@ -203,6 +229,38 @@ impl State {
         transaction.commit().map_err(|error| error.to_string())?;
         Ok(result)
     }
+}
+
+/// A nested callback borrows ONLY its exact live writer, never another owner or a batch grant.
+pub(super) fn validate_nested_command(
+    connection: &Connection,
+    claim: &WorkClaim,
+    prepared: &crate::workspace::runner::Prepared,
+) -> Result<(), String> {
+    validate_live(connection, claim)?;
+    if !claim.writing
+        || claim.task_id != prepared.task_id
+        || prepared.partner.as_ref() != Some(&claim.owner)
+    {
+        return Err("Command callback does not own its exact Implement writer".into());
+    }
+    let mut statement = connection
+        .prepare("SELECT record FROM executions WHERE task_id=?1 AND reserved=1")
+        .map_err(|e| e.to_string())?;
+    let active = statement
+        .query_map([claim.task_id], |row| {
+            json_column::<crate::workspace::runner::RunRecord>(row, 0, super::runs::MAX_RUN_BYTES)
+        })
+        .map_err(|e| e.to_string())?;
+    for record in active {
+        let record = record.map_err(|e| e.to_string())?;
+        if record.prepared.partner.as_ref() == Some(&claim.owner)
+            && record.prepared.run_id != prepared.run_id
+        {
+            return Err("This exact writer already owns a nested command".into());
+        }
+    }
+    Ok(())
 }
 
 pub(super) fn acquire_command(

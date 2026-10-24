@@ -55,7 +55,7 @@ ev
 
 Terminal: **60 × 18 minimum**, **120 × 36 recommended**. Add `--language ko` for Korean.
 
-> **Upgrading?** Cleanly exit all instances and back up the **entire data directory**, including database, journals and outputs, before `ev update`. v0.1.29 migrates Schema18 to Schema19 for local receipts, context cache, reviewed tool catalog and tool artifacts. Older binaries must refuse the new store; restore the complete pre-upgrade backup rather than downgrading in place.
+> **Upgrading?** Cleanly exit all instances and back up the **entire data directory**, including database, journals and outputs, before `ev update`. Current source targets v0.1.30 and retains SQL Schema19, but strict optional workflow-plan fields change durable-reader compatibility. Equal SQL schema does not make v0.1.29 a safe reader after those fields are saved. Restore the complete pre-upgrade backup rather than downgrading in place.
 
 ## Everyday use
 
@@ -161,7 +161,7 @@ Filename discovery accepts a project-relative directory scope before scanning. S
 
 Sprites use Kitty/Sixel when supported and fall back to text. Installers fetch verified artwork separately; source builds can use `ev --download-artwork`.
 
-## Source additions — Waves 1–2 (not yet published)
+## Current source — v0.1.30 Waves 1–4
 
 `/evolution-preview` explains the current Request's predicted appearance, actual operation, automatic/manual mode and explicit policy. Inspection preserves the exact draft/caret and sends nothing; ordinary Send recomputes the decision. Appearance is never a write grant.
 
@@ -177,6 +177,27 @@ ev --data-dir /absolute/new-data
 Restore validates integrity and current-reader compatibility before removing its incomplete marker. It preserves original project identities, task drafts and retained evidence, not active ownership, running work, provider sessions or approvals. It does not merge data, relocate projects or import external credentials. Interrupted/failed destinations remain visibly incomplete and cannot be opened as usable app data; the source and backup are unchanged.
 
 Controlled native/Codex file tools also support exact regular-file deletion and same-project no-overwrite rename after a preceding full-digest read and explicit review. Deletion is irreversible; neither operation promises rollback. Exact edits use 1–32 nonoverlapping literal replacements against one original full SHA-256, with one final-content approval and the existing64-KiB limit. Rust proposals show baseline/proposed parse outcomes **before writing**; this is not compilation, type checking or verification, and never repairs or reformats bytes automatically. Unsupported adapter operations are disclosed rather than delegated to an unreviewed shell.
+
+### Reliable coding, build and run
+
+An ordinary request to build, run or test selects Implement, including after planning; explicit Plan/Review, read-only restrictions, quoted source and negated instructions do not grant execution. Every form can use the selected route's supported tools. These routes adapt the actual tool-loop, explicit command and retained-output behavior of an external reference; Eevee does not import it as a dependency or inherit its permissions.
+
+| Route | Reviewed execution |
+| --- | --- |
+| Native HTTP | Implement-only `eevee_run_command {cwd, command}` proposes a project-relative cwd and typed Direct/Shell command to the existing reviewed runner. |
+| Controlled Codex | The same host command tool and runner; the provider's own read-only shell is not the host execution path. |
+| Claude Agent SDK | Complete bridge10 exposes host MCP `eevee_command/run_command` through production policy and a separate command-server transport. Native Bash/Agent remain disabled; SDK writes retain external-policy limitations. |
+| OpenCode / Gemini / Devin ACP | Implement-only terminal create/output/wait/kill/release callbacks use the same reviewed runner. Plan and inspection advertise no terminal capability; environment overrides and PTYs are refused. Agent-owned tools remain external policy. |
+
+Every command needs its own exact one-shot approval. The runner inherits the process environment without sanitizing or freezing it and is **not an OS sandbox**; project-relative cwd does not confine command effects. Nonzero exit, cancellation and unknown outcomes are not success. Commands are never automatically replayed; unknown effects fail-stop and retain writer ownership. Native/Codex advertised artifact tools can retrieve full **retained** output; SDK/ACP return bounded output with workbench inspection, not an unadvertised model artifact-retrieval promise.
+
+### Bounded observation, plans and evidence
+
+- **RX03 structural search:** native/Codex Rust expression-pattern search returns digest-bound original byte ranges, lines/columns and named captures. This is bounded syntax matching, not semantic name binding, an AST rewrite or compilation. Invalid/unsupported patterns, parse failures, no match and incomplete scans remain distinct; partial output never proves absence.
+- **TC04 observation reuse:** request-private Read/Structural results may be reused only after current source/ancestry/privacy and Git-policy fingerprints. List deliberately bypasses reuse. Cache labels retain original observation time and actual costs; fingerprinting still runs real Git subprocesses/stdio threads and may cost more than recomputation. Commands, tests and builds are never cached.
+- **TC02 / TC05 plans:** `/tool-plan` stages a typed 1–32-node DAG. At most three independent Read/List nodes overlap; commands serialize with reads and each other. `/plan-start`, `/plan-resume`, `/plan-cancel`, `/plan-reconcile`, `/plan-serial` and `/plan-history` expose review, recovery and inspection. In the drawer, `e` edits inert JSON, `s`/`r` open neutral reviews, `y` schedules only after complete scope, and each command still needs `/approvals`. `b` separately reviews a read-only serial comparison; `h` and `[`/`]` inspect history. Eight bounded historical plans are retained without eviction; full capacity refuses staging. Restart schedules nothing; resume never repeats confirmed commands, even failed ones, and unknown effects block recovery.
+- **D01 impact checks:** `/impact-checks` proposes conservative offline syntax-name reverse-impact checks. Unmapped/shared paths require broader workspace Cargo checks; ignored tests require explicit `--ignored`. `/stage-impact-plan` stages only an inert typed plan, not execution or permission.
+- **PK07 history:** fail/pass/fail, source-transition and supported-diagnosis links derive from retained records. A previous resolution is a historical lead, never current verification; missing/stale spool identity remains unavailable. Reviewed evidence-only Umbreon relay transfers references, not execution authority or approvals.
 
 ## Providers
 
@@ -216,18 +237,20 @@ Default data directories: `~/.local/share/eevee` on Linux, `~/Library/Applicatio
 
 **Keep application storage separate from project source.** A project root used as `--data-dir` intentionally excludes that whole subtree from source tools. Provider configuration, hooks, external tools and resumed sessions may have effects beyond Eevee's mediated boundaries.
 
-v0.1.29 storage is **Schema 19**; the Claude sidecar still requires complete **bridge revision 9** source/policy/dependency files. Migration preserves existing Schema18 task/evidence data and adds the context/tool tables atomically. Older writers refuse before changing the new store. See the full-backup warning above.
+Current v0.1.30 source retains **SQL Schema19** and requires complete Claude **bridge revision10** source/policy/dependency files, replaced together. Strict optional workflow-plan records change reader identity despite unchanged SQL; older readers/rollback candidates must refuse incompatible records. Full-directory backup is required, not a task export or database-only copy.
 
 ## Installation
 
-| Platform | v0.1.29 package |
-| --- | --- |
-| macOS · Apple Silicon | [arm64](https://github.com/kimmandoo/eevee/releases/download/v0.1.29/ev-darwin-arm64.tar.gz) |
-| macOS · Intel | [x86_64](https://github.com/kimmandoo/eevee/releases/download/v0.1.29/ev-darwin-x86_64.tar.gz) |
-| Linux / WSL | [x86_64](https://github.com/kimmandoo/eevee/releases/download/v0.1.29/ev-linux-x86_64.tar.gz) · [arm64](https://github.com/kimmandoo/eevee/releases/download/v0.1.29/ev-linux-arm64.tar.gz) |
-| Windows | [x86_64](https://github.com/kimmandoo/eevee/releases/download/v0.1.29/ev-windows-x86_64.zip) |
+Version-pinned v0.1.30 packages and installers are listed below. Publication, exact-source native qualification and public-byte/install evidence are recorded separately in the [checkpoint](docs/WORK_CHECKPOINT.md); source builds are not themselves public-package or live-provider conformance proof.
 
-[Checksums](https://github.com/kimmandoo/eevee/releases/download/v0.1.29/SHA256SUMS) · [Release notes](CHANGELOG.md)
+| Platform | v0.1.30 package |
+| --- | --- |
+| macOS · Apple Silicon | [arm64](https://github.com/kimmandoo/eevee/releases/download/v0.1.30/ev-darwin-arm64.tar.gz) |
+| macOS · Intel | [x86_64](https://github.com/kimmandoo/eevee/releases/download/v0.1.30/ev-darwin-x86_64.tar.gz) |
+| Linux / WSL | [x86_64](https://github.com/kimmandoo/eevee/releases/download/v0.1.30/ev-linux-x86_64.tar.gz) · [arm64](https://github.com/kimmandoo/eevee/releases/download/v0.1.30/ev-linux-arm64.tar.gz) |
+| Windows | [x86_64](https://github.com/kimmandoo/eevee/releases/download/v0.1.30/ev-windows-x86_64.zip) |
+
+[Checksums](https://github.com/kimmandoo/eevee/releases/download/v0.1.30/SHA256SUMS) · [Release notes](CHANGELOG.md)
 
 ```sh
 ev update --check   # read-only release check
@@ -243,8 +266,8 @@ Installers verify SHA-256, refuse unowned command collisions and **do not change
 **macOS / Linux**
 
 ```sh
-curl -fsSLo install-ev.sh https://github.com/kimmandoo/eevee/releases/download/v0.1.29/install.sh
-sh ./install-ev.sh --version v0.1.29
+curl -fsSLo install-ev.sh https://github.com/kimmandoo/eevee/releases/download/v0.1.30/install.sh
+sh ./install-ev.sh --version v0.1.30
 ```
 
 Add `export PATH="$HOME/.local/bin:$PATH"` to your shell profile (`~/.zshrc` or `~/.bashrc`) for future terminals. If macOS blocks a browser-downloaded archive, inspect its source/checksum before removing quarantine with `xattr -d com.apple.quarantine ~/.local/bin/ev`.
@@ -252,7 +275,7 @@ Add `export PATH="$HOME/.local/bin:$PATH"` to your shell profile (`~/.zshrc` or 
 **Windows**
 
 ```powershell
-& ([scriptblock]::Create((irm https://github.com/kimmandoo/eevee/releases/download/v0.1.29/install.ps1))) -Version v0.1.29
+& ([scriptblock]::Create((irm https://github.com/kimmandoo/eevee/releases/download/v0.1.30/install.ps1))) -Version v0.1.30
 [Environment]::SetEnvironmentVariable('Path', "$env:LOCALAPPDATA\ev\bin;" + [Environment]::GetEnvironmentVariable('Path', 'User'), 'User')
 ```
 
@@ -272,7 +295,7 @@ Offline installs skip artwork. Run `ev --download-artwork` when online. Installe
 
 ## Development
 
-Requires **Rust 1.90+**. Optional Claude sidecar: **Node 24+**.
+Source v0.1.30 targets **Rust1.90.0**. Optional complete bridge10 Claude sidecar: **Node24+**. These instructions build the checked-out source independently of package installation.
 
 ```sh
 git clone https://github.com/kimmandoo/eevee.git

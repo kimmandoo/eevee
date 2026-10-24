@@ -1,5 +1,82 @@
 # Troubleshooting
 
+### [2026-10-24] Plan refusal reasons disappeared below long details
+
+- **Context / Symptom:** A genuinely lost mutation response correctly remained `Unknown`, but the actual plan inspector did not show its refusal reason in the first viewport. Trusted detail separators also appeared as literal `\\n`.
+- **Root Cause:** Notices followed the entire graph, and trusted multiline labels were passed through the same control-character escaping as untrusted field values.
+- **Solution:** Put notices before graph details, reset scroll when entering a new preview/refusal and render separate trusted lines while escaping each untrusted value. Actual `wave34-tool-plans-c` completed all ten groups, including visible lost-response refusal and graceful unknown-outcome exit. Call metrics were then labelled recorded observations that may omit lost-response work; zero is never proof that nothing ran.
+- **Prevention / Reference:** Check compact/wide actual surfaces, not only in-memory status. `wave34-read-plan-quit-f` separately exercised a held real read-plan preparation, explicit ALL-work cancellation/quit and zero-replay restart; its fixture intentionally opted into the existing guarded exit helper.
+
+### [2026-10-24] SDK preview revalidation changed its own launch identity
+
+- **Context / Symptom:** The actual host restored an untouched request with `Claude runtime/SDK/code/config/auth/project identity changed; preview again` before the controlled SDK produced any tool event.
+- **Root Cause:** Each trust capture allocated a fresh global approval-arrival sequence inside the non-approval `runner::Prepared` launch identity. Full equality therefore rejected an otherwise unchanged runtime/package/config/auth/project.
+- **Solution:** Constructed the launch identity deterministically without allocating approval order. Kept full stable-input equality and actual preview, tool and command approval ordering. The rebuilt host then completed the actual SDK write → real Rust compiler failure → reviewed correction → successful compile → native program output journey in `target/wave34-sdk-command-d`.
+- **Prevention / Reference:** Identity snapshots contain stable observations, not UI sequence counters. SDK45 policy/real-MCP cases and a repeated-capture/changed-runtime regression cover the boundaries; this is local controlled-query proof, not authenticated model conformance.
+
+### [2026-10-24] Canonical executable launch lost cargo/rustup multicall semantics
+
+- **Context / Symptom:** The approved D01 `cargo test --locked --workspace ...` exited1 with `unexpected argument '--locked' found` and `Usage: rustup[EXE] <+toolchain>`, rather than running the caller test.
+- **Root Cause:** Executable resolution correctly froze the canonical `rustup` image, but native spawning also used that canonical name as argv0. Rustup could no longer recognize the requested Cargo invocation.
+- **Solution:** Kept the frozen image/SHA/cwd/source checks and supplied the reviewed specification's program as argv0. Unix used `CommandExt::arg0`; Windows retained the frozen application image and quoted the reviewed command-line token zero. No PATH re-resolution or new durable field was added. Actual English wide/compact D01 journeys then reached Cargo and the intended ignored caller test failed101 against the changed callee (`target/wave34-impact-en-c`).
+- **Prevention / Reference:** Real-process regressions cover exact arguments, aliases, shell invocation and changed-image refusal. Freezing the executable image must not discard the requested invocation semantics.
+
+### [2026-10-24] Owned host denial and non-Jolteon evidence blocked agent completion
+
+- **Context / Symptom:** ACP `/deny` was disabled with `Finish or cancel the active provider request first`; otherwise successful compiler journeys could not quit because critical Moves storage rejected Flareon `ObserveRun` with `Move kind does not belong to this form`.
+- **Root Cause:** The legacy manual-command guard did not recognize the current provider's exact owned callback. Separately, command evidence was validated as a selectable form-specific move definition instead of an observation of its actual producer.
+- **Solution:** Routed only the exact current-owned pending callback through existing denial authority. Retained actual producer-form command facts and backfill independently of selectable-definition eligibility, without relabeling the owner or weakening definition validation. All six actual ACP happy/deny/cancel/kill/release/readonly journeys passed with graceful settlement in `target/wave34-acp-terminal-b`.
+- **Prevention / Reference:** Keep command evidence, selectable definitions and execution authority separate. Regressions cover stale/foreign denial, actual producer attribution, reopened integrity and unchanged form restrictions; do not suppress storage failures or force an exit to claim success.
+
+### [2026-10-24] A definite undispatched refusal was misclassified as lost-response unknown
+
+- **Context / Symptom:** Changing source after exact command preparation started no process, but the durable plan did not settle as failed/no-effect.
+- **Root Cause:** Plan reconciliation treated every `Interrupted` record as unknown, including the durable abandonment combination `NotStarted` with no start timestamp.
+- **Solution:** Classified only that explicitly undispatched combination as failed/no-effect. Preserved original journal evidence, source binding and command-slot release; ownership-unknown/lost-response interruptions stayed fail-stop unknown. The actual stale-source case passed without a run, exit result or mutation in `target/wave34-tool-plans-b`.
+- **Prevention / Reference:** A refusal before dispatch and a crash after possible effects require different certainty. Never infer no-effect from a missing response or replay confirmed commands.
+
+### [2026-10-24] An idle learning offer interrupted an active empty Request
+
+- **Context / Symptom:** The actual Dex recurrence journey lost its draft-entry interaction to a learned-move offer after returning to an owner with three eligible command observations.
+- **Root Cause:** Idle-offer admission allowed an active Request editor whenever its current text was empty, including the interval while a user cleared and replaced a draft.
+- **Solution:** Deferred automatic offers for every active editor, including an empty Request, while retaining explicit idle learning after the editor closed. Removed the now-unreachable editor-retention branch and kept the candidate untouched. Actual recurrence/relay acceptance then passed in `target/wave34-recurrence-en-b`.
+- **Prevention / Reference:** Empty input is not absence of editing intent. A regression proves both uninterrupted empty-editor ownership and later reachable idle offers; no automatic learning, execution or grant was added.
+
+### [2026-10-24] Structural observations lacked the native structured-result envelope
+
+- **Context / Symptom:** Controlled Codex search worked, but native Responses stopped with `Tool result is not an actual structured local outcome`.
+- **Root Cause:** New structural results omitted the shared `path` and `message` fields required by native result admission.
+- **Solution:** Added truthful requested-directory scope and status-specific messages, including invalid/unsupported/incomplete outcomes, without weakening admission or coercing domain statuses. Actual native/controlled English wide and Korean compact search/cache/privacy/paging journeys passed in `target/wave34-structural-{en,ko}-d`.
+- **Prevention / Reference:** Exercise the complete native continuation and advertised artifact retrieval, not only a local result builder. Existing grammar/range/status regressions remain; redundant envelope-copy tests were removed.
+
+### [2026-10-24] Coding agents lacked a callable build route and classified build intent as readonly
+
+- **Context / Symptom:** Priority agent create/edit/build/run work exposed a missing model-callable build route and ordinary build requests entering a nonwriting operation instead of Implement.
+- **Root Cause:** File mutation tools alone did not provide command execution, and operation classification did not consistently recognize ordinary build/run/test intent. Provider-native shell availability was not an authorized substitute for the host's reviewed runner.
+- **Solution:** Added Implement-only native HTTP/controlled Codex `eevee_run_command {cwd,command}`, Claude SDK host MCP `eevee_command/run_command` and ACP terminal operations through the same reviewed execution runner. Classified ordinary build/run/test intent as Implement while retaining explicit Plan/Review, readonly, quoted-source and negation boundaries. Commands retained project-relative cwd, typed Direct/Shell specifications and exact per-command approval; inherited environment remained unsanitized/unfrozen and no OS sandbox was claimed.
+- **Prevention / Reference:** Actual native/Codex bilingual, production SDK-MCP and six ACP lifecycle journeys exercised real compiler/program effects with controlled peers. They did not establish live model understanding or billing. Nonzero/cancelled/unknown is not success; unknown effects retain writer ownership and never replay. Native/Codex advertised artifact tools retrieve retained output; SDK/ACP bounded output and workbench inspection do not invent unadvertised retrieval tools.
+
+### [2026-10-24] SDK real-MCP command calls raced discovery and lost receipt ordering
+
+- **Context / Symptom:** The actual SDK real-MCP integration reported `Tool run_command not found` when command execution reused discovery transport.
+- **Root Cause:** Discovery and command serving shared transport lifetime/state, allowing a command call to race discovery ownership. Submitted and tool-result receipt ordering also needed to reflect the real command lifecycle rather than transport arrival alone.
+- **Solution:** Used a distinct command-server MCP transport and corrected submitted/tool-result receipt ordering. Kept command execution behind production policy and exact approval; SDK-native Bash/Agent remained disabled and externally mediated writes retained their external-policy boundary.
+- **Prevention / Reference:** Treat discovery completion, command submission and tool-result settlement as separate ownership events. SDK45 policy/real-MCP cases and `wave34-sdk-command-d` passed against production policy and the genuine installed SDK, with controlled query production and real approved compiler processes rather than an account/model call.
+
+### [2026-10-24] Uncertain SDK post-write reconciliation reopened command authority
+
+- **Context / Symptom:** Source review found that uncertain SDK post-write reconciliation could reopen command authority before an actual verified finish.
+- **Root Cause:** Reconciliation uncertainty was treated as sufficient settlement instead of preserving the pessimistic state for potentially completed external effects.
+- **Solution:** Kept uncertainty blocking until actual verified finish, without granting a new command, replaying the write or accepting uncertainty as success.
+- **Prevention / Reference:** Reconciliation is evidence handling, not renewed consent. The production-policy cases exercised uncertainty fail-stop; the compiler journey exercised verified successful write reconciliation. Neither infers that an uncertain external write had no effect.
+
+### [2026-10-24] Source reviews found freshness, effect-ownership and read-plan quit gaps
+
+- **Context / Symptom:** Source reviews identified a source-freshness bypass, early writer release/continuation after unknown effects and a read-plan quit deadlock.
+- **Root Cause:** Freshness enforcement, effect settlement and quit ownership were not consistently preserved across the reviewed execution and plan paths. A terminal-looking response or cancellation alone could not establish that all owned effects had settled.
+- **Solution:** Repaired the source-freshness bypass, retained writer ownership and stopped continuation for unknown effects, and repaired read-plan quit settlement. Kept confirmed commands nonreplayable and required fresh reviewed inputs for eligible plan resume.
+- **Prevention / Reference:** Actual plan recovery covered stale-source no-effect refusal, known mutation preservation and lost-response fail-stop; ACP covered deny/cancel/kill/release and ownership. Active read preparation separately passed explicit cancel/quit. Historical passing evidence never qualifies changed source, and controlled peers are not authenticated-provider conformance.
+
 ### [2026-10-24] Windows mandatory locks prevented complete snapshot reads
 
 - **Context / Symptom:** Native run40081125036's Windows job120834732114 failed nine snapshot cases with `os error 33` and two ancestor-exchange fixtures with sharing violation32.

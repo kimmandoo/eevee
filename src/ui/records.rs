@@ -476,6 +476,87 @@ fn body_lines<'a>(app: &'a App, paint: &Paint) -> Vec<Line<'a>> {
                         ("key", &signature.key),
                     ],
                 ));
+                if let Some(latest) = state
+                    .snapshot
+                    .failure_comparisons
+                    .iter()
+                    .rev()
+                    .find(|comparison| comparison.signature == signature.key)
+                {
+                    push(
+                        paint.format(Template::DexRelaySelection, &[("run", &latest.failure_run)]),
+                    );
+                }
+                let mut comparisons = state
+                    .snapshot
+                    .failure_comparisons
+                    .iter()
+                    .filter(|comparison| comparison.signature == signature.key)
+                    .peekable();
+                if comparisons.peek().is_none() {
+                    push(paint.hint(Message::DexComparisonUnavailable).to_owned());
+                }
+                for comparison in comparisons {
+                    let disposition = match comparison.disposition {
+                        records::FailureDisposition::UnresolvedNew => Message::DexUnresolvedNew,
+                        records::FailureDisposition::UnresolvedRecurring => {
+                            Message::DexUnresolvedRecurring
+                        }
+                        records::FailureDisposition::HistoricalSupportedPass => {
+                            Message::DexHistoricalSupportedPass
+                        }
+                    };
+                    push(
+                        paint.format(
+                            Template::DexComparison,
+                            &[
+                                ("run", &comparison.failure_run),
+                                ("state", paint.hint(disposition)),
+                                (
+                                    "command",
+                                    &crate::app::execution_relays::command_draft(
+                                        &comparison.command,
+                                    ),
+                                ),
+                                ("cwd", &comparison.cwd.display().to_string()),
+                                ("source", paint.hint(freshness(&comparison.source))),
+                                (
+                                    "fingerprint",
+                                    comparison
+                                        .source_fingerprint
+                                        .as_deref()
+                                        .unwrap_or(paint.hint(Message::DexSourceUnknown)),
+                                ),
+                                (
+                                    "support",
+                                    paint.hint(support_status(comparison.failure_support)),
+                                ),
+                                ("earlier", &comparison.earlier_failures.join(", ")),
+                            ],
+                        ),
+                    );
+                    for support in &comparison.historical {
+                        push(
+                            paint.format(
+                                Template::DexHistoricalSupport,
+                                &[
+                                    ("support", &support.support_artifact),
+                                    ("diagnosis", paint.hint(support_status(support.diagnosis))),
+                                    ("run", &support.passing_run),
+                                    ("pass", paint.hint(support_status(support.pass))),
+                                    ("source", paint.hint(freshness(&support.source))),
+                                    (
+                                        "fingerprint",
+                                        support
+                                            .source_fingerprint
+                                            .as_deref()
+                                            .unwrap_or(paint.hint(Message::DexSourceUnknown)),
+                                    ),
+                                ],
+                            ),
+                        );
+                    }
+                }
                 push(paint.format(
                     Template::RecordsRunRefs,
                     &[("runs", &signature.runs.join("\n"))],
@@ -486,6 +567,9 @@ fn body_lines<'a>(app: &'a App, paint: &Paint) -> Vec<Line<'a>> {
                     .iter()
                     .filter(|resolution| resolution.signature == signature.key)
                 {
+                    if resolution.task_id != app.task_id {
+                        push(paint.hint(Message::DexForeignSupport).to_owned());
+                    }
                     push(paint.format(
                         Template::RecordsHistoricalLead,
                         &[
@@ -622,6 +706,16 @@ fn pairing(value: &records::Pairing, paint: &Paint) -> String {
             ),
         ],
     )
+}
+fn support_status(status: records::SupportStatus) -> Message {
+    match status {
+        records::SupportStatus::Retained => Message::DexSupportRetained,
+        records::SupportStatus::Stale => Message::DexSupportStale,
+        records::SupportStatus::Missing => Message::DexSupportMissing,
+        records::SupportStatus::Unavailable => Message::DexSupportUnavailable,
+        records::SupportStatus::PurgedOrUnavailable => Message::DexSupportPurged,
+        records::SupportStatus::DifferentCommand => Message::DexSupportDifferentCommand,
+    }
 }
 fn freshness(value: &Freshness) -> Message {
     match value {

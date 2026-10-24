@@ -2,6 +2,23 @@
 
 ## 2026-10-24
 
+- feat(search): added RX03 bounded Rust expression-pattern search with exact source digests, capture ranges, snapshot-bound paging and explicit incomplete results, without semantic binding or rewriting.
+- fix(search): preserved every structural status in the shared native/controlled-Codex outcome envelope with truthful project-relative directory scope and explanatory messages, including invalid patterns, unsupported languages and incomplete metadata, without relaxing native admission or source/privacy/paging/cache bounds.
+- perf(tools): added TC04 request-private Read/Structural observation reuse with fresh source/policy fingerprints and honest cost labels; left List uncached and retained Git process/thread work without claiming speedups.
+- feat(plans): added TC02 bounded typed DAG staging, up to three independent Read/List operations and serialized individually approved commands through the existing runner.
+- feat(recovery): added TC05 bounded durable tool-plan history and reviewed fresh-input resume without replaying confirmed commands; blocked recovery on unknown effects and refused full history without eviction.
+- feat(impact): added D01 offline conservative syntax-name reverse impact and inert targeted verification proposals, with broader workspace Cargo checks for unmapped/shared paths and explicit ignored-test commands.
+- feat(evidence): added PK07 evidence-derived failure/pass/failure, source and support views with current spool-availability identity and a reviewed evidence-only Umbreon relay that granted no execution authority.
+- fix(agents): routed ordinary create/edit/build/run/test intent to Implement while preserving explicit Plan/Review, readonly, quoted-source and negation boundaries; exposed reviewed model-callable command execution across supported native, controlled Codex, SDK and ACP routes.
+- fix(sdk): separated real-MCP command transport from discovery, ordered submitted/tool-result receipts and kept uncertain post-write reconciliation pessimistic until verified finish.
+- fix(sdk): removed ephemeral approval-order allocation from launch identity so unchanged previews revalidated while runtime/package/config/auth/project changes still refused.
+- fix(safety): repaired source-freshness bypass, early writer release, continuation after unknown effects and read-plan quit ownership without relaxing exact approval or replaying confirmed commands.
+- fix(plans): classified durable explicitly undispatched command refusals as failed/no-effect rather than lost-response unknown while retaining fail-stop recovery for genuinely interrupted ownership.
+- fix(consent): allowed global `/deny` to resolve only the current lead's exact pending owned host-command callback through the existing denial authority, without releasing its provider writer or enabling unrelated work.
+- fix(moves): recorded ordinary command evidence under its actual producer form, including Vaporeon and Flareon, separately from selectable form-specific definitions; removed the resulting critical-store quit blocker without bypassing storage or exit review.
+- fix(runner): preserved reviewed argv0 while launching the frozen canonical image, restoring cargo/rustup multicall dispatch without PATH re-resolution or relaxed image/source/approval checks.
+- fix(ux): deferred learned-move offers for active editors, exposed plan refusal reasons before long graphs and separated trusted detail lines without allowing untrusted control text to impersonate scope.
+- fix(evidence): labelled plan call totals as recorded observations that could omit lost-response work rather than claiming an exact post-crash execution count.
 - chore(verification): passed exact-source Check and all five native CI jobs for the Wave1–2 additions after repairing Windows lock handling, without publishing or replacing release assets.
 - fix(recovery): read complete writer-lock bytes through the owning handle and used SQLite durability/close plus portable directory sync instead of a read-only Windows flush.
 - test(windows): exercised native pinned-ancestor sharing denial while retaining POSIX exchange/staleness, changed-leaf and destination-collision coverage.
@@ -147,6 +164,25 @@
 - docs(release): published v0.1.19 from source `63f1007` after exact-source Check/all-five-native qualification and immutable promotion, retaining Schema 16 and complete SDK bridge 8.
 - test(terminal): acknowledged the new one-time evolution receipt before checking preserved goal/edit/discard behavior in the actual compact installed runtime without changing the published executable.
 - docs(verification): verified all public assets, sixteen bilingual automatic-review/file-progress journeys/64 groups, 24 file journeys/126 groups, evolution popups and preserved typing, scrolling/tooltips, native 176 groups, cooperation 24, six genuine schema upgrade/refusal/resume cases and 23 installation groups/all 34 installed terminal scenarios.
+
+## 0.1.30
+
+- feat(recovery): included previously unpublished Wave1–2 complete offline snapshots, read-only verification and fresh-directory restore without replay or source mutation.
+- feat(evolution): included local pre-send operation/appearance/policy inspection with exact draft preservation and send-time recomputation.
+- feat(tools): included reviewed exact deletion, same-project no-overwrite rename, digest-bound multi-replacement edits and prewrite Rust syntax disclosure without compilation or repair.
+- feat(search): added RX03 bounded Rust expression-pattern observations with exact capture/source identities and explicit omissions, not semantic binding or rewrites.
+- perf(tools): added TC04 request-private Read/Structural caching with real fingerprint costs and original observation times; left List uncached and made no thread-elimination or speedup promise.
+- feat(plans): added TC02 typed 1–32-node DAGs with at most three independent Read/List operations and serialized exact-approved commands.
+- feat(recovery): added TC05 durable bounded eight-plan history, fresh-input reviewed resume and no confirmed-command replay; unknown effects blocked continuation and retained writer ownership.
+- feat(impact): added D01 offline conservative reverse-impact proposals and inert verification-plan staging with broader workspace checks where mapping was uncertain.
+- feat(evidence): added PK07 evidence-derived failure/pass/failure, source/support views and a reviewed evidence-only Umbreon relay without transferring grants or treating historical resolution as current success.
+- fix(agents): repaired ordinary create/edit/build/run routing and added Implement-only reviewed command tools through the shared runner for native HTTP, controlled Codex, Claude SDK host MCP and ACP terminals; retained explicit readonly boundaries and exact approval for every command.
+- fix(sdk): separated command/discovery MCP transports, preserved receipt order, kept uncertain write reconciliation fail-stop and removed ephemeral approval counters from launch identity.
+- fix(runner): restored cargo/rustup-style multicall execution with reviewed argv0 and frozen image identity, without PATH re-resolution.
+- fix(consent): enabled exact current-owned host-command denial and preserved actual producer-form evidence independently of selectable move definitions.
+- fix(safety): retained source/writer/unknown-effect boundaries, distinguished definite pre-dispatch refusal from lost responses and repaired active-read quit ownership.
+- fix(ux): deferred automatic learning while editing and made full plan details, refusal reasons and incomplete post-crash counts explicit.
+- docs(compatibility): retained SQL19 and Rust1.90.0, required complete SDK bridge10 and a full data-directory backup, and distinguished strict reader compatibility from SQL schema equality and local controlled-peer proof from live-provider conformance.
 
 ## 0.1.29
 

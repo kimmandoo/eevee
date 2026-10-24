@@ -46,7 +46,7 @@ def main():
         if method == "initialize":
             caps = packet["params"]["clientCapabilities"]
             assert caps["fs"] == dict(readTextFile=True, writeTextFile=True)
-            assert caps["terminal"] is False
+            assert caps["terminal"] is True
             emit(dict(id=identity, result=dict(protocolVersion=1, agentCapabilities={})))
         elif method == "session/new":
             root = Path(packet["params"]["cwd"])

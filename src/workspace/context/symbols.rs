@@ -5,9 +5,78 @@
 
 use std::collections::BTreeSet;
 
+use proc_macro2::{TokenStream, TokenTree};
 use syn::{spanned::Spanned, visit::Visit};
 
 const MAX_LINES: usize = 48;
+pub(crate) const PARSE_NESTING: usize = 64;
+pub(crate) const PARSE_NON_WHITESPACE_BYTES: usize = 32_768;
+pub(crate) const PARSE_OPENINGS: usize = 1024;
+pub(crate) const PARSE_EXPRESSION_TOKENS: usize = 256;
+
+/// Conservative source/token ceilings before recursive Rust parsing/visiting.
+/// Literal/comment bytes count in lexical bounds. Invalid tokens remain distinct
+/// from a bound refusal; callers disclose fallback/omission, never verification.
+pub(crate) fn check_parse_bound(text: &str) -> Result<(), String> {
+    let mut depth = 0usize;
+    let mut tokens = 0usize;
+    let mut openings = 0usize;
+    for byte in text.bytes() {
+        if matches!(byte, b'(' | b'[' | b'{') {
+            openings += 1;
+            if openings > PARSE_OPENINGS {
+                return Err("Conservative 1024 delimiter-opening byte bound exceeded".into());
+            }
+            depth += 1;
+            if depth > PARSE_NESTING {
+                return Err("Conservative 64-level lexical nesting bound exceeded".into());
+            }
+        } else if matches!(byte, b')' | b']' | b'}') {
+            depth = depth.saturating_sub(1);
+        }
+        if !byte.is_ascii_whitespace() {
+            tokens += 1;
+        }
+        // A byte ceiling bounds flat expression/parser/visitor work as well as tokens.
+        if tokens > PARSE_NON_WHITESPACE_BYTES {
+            return Err("Conservative 32768 non-whitespace lexical-byte bound exceeded".into());
+        }
+    }
+    // proc-macro2's local lexer uses an explicit group stack. Inspect its token
+    // tree iteratively before syn's recursive expression parser/visitor. Keep
+    // outer expression weight across groups so comments/literal punctuation
+    // cannot hide an arbitrarily deep unary/binary/call chain.
+    let tokens = text
+        .parse::<TokenStream>()
+        .map_err(|_| "Invalid Rust tokens")?;
+    let mut pending = vec![(tokens.into_iter(), 0usize)];
+    let mut weight = 0usize;
+    while let Some((tokens, _)) = pending.last_mut() {
+        match tokens.next() {
+            Some(TokenTree::Group(group)) => {
+                if pending.len() >= PARSE_NESTING {
+                    return Err("Rust token-tree nesting exceeds 64 groups".into());
+                }
+                weight += 1;
+                pending.push((group.stream().into_iter(), weight));
+            }
+            Some(TokenTree::Punct(token)) if token.as_char() == ';' => {
+                weight = pending.last().map_or(0, |(_, outer)| *outer)
+            }
+            Some(_) => weight += 1,
+            None => {
+                let (_, outer) = pending.pop().expect("nonempty token stack");
+                weight = outer;
+            }
+        }
+        if weight > PARSE_EXPRESSION_TOKENS {
+            return Err(
+                "Rust expression path exceeds 256 tokens between statement boundaries".into(),
+            );
+        }
+    }
+    Ok(())
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SymbolRange {

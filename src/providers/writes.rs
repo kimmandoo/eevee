@@ -24,7 +24,10 @@ mod platform;
 #[path = "writes/windows.rs"]
 mod platform;
 
+mod observations;
+mod structural;
 mod tools;
+pub(crate) use crate::workspace::repo::SourceControl as ObservationControl;
 #[cfg(test)]
 pub(crate) use tools::Replacement;
 pub(crate) use tools::{FileTool, ToolKind, definitions};
@@ -374,6 +377,8 @@ pub(crate) struct WriteSet {
     observed: BTreeMap<PathBuf, std::sync::Arc<SourceIdentity>>,
     /// Request-local filename observation; shared by cloned proposal scopes.
     project_context: std::sync::Arc<std::sync::OnceLock<Value>>,
+    /// Request-private bounded results shared only by clones of this authority.
+    observation_cache: std::sync::Arc<std::sync::Mutex<observations::Cache>>,
 }
 
 fn line_endings(text: &str) -> String {
@@ -761,6 +766,7 @@ impl WriteSet {
             exclusions: exclusions.to_vec(),
             observed: BTreeMap::new(),
             project_context: Default::default(),
+            observation_cache: Default::default(),
         };
         set.verify()?;
         Ok(set)

@@ -2428,3 +2428,381 @@ fn changed_rename_destination_cannot_reuse_the_original_review() {
     assert!(!project.root.join("approved.txt").exists());
     assert!(!project.root.join("other.txt").exists());
 }
+
+fn structural_tool(pattern: &str) -> FileTool {
+    FileTool::StructuralSearch {
+        directory: PathBuf::new(),
+        language: "rust".into(),
+        pattern: pattern.into(),
+        offset: 0,
+        snapshot: String::new(),
+    }
+}
+
+#[test]
+fn structural_shapes_capture_equal_nodes_with_exact_unicode_crlf_ranges() {
+    let project = Project::new();
+    let text = "fn actual() {\r\n send(資料 + 1,\r\n 資料+1);\r\n send(left,right);\r\n let _ = \"send(a,a)\";\r\n // send(a,a)\r\n opaque! { send(a,a) }\r\n}\r\n";
+    std::fs::write(project.root.join("actual.rs"), text).unwrap();
+    let mut scope = WriteSet::capture_readonly(&project.root, &project.data, &[]).unwrap();
+    let tool = structural_tool("send($VALUE,$VALUE)");
+    let result = scope.observe_tool(&tool).unwrap();
+    assert_eq!(result["status"], "success");
+    assert_eq!(result["matches"].as_array().unwrap().len(), 1);
+    let found = &result["matches"][0];
+    assert_eq!(
+        found["sha256"],
+        format!("{:x}", Sha256::digest(text.as_bytes()))
+    );
+    let range = &found["range"];
+    let begin = range["start_byte"].as_u64().unwrap() as usize;
+    let end = range["end_byte"].as_u64().unwrap() as usize;
+    assert_eq!(&text[begin..end], "send(資料 + 1,\r\n 資料+1)");
+    assert_eq!(found["captures"]["VALUE"]["text"], "資料 + 1");
+    let repeated = scope.observe_tool(&tool).unwrap();
+    assert_eq!(repeated["observation_cache"]["status"], "hit");
+    assert_eq!(repeated["observation_cache"]["result_computations"], 0);
+    assert_eq!(
+        repeated["observation_cache"]["observation_executions_avoided"],
+        1
+    );
+    assert_eq!(
+        repeated["observation_cache"]["original_observed_at_unix_ms"],
+        result["observation_cache"]["original_observed_at_unix_ms"]
+    );
+    assert_eq!(repeated["matches"], result["matches"]);
+    assert!(
+        repeated["observation_cache"]["fingerprinted_bytes"]
+            .as_u64()
+            .unwrap()
+            >= text.len() as u64
+    );
+    assert_eq!(
+        scope.observe_tool(&structural_tool("absent($X)")).unwrap()["status"],
+        "no_match"
+    );
+    assert_eq!(
+        scope.observe_tool(&structural_tool("let x = 1")).unwrap()["status"],
+        "invalid_pattern"
+    );
+    let mut unsupported = structural_tool("send($X,$X)");
+    if let FileTool::StructuralSearch { language, .. } = &mut unsupported {
+        *language = "python".into();
+    }
+    assert_eq!(
+        scope.observe_tool(&unsupported).unwrap()["status"],
+        "unsupported_language"
+    );
+    std::fs::write(project.root.join("actual.rs"), "fn broken(").unwrap();
+    assert_eq!(
+        scope.observe_tool(&tool).unwrap()["status"],
+        "parse_failure"
+    );
+    std::fs::write(project.root.join("other.rs"), "fn intact() {}").unwrap();
+    let incomplete = scope.observe_tool(&tool).unwrap();
+    assert_eq!(incomplete["status"], "incomplete");
+    assert_eq!(incomplete["complete"], false);
+}
+
+#[test]
+fn structural_pages_refuse_changed_query_source_and_ignore_policy() {
+    let project = Project::new();
+    let text = format!("fn actual() {{ {} }}", "send(value,value);".repeat(40));
+    std::fs::write(project.root.join("actual.rs"), &text).unwrap();
+    let mut scope = WriteSet::capture_readonly(&project.root, &project.data, &[]).unwrap();
+    let first = scope.observe_tool(&structural_tool("send($X,$X)")).unwrap();
+    assert_eq!(first["matches"].as_array().unwrap().len(), 32);
+    let page = FileTool::StructuralSearch {
+        directory: PathBuf::new(),
+        language: "rust".into(),
+        pattern: "send($X,$X)".into(),
+        offset: first["next_offset"].as_u64().unwrap() as usize,
+        snapshot: first["snapshot"].as_str().unwrap().into(),
+    };
+    assert_eq!(
+        scope.observe_tool(&page).unwrap()["matches"]
+            .as_array()
+            .unwrap()
+            .len(),
+        8
+    );
+    let mut foreign_query = page.clone();
+    if let FileTool::StructuralSearch { pattern, .. } = &mut foreign_query {
+        *pattern = "other($X)".into();
+    }
+    assert!(
+        scope
+            .observe_tool(&foreign_query)
+            .unwrap_err()
+            .contains("stale")
+    );
+    std::fs::write(project.root.join(".gitignore"), "# changed local policy\n").unwrap();
+    assert!(scope.observe_tool(&page).unwrap_err().contains("stale"));
+    std::fs::remove_file(project.root.join(".gitignore")).unwrap();
+    std::fs::write(
+        project.root.join("actual.rs"),
+        text.replace("value", "changed"),
+    )
+    .unwrap();
+    assert!(scope.observe_tool(&page).unwrap_err().contains("stale"));
+}
+
+#[test]
+fn observation_cache_is_private_and_invalidates_content_and_policy() {
+    let project = Project::new();
+    std::fs::write(project.root.join("source.rs"), "fn first() {}\n").unwrap();
+    let mut scope = WriteSet::capture_readonly(&project.root, &project.data, &[]).unwrap();
+    let read = read_tool("source.rs");
+    let stopped = std::sync::atomic::AtomicBool::new(false);
+    let control = ObservationControl {
+        stopped: &stopped,
+        cancelled: &|| false,
+        deadline: std::time::Instant::now() + std::time::Duration::from_secs(30),
+    };
+    assert!(
+        scope
+            .observe_known_tool_controlled(&read, &control)
+            .is_none()
+    );
+    assert!(
+        scope
+            .observe_known_tool_controlled(
+                &FileTool::List {
+                    directory: PathBuf::new(),
+                    query: String::new(),
+                    offset: 0
+                },
+                &control
+            )
+            .is_none()
+    );
+    let first = scope.observe_tool(&read).unwrap();
+    assert_eq!(first["observation_cache"]["status"], "miss");
+    let coordinated = scope
+        .observe_known_tool_controlled(&read, &control)
+        .unwrap()
+        .unwrap();
+    assert_eq!(coordinated["observation_cache"]["status"], "hit");
+    assert_eq!(coordinated["observation_cache"]["result_computations"], 0);
+    assert!(
+        coordinated["observation_cache"]["coordinator_probe_us"]
+            .as_u64()
+            .unwrap()
+            <= coordinated["observation_cache"]["cache_lookup_us"]
+                .as_u64()
+                .unwrap()
+    );
+    let mut cloned = scope.clone();
+    assert_eq!(
+        cloned.observe_tool(&read).unwrap()["observation_cache"]["status"],
+        "hit"
+    );
+    std::fs::write(project.root.join("source.rs"), "fn second() {}\n").unwrap();
+    let changed = scope
+        .observe_known_tool_controlled(&read, &control)
+        .unwrap()
+        .unwrap();
+    assert_eq!(changed["observation_cache"]["status"], "miss");
+    assert_eq!(changed["content"], "fn second() {}\n");
+    assert_ne!(changed["sha256"], first["sha256"]);
+    std::fs::write(
+        project.root.join(".gitignore"),
+        "# a policy change without hiding the source\n",
+    )
+    .unwrap();
+    assert_eq!(
+        scope.observe_tool(&read).unwrap()["observation_cache"]["status"],
+        "miss"
+    );
+    let mut fresh_request = WriteSet::capture_readonly(&project.root, &project.data, &[]).unwrap();
+    assert_eq!(
+        fresh_request.observe_tool(&read).unwrap()["observation_cache"]["status"],
+        "miss"
+    );
+    let other = Project::new();
+    std::fs::write(other.root.join("source.rs"), "fn second() {}\n").unwrap();
+    let mut other_scope = WriteSet::capture_readonly(&other.root, &other.data, &[]).unwrap();
+    assert_eq!(
+        other_scope.observe_tool(&read).unwrap()["observation_cache"]["status"],
+        "miss"
+    );
+    assert!(
+        scope
+            .observe_tool(&FileTool::Write {
+                path: "unsafe".into(),
+                content: "not a read".into()
+            })
+            .is_err()
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn observation_cache_refuses_new_link_boundaries_without_old_content() {
+    let project = Project::new();
+    std::fs::create_dir(project.root.join("src")).unwrap();
+    std::fs::write(project.root.join("src/source.rs"), "fn original() {}\n").unwrap();
+    let mut scope = WriteSet::capture_readonly(&project.root, &project.data, &[]).unwrap();
+    let tool = read_tool("src/source.rs");
+    scope.observe_tool(&tool).unwrap();
+    std::fs::rename(project.root.join("src"), project.root.join("retained")).unwrap();
+    std::os::unix::fs::symlink("retained", project.root.join("src")).unwrap();
+    assert!(scope.observe_tool(&tool).is_err());
+}
+
+#[test]
+fn structural_limits_are_incomplete_not_absence_or_partial_digests() {
+    let project = Project::new();
+    for index in 0..129 {
+        std::fs::write(
+            project.root.join(format!("source{index:03}.rs")),
+            "fn actual() {}\n",
+        )
+        .unwrap();
+    }
+    let mut scope = WriteSet::capture_readonly(&project.root, &project.data, &[]).unwrap();
+    let result = scope.observe_tool(&structural_tool("absent($X)")).unwrap();
+    assert_eq!(result["status"], "incomplete");
+    assert_eq!(result["complete"], false);
+    assert!(
+        result["omissions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|omission| omission["reason"] == "candidate_limit")
+    );
+    assert!(serde_json::to_vec(&result).unwrap().len() <= 64 * 1024);
+}
+
+#[test]
+fn structural_diagnostics_never_echo_private_git_metadata() {
+    let project = Project::new();
+    let marker = "SYNTHETIC_PRIVATE_GIT_PATH_credential";
+    std::fs::write(
+        project.root.join(".git"),
+        format!("gitdir: /missing/{marker}\n"),
+    )
+    .unwrap();
+    std::fs::write(
+        project.root.join("actual.rs"),
+        "fn actual() { send(a,a); }\n",
+    )
+    .unwrap();
+    let mut scope = WriteSet::capture_readonly(&project.root, &project.data, &[]).unwrap();
+    let result = scope.observe_tool(&structural_tool("send($X,$X)")).unwrap();
+    assert_eq!(result["status"], "incomplete");
+    assert_eq!(result["omissions"][0]["reason"], "discovery_unavailable");
+    let encoded = result.to_string();
+    assert!(!encoded.contains(marker));
+    assert!(!encoded.contains("gitdir:"));
+    assert!(!encoded.contains("/missing/"));
+    std::fs::remove_file(project.root.join(".git")).unwrap();
+    std::fs::write(project.root.join("actual.rs"), [0xff, 0xfe]).unwrap();
+    let refused = scope.observe_tool(&structural_tool("send($X,$X)")).unwrap();
+    assert_eq!(refused["status"], "incomplete");
+    assert_eq!(refused["omissions"][0]["reason"], "source_unavailable");
+    assert_eq!(
+        refused["omissions"][0]["message"],
+        "Source admission or complete capture unavailable; no source content or diagnostic was retained"
+    );
+}
+
+#[test]
+fn structural_bom_shebang_ranges_resolve_against_original_full_source() {
+    let project = Project::new();
+    let mut scope = WriteSet::capture_readonly(&project.root, &project.data, &[]).unwrap();
+    for prefix in [
+        "\u{feff}",
+        "#!/usr/bin/env rust-script\n",
+        "\u{feff}#!/usr/bin/env rust-script\r\n",
+        "#! /* ordinary prefix comment */[allow(dead_code)]\n",
+    ] {
+        let text = format!("{prefix}fn actual() {{ send(資料, 資料); }}\r\n");
+        std::fs::write(project.root.join("actual.rs"), &text).unwrap();
+        let result = scope.observe_tool(&structural_tool("send($X,$X)")).unwrap();
+        assert_eq!(result["status"], "success", "{prefix:?}: {result}");
+        assert_eq!(result["matches"].as_array().unwrap().len(), 1);
+        let found = &result["matches"][0];
+        let start = found["range"]["start_byte"].as_u64().unwrap() as usize;
+        let end = found["range"]["end_byte"].as_u64().unwrap() as usize;
+        assert_eq!(&text[start..end], "send(資料, 資料)");
+        assert_eq!(
+            found["sha256"],
+            format!("{:x}", Sha256::digest(text.as_bytes()))
+        );
+        assert_eq!(
+            found["range"]["start_line"].as_u64().unwrap() as usize,
+            text[..start].bytes().filter(|byte| *byte == b'\n').count() + 1
+        );
+        assert_eq!(
+            found["range"]["start_column"].as_u64().unwrap() as usize,
+            text[..start].rsplit('\n').next().unwrap().chars().count() + 1
+        );
+        let captured = &found["captures"]["X"];
+        let start = captured["range"]["start_byte"].as_u64().unwrap() as usize;
+        let end = captured["range"]["end_byte"].as_u64().unwrap() as usize;
+        assert_eq!(&text[start..end], "資料");
+        assert_eq!(captured["text"], "資料");
+    }
+}
+
+#[test]
+fn observations_honor_owning_cancel_and_shared_deadline_without_partial_results() {
+    let project = Project::new();
+    std::fs::write(
+        project.root.join("actual.rs"),
+        "fn actual() { send(a,a); }\n",
+    )
+    .unwrap();
+    let mut scope = WriteSet::capture_readonly(&project.root, &project.data, &[]).unwrap();
+    let stopped = std::sync::atomic::AtomicBool::new(false);
+    let cancelled = std::sync::atomic::AtomicBool::new(false);
+    let cancel = || cancelled.load(Ordering::Acquire);
+    let tool = structural_tool("send($X,$X)");
+    scope.observe_tool(&tool).unwrap();
+    cancelled.store(true, Ordering::Release);
+    let control = ObservationControl {
+        stopped: &stopped,
+        cancelled: &cancel,
+        deadline: std::time::Instant::now() + std::time::Duration::from_secs(30),
+    };
+    assert!(
+        scope
+            .observe_tool_controlled(&tool, &control)
+            .unwrap_err()
+            .contains("cancelled")
+    );
+    assert!(
+        scope
+            .observe_known_tool_controlled(&tool, &control)
+            .unwrap()
+            .unwrap_err()
+            .contains("cancelled")
+    );
+    cancelled.store(false, Ordering::Release);
+    let expired = ObservationControl {
+        deadline: std::time::Instant::now(),
+        ..control
+    };
+    assert!(
+        scope
+            .observe_tool_controlled(&tool, &expired)
+            .unwrap_err()
+            .contains("shared scan deadline")
+    );
+    let checks = std::sync::atomic::AtomicUsize::new(0);
+    let mid_capture = || checks.fetch_add(1, Ordering::AcqRel) >= 3;
+    std::fs::write(project.root.join("large.rs"), vec![b'a'; 192 * 1024]).unwrap();
+    let control = ObservationControl {
+        stopped: &stopped,
+        cancelled: &mid_capture,
+        deadline: std::time::Instant::now() + std::time::Duration::from_secs(30),
+    };
+    assert!(
+        scope
+            .source_capture_limit(Path::new("large.rs"), 256 * 1024, &control)
+            .unwrap_err()
+            .contains("cancelled")
+    );
+    assert!(checks.load(Ordering::Acquire) < 10);
+}

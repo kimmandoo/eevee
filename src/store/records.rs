@@ -712,9 +712,10 @@ fn snapshot(
     }
     let mut views = Vec::new();
     let mut resolution_choices = Vec::new();
+    let mut comparison_runs = Vec::new();
     if let Some(task) = task {
         let captures = excerpts(connection, task.id)?;
-        let runs = runs_for(connection, task.id)?;
+        let runs = super::ribbons::observations(connection, data_dir, task.id)?;
         let unknown = runner::InputSnapshot::default();
         let view = workflows::EvidenceView {
             task_id: task.id,
@@ -908,6 +909,7 @@ fn snapshot(
                 }
             }
         }
+        comparison_runs = runs;
     }
     let mut habits: Vec<Habit> = rows(connection, "instruction_candidates", project)?;
     for habit in &mut habits {
@@ -956,6 +958,15 @@ fn snapshot(
         signature.seen_count = signature.runs.len();
     }
     signatures.retain(|s| s.seen_count > 0);
+    let resolutions = rows(connection, "failure_resolutions", project)?;
+    let failure_comparisons = crate::workspace::records::compare_failures(
+        task.map_or(0, |task| task.id),
+        &signatures,
+        &resolutions,
+        &views,
+        &comparison_runs,
+        current.unwrap_or(&runner::InputSnapshot::default()),
+    );
     let flavor_enabled = connection
         .query_row(
             "SELECT flavor FROM local_settings WHERE project=?1",
@@ -989,8 +1000,9 @@ fn snapshot(
             Vec::new()
         },
         signatures,
-        resolutions: rows(connection, "failure_resolutions", project)?,
+        resolutions,
         resolution_choices,
+        failure_comparisons,
         habits,
         pairings: rows(connection, "partner_pairings", project)?,
         held_items: super::held::items(connection, project)?,
@@ -1869,7 +1881,9 @@ fn purge_related(
                     )
                     .map_err(|e| e.to_string())?;
             }
-            connection.execute("DELETE FROM failure_resolutions WHERE project=?1 AND task_id=?2 AND json_extract(record,'$.support_artifact')=?3",params![project,task,artifact.id]).map_err(|e|e.to_string())?;
+            // Keep the identity-only historical resolution. Its missing support
+            // is derived as unavailable; removing payload must not invent erasure
+            // of the fact that a user previously linked this historical pass.
             connection.execute("DELETE FROM diagnosis_transitions WHERE project=?1 AND task_id=?2 AND json_extract(record,'$.support')=?3",params![project,task,artifact.id]).map_err(|e|e.to_string())?;
             if artifact.kind == ArtifactKind::Review {
                 connection.execute("UPDATE local_activity SET delivered=1 WHERE project=?1 AND task_id=?2 AND id LIKE ?3",params![project,task,format!("review:{task}:%")]).map_err(|e|e.to_string())?;
@@ -1906,7 +1920,8 @@ pub(super) fn purge_run(
             params![project, task, run],
         )
         .map_err(|e| e.to_string())?;
-    connection.execute("DELETE FROM failure_resolutions WHERE project=?1 AND task_id=?2 AND json_extract(record,'$.passing_run')=?3",params![project,task,run]).map_err(|e|e.to_string())?;
+    // A cited passing-run identity survives output purge, but its evidence does
+    // not: compare_failures reads the run's existing unavailable-output flag.
     let marker = Activity {
         id: format!("purged-run:{task}:{run}"),
         task_id: task,

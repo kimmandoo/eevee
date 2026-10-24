@@ -44,6 +44,8 @@ pub struct State {
     pub(super) execution_cursor: usize,
     pub(super) execution_actions: BTreeMap<i64, execution::Action>,
     pub(super) command_saves: BTreeMap<i64, (String, store::Attribution, u64)>,
+    pub(super) command_callbacks: BTreeMap<i64, super::cooperation_execution::CommandCallback>,
+    pub(super) command_calls: std::collections::HashSet<(String, String)>,
     approvals: Vec<(u64, Pending)>,
     focused: Option<Pending>,
     /// Identities already presented or explicitly deferred, not another queue.
@@ -137,8 +139,13 @@ impl App {
             .any(|state| state.busy() || state.preferences_pending())
     }
 
+    pub(super) fn cancelling_owned_work(&self) -> bool {
+        self.cooperation.cancelling
+    }
+
     pub(super) fn quit_requires_work_review(&self) -> bool {
         self.pending_request.is_some()
+            || self.tool_plans.busy()
             || self.artifacts.busy()
             || self.tool_catalog.busy()
             || self.pending_command.is_some()
@@ -396,6 +403,10 @@ impl App {
         for id in ids {
             let preference_free = self.cooperation.preference_owners.is_empty();
             let move_receipt_pending = self.move_dispatch_pending(id);
+            let nested_command_pending = self.cooperation.command_callbacks.contains_key(&id)
+                || self.execution_state(id).is_some_and(|state| {
+                    state.busy() || state.storage_pending() || state.outcome_unknown()
+                });
             let state = self.planning_state_mut(id).expect("known partner slot");
             if let Some(reduced) = motion_choice {
                 state.sync_motion_choice(reduced);
@@ -407,7 +418,7 @@ impl App {
             if sent == 0
                 && !state.work_inflight
                 && state.work_error.is_none()
-                && !(move_receipt_pending
+                && !((move_receipt_pending || nested_command_pending)
                     && matches!(state.work_pending, Some(store::WorkRequest::Release(_))))
                 && store.try_work(&mut state.work_pending)
             {
@@ -1009,6 +1020,9 @@ impl App {
 
     pub fn cancel_all_summary(&self) -> String {
         let mut lines = vec!["Owned work on this task:".into()];
+        if self.tool_plans.busy() {
+            lines.push("Task-owned tool plan: queued/running nodes; cancellation prevents queued admission.".into());
+        }
         for row in self.work_rows() {
             lines.push(format!(
                 "{} ({}): {}",
@@ -1069,6 +1083,16 @@ impl App {
     }
 
     pub(super) fn cancel_lead(&mut self) {
+        if self.tool_plans.busy()
+            && self
+                .workflows
+                .tool_plans
+                .as_ref()
+                .is_some_and(|plan| plan.partner == self.lead.id)
+        {
+            self.cancel_tool_plan();
+            return;
+        }
         if self
             .cooperation
             .command_saves
@@ -1130,6 +1154,7 @@ impl App {
             self.pending_request = None;
             self.pending_command = None;
             self.cooperation.command_saves.clear();
+            self.cancel_tool_plan();
             for id in self.planning_ids() {
                 if let Some(state) = self.planning_state_mut(id) {
                     state.cancel_owned();
@@ -1193,6 +1218,23 @@ impl App {
 
 impl App {
     pub fn provider_event(&mut self, partner: i64, event: crate::providers::Event) -> bool {
+        if let crate::providers::Event::RunCommand {
+            generation,
+            task_id,
+            data_dir,
+            claim,
+            call_id,
+            cwd,
+            command,
+            cancelled,
+            reply,
+        } = event
+        {
+            return self.provider_command(
+                partner, generation, task_id, data_dir, claim, call_id, cwd, command, cancelled,
+                reply,
+            );
+        }
         if let crate::providers::Event::ToolArtifact {
             generation,
             task_id,
@@ -1475,6 +1517,116 @@ mod tests {
             usage_bytes: 0,
         }));
         app
+    }
+
+    #[test]
+    fn host_command_callback_requires_exact_live_implement_owner_and_fresh_call() {
+        let mut app = app();
+        start(&mut app, 1, 1);
+        let history = app
+            .execution
+            .take_store_request()
+            .expect("initial retained history load");
+        assert!(matches!(history.operation, store::RunOperation::Load));
+        app.execution
+            .store_event(7, None, None, Ok(store::RunResponse::Runs(Vec::new())));
+        let command = crate::workspace::runner::CommandSpec::Direct {
+            program: "rustc".into(),
+            args: vec!["main.rs".into()],
+        };
+        let mut claim = app.planning.work.clone().unwrap();
+        let request = |claim: store::WorkClaim, generation, call: &str| {
+            let (reply, received) = std::sync::mpsc::sync_channel(1);
+            (
+                providers::Event::RunCommand {
+                    generation,
+                    task_id: 7,
+                    claim,
+                    data_dir: "/not-opened-by-admission".into(),
+                    call_id: call.into(),
+                    cwd: "".into(),
+                    command: command.clone(),
+                    cancelled: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                    reply,
+                },
+                received,
+            )
+        };
+        let (event, received) = request(claim.clone(), 7, "readonly");
+        assert!(!app.provider_event(1, event));
+        assert!(received.try_recv().unwrap().is_err());
+        claim.writing = true;
+        app.planning.work = Some(claim.clone());
+        app.planning.operation = providers::Operation::Implement;
+        for (generation, cancelled) in [(8, false), (7, true)] {
+            app.planning.cancelling = cancelled;
+            let (event, received) = request(claim.clone(), generation, "stale");
+            assert!(!app.provider_event(1, event));
+            assert!(received.try_recv().unwrap().is_err());
+            assert!(!app.execution.busy());
+        }
+        app.planning.cancelling = false;
+        let (event, received) = request(claim.clone(), 7, "fresh");
+        assert!(app.provider_event(1, event));
+        assert!(app.execution.busy());
+        assert!(
+            app.execution.prepared.is_none(),
+            "intent never grants dispatch"
+        );
+        app.execution.request_cancel();
+        app.drive_executions(
+            &mut std::collections::BTreeMap::new(),
+            std::path::Path::new("/workspace"),
+        );
+        assert!(received.try_recv().unwrap().is_err());
+        let (event, received) = request(claim.clone(), 7, "fresh");
+        assert!(!app.provider_event(1, event));
+        assert!(received.try_recv().unwrap().is_err());
+        // A committed terminal-unknown run is idle, but never a fresh admission.
+        let prepared = crate::workspace::runner::Prepared {
+            request_id: "unknown-request".into(),
+            run_id: "unknown-run".into(),
+            task_id: 7,
+            spec: command.clone(),
+            cwd: "/workspace".into(),
+            cwd_identity: "fixture".into(),
+            executable: crate::workspace::runner::ExecutableIdentity {
+                path: "/fixture/rustc".into(),
+                sha256: "0".repeat(64),
+                bytes: 1,
+                modified_ns: 0,
+                file_id: "fixture".into(),
+            },
+            prepared_at_ms: 1,
+            expires_at_ms: 2,
+            approval_arrival: 1,
+            before: Default::default(),
+            partner: Some(claim.owner.clone()),
+            rerun_of: None,
+        };
+        let mut unknown = crate::workspace::runner::RunRecord::awaiting(&prepared);
+        unknown.state = crate::workspace::runner::RunState::OutcomeUnknown;
+        unknown.tree = crate::workspace::runner::TreeOutcome::OwnershipUnknown;
+        unknown.started_at_ms = Some(1);
+        unknown.ended_at_ms = Some(2);
+        app.execution
+            .runner_event(crate::workspace::runner::Event::Finished(unknown));
+        app.execution.repo_started();
+        app.execution.repo_observed(None);
+        let update = app.execution.take_store_request().unwrap();
+        let store::RunOperation::Update(record) = update.operation else {
+            panic!("expected terminal journal");
+        };
+        app.execution.store_event(
+            7,
+            Some(&prepared.request_id),
+            Some(&prepared.run_id),
+            Ok(store::RunResponse::Updated(record)),
+        );
+        assert!(!app.execution.busy() && app.execution.outcome_unknown());
+        let (event, received) = request(claim, 7, "new-call-after-unknown");
+        assert!(!app.provider_event(1, event));
+        assert!(received.try_recv().unwrap().is_err());
     }
 
     #[test]

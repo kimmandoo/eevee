@@ -625,6 +625,9 @@ class Journey(MovesJourney):
         self.capture('explicit-local-check-review-' + str(trial))
         run = self.approve_run(expected)
         self.session.send(ESC)
+        if 'wants to learn a move!' in self.session.display():
+            self.capture('unrelated-command-learning-explicit-not-now')
+            self.session.send(ESC)  # Existing neutral Not now; never learns/runs.
         self.workspace()
         run_id = run['prepared']['run_id']
         event_id = 'activity:run:{}:{}'.format(run['prepared']['task_id'], run_id)
@@ -665,8 +668,8 @@ class Journey(MovesJourney):
         assert 'test:records::total' in normalized and self.signature in normalized, text
         count_text = normalized.split('test:records::total', 1)[1].split(self.signature, 1)[0]
         assert re.search(r'(?<!\d){}(?!\d)'.format(len(actual_runs)), count_text), text
-        assert all(normalized.count(run_id) == 1 for run_id in actual_runs), \
-            'Dex must visibly cite exactly the two actual retained failure runs\n' + text
+        assert all(normalized.count(run_id) >= 1 for run_id in actual_runs), \
+            'Dex must cite each actual retained failure run in its derived comparison\n' + text
         save(self.output / 'failure-signature-proof.json', {
             'signature': self.signature, 'task_id': self.record_task,
             'distinct_failed_runs': sorted(actual_runs), 'count': len(actual_runs),
@@ -779,15 +782,19 @@ class Journey(MovesJourney):
                    'repeated relation request actually acknowledged by committed records view')
         assert self.rows('failure_resolutions') == committed, 'explicit repeated relation was not deduplicated'
         self.capture('resolution-explicit-repeat-deduplicated-no-end-paging')
+        historical = self.pages_text('pk07-supported-historical-pass')
+        assert ('Historicalsupportedpass' in ''.join(historical.split())
+                or '근거있는과거통과' in ''.join(historical.split())), historical
         self.workspace()
         self.source.write_text(BAD, encoding='utf-8')
-        self.execute_check(3, 'Failed')
+        self.execute_check(2, 'Failed')
         self.open_records('dex')
         text = self.pages_text('recurrence-historical-lead-not-current-verification')
         normalized = ''.join(text.split())
         assert ('historical' in text.lower() and 'NOTacurrent' in normalized) or '현재문제의수정이나검증을뜻하지' in normalized
         assert str(self.record_task) in text
         assert self.support['id'] in normalized and self.pass_id in normalized
+        assert ('Unresolvedrecurringfailure' in normalized or '미해결반복실패' in normalized), text
         self.workspace()
 
     def markers(self):

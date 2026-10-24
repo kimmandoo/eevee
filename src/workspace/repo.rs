@@ -23,6 +23,26 @@ const STDERR_LIMIT: usize = 8192;
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(10);
 const SCAN_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// Borrowed cancellation from the owning request, plus one shared scan deadline.
+/// This carries no execution authority and launches no observer/helper thread.
+#[derive(Clone, Copy)]
+pub(crate) struct SourceControl<'a> {
+    pub stopped: &'a AtomicBool,
+    pub cancelled: &'a (dyn Fn() -> bool + Sync),
+    pub deadline: Instant,
+}
+impl SourceControl<'_> {
+    pub(crate) fn check(&self) -> Result<(), String> {
+        if self.stopped.load(Ordering::Acquire) || (self.cancelled)() {
+            Err("Source observation cancelled".into())
+        } else if Instant::now() >= self.deadline {
+            Err("Source observation exceeded its shared scan deadline".into())
+        } else {
+            Ok(())
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RepositoryIdentity {
     /// Canonical launch folder; Git discovery never widens project authority.
@@ -558,6 +578,7 @@ struct Git<'a> {
     cwd: &'a Path,
     stopped: &'a AtomicBool,
     deadline: Instant,
+    cancelled: Option<&'a (dyn Fn() -> bool + Sync)>,
 }
 
 impl<'a> Git<'a> {
@@ -584,11 +605,14 @@ impl<'a> Git<'a> {
             cwd,
             stopped,
             deadline,
+            cancelled: None,
         })
     }
 
     fn check_deadline(&self) -> Result<(), String> {
-        if self.stopped.load(Ordering::Relaxed) {
+        if self.stopped.load(Ordering::Relaxed)
+            || self.cancelled.is_some_and(|cancelled| cancelled())
+        {
             Err("Repository inspection cancelled".into())
         } else if Instant::now() >= self.deadline {
             Err("Repository inspection exceeded its 30-second deadline".into())
@@ -681,7 +705,7 @@ impl<'a> Git<'a> {
                     break child.wait().ok();
                 }
             }
-            if self.stopped.load(Ordering::Relaxed) || Instant::now() >= command_deadline {
+            if self.check_deadline().is_err() || Instant::now() >= command_deadline {
                 failure = Some("Git inspection cancelled or exceeded its bounded deadline".into());
                 let _ = child.kill();
                 break child.wait().ok();
@@ -1440,6 +1464,23 @@ pub(crate) fn source_visible(
     relative: &Path,
     stopped: &AtomicBool,
 ) -> Result<bool, String> {
+    source_visible_controlled(
+        root,
+        relative,
+        &SourceControl {
+            stopped,
+            cancelled: &|| false,
+            deadline: Instant::now() + COMMAND_TIMEOUT,
+        },
+    )
+}
+
+pub(crate) fn source_visible_controlled(
+    root: &Path,
+    relative: &Path,
+    control: &SourceControl<'_>,
+) -> Result<bool, String> {
+    control.check()?;
     super::context::validate_project_root(root)?;
     let path = source_path(relative)?;
     if !has_git_marker(root)? {
@@ -1466,7 +1507,8 @@ pub(crate) fn source_visible(
     let composed = composed_storage.as_str();
     #[cfg(not(target_os = "macos"))]
     let composed = path;
-    let git = Git::new(root, stopped, Instant::now() + COMMAND_TIMEOUT)?;
+    let mut git = Git::new(root, control.stopped, control.deadline)?;
+    git.cancelled = Some(control.cancelled);
     let arguments = [
         "ls-files",
         "--cached",
@@ -1482,6 +1524,7 @@ pub(crate) fn source_visible(
     // never widen an exact lookup into a repository-wide inventory.
     let count = if composed == path { 7 } else { 8 };
     let captured = git.required(&arguments[..count], None, 8 * (path.len() + 1))?;
+    control.check()?;
     if captured.truncated {
         return Err("Source inventory membership exceeded its exact-path bound".into());
     }
@@ -1495,11 +1538,12 @@ pub(crate) fn source_visible(
 
 /// Bounded nonignored filenames for controlled source tools. Plain directories
 /// have no Git policy; repository failures never silently disable that policy.
-pub(crate) fn source_paths(
+pub(crate) fn source_paths_controlled(
     root: &Path,
     directory: &Path,
-    stopped: &AtomicBool,
+    control: &SourceControl<'_>,
 ) -> Result<Option<BTreeSet<PathBuf>>, String> {
+    control.check()?;
     super::context::validate_project_root(root)?;
     if !has_git_marker(root)? {
         return Ok(None);
@@ -1522,7 +1566,8 @@ pub(crate) fn source_paths(
     let composed = composed_storage.as_str();
     #[cfg(not(target_os = "macos"))]
     let composed = scope;
-    let git = Git::new(root, stopped, Instant::now() + COMMAND_TIMEOUT)?;
+    let mut git = Git::new(root, control.stopped, control.deadline)?;
+    git.cancelled = Some(control.cancelled);
     let arguments = [
         "ls-files",
         "--cached",
@@ -1535,6 +1580,7 @@ pub(crate) fn source_paths(
     ];
     let count = if composed == scope { 7 } else { 8 };
     let output = git.required(&arguments[..count], None, 512 * 1024)?;
+    control.check()?;
     if output.truncated {
         return Err(
             "Source filename inventory exceeds 512 KiB; choose a narrower directory scope".into(),

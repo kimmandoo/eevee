@@ -935,6 +935,11 @@ fn mixed_file_tool_identities_survive_every_protocol_continuation() {
             json!({"path":"new.rs","content":"generated"}),
             ToolKind::Write,
         ),
+        (
+            "eevee_structural_search",
+            json!({"directory":"src","language":"rust","pattern":"call($X,$X)","offset":0,"snapshot":""}),
+            ToolKind::StructuralSearch,
+        ),
     ];
     for protocol in [
         Protocol::Responses,

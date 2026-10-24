@@ -103,6 +103,7 @@ impl Default for State {
                 signatures: vec![],
                 resolutions: vec![],
                 resolution_choices: vec![],
+                failure_comparisons: vec![],
                 habits: vec![],
                 pairings: vec![],
                 usages: vec![],
@@ -1217,6 +1218,7 @@ impl App {
                 self.records.scroll = 0;
                 self.records.invalidate_review();
             }
+            KeyCode::Char('r') if self.records.mode == Mode::Dex => self.record_dex_relay(),
             KeyCode::Enter if self.records.mode == Mode::Ribbons => self.record_ribbon_inspect(),
             KeyCode::Char('h') if self.records.mode == Mode::Ribbons => {
                 if let Some(view) = self.records.snapshot.ribbons.get(self.records.selected) {
@@ -1344,6 +1346,53 @@ impl App {
                     }
                 }
             }
+        }
+    }
+    fn record_dex_relay(&mut self) {
+        if !self.records.loaded || self.records.persistence_pending() {
+            return;
+        }
+        let Some(signature) = self.records.snapshot.signatures.get(self.records.selected) else {
+            return;
+        };
+        let Some(comparison) = self
+            .records
+            .snapshot
+            .failure_comparisons
+            .iter()
+            .rev()
+            .find(|comparison| comparison.signature == signature.key)
+        else {
+            self.records.hint = Some(Message::DexComparisonUnavailable);
+            return;
+        };
+        let history = comparison.historical.iter().map(|support|
+            format!("Historical support {} / passing run {} / diagnosis {:?} / pass {:?} / source {:?}",
+                support.support_artifact, support.passing_run, support.diagnosis,
+                support.pass, support.source)).collect::<Vec<_>>().join("\n");
+        let text = format!(
+            "Inspect task {} failure reference {} / signature {}.\nCommand: {}\nCwd: {}\nObservation: {:?}; source {:?}.\n{}\nHistorical/stale observations are investigation leads only, never current verification or inferred causality. Review retained evidence; no automatic fix, send, execution or permission is requested.",
+            self.task_id,
+            comparison.failure_run,
+            comparison.signature,
+            super::execution_relays::command_draft(&comparison.command),
+            comparison.cwd.display(),
+            comparison.disposition,
+            comparison.source,
+            history
+        );
+        let request = super::relays::RelayRequest {
+            target_form: 5,
+            text,
+            paths: Vec::new(),
+            source: super::relays::RelaySource::DexEvidence {
+                signature: signature.key.clone(),
+                run: comparison.failure_run.clone(),
+            },
+            command: None,
+        };
+        if let Err(error) = self.stage_relay(request) {
+            self.records.notice = error;
         }
     }
     fn record_resolve_selected(&mut self) {

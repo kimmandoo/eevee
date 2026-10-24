@@ -893,7 +893,7 @@ impl App {
             && !self.moves.persistence_pending()
             && self.overlay.is_none()
             && self.confirmation.is_none()
-            && (!self.editing || self.composer_is_request() && self.input.is_empty())
+            && !self.editing
             && !self.quit_after_save
             && !self.quit
             && !self.transitioning

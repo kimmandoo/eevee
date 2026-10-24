@@ -25,6 +25,7 @@ const HARD_STOP: Duration = Duration::from_secs(3);
 static SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub enum CommandSpec {
     Direct {
         program: String,
@@ -289,6 +290,7 @@ struct Gate {
     pending: Option<String>,
     active: Option<String>,
     cancelled: bool,
+    callback_cancelled: Option<Arc<AtomicBool>>,
 }
 enum Command {
     Prepare {
@@ -303,6 +305,8 @@ enum Command {
     Dispatch {
         request_id: String,
         permit: crate::store::CommittedRunPermit,
+        source_guard: Option<PathBuf>,
+        callback_root: Option<PathBuf>,
     },
 }
 pub struct Worker {
@@ -453,19 +457,63 @@ impl Worker {
         request_id: &str,
         permit: crate::store::CommittedRunPermit,
     ) -> Result<(), String> {
-        let gate = self.gate.lock();
+        self.dispatch_guarded(request_id, permit, None)
+    }
+    /// Plans add a current-source guard without creating another process executor.
+    pub fn dispatch_guarded(
+        &self,
+        request_id: &str,
+        permit: crate::store::CommittedRunPermit,
+        source_guard: Option<PathBuf>,
+    ) -> Result<(), String> {
+        self.dispatch_with_callback(request_id, permit, source_guard, None, None)
+    }
+    pub fn dispatch_callback(
+        &self,
+        request_id: &str,
+        permit: crate::store::CommittedRunPermit,
+        data_dir: PathBuf,
+        project: PathBuf,
+        cancelled: Arc<AtomicBool>,
+    ) -> Result<(), String> {
+        self.dispatch_with_callback(
+            request_id,
+            permit,
+            Some(data_dir),
+            Some(project),
+            Some(cancelled),
+        )
+    }
+    fn dispatch_with_callback(
+        &self,
+        request_id: &str,
+        permit: crate::store::CommittedRunPermit,
+        source_guard: Option<PathBuf>,
+        callback_root: Option<PathBuf>,
+        cancelled: Option<Arc<AtomicBool>>,
+    ) -> Result<(), String> {
+        let mut gate = self.gate.lock();
         if gate.pending.as_deref() != Some(request_id) || gate.active.is_some() {
             return Err("Approval is stale, already used, or another run is active".into());
         }
         if permit.request_id != request_id {
             return Err("Reservation does not match approval".into());
         }
+        if cancelled
+            .as_ref()
+            .is_some_and(|flag| flag.load(Ordering::Acquire))
+        {
+            return Err("Owned command callback was cancelled before dispatch".into());
+        }
+        gate.callback_cancelled = cancelled;
         self.commands
             .as_ref()
             .ok_or("Runner is stopped")?
             .try_send(Command::Dispatch {
                 request_id: request_id.into(),
                 permit,
+                source_guard,
+                callback_root,
             })
             .map_err(|_| "Runner queue is full or disconnected".into())
     }
@@ -576,13 +624,34 @@ fn worker(
                     }
                 }
             }
-            Command::Dispatch { request_id, permit } => {
+            Command::Dispatch {
+                request_id,
+                permit,
+                source_guard,
+                callback_root,
+            } => {
                 let task_id = permit.task_id;
                 let result = pending
                     .as_ref()
                     .filter(|p| p.request_id == request_id)
                     .ok_or_else(|| "Approval has no current prepared request".to_owned())
-                    .and_then(|prepared| admit(prepared, &permit, &gate, &stopped));
+                    .and_then(|prepared| {
+                        if let Some(claim) = &permit.provider_claim {
+                            let data_dir = source_guard
+                                .as_ref()
+                                .ok_or("Command callback lost its durable admission boundary")?;
+                            crate::store::validate_command_callback(data_dir, claim, prepared)?;
+                        }
+                        if let Some(data_dir) = &source_guard {
+                            validate_source_guard(
+                                prepared,
+                                callback_root.as_deref().unwrap_or(&prepared.cwd),
+                                data_dir,
+                                permit.provider_claim.is_none(),
+                            )?;
+                        }
+                        admit(prepared, &permit, &gate, &stopped)
+                    });
                 match result {
                     Ok(process) => {
                         let mut prepared = pending.take().expect("admitted prepared request");
@@ -613,6 +682,26 @@ fn worker(
             }
         }
     }
+}
+
+fn validate_source_guard(
+    prepared: &Prepared,
+    root: &Path,
+    data_dir: &Path,
+    require_complete: bool,
+) -> Result<(), String> {
+    if !require_complete && prepared.before.fingerprint.is_none() {
+        // Plain folders retain explicit unknown coverage, not a fabricated Git identity.
+        return Ok(());
+    }
+    let current = crate::workspace::repo::observe_inputs(root, data_dir)?;
+    if current != prepared.before
+        || (require_complete
+            && (!current.complete || !current.stable || current.fingerprint.is_none()))
+    {
+        return Err("Command approval is stale: reviewed project source identity changed or became unavailable; nothing started".into());
+    }
+    Ok(())
 }
 
 fn validate_move_cwd(root: &Path, cwd: &Path) -> Result<(), String> {
@@ -712,11 +801,7 @@ fn prepare(
     if cwd.to_str().is_none() || !cwd.is_dir() {
         return Err("Working directory must be a Unicode directory".into());
     }
-    let program = match &spec {
-        CommandSpec::Direct { program, .. } => program,
-        CommandSpec::Shell { executable, .. } => executable,
-    };
-    let path = resolve_executable(program, &cwd)?;
+    let path = resolve_executable(program(&spec), &cwd)?;
     #[cfg(windows)]
     if path
         .extension()
@@ -894,6 +979,10 @@ fn admit(
     {
         let mut state = gate.lock();
         if stopped.load(Ordering::Acquire)
+            || state
+                .callback_cancelled
+                .as_ref()
+                .is_some_and(|flag| flag.load(Ordering::Acquire))
             || now_ms() > prepared.expires_at_ms
             || state.pending.as_deref() != Some(&prepared.request_id)
             || state.active.is_some()
@@ -912,6 +1001,12 @@ fn admit(
             state.cancelled = false;
             Err(format!("Owned command launch refused: {error}"))
         }
+    }
+}
+fn program(spec: &CommandSpec) -> &str {
+    match spec {
+        CommandSpec::Direct { program, .. } => program,
+        CommandSpec::Shell { executable, .. } => executable,
     }
 }
 fn arguments(spec: &CommandSpec) -> impl Iterator<Item = &str> {
@@ -964,7 +1059,14 @@ fn run(
     let mut status = None;
     let mut buffer = [0u8; 8192];
     loop {
-        let cancelled = stopped.load(Ordering::Acquire) || gate.lock().cancelled;
+        let cancelled = stopped.load(Ordering::Acquire) || {
+            let state = gate.lock();
+            state.cancelled
+                || state
+                    .callback_cancelled
+                    .as_ref()
+                    .is_some_and(|flag| flag.load(Ordering::Acquire))
+        };
         if cancelled && !capture.record.cancelled {
             capture.record.cancelled = true;
             capture.record.state = RunState::Cancelling;
@@ -1359,6 +1461,8 @@ pub(crate) mod native {
             }
             let mut command = Command::new(&prepared.executable.path);
             command
+                // Execute the frozen image, but retain the reviewed multicall identity.
+                .arg0(program(&prepared.spec))
                 .args(arguments(&prepared.spec))
                 .current_dir(&prepared.cwd)
                 .stdin(stdin_reader)
@@ -1753,13 +1857,8 @@ pub(crate) mod native {
             startup.lpAttributeList = attributes.list;
             let executable = wide(prepared.executable.path.as_os_str());
             let cwd = wide(prepared.cwd.as_os_str());
-            let mut line = quote(
-                prepared
-                    .executable
-                    .path
-                    .to_str()
-                    .ok_or_else(|| io::Error::other("Non-Unicode executable"))?,
-            );
+            // lpApplicationName selects the frozen image; argv[0] retains its reviewed alias.
+            let mut line = quote(program(&prepared.spec));
             if let CommandSpec::Shell {
                 dialect: ShellDialect::Cmd,
                 text,

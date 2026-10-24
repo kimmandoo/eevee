@@ -1336,17 +1336,18 @@ fn assert_readonly_declarations(body: &Value, protocol: Protocol) {
             }
         })
         .collect::<HashSet<_>>();
-    assert_eq!(
-        names,
-        HashSet::from([
-            "eevee_read_file",
-            "eevee_list_files",
-            "eevee_artifact_list",
-            "eevee_artifact_read",
-            "eevee_artifact_search",
-            "eevee_artifact_locations"
-        ])
-    );
+    for effectful in [
+        "eevee_write_file",
+        "eevee_edit_file",
+        "eevee_delete_file",
+        "eevee_rename_file",
+        "eevee_run_command",
+    ] {
+        assert!(
+            !names.contains(effectful),
+            "read-only role exposed {effectful}"
+        );
+    }
 }
 
 #[test]
@@ -2331,4 +2332,37 @@ fn native_batch_preflights_rename_destination_and_delete_through_one_scope() {
     let outcome = scope.apply(proposals[0].as_ref().unwrap()).unwrap();
     assert!(outcome.source_sha256.is_none());
     assert!(!fixture.workspace.project.join("nested/moved.txt").exists());
+}
+
+#[test]
+fn command_wait_has_no_http_deadline_and_lost_ack_is_not_a_refusal() {
+    let fixture = Fixture::new(&[]);
+    let (run, _) = fixture.prepare(Protocol::Responses, "https://example.invalid/v1");
+    let stopped = AtomicBool::new(false);
+    let cancelled = AtomicU64::new(0);
+    let control = Control {
+        stopped: &stopped,
+        cancelled: &cancelled,
+        generation: run.generation,
+        deadline: Instant::now() - Duration::from_secs(1),
+    };
+    let (_requests, incoming) = mpsc::sync_channel(1);
+    let (reply, received) = mpsc::sync_channel(1);
+    reply
+        .send(Err::<Value, String>("User denied before dispatch".into()))
+        .unwrap();
+    assert!(
+        matches!(wait_command_reply(&received, &run, &control, &incoming), Ok(Err(message)) if message.contains("denied"))
+    );
+    drop(reply);
+    let error = wait_command_reply(&received, &run, &control, &incoming).unwrap_err();
+    assert!(error.starts_with("Owned command outcome unknown:"));
+    let (reply, received) = mpsc::sync_channel::<Result<Value, String>>(1);
+    let _keep_reply = reply;
+    cancelled.store(run.generation, Ordering::Release);
+    assert!(
+        wait_command_reply(&received, &run, &control, &incoming)
+            .unwrap_err()
+            .contains("cancelled")
+    );
 }

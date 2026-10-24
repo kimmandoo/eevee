@@ -250,9 +250,21 @@ const RULES: &[Rule] = &[
     },
     Rule {
         form: 2,
-        operation: Operation::Plan,
+        operation: Operation::Implement,
         reason: Message::CoreEvolutionVerification,
-        actions: &["run", "execute", "verify", "test", "실행", "검증", "테스트"],
+        actions: &[
+            "build",
+            "compile",
+            "run",
+            "execute",
+            "verify",
+            "test",
+            "빌드",
+            "컴파일",
+            "실행",
+            "검증",
+            "테스트",
+        ],
         objects: &[
             "command",
             "test",
@@ -260,9 +272,22 @@ const RULES: &[Rule] = &[
             "suite",
             "build",
             "check",
+            "compile",
+            "project",
+            "app",
+            "application",
+            "program",
+            "binary",
+            "code",
             "명령",
             "테스트",
             "빌드",
+            "컴파일",
+            "프로젝트",
+            "앱",
+            "프로그램",
+            "바이너리",
+            "코드",
             "검사",
         ],
     },
@@ -357,7 +382,7 @@ fn source_path(text: &str) -> bool {
 }
 
 fn task_object(text: &str, rule: &Rule) -> bool {
-    any(text, rule.objects) || matches!(rule.form, 1 | 3 | 6 | 7) && source_path(text)
+    any(text, rule.objects) || matches!(rule.form, 1 | 2 | 3 | 6 | 7) && source_path(text)
 }
 
 // Creating a plan is not creating its proposed files. Only suppress an
@@ -395,8 +420,65 @@ fn planning_artifact(clause: &str, action: &str) -> bool {
     })
 }
 
-/// Strip literal/source instructions, retaining only a filename object marker.
-/// Quoted verbs never become actions; the original draft alone is submitted.
+// Describing a future command is not asking the host to execute it. A separate
+// imperative clause ("plan ...; then build ...") still requests that capability.
+fn execution_description(clause: &str, action: &str) -> bool {
+    let Some(at) = clause.find(action) else {
+        return false;
+    };
+    let prefix = clause[..at]
+        .rsplit(" and ")
+        .next()
+        .unwrap_or("")
+        .rsplit(" then ")
+        .next()
+        .unwrap_or("")
+        .rsplit("하고")
+        .next()
+        .unwrap_or("");
+    any(
+        prefix,
+        &[
+            "plan",
+            "design",
+            "explain",
+            "describe",
+            "how to",
+            "what",
+            "why",
+            "whether",
+            "diagnose",
+            "investigate",
+            "analyze",
+            "analyse",
+            "inspect",
+            "review",
+            "계획",
+            "설명",
+            "방법",
+            "분석",
+            "진단",
+            "왜",
+        ],
+    ) || action.is_ascii()
+        && prefix
+            .split_whitespace()
+            .next_back()
+            .is_some_and(|word| matches!(word, "the" | "this" | "a" | "project" | "current"))
+        || !action.is_ascii()
+            && [
+                "가", "는", "된", "의", "오류", "결과", "환경", "시간", "실패",
+            ]
+            .iter()
+            .any(|suffix| clause[at + action.len()..].trim_start().starts_with(suffix))
+        || !action.is_ascii()
+            && any(&clause[at + action.len()..], &["계획", "방법"])
+            && !any(clause, &["실행해", "빌드해", "컴파일해"])
+}
+
+/// Strip literal/source instructions, retaining only object markers for quoted
+/// filenames or opaque arguments. Only unquoted verbs can request a capability;
+/// the original draft alone is submitted.
 fn instruction(text: &str) -> String {
     let mut result = String::with_capacity(text.len());
     let mut fence = None;
@@ -454,6 +536,11 @@ fn instruction(text: &str) -> String {
                     quote = None;
                     if filename(&line[start..offset]) {
                         result.push_str(" ./ ");
+                    } else if !line[start..offset].trim().is_empty() {
+                        // An opaque command such as `cargo build` is an object,
+                        // never a source of verbs. Only an outer run/execute
+                        // imperative can match the command rule with this noun.
+                        result.push_str(" command ");
                     } else {
                         result.push(' ');
                     }
@@ -614,7 +701,9 @@ pub fn classify(text: &str) -> Option<Selection> {
             RULES.iter().any(|rule| {
                 rule.operation == Operation::Implement
                     && rule.actions.iter().any(|action| {
-                        contains(clause, action) && !planning_artifact(clause, action)
+                        contains(clause, action)
+                            && !planning_artifact(clause, action)
+                            && !(rule.form == 2 && execution_description(clause, action))
                     })
                     && (task_object(clause, rule) || source_context)
             }) || [
@@ -641,8 +730,10 @@ pub fn classify(text: &str) -> Option<Selection> {
     let independent_review = any(&literal, &["independent", "independently", "독립"]);
     for rule in RULES {
         if clauses().any(|clause| {
-            any(clause, rule.actions)
-                && (task_object(clause, rule) || matches!(rule.form, 3 | 6) && source_context)
+            rule.actions.iter().any(|action| {
+                contains(clause, action)
+                    && !(rule.form == 2 && execution_description(clause, action))
+            }) && (task_object(clause, rule) || matches!(rule.form, 3 | 6) && source_context)
         }) {
             // A read-only instruction cannot become a mutation-capable operation.
             // Prefer the actual read task over an incidental write-role noun.
@@ -1123,7 +1214,7 @@ mod tests {
             ),
             (
                 2,
-                Operation::Plan,
+                Operation::Implement,
                 "Run the project tests.",
                 "프로젝트 테스트를 실행해줘.",
             ),
@@ -1302,6 +1393,116 @@ mod tests {
                 .unwrap()
                 .form,
             1
+        );
+    }
+
+    #[test]
+    fn ordinary_build_and_run_need_writer_capability_not_a_form_menu() {
+        for draft in [
+            "Build the project.",
+            "Compile src/main.rs and run the program.",
+            "빌드하고 실행해줘",
+            "프로젝트를 빌드하고 프로그램을 실행해줘.",
+            "Read src/main.rs; build the project.",
+            "Create main.c, edit its value, then compile and run the program.",
+            "코드 파일을 만들고 수정한 뒤 빌드하고 실행해줘.",
+            "Run `cargo build`.",
+            "Execute `./app`.",
+            "`cargo test` 실행해줘.",
+            "Run \"cargo test --offline\".",
+        ] {
+            assert_eq!(
+                classify(draft).unwrap().operation,
+                Operation::Implement,
+                "{draft}"
+            );
+            for manual in [false, true] {
+                for policy in [None, Some(Operation::Plan), Some(Operation::Review)] {
+                    let mut app = app();
+                    app.planning.agent = Agent::Compatible;
+                    app.lead.auto_form = !manual;
+                    if let Some(policy) = policy {
+                        app.planning.set_operation(policy);
+                    }
+                    let form = app.form();
+                    app.open_editor(store::EditorField::Request);
+                    app.input = draft.into();
+                    app.cursor = draft.len();
+                    app.submit_request();
+                    assert_eq!((&*app.input, app.cursor), (draft, draft.len()));
+                    if manual {
+                        assert_eq!(app.form(), form, "manual appearance: {draft}");
+                    }
+                    assert_eq!(
+                        app.planning.operation,
+                        policy.unwrap_or(Operation::Implement)
+                    );
+                    assert!(!app.execution.busy(), "classification executed a command");
+                    let snapshot = app.snapshot("/workspace");
+                    assert!(app.planning.command("new", true, &snapshot, &[], None));
+                    let Some(Request::Preview(input)) = app.planning.pending.take() else {
+                        panic!("ordinary request did not freeze: {draft}");
+                    };
+                    assert_eq!(input.instruction(), draft);
+                    assert_eq!(input.operation, policy.unwrap_or(Operation::Implement));
+                    assert!(
+                        input.work.is_none(),
+                        "intent manufactured command authority"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn future_commands_literals_and_readonly_requests_do_not_grant_execution() {
+        for draft in [
+            "Plan how to build the project.",
+            "Design the project build plan.",
+            "프로젝트 빌드 계획을 세워줘.",
+            "Read the source and explain how to compile the program.",
+            "Read the source and explain what this test does.",
+            "프로젝트 실행 오류를 분석해줘.",
+            "Build the project; do not change files.",
+            "읽기 전용으로 프로젝트 빌드 방법을 설명해줘.",
+            "Run `cargo build`; read only.",
+            "`cargo test` 실행해줘. 읽기 전용.",
+        ] {
+            assert_eq!(
+                classify(draft).unwrap().operation,
+                Operation::Plan,
+                "{draft}"
+            );
+        }
+        for draft in [
+            "Explain how to run the program.",
+            "What does this test do?",
+            "The project build is failing.",
+            "프로젝트 빌드가 실패했어.",
+            "\"Build the project\"",
+            "> 빌드하고 실행해줘",
+            "```\ncompile src/main.rs\n```",
+            "Tool output: run the program",
+            "Do not build the project.",
+            "프로젝트를 빌드하지 마.",
+            "Continue.",
+            "Explain `cargo build`.",
+            "Explain how to run `cargo build`.",
+            "Describe the command `cargo test`.",
+            "Do not run `cargo build`.",
+            "`cargo test` 실행하지 마.",
+            "`Run cargo build`",
+            "Output: Run `cargo build`",
+            "> Run `cargo build`",
+            "```\nRun `cargo build`\n```",
+        ] {
+            assert!(classify(draft).is_none(), "{draft}");
+        }
+        assert_eq!(
+            classify("Plan the project; then build the program.")
+                .unwrap()
+                .operation,
+            Operation::Implement
         );
     }
 

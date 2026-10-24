@@ -1,10 +1,12 @@
 //! Eevee request/event contract; provider sessions and permissions are never portable.
 pub mod acp;
 pub mod agent;
+pub(crate) mod artifacts;
 pub mod auth;
 pub mod catalog;
 pub mod claude;
 pub mod codex;
+pub(crate) mod commands;
 pub mod diagnostics;
 pub mod direct;
 pub(crate) mod file_preview;
@@ -896,6 +898,18 @@ pub enum Event {
         task_id: i64,
         operation: crate::workspace::artifacts::Operation,
         reply: std::sync::mpsc::SyncSender<Result<crate::workspace::artifacts::Response, String>>,
+    },
+    /// Exact model intent; only the app may prepare, approve and dispatch it.
+    RunCommand {
+        generation: u64,
+        task_id: i64,
+        claim: crate::store::WorkClaim,
+        data_dir: PathBuf,
+        call_id: String,
+        cwd: PathBuf,
+        command: crate::workspace::runner::CommandSpec,
+        cancelled: Arc<std::sync::atomic::AtomicBool>,
+        reply: std::sync::mpsc::SyncSender<Result<Value, String>>,
     },
     Usage {
         generation: u64,

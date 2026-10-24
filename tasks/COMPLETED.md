@@ -1,8 +1,66 @@
 # Completed work
 
-Updated on 2026-10-24 through accepted Wave1–2 source additions; v0.1.29 remains the public release and publication is qualified separately in the checkpoint. This is historical completion evidence, not an execution queue. Active work and priority live in [task.md](../task.md); the current contract is [DESIGN_RULES.md](../docs/DESIGN_RULES.md). Release/runtime evidence remains in [WORK_CHECKPOINT.md](../docs/WORK_CHECKPOINT.md) and [CHANGELOG.md](../CHANGELOG.md).
+Updated on 2026-10-24 through accepted Wave1–4 source additions. Publication is qualified separately in the checkpoint; local acceptance is not live-provider conformance. This is historical completion evidence, not an execution queue. Active work and priority live in [task.md](../task.md); the current contract is [DESIGN_RULES.md](../docs/DESIGN_RULES.md). Release/runtime evidence remains in [WORK_CHECKPOINT.md](../docs/WORK_CHECKPOINT.md) and [CHANGELOG.md](../CHANGELOG.md).
 
 The specifications below retain their original acceptance notes and wording. Old schema numbers, limits, priorities, proposed ordering and release statements are historical; they do not override the current contract. Scoped completion does not establish authenticated conformance for every provider. T05 was dropped, not completed.
+
+## Waves 3–4 — accepted v0.1.30 source
+
+RX03, TC04, TC02, TC05, D01 and PK07 passed implementation and actual acceptance on2026-10-24. Rust1.90.0 passed1,640 tests/two ignored, formatting, strict Clippy and release build; SDK45 and Python22/four platform skips passed. Native/controlled English wide and Korean compact structural/cache journeys proved exact ranges, distinct statuses, exclusions, stale paging and measured real fingerprint costs; no speedup was claimed. Ten actual plan/recovery groups proved overlapping reads, zero warm query workers, serial comparisons, individually approved mutations, blocked descendants, cancellation, stale refusal and crash/lost-response no replay.
+
+Four bilingual compact/wide impact journeys ran the actual ignored caller test outside default workspace members, caught the changed callee with Cargo exit101 and broadened shared-config checks without automatic execution. Four Dex journeys proved fail/pass/fail, changed/purged support, neutral/nonempty-recipient relay guards and restart with no provider request. Reference-backed native/Codex/SDK/ACP coding routes additionally created/edited actual source, received real compiler errors, rebuilt and ran native programs through fresh exact approvals; their protocol peers were not live models.
+
+Evidence: `target/wave34-structural-{en,ko}-d`, `wave34-tool-plans-c`, `wave34-impact-{en-d,ko-e}`, `wave34-recurrence-{en-b,en-compact-c,ko-compact-d,ko-wide-c}`, `wave34-agent-coding-f`, `wave34-sdk-command-d` and `wave34-acp-terminal-b`. All earlier failed reports remain retained. Exact-source native qualification/publication and public-package proof are recorded separately in the checkpoint. The six original specifications follow unchanged except their completion markers.
+
+### RX03 — Bounded Rust structural source search
+
+- [x] Find a code shape across source files, rather than only a filename, literal text or ranked symbol excerpt.
+- **Priority:** 2. **Needs:** —. **Builds on:** C02, T02B, TC01A, TC01B.
+- **Reference:** Structural captures and output and scan limits.
+- **Eevee gap:** Existing provider file discovery matches names; syntax-derived context ranks identifiers. Neither is a user-specified structural-pattern query.
+- **Change:** Document a Rust-only expression-pattern grammar with named node captures and repeated-capture equality. Return deterministic project-relative ranges, captures, full-source identity and honest scan/parse omissions. Reuse local parser, discovery/privacy rules and existing adapter exposure; define hard candidate, scanned-byte, match and response-byte limits before implementation.
+- **Accept:** Equivalent call shapes match across whitespace/newlines; lookalikes inside comments/strings do not. Invalid pattern, unsupported language, parse failure, complete no-match and incomplete scan remain distinct. Returned ranges resolve to their digest. Cancellation, exclusions, protected paths, links and limits do not leak content; paging is bound to the query/source snapshot and refuses changed sources.
+- **Watch out:** No semantic name-binding claims, structural rewriting, automatic context selection, network grammar acquisition or unbounded project traversal. A partial scan is not proof of absence.
+
+### TC04 — Observation cache
+
+- [x] Reuse unchanged read observations honestly.
+- **Priority:** 2. **Needs:** —. **Builds on:** C02, TC03A.
+- **Change:** Cache allowlisted reads/searches keyed by operation version, args, project and fingerprints; hits are labelled with their original time.
+- **Accept:** A repeat runs no worker; changing content, ignore rules, tool version or a link boundary invalidates; other projects never share; executions avoided are compared against hashing cost.
+- **Watch out:** Shell, tests, builds and network reads are non-cacheable. A hit is never a fresh test.
+
+### TC02 — Reviewed tool plans
+
+- [x] Execute a visible typed plan with fewer round trips.
+- **Priority:** 2. **Needs:** —. **Builds on:** R02, A03, TC01B.
+- **Change:** A bounded dependency graph with validated args and effects. Only enforceably read-only independent calls run in parallel; writes and unknown effects are serialized; every effectful call is reviewed.
+- **Accept:** Independent reads overlap and writes never do; a failed prerequisite blocks its descendants; cancellation starts no queued node; counts and time are compared with serial execution.
+- **Watch out:** A batch is not blanket consent.
+
+### TC05 — Failed-step recovery
+
+- [x] Recover a failed plan without repeating confirmed mutations.
+- **Priority:** 2. **Needs:** TC02. **Builds on:** R02, TC03A.
+- **Change:** Persist node args, fingerprints, results and certainty; preview resuming failed/unstarted nodes only.
+- **Accept:** A confirmed write is not repeated; a lost mutation response blocks until reconciled; stale approvals start nothing.
+- **Watch out:** Never promise exactly-once execution across crashes.
+
+### D01 — Impact-directed verification plan
+
+- [x] Recommend the checks most likely to catch a change's defects.
+- **Priority:** 2. **Needs:** TC02. **Builds on:** C01, R01, PK05A, T02B.
+- **Change:** Use changed symbols, local dependencies, test mappings and existing Dex failure records to propose a minimal check set with reasons, through Jolteon's review.
+- **Accept:** The caller's test catches a changed callee; a shared-config change triggers a broader plan; targeted passes are labelled targeted.
+- **Watch out:** A recommendation is neither proof of completeness nor permission to run.
+
+### PK07 — Dex recurrence versus historical resolution
+
+- [x] Distinguish a recurring failure from a previously resolved, now stale observation.
+- **Priority:** 2. **Needs:** —. **Builds on:** PK05A, PK05B, EV10A, EV10B, EV12, PT10, R02.
+- **Change:** Compare existing failure/resolution references using command, cwd, source, supporting evidence and passing-run identities. Show missing/stale support honestly. A selected evidence relay may reuse the reviewed Umbreon flow without sending or executing.
+- **Accept:** Fail, pass with support, then fail again; change a source and purge a referenced run. The old pass never becomes current verification. Neutral relay preserves sender and recipient drafts and applies existing recipient guards.
+- **Watch out:** Derived view only: no duplicate logs, new resolution authority, model-inferred causality, fuzzy cross-project clustering or automatic fix. D01 still owns impact-directed check selection.
 
 ## Waves 1–2 — accepted source additions (unpublished)
 

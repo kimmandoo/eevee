@@ -1,20 +1,10 @@
 # K — Reference-derived capabilities
 
-These capabilities adapt useful behavior from a read-only external reference. RX01/RX02 completed in Wave2 and moved to [COMPLETED.md](COMPLETED.md); the four remaining tasks below are planned only. Pinned upstream links identify the inspected reference, not proof that Eevee already supports a planned task.
+These capabilities adapt useful behavior from a read-only external reference. RX01/RX02 completed in Wave2 and RX03 in Wave3; their specifications moved to [COMPLETED.md](COMPLETED.md). The three remaining tasks below are planned only. Pinned links identify the inspected reference, not proof that Eevee already supports a planned task.
 
 Existing [F](F-context-tools.md), [I](I-product-capabilities.md), [J](J-eevee-workflows.md) and [completed work](COMPLETED.md) retain their scopes. Do not rebuild shipped symbol/context/catalog/artifact/party workflows or the accepted delete/rename/multi-hunk/syntax additions. Proposed search/screenshot/Git features retain their own tasks. [Design rules](../docs/DESIGN_RULES.md) remain binding; use focused behavior regressions and actual runtime proof rather than another blanket platform cross-product.
 
 Reference inspection did not copy implementation or prompts. The reference root MIT license requires retained notices for copied substantial portions; any later code reuse must check the actual component and dependency licenses separately.
-
-### RX03 — Bounded Rust structural source search
-
-- [ ] Find a code shape across source files, rather than only a filename, literal text or ranked symbol excerpt.
-- **Priority:** 2. **Needs:** —. **Builds on:** C02, T02B, TC01A, TC01B.
-- **Reference:** Structural captures and output and scan limits.
-- **Eevee gap:** Existing provider file discovery matches names; syntax-derived context ranks identifiers. Neither is a user-specified structural-pattern query.
-- **Change:** Document a Rust-only expression-pattern grammar with named node captures and repeated-capture equality. Return deterministic project-relative ranges, captures, full-source identity and honest scan/parse omissions. Reuse local parser, discovery/privacy rules and existing adapter exposure; define hard candidate, scanned-byte, match and response-byte limits before implementation.
-- **Accept:** Equivalent call shapes match across whitespace/newlines; lookalikes inside comments/strings do not. Invalid pattern, unsupported language, parse failure, complete no-match and incomplete scan remain distinct. Returned ranges resolve to their digest. Cancellation, exclusions, protected paths, links and limits do not leak content; paging is bound to the query/source snapshot and refuses changed sources.
-- **Watch out:** No semantic name-binding claims, structural rewriting, automatic context selection, network grammar acquisition or unbounded project traversal. A partial scan is not proof of absence.
 
 ### RX04 — Parked future-request drafts without scheduling
 

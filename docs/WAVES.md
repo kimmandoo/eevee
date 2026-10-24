@@ -1,13 +1,13 @@
 # Implementation waves
 
-Updated 2026-10-24. Waves1–2 passed implementation and actual acceptance for all seven assigned tasks; they are archived source additions, not a new public release. Later waves remain planning only. Exact specifications remain in the linked [task index](../task.md); wave order is delivery priority, not an invented technical dependency.
+Updated2026-10-24. Waves1–4 passed implementation and actual acceptance for all13 assigned tasks; their original specifications are archived. The current request additionally repaired reference-backed coding/build/run and authorized v0.1.30 publication after exact-source native qualification. Waves5–8 remain planning only. Exact specifications remain in the linked [task index](../task.md); wave order is delivery priority, not an invented technical dependency.
 
 | Wave | Outcome | Assigned tasks | Exit proof |
 |---|---|---|---|
 | 1 — Complete | Recoverable local data and explainable intent | GP01, GP02, EV19 | Actual full snapshot/restore and no replay; bilingual compact/wide predictions matched dispatched policy |
 | 2 — Complete | Complete reviewed single-file editing | GP03, GP04, RX01, RX02 | Eight native/controlled journeys proved exact effects, stale/deny/cancel safety and pre-write syntax disclosure |
-| 3 | Bounded discovery and tool orchestration | RX03, TC04, TC02 | Structural-query bounds, cache invalidation and reviewed dependency execution |
-| 4 | Recovery and relevant checks | TC05, D01, PK07 | No repeated confirmed writes, impact-selected checks and honest recurrence evidence |
+| 3 — Complete | Bounded discovery and tool orchestration | RX03, TC04, TC02 | Bilingual native/controlled structural/cache proof; actual independent reads and individually reviewed serial mutations |
+| 4 — Complete | Recovery and relevant checks | TC05, D01, PK07 | Actual crash/lost-response no replay, four real Cargo caller-test journeys and four Dex recurrence/relay/purge journeys |
 | 5 | Explainable Eevee configuration | MV09, PK08, PT12 | Semantic replacement, deliberate reference renewal and formation readiness without dispatch |
 | 6 | Retained-work navigation and composition | GP05, PK09, RX04, RX05, RX06 | Project-private retrieval, honest attribution, unsent drafts, reviewed external editor and navigation-only landmarks |
 | 7 | New input and repository effects | GP06, GP07 | Exact approved image payload; selected local commit without hidden executable effects |
@@ -21,7 +21,7 @@ Updated 2026-10-24. Waves1–2 passed implementation and actual acceptance for a
 - A04/A06 and live Q03/resource rows require separately permitted credentials and explicit live/paid authorization. Their blockers never block unrelated local waves or become synthetic passing evidence.
 - Wave 6 may split retained-work navigation from draft/editor changes; shared store/composer edits integrate sequentially. Wave 7's two capabilities are separate changes. GP07 requires an intentional design-contract amendment before implementation.
 - Every feature retains its exact task acceptance, neutral cancellation, immutable evidence and existing executor/store/approval authority. Each completed coherent task needs focused behavior tests, actual runtime proof, documentation and a conventional commit. A wave is complete only when all assigned task acceptance passes; partial evidence remains explicitly partial.
-- Reuse bounded native profiles instead of multiplying every new case across every platform. Release qualification remains exact-source Check/all five native jobs plus public package verification when publication is requested. This request does not authorize new paid/live calls or automatically start Waves 3–8.
+- Reuse bounded native profiles instead of multiplying every new case across every platform. Release qualification remains exact-source Check/all five native jobs plus public package verification when publication is requested. This request authorizes Waves3–4 and v0.1.30 publication, not new paid/live calls or automatic Waves5–8 implementation.
 
 ## Just-in-time structure tasks
 
@@ -37,4 +37,4 @@ These seven tasks remain assigned once here, not hidden or counted as completed.
 | RF08 | Wave 3/7 execution/repository integration | Existing workflow/execution/repository responsibility needs extraction |
 | RF09 | Wave 1 persistence fixtures | Existing legacy store-fixture ownership needs separation |
 
-Original coverage: 23 implementation tasks + seven final-acceptance tasks + seven conditional structure tasks =37. Seven Wave1–2 tasks passed actual acceptance and were archived;30 remain (16 features in Waves3–7, seven acceptance tasks and seven conditional structure tasks). None of the structure tasks was triggered merely to clean up files; existing ownership boundaries supported Waves1–2.
+Original coverage:23 implementation tasks + seven final-acceptance tasks + seven conditional structure tasks =37. Thirteen Wave1–4 tasks passed actual acceptance and were archived;24 remain (ten features in Waves5–7, seven acceptance tasks and seven conditional structure tasks). No conditional structure task was marked complete merely because a new responsibility module was added.

@@ -32,6 +32,16 @@ fn read_snapshot<T>(
     current_schema(&transaction)?;
     read(&transaction)
 }
+/// Recheck exact borrowed provider authority immediately before runner spawn.
+pub fn validate_command_callback(
+    data_dir: &Path,
+    claim: &WorkClaim,
+    prepared: &crate::workspace::runner::Prepared,
+) -> Result<(), String> {
+    read_snapshot(data_dir, |connection| {
+        super::work::validate_nested_command(connection, claim, prepared)
+    })
+}
 
 /// Read-only, transaction-consistent admission check for a reviewed provider request.
 /// This grants no command/file permission and never repairs or migrates storage.

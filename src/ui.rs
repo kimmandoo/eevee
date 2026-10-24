@@ -14,6 +14,7 @@ mod planning;
 mod records;
 mod sources;
 mod tool_catalog;
+mod tool_plans;
 mod updates;
 mod workflows;
 
@@ -689,6 +690,7 @@ pub fn render(
             Overlay::Updates => updates::render(frame, area, app, config, &paint),
             Overlay::Artifacts => artifacts::render(frame, area, &mut app.artifacts, config),
             Overlay::ToolCatalog => tool_catalog::render(frame, area, app, config, &paint),
+            Overlay::ToolPlans => tool_plans::render(frame, area, app, config, &paint),
             Overlay::Receipts => app.planning.receipts.render(frame, area, config.language),
             Overlay::Party => party(frame, area, app, config, &paint),
             Overlay::PartyBoard => cooperation::board(frame, area, app, config, &paint),

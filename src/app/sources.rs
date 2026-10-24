@@ -94,6 +94,7 @@ pub struct State {
     pub pending: Option<context::Request>,
     pub pending_store: Option<store::ContextRequest>,
     pub source_busy: bool,
+    pub(crate) impact_request: Option<u64>,
     pub store_busy: bool,
     pub store_failed: bool,
     pub await_refresh: bool,
@@ -662,6 +663,7 @@ impl State {
         );
     }
     fn queue(&mut self, task_id: i64, operation: context::Operation) {
+        self.impact_request = None;
         if matches!(
             &operation,
             context::Operation::Inspect { .. } | context::Operation::InspectFile { .. }
@@ -811,6 +813,9 @@ impl State {
                 );
                 self.status =
                     "Source identities checked; validating persisted basket references…".into();
+            }
+            Ok(context::Response::Impact { .. }) => {
+                self.status = "Impact recommendation belongs to its original specialist preview; no source selection changed.".into();
             }
             Err(error) => {
                 if self.memory_adoption.take().is_some() {

@@ -23,6 +23,46 @@ const OUTPUT_LIMIT: usize = 512 * 1024;
 const ITEM_LIMIT: usize = 32 * 1024;
 const APPROVAL_LIMIT: usize = 1024 * 1024;
 type Events = Arc<Mutex<VecDeque<Event>>>;
+struct SdkCommand {
+    id: String,
+    result: Receiver<Result<Value, String>>,
+    cancel: super::commands::Cancellation,
+}
+
+fn command_request(
+    value: &Value,
+) -> Result<(String, PathBuf, crate::workspace::runner::CommandSpec), String> {
+    #[derive(serde::Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Wire {
+        protocol: u64,
+        #[serde(rename = "type")]
+        kind: String,
+        generation: u64,
+        task_id: i64,
+        session_id: String,
+        call_id: String,
+        cwd: PathBuf,
+        command: crate::workspace::runner::CommandSpec,
+    }
+    let wire: Wire = serde_json::from_value(value.clone())
+        .map_err(|_| "Invalid strict SDK host command schema")?;
+    if wire.protocol != 1
+        || wire.kind != "bridge_command"
+        || wire.generation == 0
+        || wire.task_id <= 0
+        || !sdk_uuid(&wire.session_id)
+        || !sdk_uuid(&wire.call_id)
+        || serde_json::to_vec(&wire.command)
+            .map_err(|_| "Invalid command")?
+            .len()
+            > 64 * 1024
+    {
+        return Err("Invalid SDK host command identity/bounds".into());
+    }
+    super::commands::validate_cwd(&wire.cwd)?;
+    Ok((wire.call_id, wire.cwd, wire.command))
+}
 struct Workspace {
     project: PathBuf,
     data_dir: PathBuf,
@@ -537,11 +577,11 @@ fn inspection_matches(value: &Value, versions: &SdkVersions) -> bool {
     value["type"] == "capabilities"
         && value["sdk_version"].as_str() == Some(versions.sdk.as_str())
         && value["cli_version"].as_str() == Some(versions.cli.as_str())
-        && value["bridge_revision"] == 9
+        && value["bridge_revision"] == 10
         && value["query"] == true
         && value["policy"]
             == json!({
-                "tools": "closed-allowlist", "permissions": "default-host-once", "mcp": "host-discovery-only",
+                "tools": "closed-allowlist", "permissions": "default-host-once", "mcp": "host-discovery-and-reviewed-command",
                 "configuration": "isolated", "authentication": "api-console-cloud-only",
                 "dispatch": "correlated-sdk-submission",
                 "usage": "correlated-sdk-snapshots",
@@ -720,6 +760,35 @@ impl SdkTurnUsage {
     }
 }
 
+fn launch_identity(
+    executable: crate::workspace::runner::ExecutableIdentity,
+    entry: &Path,
+    cwd: PathBuf,
+) -> Result<crate::workspace::runner::Prepared, String> {
+    Ok(crate::workspace::runner::Prepared {
+        // This is a revalidated process identity, not a command approval.
+        // The owning Preview/Prompt carries arrival order; generating a new
+        // order here would make unchanged trust snapshots compare unequal.
+        approval_arrival: 0,
+        request_id: "claude-agent".into(),
+        run_id: "claude-agent".into(),
+        task_id: 0,
+        spec: crate::workspace::runner::CommandSpec::Direct {
+            program: executable.path.to_string_lossy().into_owned(),
+            args: vec![entry.to_string_lossy().into_owned()],
+        },
+        cwd_identity: crate::workspace::runner::native::directory_identity(&cwd)
+            .map_err(|_| "SDK process cwd identity unavailable")?,
+        executable,
+        cwd,
+        prepared_at_ms: 0,
+        expires_at_ms: 0,
+        before: crate::workspace::runner::InputSnapshot::default(),
+        partner: None,
+        rerun_of: None,
+    })
+}
+
 struct Trust {
     launch: crate::workspace::runner::Prepared,
     root: PathBuf,
@@ -812,25 +881,7 @@ fn trust(project: &Path, data_dir: &Path) -> Result<Trust, String> {
         "Unavailable: permitted API key, Console OAuth profile or cloud credentials required; subscription auth is disabled"
             .into()
     });
-    let launch = crate::workspace::runner::Prepared {
-        approval_arrival: crate::providers::approval_arrival(),
-        request_id: "claude-agent".into(),
-        run_id: "claude-agent".into(),
-        task_id: 0,
-        spec: crate::workspace::runner::CommandSpec::Direct {
-            program: node.to_string_lossy().into_owned(),
-            args: vec![entry.to_string_lossy().into_owned()],
-        },
-        cwd_identity: crate::workspace::runner::native::directory_identity(&cwd)
-            .map_err(|_| "SDK process cwd identity unavailable")?,
-        executable,
-        cwd,
-        prepared_at_ms: 0,
-        expires_at_ms: 0,
-        before: crate::workspace::runner::InputSnapshot::default(),
-        partner: None,
-        rerun_of: None,
-    };
+    let launch = launch_identity(executable, &entry, cwd)?;
     Ok(Trust {
         launch,
         root,
@@ -1209,7 +1260,8 @@ fn payload(
     }
     let sources = input.source_payload(exclusions)?;
     let text = crate::workspace::context::optimizer::encode_context(json!({
-        "purpose": if input.operation == Operation::Plan { "Answer the request directly; inspect safe source when useful. Produce a plan only when requested. No implementation tools are exposed." } else { "Answer the request directly and inspect safe source when useful. When changes are requested, implement using exact per-operation approval of each file and missing parent. Empty selected paths permit safe project-relative file proposals; nonempty selected paths are an exact restriction. Preserve existing dirty working content. This is external SDK agent policy, not strict OS confinement. Do not commit/merge. Report unverified patch for human diff review." },
+        "purpose": if input.operation == Operation::Plan { "Answer the request directly; inspect safe source when useful. Produce a plan only when requested. No implementation tools are exposed." } else { "Implement requested changes with exact per-file Write/Edit approval. Build/test/run only through mcp__eevee_command__run_command: cwd is empty for root or safe project-relative, command is Direct {program,args} or explicit Shell {executable,dialect,text}. Each command requires separate exact host runner consent. Read actual stdout/stderr/exit/artifact evidence. On failed build, inspect stderr, fix reviewed source and request a newly reviewed retry. Native Bash/Agent/external MCP remain forbidden. Preserve dirty content; no commit/merge. SDK writes are external agent policy, not OS confinement." },
+        "unsupported_host_observations":"eevee_structural_search and Eevee observation-cache guarantees are unsupported on this SDK route. Native Read/Glob/Grep remain external agent policy. Host command results carry actual owned run evidence, not task completion or a confinement guarantee.",
         "task": { "id": input.task.id, "revision": input.task.revision, "goal": input.task.goal, "acceptance_criteria": input.task.criteria, "next_action": crate::workspace::handoff::without_local_provenance(&input.task.next_action) },
         "project_context": project_context,
         "request": input.instruction(),
@@ -1320,10 +1372,10 @@ fn worker(
                         } else {
                             "CLOUD AUTH: only explicitly selected environment/bearer/web-identity/credential-file routes are admitted; HOME and Claude configuration are isolated. Profile/SSO/default ADC discovery requires EEVEE_CLAUDE_CLOUD_AUTH=provider-chain and a fresh preview. Effective SDK backend is checked before prompt release.".into()
                         },
-                        "Filesystem settingSources=[]; no project/user CLAUDE.md/hooks/plugins/skills/external MCP are loaded. MCP is strict host-only: one in-process bounded read-only source discovery tool; no external servers. Agent/Task/Bash/web/worktree/delegation tools are mandatory-disabled. System executable configuration is refused. Mandatory host policy hooks cover reads and writes in every noninspection operation. Inherited OS/runtime and provider cloud credential libraries remain external dependencies.".into(),
+                        "Filesystem settingSources=[]; no project/user CLAUDE.md/hooks/plugins/skills/external MCP are loaded. MCP is strict host-only: bounded source discovery plus an implementation-only in-process command request tool. No external servers. Agent/Task/Bash/web/worktree/delegation remain mandatory-disabled. Only Eevee's shared runner can execute host command requests after separate exact one-shot approval; MCP routing permission is never execution consent. System executable configuration is refused. Mandatory host policy hooks cover reads and writes. Inherited OS/runtime and provider cloud credential libraries remain external dependencies.".into(),
                         "Read/Glob/Grep are provider-native agent-policy tools, not excerpt-only reads or Eevee confinement; preapproved reads may bypass canUseTool but not mandatory host admission. Root discovery uses host-filtered safe filenames/literal matches, omitting protected/excluded/linked/credential-bearing entries without weakening native subtree checks. Explicit ask rules mediate supported requests. Deny/allow once only; no permission updates, login flows or automatic queue/resend. Interrupt requires observed terminal result; forced cleanup is outcome unknown, never rollback. One query is bounded to 16 SDK turns and estimated incremental USD 5; estimates are not invoices.".into(),
                         match input.operation {
-                            Operation::Implement => "EXTERNAL-POLICY IMPLEMENTATION: Write/Edit proposals, mandatory frozen-target hook and exact one-shot user approval. Optional selected paths restrict targets; otherwise safe project-relative targets are captured before approval. No shell/delegation/MCP mutations. Symlinks are refused at check; SDK path checks are NOT atomic OS confinement. Consent accepts that external-policy boundary; inspect dirty baseline/current diff and deliberately verify; no auto commit/merge.".into(),
+                            Operation::Implement => "IMPLEMENT: Write/Edit proposals retain mandatory frozen-target hooks and exact one-shot file approval. Optional selected paths restrict file targets; otherwise safe project-relative targets are captured before approval. The separate host command tool requests builds/tests/programs through the existing owned runner, exact command/cwd/executable review, durable journal/spool and retained output artifacts. Source writes and commands cannot overlap. Commands and SDK writes are NOT OS sandboxed; native Bash/delegation/external MCP remain disabled. Inspect dirty baseline/current diff and deliberately verify; no auto commit/merge.".into(),
                             Operation::Plan => "PLAN: SDK tool exposure excludes all file-write/shell/delegation routes. This is verified configured agent tool policy, not filesystem/network isolation.".into(),
                             Operation::Review => "REVIEW: fresh requirements/patch/selected-observation context in a new session; no implementation history or Resume. Uses the reviewed SDK read-only tool policy: Write/Edit/Bash/delegation/external MCP are unavailable independently of approval callbacks. Only host-owned safe source discovery is exposed through MCP. Agent tool policy is not OS isolation.".into(),
                         },
@@ -1989,6 +2041,8 @@ fn transport(
         let mut items = SdkItems::default();
         let mut file_previews = SdkFilePreviews::new(&run.input, run.generation);
         let mut seen_prompts = HashSet::new();
+        let mut pending_command: Option<SdkCommand> = None;
+        let mut seen_commands = HashSet::new();
         let mut dispatch_receipt_seen = None;
         let journal_nonce = if run.input.inspect_models {
             0
@@ -1999,7 +2053,7 @@ fn transport(
                 .as_nanos()
         };
         let mut usage = SdkTurnUsage::begin(&run.input, sessions)?;
-        pipe.send(json!({"protocol":1,"bridge_revision":9,"type":"run","generation":run.generation,"task_id":run.input.task.id,"cwd":project,"state_dir":run.trust.state_dir,
+        pipe.send(json!({"protocol":1,"bridge_revision":10,"type":"run","generation":run.generation,"task_id":run.input.task.id,"cwd":project,"state_dir":run.trust.state_dir,
             "request_id":if run.input.inspect_models { None } else { run.input.work.as_ref().map(|work| work.request_id.as_str()) },
             "prompt":if run.input.inspect_models { "" } else { run.text.as_str() },
             "operation":if run.input.inspect_models { "plan" } else { sdk_tool_policy(run.input.operation) },
@@ -2016,6 +2070,9 @@ fn transport(
                     && cancelling.is_none()
                 {
                     cancelling = Some(Instant::now());
+                    if let Some(command) = &pending_command {
+                        command.cancel.0.store(true, Ordering::Release);
+                    }
                     for (id, _) in std::mem::take(&mut prompts) {
                         emit(
                             events,
@@ -2082,6 +2139,38 @@ fn transport(
                         }
                     }
                 }
+                if let Some(command) = &pending_command {
+                    match command.result.try_recv() {
+                        Ok(result) => {
+                            let result = result.unwrap_or_else(
+                                |message| json!({"status":"error","message":safe(&message)}),
+                            );
+                            pipe.send(json!({"protocol":1,"type":"bridge_command_result","generation":run.generation,"task_id":run.input.task.id,
+                                "session_id":thread_id,"call_id":command.id,"result":result}))?;
+                            if super::commands::outcome_unknown(&result) {
+                                emit(events, Event::LocalEffectsUnknown {
+                                    generation: run.generation, task_id: run.input.task.id,
+                                    message: "SDK host command ownership/outcome unknown; further local effects stopped, no replay".into(),
+                                })?;
+                                return Err(
+                                    "SDK owned command outcome unknown; no continuation".into()
+                                );
+                            }
+                            pending_command = None;
+                        }
+                        Err(mpsc::TryRecvError::Empty) => {}
+                        Err(mpsc::TryRecvError::Disconnected) => {
+                            emit(events, Event::LocalEffectsUnknown {
+                                generation: run.generation, task_id: run.input.task.id,
+                                message: "SDK host command durable reply lost; owned local effects unknown, no replay".into(),
+                            })?;
+                            return Err(
+                                "Owned SDK command outcome unavailable; no continuation or replay"
+                                    .into(),
+                            );
+                        }
+                    }
+                }
                 for value in pipe.pump(Some((cancelled, run.generation)))? {
                     if value["generation"].as_u64() != Some(run.generation)
                         || value["task_id"].as_i64() != Some(run.input.task.id)
@@ -2122,9 +2211,38 @@ fn transport(
                             let item = items.observe(&value)?;
                             emit(events, Event::Item { generation: run.generation, task_id: run.input.task.id, thread_id: thread_id.clone(), turn_id: turn.clone(), item_id: value["item_id"].as_str().unwrap().into(), kind: item.kind, text: item.text.clone(), complete: item.complete })?;
                         }
+                        "bridge_command" => {
+                            if run.input.inspect_models || run.input.operation != Operation::Implement || thread_id.is_empty() ||
+                                value["session_id"].as_str() != Some(thread_id.as_str()) || dispatch_receipt_seen.is_none() ||
+                                pending_command.is_some() || !prompts.is_empty() || cancelling.is_some() ||
+                                cancelled.load(Ordering::Acquire) == run.generation {
+                                return Err("SDK command lacks current implementation/session authority or overlaps a callback".into());
+                            }
+                            let (id, cwd, command) = command_request(&value)?;
+                            if seen_commands.len() >= 128 || !seen_commands.insert(id.clone()) { return Err("Duplicate/bounded SDK command refused".into()); }
+                            run.input.validate_committed(data_dir)?;
+                            revalidate(project, data_dir, &run.trust)?;
+                            let (reply, result) = mpsc::sync_channel(1);
+                            let cancel = super::commands::Cancellation::new();
+                            emit(events, Event::RunCommand {
+                                generation: run.generation, task_id: run.input.task.id,
+                                claim: run.input.work.clone().ok_or("SDK command missing exact writer claim")?,
+                                data_dir: data_dir.to_path_buf(), call_id: id.clone(), cwd, command,
+                                cancelled: cancel.0.clone(), reply,
+                            })?;
+                            pending_command = Some(SdkCommand { id, result, cancel });
+                        }
+                        "bridge_command_cancel" => {
+                            let command = pending_command.as_ref().ok_or("SDK cancelled an unowned command")?;
+                            if value["session_id"].as_str() != Some(thread_id.as_str()) || value["call_id"].as_str() != Some(command.id.as_str()) {
+                                return Err("SDK command cancellation identity mismatch".into());
+                            }
+                            command.cancel.0.store(true, Ordering::Release);
+                        }
                         "prompt" => {
                             let id = value["request_id"].as_str().ok_or("Missing callback request ID")?;
                             if cancelling.is_some() || cancelled.load(Ordering::Acquire) == run.generation { pipe.cancel(run.generation)?; continue; }
+                            if pending_command.is_some() { return Err("SDK permission callback overlaps an owned command".into()); }
                             if !prompts.is_empty() || seen_prompts.len() >= 256 || !seen_prompts.insert(id.to_owned()) || id.is_empty() || id.len() > 256 || safe(id) != id || thread_id.is_empty() || value["session_id"].as_str() != Some(thread_id.as_str()) { return Err("Stale/duplicate/concurrent/unqualified SDK callback refused".into()); }
                             run.input.validate_committed(data_dir)?;
                             let kind = prompt_kind(&value)?;
@@ -2144,6 +2262,7 @@ fn transport(
                                 }
                                 return Ok((Outcome::Completed, "Live SDK model capabilities inspected; no model turn or journal".into()));
                             }
+                            if pending_command.is_some() { return Err("SDK ended before owned command settlement; outcome unknown".into()); }
                             if thread_id.is_empty() || value["session_id"].as_str() != Some(thread_id.as_str()) { return Err("Unqualified SDK terminal event".into()); }
                             let outcome = match value["outcome"].as_str() { Some("completed") => Outcome::Completed, Some("failed") => Outcome::Failed, _ => Outcome::Unknown };
                             return Ok((outcome, safe(value["message"].as_str().unwrap_or("SDK terminal result observed"))));
@@ -2185,6 +2304,7 @@ fn transport(
                 },
             );
         }
+        drop(pending_command.take());
         let clean = pipe.teardown();
         if !clean {
             return Ok((Outcome::Unknown, "Claude owned process-tree cleanup could not be confirmed; inspect external changes before any new run".into()));
