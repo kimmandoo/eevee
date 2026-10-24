@@ -1,6 +1,6 @@
 //! Observational source tools and exact edits share the reviewed file executor.
 use super::*;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 const DISCOVERY_ENTRIES: usize = 10_000;
 const LIST_PAGE: usize = 128;
@@ -16,10 +16,12 @@ pub(crate) enum ToolKind {
     Edit,
     Delete,
     Rename,
+    StructuralSearch,
     ArtifactList,
     ArtifactRead,
     ArtifactSearch,
     ArtifactLocations,
+    RunCommand,
 }
 impl ToolKind {
     pub(crate) fn parse(name: &str) -> Result<Self, String> {
@@ -30,10 +32,12 @@ impl ToolKind {
             "eevee_edit_file" => Ok(Self::Edit),
             "eevee_delete_file" => Ok(Self::Delete),
             "eevee_rename_file" => Ok(Self::Rename),
+            "eevee_structural_search" => Ok(Self::StructuralSearch),
             "eevee_artifact_list" => Ok(Self::ArtifactList),
             "eevee_artifact_read" => Ok(Self::ArtifactRead),
             "eevee_artifact_search" => Ok(Self::ArtifactSearch),
             "eevee_artifact_locations" => Ok(Self::ArtifactLocations),
+            "eevee_run_command" => Ok(Self::RunCommand),
             _ => Err("Unsupported file tool name".into()),
         }
     }
@@ -45,22 +49,24 @@ impl ToolKind {
             Self::Edit => "eevee_edit_file",
             Self::Delete => "eevee_delete_file",
             Self::Rename => "eevee_rename_file",
+            Self::StructuralSearch => "eevee_structural_search",
             Self::ArtifactList => "eevee_artifact_list",
             Self::ArtifactRead => "eevee_artifact_read",
             Self::ArtifactSearch => "eevee_artifact_search",
             Self::ArtifactLocations => "eevee_artifact_locations",
+            Self::RunCommand => "eevee_run_command",
         }
     }
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Replacement {
     pub old_text: String,
     pub new_text: String,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(tag = "tool", content = "arguments", deny_unknown_fields)]
 pub(crate) enum FileTool {
     #[serde(rename = "eevee_write_file")]
@@ -91,6 +97,14 @@ pub(crate) enum FileTool {
         destination: PathBuf,
         sha256: String,
     },
+    #[serde(rename = "eevee_structural_search")]
+    StructuralSearch {
+        directory: PathBuf,
+        language: String,
+        pattern: String,
+        offset: usize,
+        snapshot: String,
+    },
     #[serde(rename = "eevee_artifact_list")]
     ArtifactList {},
     #[serde(rename = "eevee_artifact_read")]
@@ -113,6 +127,11 @@ pub(crate) enum FileTool {
         id: String,
         revision: String,
         offset: u64,
+    },
+    #[serde(rename = "eevee_run_command")]
+    RunCommand {
+        cwd: PathBuf,
+        command: crate::workspace::runner::CommandSpec,
     },
     #[serde(skip)]
     Invalid { kind: ToolKind },
@@ -143,10 +162,12 @@ impl FileTool {
             Self::Edit { .. } => ToolKind::Edit,
             Self::Delete { .. } => ToolKind::Delete,
             Self::Rename { .. } => ToolKind::Rename,
+            Self::StructuralSearch { .. } => ToolKind::StructuralSearch,
             Self::ArtifactList { .. } => ToolKind::ArtifactList,
             Self::ArtifactRead { .. } => ToolKind::ArtifactRead,
             Self::ArtifactSearch { .. } => ToolKind::ArtifactSearch,
             Self::ArtifactLocations { .. } => ToolKind::ArtifactLocations,
+            Self::RunCommand { .. } => ToolKind::RunCommand,
             Self::Invalid { kind } => *kind,
         }
     }
@@ -157,8 +178,9 @@ impl FileTool {
             | Self::Edit { path, .. }
             | Self::Delete { path, .. }
             | Self::Rename { path, .. } => path,
-            Self::List { directory, .. } => directory,
+            Self::List { directory, .. } | Self::StructuralSearch { directory, .. } => directory,
             Self::Invalid { .. }
+            | Self::RunCommand { .. }
             | Self::ArtifactList { .. }
             | Self::ArtifactRead { .. }
             | Self::ArtifactSearch { .. }
@@ -232,15 +254,17 @@ impl FileTool {
 
 /// Provider-independent declarations: callers adapt only the protocol envelope.
 pub(crate) fn definitions(writing: bool) -> Vec<Value> {
-    let mut declarations = Vec::with_capacity(if writing { 6 } else { 2 });
+    let mut declarations = Vec::with_capacity(if writing { 8 } else { 3 });
     if writing {
         declarations.push(
         json!({"name":TOOL_NAME,"description":"Create or replace an actual project file through the host file executor, even when the provider's own shell is read-only. Supply complete UTF-8 content (64 KiB maximum); do not substitute a fenced code response for a requested save. Missing parent folders are created after exact full-content allow-once approval. No path preselection is required in workspace mode; an explicit selected-path restriction still applies. Preserve unrelated dirty bytes. No shell or verification.","parameters":{"type":"object","properties":{"path":{"type":"string","description":"Literal project-relative filename, for example src/app/main.py. Nested folders and Unicode names are supported. Do not use an absolute path or parent traversal."},"content":{"type":"string"}},"required":["path","content"],"additionalProperties":false}}),
         );
+        declarations.push(crate::providers::commands::definition());
     }
     declarations.extend([
         json!({"name":"eevee_read_file","description":"Read actual safe project UTF-8 working bytes, independently of the 64 KiB mutation limit. Source capture is bounded at 16 MiB for full-file privacy validation and sha256; returned content is at most 64 KiB of complete lines. Lines are one-based inclusive; end_line=0 requests EOF. Inspect total_lines, truncated and next_start_line, then continue with a narrower range as needed. sha256 always identifies the complete source, never just the returned slice; editable=false refuses mutation of files above 64 KiB. Reading grants no write authority. Credential, excluded, protected, ignored and link paths are refused.","parameters":{"type":"object","properties":{"path":{"type":"string","description":"Literal project-relative filename, not an absolute path or folder. Exact reads need no preceding discovery."},"start_line":{"type":"integer","minimum":1},"end_line":{"type":"integer","minimum":0}},"required":["path","start_line","end_line"],"additionalProperties":false}}),
         json!({"name":"eevee_list_files","description":"Inspect actual safe project filenames, including plain non-Git projects and files too large to edit. directory is a literal project-relative directory (empty means the project root), applied before enumeration and Git inventory. query is a literal substring; offset starts at zero. At most 128 filenames per page, 10000 scanned entries within that directory. Use next_offset for another page; if the scan bound is exceeded, choose a narrower directory, not another query or offset. Returned paths remain relative to the project root. Discovery grants no write authority.","parameters":{"type":"object","properties":{"directory":{"type":"string","description":"Literal project-relative directory to search recursively; empty selects project root. No absolute path or parent traversal."},"query":{"type":"string"},"offset":{"type":"integer","minimum":0}},"required":["directory","query","offset"],"additionalProperties":false}}),
+        json!({"name":"eevee_structural_search","description":"Bounded Rust-only expression search; no binding or rewriting. Grammar: calls/method calls (no turbofish), paths/literals, parentheses, unary/binary/reference, field/index, tuples/arrays, await/try. $NAME captures one expression; repeated names require equal tokens ignoring whitespace/comments. Comments, string lookalikes and macro bodies are not searched. Limits: 128 Rust candidates, 256 KiB/source, 2 MiB scanned bytes, 256 matches, 32/page, 64 KiB response, 2048-byte pattern, 16 captures, 32 KiB capture text/match, 8 KiB each source/omission metadata. Conservative parser ceilings include literal/comment bytes: 64 nesting levels, 1024 opening-delimiter bytes, 32768 nonwhitespace bytes; token-tree expression paths are at most 256 tokens. Omitted sources/details make the result incomplete. First page offset=0,snapshot=\"\"; continuation copies snapshot/next_offset; changed sources or policy refuse. Incomplete is not absence; not compilation.","parameters":{"type":"object","properties":{"directory":{"type":"string"},"language":{"type":"string"},"pattern":{"type":"string","maxLength":2048},"offset":{"type":"integer","minimum":0},"snapshot":{"type":"string"}},"required":["directory","language","pattern","offset","snapshot"],"additionalProperties":false}}),
     ]);
     if writing {
         declarations.extend([
@@ -289,7 +313,7 @@ impl WriteSet {
         })
     }
 
-    fn source_allowed(&self, path: &Path) -> bool {
+    pub(super) fn source_allowed(&self, path: &Path) -> bool {
         if !allowed_path(path, &self.exclusions)
             || path.as_os_str().len() > 4096
             || self
@@ -306,7 +330,7 @@ impl WriteSet {
             .any(|protected| protected_prefix(&full, protected))
     }
 
-    fn source_directory(&self, path: &Path) -> Result<platform::Directory, String> {
+    pub(super) fn source_directory(&self, path: &Path) -> Result<platform::Directory, String> {
         let mut directory = self
             .directories
             .get(Path::new(""))
@@ -321,32 +345,50 @@ impl WriteSet {
         Ok(directory)
     }
 
-    fn source_capture(&self, path: &Path) -> Result<(platform::FileStamp, String), String> {
+    pub(super) fn source_capture_limit(
+        &self,
+        path: &Path,
+        limit: usize,
+        control: &ObservationControl<'_>,
+    ) -> Result<(platform::FileStamp, String), String> {
         self.verify()?;
+        control.check()?;
         if !self.source_allowed(path) {
             return Err(
                 "Source path is protected, excluded or not a literal project-relative filename"
                     .into(),
             );
         }
-        let stopped = std::sync::atomic::AtomicBool::new(false);
-        if !crate::workspace::repo::source_visible(&self.root, path, &stopped)? {
+        if !crate::workspace::repo::source_visible_controlled(&self.root, path, control)? {
             return Err("Source is ignored or absent from the current project inventory".into());
         }
         let directory = self.source_directory(path.parent().unwrap_or(Path::new("")))?;
         let mut file =
             directory.open_file(path.file_name().ok_or("Source filename missing")?, false)?;
         let before = platform::observation_stamp(&file)?;
-        if before.size > SOURCE_BYTES as u64 {
-            return Err("Source exceeds the 16 MiB full-source privacy capture bound; no partial digest or editable baseline was returned".into());
+        if before.size > limit as u64 {
+            return Err(format!(
+                "Source exceeds the full-source privacy capture bound ({limit} bytes; ordinary reads: 16 MiB); no partial digest was returned"
+            ));
         }
-        let mut text = String::with_capacity(before.size as usize + 1);
-        (&mut file)
-            .take((SOURCE_BYTES + 1) as u64)
-            .read_to_string(&mut text)
-            .map_err(|_| "Source must be readable UTF-8")?;
-        if text.len() > SOURCE_BYTES {
-            return Err("Source exceeds the 16 MiB full-source privacy capture bound; no partial digest or editable baseline was returned".into());
+        let mut bytes = Vec::with_capacity(before.size as usize + 1);
+        while bytes.len() <= limit {
+            control.check()?;
+            let before_len = bytes.len();
+            (&mut file)
+                .take((limit + 1 - before_len).min(64 * 1024) as u64)
+                .read_to_end(&mut bytes)
+                .map_err(|_| "Source must be readable UTF-8")?;
+            if bytes.len() == before_len {
+                break;
+            }
+        }
+        control.check()?;
+        let text = String::from_utf8(bytes).map_err(|_| "Source must be readable UTF-8")?;
+        if text.len() > limit {
+            return Err(format!(
+                "Source exceeds the full-source privacy capture bound ({limit} bytes; ordinary reads: 16 MiB); no partial digest was returned"
+            ));
         }
         if !safe_text(&text) {
             return Err(
@@ -358,10 +400,62 @@ impl WriteSet {
         }
         directory.verify()?;
         self.verify()?;
+        control.check()?;
         Ok((before, text))
     }
 
+    #[cfg(test)]
     pub(crate) fn observe_tool(&mut self, tool: &FileTool) -> Result<Value, String> {
+        let stopped = std::sync::atomic::AtomicBool::new(false);
+        self.observe_tool_controlled(
+            tool,
+            &ObservationControl {
+                stopped: &stopped,
+                cancelled: &|| false,
+                deadline: std::time::Instant::now() + std::time::Duration::from_secs(30),
+            },
+        )
+    }
+
+    pub(crate) fn observe_tool_controlled(
+        &mut self,
+        tool: &FileTool,
+        control: &ObservationControl<'_>,
+    ) -> Result<Value, String> {
+        let control = ObservationControl {
+            deadline: control
+                .deadline
+                .min(std::time::Instant::now() + std::time::Duration::from_secs(30)),
+            ..*control
+        };
+        control.check()?;
+        let result = self.cached_observation_controlled(tool, &control);
+        control.check()?;
+        result
+    }
+
+    /// Content-only mediated protocols cannot disclose original cache time/hits.
+    /// Reuse the same scoped reader but never cache an unlabelled observation.
+    pub(crate) fn observe_unlabelled(&mut self, tool: &FileTool) -> Result<Value, String> {
+        let stopped = std::sync::atomic::AtomicBool::new(false);
+        self.execute_observation(
+            tool,
+            None,
+            &ObservationControl {
+                stopped: &stopped,
+                cancelled: &|| false,
+                deadline: std::time::Instant::now() + std::time::Duration::from_secs(30),
+            },
+        )
+    }
+
+    pub(super) fn execute_observation(
+        &mut self,
+        tool: &FileTool,
+        captured: Option<super::observations::Captured>,
+        control: &ObservationControl<'_>,
+    ) -> Result<Value, String> {
+        control.check()?;
         match tool {
             FileTool::Read {
                 path,
@@ -376,7 +470,16 @@ impl WriteSet {
                 if !self.observed.contains_key(path) && self.observed.len() == SOURCE_FILES {
                     return Err("Source read cache permits 32 distinct files per request".into());
                 }
-                let (stamp, text) = self.source_capture(path)?;
+                let (stamp, text, hash, digest) = match captured {
+                    Some(source) => (source.stamp, source.text, source.hash, source.digest),
+                    None => {
+                        let (stamp, text) =
+                            self.source_capture_limit(path, SOURCE_BYTES, control)?;
+                        let hash = Sha256::digest(text.as_bytes());
+                        let digest = format!("{hash:x}");
+                        (stamp, text, hash.into(), digest)
+                    }
+                };
                 let total_lines = text.split_inclusive('\n').count();
                 let requested_end = if *end_line == 0 {
                     total_lines
@@ -396,6 +499,7 @@ impl WriteSet {
                 let mut returned_end = start_line.saturating_sub(1);
                 for (index, line) in text.split_inclusive('\n').enumerate() {
                     let number = index + 1;
+                    control.check()?;
                     if number < *start_line {
                         begin += line.len();
                         finish = begin;
@@ -412,8 +516,6 @@ impl WriteSet {
                 if requested_end >= *start_line && returned_end < *start_line {
                     return Err("Requested source line exceeds the 64 KiB output bound; no partial line or digest was substituted".into());
                 }
-                let hash = Sha256::digest(text.as_bytes());
-                let digest = format!("{hash:x}");
                 let result = json!({"status":"success","path":path,"message":"Actual bounded UTF-8 working bytes; sha256 identifies the full source, not only this range; no write authority granted",
                     "content":&text[begin..finish],"sha256":digest,"bytes":text.len(),
                     "editable":text.len() <= MAX_BYTES,"digest_scope":"full_file",
@@ -423,10 +525,7 @@ impl WriteSet {
                     "next_start_line":if returned_end < requested_end { Some(returned_end + 1) } else { None }});
                 self.observed.insert(
                     path.clone(),
-                    std::sync::Arc::new(SourceIdentity {
-                        stamp,
-                        hash: hash.into(),
-                    }),
+                    std::sync::Arc::new(SourceIdentity { stamp, hash }),
                 );
                 Ok(result)
             }
@@ -434,7 +533,7 @@ impl WriteSet {
                 directory,
                 query,
                 offset,
-            } => self.list_sources(directory, query, *offset),
+            } => self.list_sources_controlled(directory, query, *offset, control),
             _ => Err(
                 "Mutation requires exact reviewed proposal execution, not an observational tool"
                     .into(),
@@ -442,19 +541,65 @@ impl WriteSet {
         }
     }
 
-    fn list_sources(&self, scope: &Path, query: &str, offset: usize) -> Result<Value, String> {
+    pub(super) fn list_sources(
+        &self,
+        scope: &Path,
+        query: &str,
+        offset: usize,
+    ) -> Result<Value, String> {
+        let stopped = std::sync::atomic::AtomicBool::new(false);
+        self.list_sources_controlled(
+            scope,
+            query,
+            offset,
+            &ObservationControl {
+                stopped: &stopped,
+                cancelled: &|| false,
+                deadline: std::time::Instant::now() + std::time::Duration::from_secs(30),
+            },
+        )
+    }
+
+    fn list_sources_controlled(
+        &self,
+        scope: &Path,
+        query: &str,
+        offset: usize,
+        control: &ObservationControl<'_>,
+    ) -> Result<Value, String> {
+        control.check()?;
         self.verify()?;
         if query.len() > 1024 || !safe_text(query) || offset > DISCOVERY_ENTRIES {
             return Err(
                 "Filename query exceeds 1024 safe UTF-8 bytes or offset exceeds 10000".into(),
             );
         }
+        let paths: Vec<_> = self
+            .source_names(scope, control)?
+            .into_iter()
+            .filter(|name| name.contains(query))
+            .collect();
+        let total = paths.len();
+        let page: Vec<_> = paths.into_iter().skip(offset).take(LIST_PAGE).collect();
+        let next = offset.saturating_add(page.len());
+        Ok(json!({"status":"success","path":scope,"directory":scope,
+            "message":"Safe project filenames within this directory scope; observed names only, not write authority",
+            "paths":page,"total":total,"offset":offset,"truncated":next < total,"complete":next >= total,
+            "next_offset":if next < total { Some(next) } else { None }}))
+    }
+
+    pub(super) fn source_names(
+        &self,
+        scope: &Path,
+        control: &ObservationControl<'_>,
+    ) -> Result<Vec<String>, String> {
+        control.check()?;
+        self.verify()?;
         if !scope.as_os_str().is_empty() && !self.source_allowed(scope) {
             return Err(
                 "Discovery directory must be a safe literal project-relative directory".into(),
             );
         }
-        let stopped = std::sync::atomic::AtomicBool::new(false);
         let directory = self.source_directory(scope)?;
         #[cfg(target_os = "macos")]
         let native_scope = directory.relative_path(
@@ -468,18 +613,21 @@ impl WriteSet {
         if !scope.as_os_str().is_empty() && !self.source_allowed(scope) {
             return Err("Native discovery directory is protected or excluded".into());
         }
-        let inventory = crate::workspace::repo::source_paths(&self.root, scope, &stopped)?;
+        let inventory =
+            crate::workspace::repo::source_paths_controlled(&self.root, scope, control)?;
         let mut pending = vec![(scope.to_path_buf(), directory)];
         let mut scanned = 0usize;
         let mut paths = Vec::new();
         let mut retained = Vec::new();
         while let Some((parent, directory)) = pending.pop() {
+            control.check()?;
             if parent.components().count() - scope.components().count() > 64 {
                 return Err("Project discovery exceeds 64 directory levels; choose a narrower directory scope".into());
             }
             let names = directory.names(DISCOVERY_ENTRIES - scanned)?;
             scanned += names.len();
             for name in names {
+                control.check()?;
                 let path = parent.join(&name);
                 if !self.source_allowed(&path) {
                     continue;
@@ -512,9 +660,7 @@ impl WriteSet {
                         }
                         name
                     };
-                    if name.contains(query) {
-                        paths.push(name);
-                    }
+                    paths.push(name);
                 }
             }
             directory.verify()?;
@@ -524,16 +670,10 @@ impl WriteSet {
             directory.verify()?;
         }
         self.verify()?;
+        control.check()?;
         paths.sort();
         paths.dedup();
-        let total = paths.len();
-        let page: Vec<_> = paths.into_iter().skip(offset).take(LIST_PAGE).collect();
-        let next = offset.saturating_add(page.len());
-        Ok(
-            json!({"status":"success","path":scope,"directory":scope,"message":"Safe project filenames within this directory scope; observed names only, not write authority",
-            "paths":page,"total":total,"offset":offset,"truncated":next < total,"complete":next >= total,
-            "next_offset":if next < total { Some(next) } else { None }}),
-        )
+        Ok(paths)
     }
 
     /// Called on a batch candidate; enrollment is committed only after all proposals validate.

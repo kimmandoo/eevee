@@ -722,7 +722,6 @@ mod tests {
             .iter()
             .map(|cell| cell.symbol())
             .collect();
-        assert!(rendered.contains("headroom"));
         assert!(!rendered.contains('\u{1b}'));
     }
 

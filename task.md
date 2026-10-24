@@ -6,9 +6,9 @@ Only unfinished work belongs here. Completed specifications and stable dependenc
 
 - **Released:** [v0.1.29](https://github.com/kimmandoo/eevee/releases/tag/v0.1.29), source `d645b94`, passed Check/all five native targets and public package, installation, update, terminal and runtime verification. It shipped the selected ten context/tool contracts, provider-flow repairs and bounded CI coverage.
 - **Included milestones:** A08 → UX04A → S04 and P04A → P04B → T01B shipped: actionable connection diagnostics, persistent text density, reviewed portable workflows, reviewed updates/safe rollback and exact local context comparison. Specifications remain in [COMPLETED.md](tasks/COMPLETED.md).
-- **Compatibility:** v0.1.29 migrates Schema18 to Schema19; SDK bridge9 remains unchanged. Actual public v0.1.28 refused the migrated store with every data byte unchanged, and v0.1.29 resumed it. Exit all instances and back up the entire data directory before upgrading; restore the complete backup rather than downgrading in place.
-- **Remaining:** **30 tasks**. All seven Wave1–2 contracts passed implementation and actual acceptance and moved intact to the completed archive.
-- **Current request completed:** All seven [Wave1–2](docs/WAVES.md) tasks passed implementation and actual acceptance and were archived. Repaired Windows integration also passed [Check/all-five-native CI](https://github.com/kimmandoo/eevee/actions/runs/40082305882) on source `966613e`. These are unpublished source additions; later waves remain planned and no paid/live calls were made.
+- **Compatibility:** Current v0.1.30 source retains SQL19, requires complete SDK bridge10 and extends strict workflow-plan/evidence reader compatibility. Genuine public0.1.29 admitted prior data, then refused new plan records without changing database bytes; current source resumed inspection without replay. Back up the entire data directory before upgrade; equal SQL schema is not downgrade permission.
+- **Remaining:** **24 tasks**. All13 Wave1–4 contracts passed implementation and actual acceptance and moved intact to the completed archive.
+- **Current request:** Waves3–4 RX03/TC04/TC02/TC05/D01/PK07 and reference-backed native/Codex/SDK/ACP create/edit/build/run repairs passed local acceptance. Exact-source native qualification, v0.1.30 publication and public-package verification remain the active release gates; no later wave or paid/live call is authorized.
 
 ## Completed Pokémon milestone
 
@@ -20,21 +20,21 @@ Party, formations, portable TMs, moves, summary, Dex, held references, ribbons, 
 
 | File | Unfinished scope | Open |
 |---|---|---:|
-| [F — Context and tools](tasks/F-context-tools.md) | Observation cache, reviewed plans/recovery, impact-directed checks and paired quality benchmark | 5 |
+| [F — Context and tools](tasks/F-context-tools.md) | Paired optimization quality benchmark | 1 |
 | [H — Acceptance](tasks/H-provider-acceptance.md) | Live-provider rows, composed quality/resource measurements and native distribution evidence | 6 |
 | [I — Product capabilities](tasks/I-product-capabilities.md) | Retained-task search, screenshot input and selected local Git commit | 3 |
-| [J — Eevee workflows](tasks/J-eevee-workflows.md) | Semantic move review, Dex recurrence, formation readiness, held-reference renewal and contribution drill-down | 5 |
-| [K — Reference adaptations](tasks/K-reference-capabilities.md) | Structural search, parked drafts, external editing and response landmarks | 4 |
+| [J — Eevee workflows](tasks/J-eevee-workflows.md) | Semantic move review, formation readiness, held-reference renewal and contribution drill-down | 4 |
+| [K — Reference adaptations](tasks/K-reference-capabilities.md) | Parked drafts, external editing and response landmarks | 3 |
 | [R — Structure](tasks/R-code-structure.md) | Responsibility-based, just-in-time extractions | 7 |
 
 A/B/C/D/E/G are entirely completed and archived; F/H/I/J/K/R contain unfinished work.
 
 ### Next order
 
-1. Waves1–2 are complete; do not restart their archived tasks. Public v0.1.29 remains unchanged; current source additions are documented separately in README.
-2. On a subsequent implementation request, Wave3 contains RX03 bounded structural search, TC04 observation cache and TC02 reviewed tool plans. They have no unfinished prerequisites and no imposed dependency on each other.
-3. [Wave plan](docs/WAVES.md) assigns all30 remaining tasks to Waves3–8 and conditional just-in-time structure work. No later-wave implementation starts automatically.
-4. Local Q01/Q02/P03 evidence remains independently actionable; authenticated rows and Q03 live trials require separate permission. Existing published release assets stay unchanged.
+1. Waves1–4 are complete; do not restart archived tasks. Finish current exact-source v0.1.30 release qualification and public verification.
+2. On the next authorized implementation request, Wave5 contains MV09 semantic move/TM review, PK08 deliberate held-reference renewal and PT12 formation readiness.
+3. [Wave plan](docs/WAVES.md) assigns all24 remaining tasks to Waves5–8 and conditional structure lanes; no later-wave implementation starts automatically.
+4. Local Q01/Q02/P03 evidence remains independently actionable; authenticated rows and Q03 live trials require separate permission. Existing published assets stay unchanged.
 
 ## Execution rules
 

@@ -5257,3 +5257,55 @@ fn partner_release_resumes_the_retained_partners_mode_without_changing_facts() {
         );
     }
 }
+
+#[test]
+fn reviewed_tool_plan_args_fingerprints_results_and_unknown_windows_use_the_existing_writer() {
+    use crate::workspace::tool_plans::{Certainty, NodeSpec, Operation, Plan, Status};
+    let directory = Directory::new();
+    let writer = worker(&directory, "tool-plan-project");
+    loaded(&writer);
+    let mut task = Snapshot::empty("tool-plan-project".into());
+    task.goal = "Durable plan recovery".into();
+    task.revision = 1;
+    let mut task = create(&writer, task);
+    let mut plan = Plan::new(
+        "Inspect".into(),
+        vec![NodeSpec {
+            id: "read".into(),
+            dependencies: vec![],
+            operation: Operation::Read {
+                path: "src/lib.rs".into(),
+                start_line: 1,
+                end_line: 5,
+            },
+            reason: "Inspect original bytes".into(),
+        }],
+        task.id,
+        task.lead_partner,
+        task.project.clone(),
+        Default::default(),
+    )
+    .unwrap();
+    plan.attempts = 1;
+    plan.nodes[0].status = Status::Unknown;
+    plan.nodes[0].certainty = Certainty::Unknown;
+    plan.nodes[0].run_id = Some("retained-run-reference".into());
+    plan.nodes[0].retain_result("Response lost; no replay authority");
+    task.workflows.tool_plans = Some(plan.clone());
+    task.revision += 1;
+    let task = create(&writer, task);
+    assert_eq!(task.workflows.tool_plans.as_ref(), Some(&plan));
+    drop(writer);
+    let reopened = worker(&directory, "tool-plan-project");
+    let restored = loaded(&reopened);
+    assert_eq!(restored.tasks[0].workflows.tool_plans.as_ref(), Some(&plan));
+    assert!(
+        restored.tasks[0]
+            .workflows
+            .tool_plans
+            .as_ref()
+            .unwrap()
+            .resume_candidates()
+            .is_err()
+    );
+}

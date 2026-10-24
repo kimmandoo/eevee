@@ -8,7 +8,7 @@ import { spawn } from 'node:child_process';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { once } from 'node:events';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { credentialRoute, consoleProfile, accountMatches, SDKWritePolicy, SDKFilePreviews, questionSchema, sdkOutcome, RunSchema, SelectionSchema, modelCatalogue, prepareModels, assertAppliedModel, SDKPackageSchema, assertInitialization, assertSessionPolicy, SDKDispatchReceipt, SDKUsageLedger, BRIDGE_POLICY, DISCOVERY_TOOL, DISCOVERY_SERVER } from './policy.ts';
+import { credentialRoute, consoleProfile, accountMatches, SDKWritePolicy, SDKFilePreviews, questionSchema, sdkOutcome, RunSchema, SelectionSchema, modelCatalogue, prepareModels, assertAppliedModel, SDKPackageSchema, assertInitialization, assertSessionPolicy, SDKDispatchReceipt, SDKUsageLedger, BRIDGE_POLICY, DISCOVERY_TOOL, DISCOVERY_SERVER, COMMAND_TOOL, COMMAND_SERVER, HostCommandSchema, CommandResultSchema } from './policy.ts';
 import type { WriteScope } from './policy.ts';
 
 const compatibility = { sdkVersion: '0.3.999', cliVersion: '2.1.999', requireHooks: false };
@@ -376,7 +376,7 @@ test('failed results reject partial parents, partial content, replaced ancestors
 });
 
 test('the real bridge creates workspace proposals and preserves fatal failed-write effects', { timeout: 30_000 }, async () => {
-  for (const scenario of ['success', 'nested', 'readonly', 'protected-root', 'none', 'parent', 'content', 'ambiguous'] as const) {
+  for (const scenario of ['success', 'nested', 'readonly', 'command-cancel', 'command-unknown', 'protected-root', 'none', 'parent', 'content', 'ambiguous'] as const) {
     const effect = scenario === 'nested' ? 'success' : scenario;
     const fixture = realpathSync(mkdtempSync(join(tmpdir(), 'eevee-sdk-terminal-')));
     let child: ChildProcessWithoutNullStreams | undefined;
@@ -415,6 +415,7 @@ test('the real bridge creates workspace proposals and preserves fatal failed-wri
       writeFileSync(sdk, `
         import { mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
         import { join } from 'node:path';
+        import { setImmediate as nextTurn } from 'node:timers/promises';
         export { createSdkMcpServer, tool } from ${JSON.stringify(new URL('./node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs', import.meta.url).href)};
         import assert from 'node:assert/strict';
         export function query({ prompt, options }) {
@@ -422,14 +423,16 @@ test('the real bridge creates workspace proposals and preserves fatal failed-wri
             accountInfo: async () => ({ apiProvider: 'firstParty' }),
             initializationResult: async () => ({ claude_code_version: '2.1.999', hooks_applied: true }),
             supportedModels: async () => [],
+            interrupt: async () => {},
             close() {},
             async *[Symbol.asyncIterator]() {
+              try {
               const { value: submission } = await prompt.next();
               const session_id = '00000000-0000-4000-8000-000000000001';
               const input = { file_path: ${JSON.stringify(path)}, content: ${JSON.stringify(effect === 'success' ? generatedContent : 'approved complete bytes')} };
               yield { type: 'system', subtype: 'init', session_id, model: 'synthetic',
-                claude_code_version: '2.1.999', permissionMode: 'default', tools: [...options.tools, ${JSON.stringify(DISCOVERY_TOOL)}],
-                mcp_servers: [{ name: 'eevee_source', status: 'connected' }], plugins: [], skills: [], apiKeySource: 'ANTHROPIC_API_KEY' };
+                claude_code_version: '2.1.999', permissionMode: 'default', tools: [...options.tools, ${JSON.stringify(DISCOVERY_TOOL)}, ...(options.mcpServers.eevee_command ? [${JSON.stringify(COMMAND_TOOL)}] : [])],
+                mcp_servers: [{ name: 'eevee_source', status: 'connected' }, ...(options.mcpServers.eevee_command ? [{ name: 'eevee_command', status: 'connected' }] : [])], plugins: [], skills: [], apiKeySource: 'ANTHROPIC_API_KEY' };
               const hook = options.hooks.PreToolUse[0].hooks[0];
               const observe = async (name, input, id) => {
                 const checked = await hook({ hook_event_name: 'PreToolUse', tool_use_id: id, tool_name: name, tool_input: input });
@@ -448,11 +451,11 @@ test('the real bridge creates workspace proposals and preserves fatal failed-wri
                 async send(message) { responses.get(message.id)?.(message); },
               };
               await server.connect(transport);
-              const rpc = (method, params) => {
+              const rpc = (method, params, target = transport) => {
                 const { promise, resolve } = Promise.withResolvers();
                 const id = ++nextId;
                 responses.set(id, resolve);
-                transport.onmessage({ jsonrpc: '2.0', id, method, params });
+                target.onmessage({ jsonrpc: '2.0', id, method, params });
                 return promise;
               };
               const initialized = await rpc('initialize', { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'fixture', version: '1' } });
@@ -478,6 +481,45 @@ test('the real bridge creates workspace proposals and preserves fatal failed-wri
               }
               assert.equal(await observe('mcp__foreign__read', {}, 'foreign-server'), false);
               await server.close();
+              if (!options.tools.includes('Write')) {
+                assert.equal(options.mcpServers.eevee_command, undefined);
+                assert.equal(await observe(${JSON.stringify(COMMAND_TOOL)}, { cwd: '', command: { Direct: { program: 'rustc', args: [] } } }, 'readonly-command'), false);
+              } else if (['success', 'command-cancel', 'command-unknown'].includes(${JSON.stringify(effect)})) {
+                assert.equal(options.mcpServers.eevee_command.timeout, 86400000);
+                // Each MCP server owns a distinct transport. Reusing discovery's
+                // transport chains its old handler and can race a false
+                // "tool not found" response against the command's actual result.
+                const commandTransport = { async start() {}, async close() {},
+                  async send(message) { responses.get(message.id)?.(message); } };
+                await options.mcpServers.eevee_command.instance.connect(commandTransport);
+                assert.ok((await rpc('initialize', { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'fixture', version: '1' } }, commandTransport)).result);
+                commandTransport.onmessage({ jsonrpc: '2.0', method: 'notifications/initialized' });
+                const args = { cwd: '', command: { Direct: { program: 'rustc', args: ['main.rs'] } } };
+                yield { type: 'assistant', session_id, user_message_uuid: submission.uuid,
+                  message: { id: 'host-command', content: [{ type: 'tool_use', id: 'host-command', name: ${JSON.stringify(COMMAND_TOOL)}, input: args }] } };
+                assert.equal(await observe(${JSON.stringify(COMMAND_TOOL)}, args, 'host-command-routing'), true);
+                const waiting = rpc('tools/call', { name: 'run_command', arguments: args }, commandTransport);
+                await nextTurn(); // Drain MCP request dispatch, not a guessed elapsed-time delay.
+                assert.equal(await observe('Write', input, 'command-overlap-write'), false);
+                assert.equal(await observe(${JSON.stringify(COMMAND_TOOL)}, args, 'command-overlap-command'), false);
+                const concurrent = await rpc('tools/call', { name: 'run_command', arguments: args }, commandTransport);
+                assert.equal(concurrent.result.isError, true);
+                yield { type: 'assistant', session_id, message: { id: 'command-exclusion-checked', content: [{ type: 'text', text: 'command-exclusion-checked' }] } };
+                const response = await waiting;
+                assert.equal(response.result.isError, true);
+                assert.match(response.result.content[0].text, /^\\{/, JSON.stringify(response));
+                assert.equal(JSON.parse(response.result.content[0].text).stderr, 'actual host compiler stderr');
+                yield { type: 'user', session_id, message: { content: [
+                  { type: 'tool_result', tool_use_id: 'host-command', content: response.result.content, is_error: response.result.isError },
+                ] } };
+                await options.mcpServers.eevee_command.instance.close();
+                if (['command-cancel', 'command-unknown'].includes(${JSON.stringify(effect)})) {
+                  assert.equal(await observe('Write', input, 'cancelled-write'), false);
+                  assert.equal(await observe(${JSON.stringify(COMMAND_TOOL)}, args, 'unknown-next-command'), false);
+                  yield { type: 'result', session_id, is_error: true, subtype: 'error_during_execution' };
+                  return;
+                }
+              }
               if (!options.tools.includes('Write')) {
                 assert.equal(await observe('Write', input, 'readonly-write'), false);
                 yield { type: 'assistant', session_id, user_message_uuid: submission.uuid,
@@ -551,6 +593,7 @@ test('the real bridge creates workspace proposals and preserves fatal failed-wri
               yield { type: 'assistant', session_id,
                 message: { id: 'later', content: [{ type: 'text', text: 'Later model success must not clear uncertainty' }] } };
               yield { type: 'result', session_id, is_error: false, subtype: 'success' };
+              } catch (error) { console.error(error); throw error; }
             },
           };
         }
@@ -587,6 +630,14 @@ test('the real bridge creates workspace proposals and preserves fatal failed-wri
             if (effect === 'content' || effect === 'ambiguous') assert.equal(readFileSync(join(root, path), 'utf8'), 'reviewed baseline');
             else assert.throws(() => lstatSync(join(root, path)), { code: 'ENOENT' });
           }
+          const command = frames.find(value => value.type === 'bridge_command');
+          if (frame.type === 'item' && frame.text === 'command-exclusion-checked' && command) {
+            if (scenario === 'command-cancel') child!.stdin!.write(JSON.stringify({ protocol: 1, type: 'cancel', generation: 1 }) + '\n');
+            child!.stdin!.write(JSON.stringify({
+            protocol: 1, type: 'bridge_command_result', generation: 1, task_id: 1, session_id: command.session_id, call_id: command.call_id,
+            result: { status: 'error', run: { exit_code: 1, ...(scenario === 'command-unknown' ? { state: 'OutcomeUnknown', tree: 'OwnershipUnknown' } : {}) }, stdout: '', stderr: 'actual host compiler stderr', artifact: { id: 'fixture', revision: 1 } },
+          }) + '\n');
+          }
           if (frame.type === 'prompt') child!.stdin!.write(JSON.stringify({
             protocol: 1, type: 'answer', generation: 1, request_id: frame.request_id,
             answer: frame.request_id === 'denied' ? frame.input.options[0].answer :
@@ -596,7 +647,7 @@ test('the real bridge creates workspace proposals and preserves fatal failed-wri
       });
       const closed = once(child, 'close');
       child.stdin!.write(JSON.stringify({
-        protocol: 1, bridge_revision: 9, type: 'run', generation: 1, task_id: 1, request_id: 'submission',
+        protocol: 1, bridge_revision: 10, type: 'run', generation: 1, task_id: 1, request_id: 'submission',
         prompt: 'Deterministic source and write operations', cwd: root, state_dir: join(fixture, 'state'),
         operation: scenario === 'readonly' ? 'plan' : 'implement',
         write_scope: { ...(scenario === 'readonly' ? reviewedScope(root, []) : workspaceScope(root)), excluded_paths: ['excluded'], protected_paths: [join(root, 'host-state')] }, inspect_models: false,
@@ -610,7 +661,7 @@ test('the real bridge creates workspace proposals and preserves fatal failed-wri
         assert.throws(() => lstatSync(join(root, path)), { code: 'ENOENT' });
         continue;
       }
-      assert.ok(frames.some(frame => frame.type === 'dispatched'), `${effect}: ${diagnostics}`);
+      assert.ok(frames.some(frame => frame.type === 'dispatched'), `${effect}: ${diagnostics}; terminal frames: ${JSON.stringify(frames.filter(frame => ['fatal', 'status', 'thread', 'bridge_command'].includes(String(frame.type))))}`);
       if (scenario === 'readonly') {
         assert.equal(code, 0, diagnostics);
         assert.equal(frames.find(frame => frame.type === 'finished')?.outcome, 'completed');
@@ -618,6 +669,15 @@ test('the real bridge creates workspace proposals and preserves fatal failed-wri
         assert.throws(() => lstatSync(join(root, path)), { code: 'ENOENT' });
         continue;
       }
+      if (scenario === 'command-cancel' || scenario === 'command-unknown') {
+        assert.equal(code, 0, diagnostics);
+        if (scenario === 'command-cancel') assert.ok(frames.some(frame => frame.type === 'bridge_command_cancel'));
+        assert.equal(frames.find(frame => frame.type === 'finished')?.outcome, 'unknown');
+        assert.equal(frames.some(frame => frame.type === 'prompt' && frame.item_id === 'cancelled-write'), false);
+        assert.throws(() => lstatSync(join(root, path)), { code: 'ENOENT' });
+        continue;
+      }
+      if (effect === 'success') assert.equal(code, 0, diagnostics);
       const previews = frames.filter(frame => frame.type === 'file_preview' && frame.tool_id === 'write');
       assert.ok(previews.some(frame => frame.stage === 'delta'));
       assert.deepEqual(JSON.parse(previews.filter(frame => frame.stage === 'delta').map(frame => frame.fragment).join('')), {
@@ -668,7 +728,9 @@ test('one-shot write consent rejects foreign, duplicate, altered and cancelled g
   try {
     const policy = new SDKWritePolicy(root, reviewedScope(root, ['new.txt']));
     const input = { file_path: 'new.txt', content: 'reviewed' };
+    assert.equal(policy.commandAvailable(), true);
     assert.ok(policy.begin('one', 'Write', input));
+    assert.equal(policy.commandAvailable(), false);
     assert.equal(policy.approve('foreign', 'Write', input, true, false), false);
     assert.equal(policy.approve('one', 'Write', { ...input, content: 'changed' }, true, false), false);
     assert.equal(policy.begin('one', 'Write', input), undefined);
@@ -678,12 +740,14 @@ test('one-shot write consent rejects foreign, duplicate, altered and cancelled g
     assert.equal(policy.finish('cancel', 'Write', input, false), true);
     assert.ok(policy.begin('allow', 'Write', input));
     assert.equal(policy.approve('allow', 'Write', input, true, false), true);
+    assert.equal(policy.commandAvailable(), false);
     assert.equal(policy.approve('allow', 'Write', input, true, false), false);
     assert.equal(policy.begin('overlap', 'Write', input), undefined);
     assert.equal(policy.preToolUse('allow', 'Write', { ...input, content: 'changed' }), false);
     writeFileSync(join(root, 'new.txt'), 'externally appeared');
     assert.equal(policy.preToolUse('allow', 'Write', input), false);
     assert.equal(policy.finish('allow', 'Write', input, true), false);
+    assert.equal(policy.commandAvailable(), false, 'uncertain source effects cannot race a build');
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -744,11 +808,11 @@ test('catalogues reject duplicate identifiers, oversized fields and display cont
 });
 
 test('strict inspection commands cannot carry prompts, prior sessions, writes or unreviewed options', () => {
-  const command = { protocol: 1, bridge_revision: 9, type: 'run', generation: 1, task_id: 1, request_id: null, cwd: '/project', state_dir: '/state', prompt: '',
+  const command = { protocol: 1, bridge_revision: 10, type: 'run', generation: 1, task_id: 1, request_id: null, cwd: '/project', state_dir: '/state', prompt: '',
     operation: 'plan', write_scope: { mode: 'Selected', protected_paths: [], excluded_paths: [], root_identity: null, files: [] }, resume: null, inspect_models: true, selection: { model: null, effort: null } };
   assert.equal(RunSchema.safeParse(command).success, true);
   for (const changed of [{ request_id: 'claimed-inference' }, { prompt: 'must not send' }, { resume: '01234567-89ab-4cde-8123-456789abcdef' },
-    { bridge_revision: 8 }, { edit_paths: ['file.ts'] }, { operation: 'implement' }, { tools: ['Bash'] }, { selection: { model: null, effort: null, fallback: 'a' } }]) {
+    { bridge_revision: 9 }, { edit_paths: ['file.ts'] }, { operation: 'implement' }, { tools: ['Bash'] }, { selection: { model: null, effort: null, fallback: 'a' } }]) {
     assert.equal(RunSchema.safeParse({ ...command, ...changed }).success, false);
   }
   for (const field of ['mode', 'protected_paths', 'excluded_paths']) {
@@ -1046,14 +1110,14 @@ test('unsafe recursive SDK discovery returns actionable actual safe filenames ra
 });
 
 test('noninspection SDK planning requires frozen observational root even without mutation targets', () => {
-  const command = { protocol: 1, bridge_revision: 9, type: 'run', generation: 1, task_id: 1,
+  const command = { protocol: 1, bridge_revision: 10, type: 'run', generation: 1, task_id: 1,
     request_id: 'owned-request', cwd: '/project', state_dir: '/state', prompt: 'Read project context',
     operation: 'plan', write_scope: { mode: 'Selected', protected_paths: ['/state'],
       excluded_paths: ['private'], root_identity: '1:2', files: [] },
     resume: null, inspect_models: false, selection: { model: null, effort: null } };
   assert.equal(RunSchema.safeParse(command).success, true);
   assert.equal(RunSchema.safeParse({ ...command, write_scope: { ...command.write_scope, root_identity: null } }).success, false);
-  assert.equal(RunSchema.safeParse({ ...command, bridge_revision: 8 }).success, false);
+  assert.equal(RunSchema.safeParse({ ...command, bridge_revision: 9 }).success, false);
 });
 
 test('file previews forward only actual correlated tool argument fragments and never grant write authority', () => {
@@ -1252,4 +1316,27 @@ test('canonical SDK roots retain built-in protected ancestors without excluding 
     const policy = new SDKWritePolicy(relative, { ...workspaceScope(relative), excluded_paths: ['excluded'] });
     assert.deepEqual(policy.discover({ mode: 'glob' }).paths, ['recovery.txt']);
   } finally { rmSync(fixture, { recursive: true, force: true }); }
+});
+
+test('host command schema is closed, literal and cannot inject configuration or grant shell in plan', () => {
+  const direct = { cwd: '', command: { Direct: { program: 'rustc', args: ['main.rs', '-o', 'program'] } } };
+  assert.equal(HostCommandSchema.safeParse(direct).success, true);
+  assert.equal(HostCommandSchema.safeParse({ cwd: 'src', command: { Shell: { executable: '/bin/sh', dialect: 'Posix', text: 'cargo build' } } }).success, true);
+  for (const cwd of ['/tmp', '../outside', 'src/../other', './src', 'src//other', 'bad\npath']) {
+    assert.equal(HostCommandSchema.safeParse({ ...direct, cwd }).success, false, cwd);
+  }
+  for (const command of [{ Direct: { program: 'rustc', args: [], env: {} } }, { Shell: { executable: 'sh', dialect: 'bash', text: 'cargo build' } }, { Direct: { program: '', args: [] } }, { Direct: { program: 'rustc', args: [] }, Shell: { executable: 'sh', dialect: 'Posix', text: 'x' } }]) {
+    assert.equal(HostCommandSchema.safeParse({ ...direct, command }).success, false);
+  }
+  assert.equal(HostCommandSchema.safeParse({ ...direct, timeout: 1 }).success, false);
+  const init = { claude_code_version: compatibility.cliVersion, permissionMode: 'default', tools: [DISCOVERY_TOOL, COMMAND_TOOL],
+    mcp_servers: [{ name: DISCOVERY_SERVER, status: 'connected' }, { name: COMMAND_SERVER, status: 'connected' }], plugins: [], skills: [] };
+  assert.doesNotThrow(() => assertSessionPolicy(init, compatibility.cliVersion, [DISCOVERY_TOOL, COMMAND_TOOL]));
+  assert.throws(() => assertSessionPolicy(init, compatibility.cliVersion, [DISCOVERY_TOOL]));
+  assert.throws(() => assertSessionPolicy({ ...init, mcp_servers: [init.mcp_servers[0], init.mcp_servers[0]] }, compatibility.cliVersion, [DISCOVERY_TOOL, COMMAND_TOOL]));
+  const result = { protocol: 1, type: 'bridge_command_result', generation: 1, task_id: 1,
+    session_id: '00000000-0000-4000-8000-000000000001', call_id: '00000000-0000-4000-8000-000000000002', result: { status: 'error', stderr: 'compiler failure' } };
+  assert.equal(CommandResultSchema.safeParse(result).success, true);
+  assert.equal(CommandResultSchema.safeParse({ ...result, call_id: 'foreign' }).success, false);
+  assert.equal(CommandResultSchema.safeParse({ ...result, result: { status: 'unknown' } }).success, false);
 });

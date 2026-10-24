@@ -23,6 +23,7 @@ pub mod relays;
 pub mod sources;
 pub mod suggestions;
 pub mod tool_catalog;
+pub mod tool_plans;
 pub mod updates;
 pub mod workflows;
 
@@ -87,6 +88,7 @@ pub enum Overlay {
     ToolCatalog,
     Receipts,
     EvolutionPreview,
+    ToolPlans,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -277,6 +279,7 @@ pub struct App {
     pub updates: updates::State,
     pub artifacts: artifacts::State,
     pub tool_catalog: tool_catalog::State,
+    pub tool_plans: tool_plans::State,
     pub memory: memory::State,
     pub moves: moves::State,
     pub records: records::State,
@@ -325,6 +328,7 @@ impl App {
             updates: updates::State::default(),
             artifacts: artifacts::State::default(),
             tool_catalog: tool_catalog::State::default(),
+            tool_plans: tool_plans::State::default(),
             nickname_editor: None,
             nickname_pending: None,
             selected: 0,

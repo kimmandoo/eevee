@@ -136,6 +136,9 @@ fn publish_link(directory: &File, source: &CString, destination: &CString) -> io
 }
 
 impl Directory {
+    pub(super) fn observation_identity(&self) -> String {
+        format!("{:?}", self.0.identity)
+    }
     pub(super) fn open_root(root: &Path) -> Result<Self, String> {
         if !root.is_absolute() {
             return Err("Write root must be canonical and absolute".into());

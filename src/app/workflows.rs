@@ -11,6 +11,7 @@ use crate::workspace::workflows::{
 };
 
 pub mod authoring;
+pub mod impact;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Tab {
@@ -107,6 +108,8 @@ pub struct State {
     pub addressed_fingerprint: Option<String>,
     #[serde(skip)]
     pub authoring: authoring::State,
+    #[serde(skip)]
+    pub impact: impact::State,
 }
 impl State {
     pub fn draft_snapshot(&self) -> Value {
@@ -309,6 +312,7 @@ enum Action {
     ConfirmCriteria,
     RelayDecision,
     FreshBaseline,
+    ImpactChecks,
 }
 
 impl Action {
@@ -353,6 +357,7 @@ impl Action {
             Self::ConfirmCriteria => "confirm-decision-criteria",
             Self::RelayDecision => "relay-decision",
             Self::FreshBaseline => "fresh-baseline",
+            Self::ImpactChecks => "impact-checks",
         }
     }
 }
@@ -371,6 +376,7 @@ fn actions(tab: Tab) -> &'static [(Action, &'static str)] {
             (NextLink, "Select next attached link"),
             (OpenLink, "Open attached evidence"),
             (Diagnostic, "Request diagnostic run via Jolteon"),
+            (ImpactChecks, "Recommend impact-directed checks (no run)"),
             (Fix, "Handoff diagnosis to Flareon"),
             (Refresh, "Refresh evidence status"),
         ],
@@ -554,7 +560,7 @@ impl App {
     }
 
     pub fn workflow_paste(&mut self, text: &str) -> bool {
-        if self.width < 60 || self.height < 18 {
+        if self.workflow.impact.active || self.width < 60 || self.height < 18 {
             return true;
         }
         self.workflow.paste(text)
@@ -562,6 +568,15 @@ impl App {
 
     pub fn workflow_command_choices(&self) -> Vec<super::commands::Choice> {
         use super::commands::Choice;
+        if self.workflow.impact.active {
+            return vec![
+                Choice::new("impact-checks", "Refresh impact-directed proposal"),
+                Choice::new(
+                    "stage-impact-plan",
+                    "Stage checks for separate Jolteon review",
+                ),
+            ];
+        }
         if self.workflow.editor.is_some() || self.workflow.preview || self.workflow.relay.is_some()
         {
             return Vec::new();
@@ -587,6 +602,9 @@ impl App {
     }
 
     pub fn workflow_command(&mut self, name: &str) -> bool {
+        if self.impact_command(name) {
+            return true;
+        }
         let available = if self.workflow.chooser.is_some() {
             matches!(name, "open-evidence" | "attach-evidence")
         } else {
@@ -656,6 +674,9 @@ impl App {
     pub fn workflow_key(&mut self, mut key: KeyEvent) -> bool {
         if key.kind == KeyEventKind::Release {
             return false;
+        }
+        if self.impact_key(key) {
+            return true;
         }
         if self.recipe_authoring_key(key) {
             return true;
@@ -1110,6 +1131,9 @@ impl App {
                     .cloned()
                     .ok_or("No attached evidence link selected")?;
                 self.workflow_open_reference(reference);
+            }
+            Action::ImpactChecks => {
+                self.impact_command("impact-checks");
             }
             Action::Diagnostic => {
                 if self.planning.busy() || self.execution.busy() {

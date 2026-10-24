@@ -1181,7 +1181,7 @@ impl App {
         if self.overlay.is_some()
             || self.confirmation.is_some()
             || self.transitioning
-            || (self.editing && !(self.composer_is_request() && self.input.is_empty()))
+            || self.editing
             || self.draft_dirty()
             || self.planning_any_busy()
             || self.pending_request.is_some()
@@ -1227,9 +1227,6 @@ impl App {
                 .insert(format!("{}:{}", candidate.key, candidate.uses));
             let key = candidate.key.clone();
             self.moves.offered = Some(candidate);
-            if self.editing {
-                self.retain_action_editor();
-            }
             self.open_overlay(Overlay::Moves);
             self.moves.enter(Mode::Learn);
             self.moves.request(Operation::CandidateDecision {
@@ -1423,6 +1420,43 @@ mod tests {
         app.set_form(1);
         app.moves = state();
         app
+    }
+    #[test]
+    fn idle_learning_never_takes_an_active_empty_request_editor() {
+        let ready = || {
+            let mut app = app();
+            app.storage = StorageState::Saved;
+            app.save_requested = false;
+            app.editing = false;
+            app.moves.candidates.push(Candidate {
+                key: "candidate".into(),
+                proposal: proposal("Surf"),
+                uses: 3,
+                sources: vec!["request:1".into(), "request:2".into(), "request:3".into()],
+                postponed: false,
+            });
+            app
+        };
+        let mut idle = ready();
+        assert!(
+            idle.move_idle_offer(),
+            "settled idle candidate must remain reachable"
+        );
+        let mut composing = ready();
+        composing.editor_field = crate::store::EditorField::Request;
+        composing.editing = true;
+        composing.input.clear();
+        composing.cursor = 0;
+        assert!(!composing.move_idle_offer());
+        assert!(composing.overlay.is_none());
+        assert!(composing.moves.pending.is_none());
+        assert!(composing.moves.displayed.is_empty());
+        assert!(composing.editing);
+        composing.editing = false;
+        assert!(
+            composing.move_idle_offer(),
+            "closing the editor permits the deferred offer"
+        );
     }
     #[test]
     fn reset_view_keeps_transport_for_original_owner() {

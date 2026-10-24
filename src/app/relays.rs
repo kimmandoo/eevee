@@ -21,6 +21,7 @@ pub enum RelaySource {
     Decision(String),
     Review,
     RoleAction { action: &'static str, target: i64 },
+    DexEvidence { signature: String, run: String },
 }
 #[derive(Clone, Debug)]
 pub struct RelayRequest {
@@ -116,6 +117,101 @@ impl App {
                 return serde_json::to_string(decision).map_err(|e| e.to_string());
             }
             RelaySource::Review => return self.workflows.review_observations(),
+            RelaySource::DexEvidence { signature, run } => {
+                let failure = view
+                    .run(run)
+                    .filter(|failure| {
+                        failure.state == runner::RunState::Failed
+                            && failure.tree == runner::TreeOutcome::OwnedTreeExited
+                            && !failure.output_unavailable
+                            && !failure.cancelled
+                    })
+                    .ok_or("Selected task-owned failure evidence is unavailable.")?;
+                let signature = self
+                    .records
+                    .snapshot
+                    .signatures
+                    .iter()
+                    .find(|candidate| candidate.key == *signature && candidate.runs.contains(run))
+                    .ok_or("Selected Dex observation changed or is unavailable.")?;
+                if matches!(
+                    view.status(&EvidenceRef::Run {
+                        task_id: self.task_id,
+                        run_id: run.clone(),
+                    }),
+                    workflows::EvidenceStatus::Unavailable | workflows::EvidenceStatus::Ambiguous
+                ) {
+                    return Err(
+                        "Failure evidence is incomplete or unavailable; drafts unchanged.".into(),
+                    );
+                }
+                let historical: Vec<_> = self
+                    .records
+                    .snapshot
+                    .resolutions
+                    .iter()
+                    .filter(|resolution| {
+                        resolution.signature == signature.key && resolution.task_id == self.task_id
+                    })
+                    .collect();
+                let supports: Vec<_> = self
+                    .records
+                    .snapshot
+                    .artifacts
+                    .iter()
+                    .filter(|artifact| {
+                        historical
+                            .iter()
+                            .any(|resolution| resolution.support_artifact == artifact.artifact.id)
+                    })
+                    .collect();
+                let historical_runs: Vec<_> = self
+                    .execution
+                    .history
+                    .iter()
+                    .filter(|run| {
+                        historical
+                            .iter()
+                            .any(|resolution| resolution.passing_run == run.prepared.run_id)
+                            || supports.iter().any(|support| {
+                                support.artifact.evidence.iter().any(|reference| {
+                                    matches!(reference, EvidenceRef::Run { run_id, task_id }
+                                if *task_id == self.task_id && *run_id == run.prepared.run_id)
+                                })
+                            })
+                    })
+                    .collect();
+                let captures: Vec<_> =
+                    self.sources
+                        .basket
+                        .iter()
+                        .filter(|capture| {
+                            supports.iter().any(|support| {
+                                support.artifact.evidence.iter().any(|reference|
+                        matches!(reference, EvidenceRef::Source { excerpt_id, task_id, .. }
+                            if *task_id == self.task_id && *excerpt_id == capture.id))
+                            })
+                        })
+                        .map(|capture| {
+                            (
+                                capture.task_id,
+                                capture.id,
+                                capture.source_sha256,
+                                capture.available,
+                            )
+                        })
+                        .collect();
+                return serde_json::to_string(&(
+                    failure,
+                    signature,
+                    historical,
+                    historical_runs,
+                    supports,
+                    captures,
+                    &current,
+                ))
+                .map_err(|error| error.to_string());
+            }
             RelaySource::RoleAction { action, target } => {
                 let owner = workflows::role_action_form(action).ok_or("Unsupported role action")?;
                 if self.form() == owner || (owner == 3 && self.form() == 6) {
@@ -173,9 +269,12 @@ impl App {
         serde_json::to_string(&self.workflows).map_err(|e| e.to_string())
     }
     fn relay_paths(&self, request: &RelayRequest) -> Result<Vec<workflows::RangeBaseline>, String> {
-        if matches!(request.source, RelaySource::RoleAction { .. }) {
+        if matches!(
+            request.source,
+            RelaySource::RoleAction { .. } | RelaySource::DexEvidence { .. }
+        ) {
             if !request.paths.is_empty() || request.command.is_some() {
-                return Err("Role-action relay transfers references only; no command or paths may be proposed.".into());
+                return Err("Evidence-only relay transfers references only; no command or paths may be proposed.".into());
             }
             return Ok(Vec::new());
         }
@@ -253,6 +352,9 @@ impl App {
             && workflows::role_action_form(action) != Some(request.target_form)
         {
             return Err("Role-action target form changed; no draft was staged.".into());
+        }
+        if matches!(request.source, RelaySource::DexEvidence { .. }) && request.target_form != 5 {
+            return Err("Dex evidence must use the existing Umbreon review recipient flow.".into());
         }
         let source_identity = self.relay_source_identity(&request.source)?;
         if let RelaySource::Rerun(id) = &request.source {
@@ -641,5 +743,73 @@ impl App {
         }
         self.workflows = state;
         self.changed_task();
+    }
+}
+
+#[cfg(test)]
+mod dex_tests {
+    use super::*;
+
+    fn request() -> RelayRequest {
+        RelayRequest {
+            target_form: 5,
+            text: "Historical/stale failure references; never current verification.".into(),
+            paths: Vec::new(),
+            source: RelaySource::DexEvidence {
+                signature: "signature".into(),
+                run: "run".into(),
+            },
+            command: None,
+        }
+    }
+
+    #[test]
+    fn dex_relay_cannot_become_a_command_or_write_scope() {
+        let mut app = App::new("/project".into(), 60, 18);
+        app.task_id = 7;
+        let mut relay = request();
+        assert!(app.relay_paths(&relay).unwrap().is_empty());
+        relay.paths.push("source.rs".into());
+        assert!(app.relay_paths(&relay).is_err());
+        relay.paths.clear();
+        relay.command = Some(runner::CommandSpec::Direct {
+            program: "cargo".into(),
+            args: vec!["test".into()],
+        });
+        assert!(app.relay_paths(&relay).is_err());
+        relay.command = None;
+        relay.target_form = 3;
+        assert!(app.stage_relay(relay).unwrap_err().contains("Umbreon"));
+        assert!(app.workflow.relay.is_none());
+        assert!(app.planning.pending.is_none());
+        assert!(app.execution.prepared.is_none());
+    }
+
+    #[test]
+    fn missing_dex_evidence_preserves_sender_and_recipient_drafts() {
+        let mut app = App::new("/project".into(), 120, 36);
+        app.task_id = 7;
+        app.input = "sender 漢字 draft".into();
+        app.cursor = 7;
+        app.partner_drafts.insert(
+            2,
+            store::PartnerDrafts {
+                drafts: vec![store::Draft {
+                    field: store::EditorField::Request,
+                    text: "recipient 한글 draft".into(),
+                    cursor: 3,
+                }],
+                ..Default::default()
+            },
+        );
+        let before = (app.input.clone(), app.cursor, app.partner_drafts.clone());
+        assert!(app.stage_relay(request()).is_err());
+        assert_eq!(
+            (app.input.clone(), app.cursor, app.partner_drafts.clone()),
+            before
+        );
+        assert!(app.workflow.relay.is_none());
+        assert!(app.planning.pending.is_none());
+        assert!(app.execution.prepared.is_none());
     }
 }

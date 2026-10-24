@@ -69,6 +69,117 @@ fn global_execute_from_help_reviews_the_same_prepared_request_without_dispatch()
     assert!(app.execution.active.is_none());
     assert!(app.execution.permit.is_none());
 }
+
+#[test]
+fn global_deny_resolves_only_the_current_owned_host_command_callback() {
+    use crate::providers::{self, Agent, Operation, Preview, Request};
+    for agent in [Agent::OpenAI, Agent::Codex, Agent::Claude, Agent::OpenCode] {
+        for refusal in [
+            None,
+            Some("owner"),
+            Some("claim"),
+            Some("cancelled"),
+            Some("unrelated"),
+            Some("storage"),
+        ] {
+            let mut app = crate::app::App::new("/project".into(), 120, 36);
+            app.task_id = 1;
+            app.lead.form = 3;
+            let owner = store::Attribution::of(&app.lead);
+            let mut task = store::Snapshot::empty("/project".into());
+            task.id = 1;
+            task.goal = "Build with separate exact consent".into();
+            task.form = owner.form;
+            task.lead_partner = owner.partner;
+            app.planning = app.planning.new_partner(owner.clone(), 1);
+            app.planning.agent = agent;
+            app.planning.set_operation(Operation::Implement);
+            app.planning.command("new", true, &task, &[], None);
+            let claim = store::WorkClaim {
+                task_id: 1,
+                owner: owner.clone(),
+                request_id: "provider-writer".into(),
+                writing: true,
+            };
+            app.planning.stage_work(claim.clone());
+            let acquire = app.planning.work_pending.take().unwrap();
+            app.planning.work_event(acquire, Ok(vec![claim.clone()]));
+            assert!(matches!(
+                app.planning.pending.take(),
+                Some(Request::Preview(_))
+            ));
+            app.planning.event(providers::Event::Preview(Preview {
+                comparison_scope: None,
+                arrival: 1,
+                generation: 7,
+                task_id: 1,
+                thread_id: None,
+                destination: None,
+                requires_connection_review: false,
+                trust: Vec::new(),
+                payload: "{}".into(),
+                blockers: Vec::new(),
+            }));
+            assert!(app.planning.dispatch_prepared());
+            app.planning.pending.take();
+            let mut prepared = prepared();
+            prepared.partner = Some(owner);
+            let cancelled = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let (reply, received) = std::sync::mpsc::sync_channel(1);
+            assert!(app.provider_command(
+                app.lead.id,
+                7,
+                1,
+                "/unopened-data".into(),
+                claim.clone(),
+                "current-command".into(),
+                "".into(),
+                prepared.spec.clone(),
+                cancelled.clone(),
+                reply,
+            ));
+            app.execution.pending_spec = None;
+            app.execution.request_id = Some(prepared.request_id.clone());
+            app.execution.prepared = Some(prepared);
+            app.execution.command("execute");
+            // Global denial must not depend on which workspace is underneath.
+            app.overlay = None;
+            match refusal {
+                Some("owner") => {
+                    app.execution.owner.as_mut().unwrap().partner += 1;
+                    app.execution.prepared.as_mut().unwrap().partner = app.execution.owner.clone();
+                }
+                Some("claim") => app.planning.work.as_mut().unwrap().request_id.push('x'),
+                Some("cancelled") => cancelled.store(true, std::sync::atomic::Ordering::Release),
+                Some("unrelated") => {
+                    app.cooperation.command_callbacks.remove(&app.lead.id);
+                }
+                Some("storage") => app.transitioning = true,
+                _ => {}
+            }
+            assert_eq!(
+                app.command_disabled_reason("deny").is_some(),
+                refusal.is_some()
+            );
+            assert!(app.command_disabled_reason("command-edit").is_some());
+            assert!(app.command("deny"));
+            assert!(app.execution.active.is_none());
+            assert!(app.execution.permit.is_none());
+            assert!(app.execution.history.is_empty());
+            if refusal.is_some() {
+                assert!(app.execution.prepared.is_some(), "{agent:?}: {refusal:?}");
+            } else {
+                assert!(app.execution.prepared.is_none());
+                assert!(app.planning.work_acquired);
+                assert_eq!(app.planning.work.as_ref(), Some(&claim));
+                app.drive_executions(&mut BTreeMap::new(), std::path::Path::new("/project"));
+                assert!(received.try_recv().unwrap().is_err());
+                assert!(app.cooperation.command_callbacks.is_empty());
+                assert!(app.execution.take_store_request().is_none());
+            }
+        }
+    }
+}
 fn record(state: runner::RunState) -> runner::RunRecord {
     let mut record = runner::RunRecord::awaiting(&prepared());
     record.state = state;

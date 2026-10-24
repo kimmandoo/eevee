@@ -43,6 +43,23 @@ fn fixture_spec(extra: &[&str]) -> CommandSpec {
         args,
     }
 }
+fn alias_fixture_spec(temp: &Temp, image: &Path, extra: &[&str]) -> CommandSpec {
+    let name = if cfg!(windows) {
+        "requested multicall 中文.exe"
+    } else {
+        "requested multicall 中文"
+    };
+    let alias = temp.0.join(name);
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(image, &alias).unwrap();
+    #[cfg(windows)]
+    fs::copy(image, &alias).unwrap();
+    let mut spec = fixture_spec(extra);
+    if let CommandSpec::Direct { program, .. } = &mut spec {
+        *program = Path::new(".").join(name).to_str().unwrap().into();
+    }
+    spec
+}
 fn prepared(temp: &Temp, spec: CommandSpec) -> Prepared {
     prepare(
         unique_id(),
@@ -189,6 +206,19 @@ fn native_fixture() {
                 "stdin must be null"
             );
         }
+        "multicall" => {
+            let args: Vec<_> = std::env::args().collect();
+            assert_eq!(
+                args[0],
+                fs::read_to_string("expected-argv0").unwrap(),
+                "multicall dispatch must use the requested alias, not the canonical image"
+            );
+            fs::write("multicall.started", serde_json::to_vec(&args).unwrap()).unwrap();
+            println!(
+                "EEVEE_MULTICALL_ARGV={}",
+                serde_json::to_string(&args).unwrap()
+            );
+        }
         "stdin-echo" => {
             let mut input = String::new();
             io::stdin().read_to_string(&mut input).unwrap();
@@ -314,6 +344,68 @@ fn direct_arguments_are_literal_and_cwd_is_unicode() {
     assert!(!temp.0.join("forbidden").exists());
     assert!(matches!(events.front(), Some(Event::Started(_))));
     assert!(record.started_at_ms <= record.ended_at_ms);
+}
+
+#[test]
+fn requested_multicall_argv0_reaches_the_frozen_image_with_literal_arguments() {
+    let temp = Temp::new();
+    temp.fixture("multicall");
+    let args = [
+        "space value",
+        "中文 路径",
+        "$(touch forbidden)",
+        "a;b|c&d",
+        "quote\"slash\\",
+        "trailing\\",
+        "",
+        "--literal-switch",
+    ];
+    let spec = alias_fixture_spec(&temp, &std::env::current_exe().unwrap(), &args);
+    fs::write(temp.0.join("expected-argv0"), program(&spec)).unwrap();
+    let expected: Vec<_> = std::iter::once(program(&spec))
+        .chain(arguments(&spec))
+        .map(str::to_owned)
+        .collect();
+    let p = prepared(&temp, spec);
+    let frozen = p.executable.clone();
+    #[cfg(unix)]
+    {
+        assert_eq!(
+            frozen.path,
+            fs::canonicalize(std::env::current_exe().unwrap()).unwrap()
+        );
+        // Retargeting the requested name cannot select a different image at dispatch.
+        let alias = temp.0.join(program(&p.spec));
+        fs::remove_file(&alias).unwrap();
+        fs::write(alias, "not the approved executable").unwrap();
+    }
+    let (record, output, _) = execute(&temp, p, 128 * 1024, None);
+    assert_eq!(record.state, RunState::Succeeded, "{record:?}\n{output}");
+    assert_eq!(record.tree, TreeOutcome::OwnedTreeExited);
+    assert_eq!(record.prepared.executable, frozen);
+    let actual: Vec<String> =
+        serde_json::from_slice(&fs::read(temp.0.join("multicall.started")).unwrap()).unwrap();
+    assert_eq!(actual, expected);
+    assert!(!temp.0.join("forbidden").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn explicit_shell_preserves_its_requested_argv0() {
+    let temp = Temp::new();
+    let name = "./reviewed shell 中文";
+    std::os::unix::fs::symlink("/bin/sh", temp.0.join(name)).unwrap();
+    let spec = CommandSpec::Shell {
+        executable: name.into(),
+        dialect: ShellDialect::Posix,
+        text: "printf 'EEVEE_SHELL_ARGV0=%s\\n' \"$0\"".into(),
+    };
+    let (record, output, _) = execute(&temp, prepared(&temp, spec), 8192, None);
+    assert_eq!(record.state, RunState::Succeeded, "{record:?}");
+    assert!(
+        output.contains(&format!("EEVEE_SHELL_ARGV0={name}")),
+        "{output}"
+    );
 }
 
 #[test]
@@ -607,6 +699,13 @@ fn stale_double_and_expired_grants_fail_at_native_dispatch_with_real_reservation
         admit(&expired, &permit, &gate, &stopped).is_err(),
         "expired request dispatched"
     );
+    gate.lock().callback_cancelled = Some(Arc::new(AtomicBool::new(true)));
+    assert!(
+        admit(&p, &permit, &gate, &stopped).is_err(),
+        "cancelled exact callback dispatched"
+    );
+    assert!(gate.lock().active.is_none());
+    gate.lock().callback_cancelled = None;
     let process = admit(&p, &permit, &gate, &stopped).unwrap();
     assert!(
         admit(&p, &permit, &gate, &stopped).is_err(),
@@ -647,31 +746,65 @@ fn delayed_committed_reservation_does_not_revive_a_denied_request() {
 }
 
 #[test]
+fn callback_rechecks_original_project_sources_but_plain_coverage_stays_unknown() {
+    let temp = Temp::new();
+    let data = Temp::new();
+    temp.fixture("literal");
+    fs::write(temp.0.join("source.txt"), "before review\n").unwrap();
+    let mut prepared = prepared(&temp, fixture_spec(&[]));
+    // Ordinary folders remain executable under explicitly unknown source coverage.
+    prepared.before = crate::workspace::repo::observe_inputs(&temp.0, &data.0).unwrap();
+    assert!(prepared.before.fingerprint.is_none());
+    assert!(validate_source_guard(&prepared, &temp.0, &data.0, false).is_ok());
+    assert!(
+        std::process::Command::new("git")
+            .args(["init", "-q"])
+            .arg(&temp.0)
+            .status()
+            .unwrap()
+            .success()
+    );
+    prepared.before = crate::workspace::repo::observe_inputs(&temp.0, &data.0).unwrap();
+    assert!(prepared.before.fingerprint.is_some());
+    assert!(validate_source_guard(&prepared, &temp.0, &data.0, false).is_ok());
+    fs::write(temp.0.join("source.txt"), "changed after exact review\n").unwrap();
+    assert!(validate_source_guard(&prepared, &temp.0, &data.0, false).is_err());
+}
+
+#[test]
 fn changed_executable_invalidates_committed_approval_before_any_effect() {
     let temp = Temp::new();
-    temp.fixture("literal");
+    temp.fixture("multicall");
     let path = temp.0.join(if cfg!(windows) {
         "fixture.exe"
     } else {
         "fixture"
     });
     fs::copy(std::env::current_exe().unwrap(), &path).unwrap();
-    let mut spec = fixture_spec(&[]);
-    if let CommandSpec::Direct { program, .. } = &mut spec {
-        *program = path.to_str().unwrap().into();
-    }
+    let spec = alias_fixture_spec(&temp, &path, &[]);
+    fs::write(temp.0.join("expected-argv0"), program(&spec)).unwrap();
     let p = prepared(&temp, spec);
     let (_store, permit) = committed_permit(&temp, &p);
     let gate = Mutex::new(Gate {
         pending: Some(p.request_id.clone()),
         ..Gate::default()
     });
-    let mut changed = fs::OpenOptions::new().append(true).open(path).unwrap();
+    let mut changed = fs::OpenOptions::new()
+        .append(true)
+        .open(&p.executable.path)
+        .unwrap();
     changed.write_all(b"changed after approval").unwrap();
     drop(changed);
-    assert!(admit(&p, &permit, &gate, &AtomicBool::new(false)).is_err());
+    let error = match admit(&p, &permit, &gate, &AtomicBool::new(false)) {
+        Ok(_) => panic!("changed multicall image dispatched"),
+        Err(error) => error,
+    };
+    assert!(
+        error.contains("executable changed since preview"),
+        "{error}"
+    );
     assert!(gate.lock().active.is_none());
-    assert!(!temp.0.join("root.pid").exists());
+    assert!(!temp.0.join("multicall.started").exists());
 }
 
 #[cfg(unix)]

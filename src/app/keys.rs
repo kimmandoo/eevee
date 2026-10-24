@@ -39,6 +39,7 @@ impl App {
                 self.workflow.authoring.invalidate();
                 self.updates.invalidate();
                 self.tool_catalog.invalidate();
+                self.tool_plans.invalidate();
                 self.artifacts.review_visible = false;
                 self.formations.apply_pending = false;
                 self.height = height;
@@ -97,6 +98,14 @@ impl App {
                 self.artifacts.paste(&text)
             }
             Event::Paste(_) if self.overlay == Some(Overlay::Receipts) => false,
+            Event::Paste(text) if self.overlay == Some(Overlay::ToolPlans) => {
+                if let Some(editor) = &mut self.tool_plans.editor
+                    && editor.len() + text.len() <= 64 * 1024
+                {
+                    editor.push_str(&text);
+                }
+                true
+            }
             Event::Paste(_) if self.overlay == Some(Overlay::EvolutionPreview) => false,
             Event::Paste(text) if self.nickname_editor.is_some() => self.nickname_paste(&text),
             Event::Paste(text)
@@ -507,7 +516,9 @@ impl App {
     }
 
     pub(super) fn planning_input_ready(&self) -> bool {
-        self.committed_input_ready() && !self.planning.busy_except_picker()
+        self.committed_input_ready()
+            && !self.planning.busy_except_picker()
+            && !self.tool_plans.busy()
     }
 
     pub(super) fn committed_input_ready(&self) -> bool {
@@ -978,6 +989,7 @@ impl App {
             return true;
         }
         match self.overlay {
+            Some(Overlay::ToolPlans) => return self.tool_plan_key(key),
             Some(Overlay::EvolutionPreview) => {
                 if key.code == KeyCode::Esc {
                     self.close_overlay();

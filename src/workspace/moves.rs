@@ -225,17 +225,22 @@ pub fn validate_proposal(proposal: &Proposal) -> Result<(), String> {
     validate_steps(proposal.form, &proposal.steps)
 }
 
-/// Syntax-only admission. Project paths must additionally pass `validate_steps_at`
-/// before storage or use; a personal move may contain an old project's absolute argv.
-pub fn validate_steps(form: usize, steps: &Steps) -> Result<(), String> {
-    let compatible = matches!(
+/// Whether an explicitly selectable move definition belongs to this form.
+/// Historical execution evidence retains its actual producer form independently.
+pub fn form_accepts_steps(form: usize, steps: &Steps) -> bool {
+    matches!(
         (form, steps),
         (0, Steps::Task { .. })
             | (1, Steps::Pins { .. })
             | (2 | 5 | 6, Steps::Run { .. })
             | (3 | 4 | 7 | 8, Steps::Request { .. })
-    );
-    if !compatible {
+    )
+}
+
+/// Syntax-only admission. Project paths must additionally pass `validate_steps_at`
+/// before storage or use; a personal move may contain an old project's absolute argv.
+pub fn validate_steps(form: usize, steps: &Steps) -> Result<(), String> {
+    if !form_accepts_steps(form, steps) {
         return Err("Move kind does not belong to this form".into());
     }
     bounded(steps)?;
@@ -371,14 +376,9 @@ pub fn journal_steps(root: &Path, record: &runner::RunRecord) -> Result<Steps, S
     argv.push(program.clone());
     argv.extend(args.iter().cloned());
     let steps = Steps::Run { argv, cwd };
-    // A diagnostic/measurement run can be taught to its own form; attribution
-    // from other forms still stages only a Jolteon-compatible literal run.
-    let form = if matches!(attribution.form, 2 | 5 | 6) {
-        attribution.form
-    } else {
-        2
-    };
-    validate_steps(form, &steps)?;
+    // Validate the extracted command shape, not selectable move authority for
+    // the producer's form. Its historical attribution remains unchanged.
+    validate_steps(kind_form(&steps), &steps)?;
     if let Steps::Run { argv, .. } = &steps {
         for argument in argv {
             let path = Path::new(argument_path(argument));

@@ -704,6 +704,15 @@ pub(super) fn validate(snapshot: &Snapshot) -> Result<(), String> {
         return Err("A command exceeds the 4096-byte storage limit".into());
     }
     snapshot.workflows.validate(snapshot.id)?;
+    if snapshot
+        .workflows
+        .tool_plans
+        .iter()
+        .chain(snapshot.workflows.tool_plan_history.iter())
+        .any(|plan| plan.project != snapshot.project)
+    {
+        return Err("A tool plan belongs to another project".into());
+    }
     validate_draft_shape(&snapshot.memory_draft, 0)?;
     validate_draft_shape(&snapshot.workflow_draft, 0)?;
     check_json_size(&snapshot.workflows, MAX_WORKFLOW_BYTES)?;

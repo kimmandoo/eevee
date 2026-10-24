@@ -672,6 +672,10 @@ fn historical_resolution_requires_supported_receipt_observed_transition_and_matc
     );
     let signature = records.signatures[0].key.clone();
     assert!(records.resolution_choices.is_empty());
+    assert_eq!(
+        records.failure_comparisons[0].disposition,
+        FailureDisposition::UnresolvedNew
+    );
     let same = terminal(&mut state, task.id, "same-revision", "old", true, b"ok\n");
     assert!(
         call(
@@ -694,6 +698,7 @@ fn historical_resolution_requires_supported_receipt_observed_transition_and_matc
         },
     )
     .unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(2));
     let passed = terminal(&mut state, task.id, "fixed", "fixed", true, b"ok\n");
     let choices = load(&mut state, task.id, Some(observed("fixed"))).resolution_choices;
     assert_eq!(choices.len(), 1);
@@ -706,7 +711,14 @@ fn historical_resolution_requires_supported_receipt_observed_transition_and_matc
     call(&mut state, task.id, resolution.clone()).unwrap();
     call(&mut state, task.id, resolution).unwrap();
     assert_eq!(load(&mut state, task.id, None).resolutions.len(), 1);
+    let historical = load(&mut state, task.id, Some(observed("fixed")));
+    assert_eq!(
+        historical.failure_comparisons[0].disposition,
+        FailureDisposition::HistoricalSupportedPass
+    );
+    assert_eq!(historical.failure_comparisons[0].source, Freshness::Stale);
     fs::write(fixture.root.join("project/source.rs"), "broken\n").unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(2));
     terminal(
         &mut state,
         task.id,
@@ -719,6 +731,171 @@ fn historical_resolution_requires_supported_receipt_observed_transition_and_matc
     assert_eq!(records.signatures[0].seen_count, 2);
     assert_eq!(records.resolutions.len(), 1);
     assert!(records.resolutions[0].cause.contains("Historical lead"));
+    let recurrence = records.failure_comparisons.last().unwrap();
+    assert_eq!(
+        recurrence.disposition,
+        FailureDisposition::UnresolvedRecurring
+    );
+    assert_eq!(
+        recurrence.earlier_failures,
+        vec![failed.prepared.run_id.clone()]
+    );
+    let mut changed_runs = runs_for(state.connection.as_ref().unwrap(), task.id).unwrap();
+    let newest = changed_runs
+        .iter_mut()
+        .find(|run| run.prepared.run_id == "run-recurrence")
+        .unwrap();
+    if let CommandSpec::Direct { args, .. } = &mut newest.prepared.spec {
+        args.push(String::new());
+    }
+    let different = compare_failures(
+        task.id,
+        &records.signatures,
+        &records.resolutions,
+        &records.artifacts,
+        &changed_runs,
+        &observed("old"),
+    );
+    assert_eq!(
+        different.last().unwrap().disposition,
+        FailureDisposition::UnresolvedNew
+    );
+    assert_eq!(
+        different.last().unwrap().historical[0].pass,
+        SupportStatus::DifferentCommand
+    );
+    let newest = changed_runs
+        .iter_mut()
+        .find(|run| run.prepared.run_id == "run-recurrence")
+        .unwrap();
+    newest.prepared.spec = failed.prepared.spec.clone();
+    newest.prepared.cwd_identity = "different-directory-identity".into();
+    let different = compare_failures(
+        task.id,
+        &records.signatures,
+        &records.resolutions,
+        &records.artifacts,
+        &changed_runs,
+        &observed("old"),
+    );
+    assert_eq!(
+        different.last().unwrap().disposition,
+        FailureDisposition::UnresolvedNew
+    );
+    assert_eq!(
+        different.last().unwrap().historical[0].pass,
+        SupportStatus::DifferentCommand
+    );
+    assert_eq!(recurrence.historical[0].source, Freshness::Stale);
+    let changed = load(&mut state, task.id, Some(observed("later-source")));
+    assert_eq!(
+        changed.failure_comparisons.last().unwrap().source,
+        Freshness::Stale
+    );
+    // Physical evidence may disappear without the durable unavailable flag
+    // changing. Both the historical pass and diagnosis-supporting failure must
+    // be checked through anchored spool identity/length, including after reopen.
+    fs::write(fixture.root.join("project/source.rs"), "fixed\n").unwrap();
+    for evidence in [&passed, &failed] {
+        let stored = stored_run(
+            state.connection.as_ref().unwrap(),
+            task.id,
+            &evidence.prepared.run_id,
+        )
+        .unwrap();
+        let output = state.data_dir.join(&stored.output_name);
+        let held = output.with_extension("pk07-held");
+        let original = fs::read(&output).unwrap();
+        for damage in ["missing", "truncated", "replaced"] {
+            match damage {
+                "missing" => fs::rename(&output, &held).unwrap(),
+                "truncated" => {
+                    fs::OpenOptions::new()
+                        .write(true)
+                        .open(&output)
+                        .unwrap()
+                        .set_len(original.len() as u64 - 1)
+                        .unwrap();
+                }
+                "replaced" => {
+                    fs::rename(&output, &held).unwrap();
+                    // Equal length and bytes cannot stand in for owned identity.
+                    fs::write(&output, &original).unwrap();
+                }
+                _ => unreachable!(),
+            }
+            for phase in ["live", "reopened"] {
+                if phase == "reopened" {
+                    drop(state);
+                    state = fixture.open();
+                }
+                let unavailable = load(&mut state, task.id, Some(observed("fixed")));
+                assert!(
+                    unavailable
+                        .failure_comparisons
+                        .iter()
+                        .all(|comparison| comparison.disposition
+                            != FailureDisposition::HistoricalSupportedPass),
+                    "{damage} {} / {phase}",
+                    evidence.prepared.run_id
+                );
+                let historical = &unavailable.failure_comparisons[0].historical[0];
+                if evidence.prepared.run_id == passed.prepared.run_id {
+                    assert_eq!(
+                        historical.pass,
+                        SupportStatus::PurgedOrUnavailable,
+                        "{damage} / {phase}"
+                    );
+                } else {
+                    assert_eq!(
+                        historical.diagnosis,
+                        SupportStatus::Unavailable,
+                        "{damage} / {phase}"
+                    );
+                    assert_eq!(
+                        unavailable.failure_comparisons[0].failure_support,
+                        SupportStatus::PurgedOrUnavailable,
+                        "{damage} / {phase}"
+                    );
+                }
+                assert!(
+                    !stored_run(
+                        state.connection.as_ref().unwrap(),
+                        task.id,
+                        &evidence.prepared.run_id
+                    )
+                    .unwrap()
+                    .record
+                    .output_unavailable,
+                    "derived checks must not fabricate a persisted purge"
+                );
+            }
+            match damage {
+                "missing" => fs::rename(&held, &output).unwrap(),
+                "truncated" => fs::write(&output, &original).unwrap(),
+                "replaced" => {
+                    fs::remove_file(&output).unwrap();
+                    fs::rename(&held, &output).unwrap();
+                }
+                _ => unreachable!(),
+            }
+            let restored = load(&mut state, task.id, Some(observed("fixed")));
+            assert_eq!(
+                restored.failure_comparisons[0].disposition,
+                FailureDisposition::HistoricalSupportedPass
+            );
+        }
+    }
+    fs::write(fixture.root.join("project/source.rs"), "broken\n").unwrap();
+    state
+        .purge_output(task.id, &passed.prepared.run_id)
+        .unwrap();
+    let purged = load(&mut state, task.id, Some(observed("later-source")));
+    assert_eq!(purged.resolutions.len(), 1);
+    assert_eq!(
+        purged.failure_comparisons.last().unwrap().historical[0].pass,
+        SupportStatus::PurgedOrUnavailable
+    );
     drop(state);
     let mut state = fixture.open();
     let records = load(&mut state, task.id, None);
@@ -731,7 +908,12 @@ fn historical_resolution_requires_supported_receipt_observed_transition_and_matc
             operation: ContextOperation::Purge(vec![excerpt.id]),
         })
         .unwrap();
-    assert!(load(&mut state, task.id, None).resolutions.is_empty());
+    let missing = load(&mut state, task.id, Some(observed("later-source")));
+    assert_eq!(missing.resolutions.len(), 1);
+    assert_eq!(
+        missing.failure_comparisons.last().unwrap().historical[0].diagnosis,
+        SupportStatus::Missing
+    );
     assert!(
         call(
             &mut state,

@@ -1,6 +1,34 @@
 use super::*;
 
 #[test]
+fn sdk_launch_identity_is_stable_across_approval_arrivals_but_binds_process_inputs() {
+    let dir = SdkTestDirectory::new();
+    let runtime = dir.path().join("node");
+    let entry = dir.path().join("main.ts");
+    fs::write(&runtime, "reviewed runtime").unwrap();
+    let captured = launch_identity(identity(&runtime).unwrap(), &entry, dir.path().into()).unwrap();
+    let first_arrival = crate::providers::approval_arrival();
+    let current = launch_identity(identity(&runtime).unwrap(), &entry, dir.path().into()).unwrap();
+    assert!(crate::providers::approval_arrival() > first_arrival);
+    assert_eq!(captured, current);
+
+    fs::write(&runtime, "changed runtime").unwrap();
+    let changed = launch_identity(identity(&runtime).unwrap(), &entry, dir.path().into()).unwrap();
+    assert_ne!(captured, changed);
+    let changed_entry = launch_identity(
+        captured.executable.clone(),
+        &dir.path().join("other.ts"),
+        dir.path().into(),
+    )
+    .unwrap();
+    assert_ne!(captured, changed_entry);
+    let other_cwd = SdkTestDirectory::new();
+    let changed_cwd =
+        launch_identity(captured.executable.clone(), &entry, other_cwd.path().into()).unwrap();
+    assert_ne!(captured, changed_cwd);
+}
+
+#[test]
 fn sdk_releases_are_observed_identity_not_an_admission_allowlist() {
     for (sdk, cli) in [
         ("0.3.296", "2.1.296"),
@@ -36,8 +64,8 @@ fn sdk_inspection_requires_reviewed_identity_query_and_complete_bridge_policy() 
     };
     let inspection = json!({
         "type":"capabilities", "sdk_version":"1.5.0", "cli_version":"4.0.0",
-        "bridge_revision":9, "query":true,
-        "policy":{"tools":"closed-allowlist","permissions":"default-host-once","mcp":"host-discovery-only",
+        "bridge_revision":10, "query":true,
+        "policy":{"tools":"closed-allowlist","permissions":"default-host-once","mcp":"host-discovery-and-reviewed-command",
             "configuration":"isolated","authentication":"api-console-cloud-only",
             "dispatch":"correlated-sdk-submission","usage":"correlated-sdk-snapshots",
             "file_preview":"display-only-correlated-arguments-outcomes"},
@@ -46,7 +74,7 @@ fn sdk_inspection_requires_reviewed_identity_query_and_complete_bridge_policy() 
     for (field, value) in [
         ("sdk_version", json!("1.5.1")),
         ("cli_version", json!("4.0.1")),
-        ("bridge_revision", json!(8)),
+        ("bridge_revision", json!(9)),
         ("query", json!(false)),
         ("policy", Value::Null),
     ] {
@@ -1131,4 +1159,35 @@ fn sdk_native_exclusion_prefixes_remain_valid_boundaries_at_the_bridge() {
     assert!(capture_write_scope(data.path(), &input, std::slice::from_ref(&prefix)).is_err());
     input.edit_paths = vec!["src/private-extra/visible.txt".into()];
     assert!(capture_write_scope(data.path(), &input, &[prefix]).is_ok());
+}
+
+#[test]
+fn sdk_host_command_schema_requires_exact_identity_and_literal_scope() {
+    let request = json!({"protocol":1,"type":"bridge_command","generation":1,"task_id":1,
+        "session_id":"00000000-0000-4000-8000-000000000001",
+        "call_id":"00000000-0000-4000-8000-000000000002",
+        "cwd":"","command":{"Direct":{"program":"rustc","args":["main.rs"]}}});
+    assert!(command_request(&request).is_ok());
+    for (field, value) in [
+        ("protocol", json!(2)),
+        ("generation", json!(0)),
+        ("task_id", json!(0)),
+        ("session_id", json!("foreign")),
+        ("call_id", json!("foreign")),
+        ("cwd", json!("../other")),
+        ("cwd", json!("/outside")),
+        (
+            "command",
+            json!({"Direct":{"program":"rustc","args":[],"env":{}}}),
+        ),
+        (
+            "command",
+            json!({"Shell":{"executable":"sh","dialect":"bash","text":"cargo build"}}),
+        ),
+        ("grant", json!("allow")),
+    ] {
+        let mut changed = request.clone();
+        changed[field] = value;
+        assert!(command_request(&changed).is_err(), "{field}");
+    }
 }

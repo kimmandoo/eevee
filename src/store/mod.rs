@@ -42,6 +42,7 @@ use schema::*;
 use spool::*;
 use tasks::*;
 
+pub use admission::validate_command_callback;
 pub use admission::{review_run_observations, validate_planning_input, validate_work_input};
 pub use lifecycle::inspect_lifecycle_data;
 pub use partners::validate_nickname;
@@ -377,6 +378,7 @@ pub struct CommittedRunPermit {
     pub capacity: u64,
     pub rerun_of: Option<String>,
     pub revision_moving: bool,
+    pub provider_claim: Option<WorkClaim>,
     _committed: (),
 }
 
@@ -403,6 +405,11 @@ pub enum RunOperation {
     Reserve {
         prepared: crate::workspace::runner::Prepared,
         capacity: u64,
+    },
+    ReserveOwned {
+        prepared: crate::workspace::runner::Prepared,
+        capacity: u64,
+        claim: WorkClaim,
     },
     Update(crate::workspace::runner::RunRecord),
     Abandon {
@@ -445,7 +452,8 @@ pub struct OutputPage {
 impl RunRequest {
     fn correlation(&self) -> (Option<String>, Option<String>) {
         match &self.operation {
-            RunOperation::Reserve { prepared, .. } => (
+            RunOperation::Reserve { prepared, .. }
+            | RunOperation::ReserveOwned { prepared, .. } => (
                 Some(prepared.request_id.clone()),
                 Some(prepared.run_id.clone()),
             ),

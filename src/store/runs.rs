@@ -381,6 +381,13 @@ impl State {
             RunOperation::Reserve { prepared, capacity } => self
                 .reserve_run(task_id, prepared, capacity)
                 .map(RunResponse::Reserved),
+            RunOperation::ReserveOwned {
+                prepared,
+                capacity,
+                claim,
+            } => self
+                .reserve_run_owned(task_id, prepared, capacity, Some(claim))
+                .map(RunResponse::Reserved),
             RunOperation::Update(record) => {
                 self.update_run(task_id, record).map(RunResponse::Updated)
             }
@@ -423,6 +430,16 @@ impl State {
         prepared: crate::workspace::runner::Prepared,
         capacity: u64,
     ) -> Result<CommittedRunPermit, String> {
+        self.reserve_run_owned(task_id, prepared, capacity, None)
+    }
+
+    fn reserve_run_owned(
+        &mut self,
+        task_id: i64,
+        prepared: crate::workspace::runner::Prepared,
+        capacity: u64,
+        provider_claim: Option<WorkClaim>,
+    ) -> Result<CommittedRunPermit, String> {
         if prepared.task_id != task_id || !(1024..=MAX_SPOOL_BYTES).contains(&capacity) {
             return Err("Run owner or capture reservation bound is invalid (1 KiB–16 MiB)".into());
         }
@@ -448,7 +465,12 @@ impl State {
         }
         super::records::reserve_capacity(&transaction, &self.project)?;
         super::artifacts::reserve_capacity(&transaction, task_id)?;
-        let revision_moving = super::work::acquire_command(&transaction, &task, &prepared)?;
+        let revision_moving = if let Some(claim) = &provider_claim {
+            super::work::validate_nested_command(&transaction, claim, &prepared)?;
+            false
+        } else {
+            super::work::acquire_command(&transaction, &task, &prepared)?
+        };
         let mut record = crate::workspace::runner::RunRecord::awaiting(&prepared);
         record.revision_moving = revision_moving;
         record.redact_for_storage();
@@ -487,6 +509,7 @@ impl State {
             capacity,
             rerun_of: prepared.rerun_of,
             revision_moving,
+            provider_claim,
             _committed: (),
         })
     }
@@ -899,6 +922,72 @@ mod moving_tests {
                 task: Box::new(task.clone()),
             })
             .unwrap();
+    }
+
+    #[test]
+    fn nested_command_borrows_only_exact_writer_and_preserves_provider_lease() {
+        let fixture = Fixture::new();
+        let mut store = fixture.open();
+        let task = saved_task(&mut store);
+        let owner = Attribution::of(&partners(store.connection.as_ref().unwrap()).unwrap()[0]);
+        let claim = writer(&task, owner.clone());
+        acquire_writer(&mut store, &task, &claim);
+        let prepared = prepared(&task, &fixture.0, "nested", Some(owner.clone()));
+        let mut stale = claim.clone();
+        stale.request_id = "stale-writer".into();
+        assert!(
+            store
+                .reserve_run_owned(task.id, prepared.clone(), 1024, Some(stale))
+                .is_err()
+        );
+        assert!(
+            store.reserve_run(task.id, prepared.clone(), 1024).is_err(),
+            "ordinary busy-owner admission remains closed"
+        );
+        let permit = store
+            .reserve_run_owned(task.id, prepared.clone(), 1024, Some(claim.clone()))
+            .unwrap();
+        assert_eq!(permit.provider_claim, Some(claim.clone()));
+        assert!(
+            !permit.revision_moving,
+            "blocked callback does not overlap its own file writer"
+        );
+        let second = self::prepared(&task, &fixture.0, "overlap", Some(owner));
+        assert!(
+            store
+                .reserve_run_owned(task.id, second, 1024, Some(claim.clone()))
+                .is_err()
+        );
+        assert!(
+            store
+                .work_request(&WorkRequest::Release(claim.clone()))
+                .is_err(),
+            "provider cancellation must not release a writer before its nested reservation/journal settles"
+        );
+        assert_eq!(
+            super::super::work::claims(store.connection.as_ref().unwrap()).unwrap(),
+            vec![claim.clone()]
+        );
+        drop(permit);
+        let mut record = RunRecord::awaiting(&prepared);
+        record.state = RunState::Failed;
+        record.started_at_ms = Some(prepared.prepared_at_ms);
+        record.ended_at_ms = Some(prepared.prepared_at_ms);
+        record.exit_code = Some(1);
+        record.tree = crate::workspace::runner::TreeOutcome::OwnedTreeExited;
+        let record = store.update_run(task.id, record).unwrap();
+        let result = crate::providers::commands::result(&record, "", "real compiler error", false);
+        assert_eq!(result["status"], "error");
+        assert_eq!(result["run"]["exit_code"], 1);
+        assert_eq!(result["stderr"], "real compiler error");
+        assert_eq!(
+            super::super::work::claims(store.connection.as_ref().unwrap()).unwrap(),
+            vec![claim.clone()]
+        );
+        assert!(
+            store.work_request(&WorkRequest::Release(claim)).is_ok(),
+            "only the committed terminal command allows parent writer release"
+        );
     }
 
     #[test]

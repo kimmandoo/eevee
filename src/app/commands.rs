@@ -76,6 +76,7 @@ impl Popup {
                 | "compact"
                 | "tools"
                 | "tool-setup"
+                | "tool-plan"
         ) && !argument.is_empty())
         .then_some((name, argument))
     }
@@ -600,6 +601,33 @@ impl App {
             ("tools", "Search reviewed local tool metadata"),
             ("tool-setup", "Review explicit local tool catalog setup"),
             ("tool-clear", "Clear outgoing tool schema selection"),
+            ("tool-plan", "Inspect or author a typed local tool plan"),
+            ("plan-start", "Preview starting the exact staged plan"),
+            (
+                "plan-resume",
+                "Preview safely resuming failed/unstarted nodes",
+            ),
+            ("plan-cancel", "Cancel plan admission and queued nodes"),
+            (
+                "plan-reconcile",
+                "Reconcile unknown outcomes with durable run evidence",
+            ),
+            (
+                "plan-serial",
+                "Preview an actual all-read serial comparison",
+            ),
+            (
+                "plan-history",
+                "Inspect retained plans without execution authority",
+            ),
+            (
+                "impact-checks",
+                "Recommend impact-directed verification checks",
+            ),
+            (
+                "stage-impact-plan",
+                "Stage recommended checks without execution",
+            ),
             ("artifacts", "Inspect owned immutable tool output"),
             ("artifact-search", "Search retained tool output"),
             ("artifact-locations", "Inspect retained failure locations"),
@@ -951,9 +979,11 @@ impl App {
         let local_picker_refresh = name == "models-refresh"
             && self.planning.picker.is_some()
             && !self.planning.busy_except_picker();
+        let local_callback_denial = name == "deny" && self.current_callback_command_deniable();
         if self.planning.busy()
             && !local_preview_choice
             && !local_picker_refresh
+            && !local_callback_denial
             && !matches!(
                 name,
                 "cancel"
@@ -1286,6 +1316,10 @@ impl App {
             Some((name, argument)) => (name, argument.trim()),
             None => (query, ""),
         };
+        if name == "tool-plan" {
+            self.command_popup = None;
+            return self.tool_plan_command(query);
+        }
         if matches!(name, "optimize" | "compact" | "tools" | "tool-setup") {
             if let Some(reason) = self.command_disabled_reason(name) {
                 self.notice = reason;
@@ -1396,6 +1430,15 @@ impl App {
             return true;
         }
         if self.record_command(name) {
+            return true;
+        }
+        if name == "deny" && self.current_callback_command_deniable() {
+            self.move_run_denied();
+            self.execution.command("deny");
+            self.refresh_approvals();
+            if self.overlay == Some(Overlay::Execution) && !self.execution.visible() {
+                self.close_overlay();
+            }
             return true;
         }
         if name == "deny"
@@ -1611,6 +1654,12 @@ impl App {
             }
             self.open_overlay(Overlay::Workflows);
             self.workflow_command(desk);
+            return self.workflow_command(name);
+        }
+        if matches!(name, "impact-checks" | "stage-impact-plan") {
+            if self.editing {
+                self.retain_action_editor();
+            }
             return self.workflow_command(name);
         }
         if matches!(

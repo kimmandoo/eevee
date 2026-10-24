@@ -13,7 +13,7 @@ export const SDKPackageSchema = z.object({
   version: VersionSchema, claudeCodeVersion: VersionSchema,
 });
 export const BRIDGE_POLICY = {
-  tools: 'closed-allowlist', permissions: 'default-host-once', mcp: 'host-discovery-only',
+  tools: 'closed-allowlist', permissions: 'default-host-once', mcp: 'host-discovery-and-reviewed-command',
   configuration: 'isolated', authentication: 'api-console-cloud-only',
   dispatch: 'correlated-sdk-submission',
   usage: 'correlated-sdk-snapshots',
@@ -23,6 +23,28 @@ export const FRAME_LIMIT = 2 * 1024 * 1024;
 export const READ_TOOLS = ['Read', 'Glob', 'Grep', 'AskUserQuestion'];
 export const DISCOVERY_SERVER = 'eevee_source';
 export const DISCOVERY_TOOL = 'mcp__eevee_source__discover';
+export const COMMAND_SERVER = 'eevee_command';
+export const COMMAND_TOOL = 'mcp__eevee_command__run_command';
+const CommandText = z.string().min(1).max(64 * 1024).refine(value => !value.includes('\0'));
+export const HostCommandSchema = z.object({
+  cwd: z.string().max(4096).refine(value => value === '' ||
+    (!value.includes('\\') && !/[\p{Cc}]/u.test(value) && value.split('/').every(part => part !== '' && part !== '.' && part !== '..'))),
+  command: z.union([
+    z.object({ Direct: z.object({ program: CommandText, args: z.array(z.string().max(64 * 1024).refine(value => !value.includes('\0'))).max(1024) }).strict() }).strict(),
+    z.object({ Shell: z.object({ executable: CommandText, dialect: z.enum(['Posix', 'Cmd', 'PowerShell']), text: CommandText }).strict() }).strict(),
+  ]),
+}).strict().refine(value => Buffer.byteLength(JSON.stringify(value)) <= 64 * 1024);
+export const CommandResultSchema = z.object({
+  protocol: z.literal(1), type: z.literal('bridge_command_result'),
+  generation: z.number().int().positive(), task_id: z.number().int().positive(),
+  session_id: z.string().uuid(), call_id: z.string().uuid(),
+  result: z.record(z.string(), z.unknown()).refine(value => value.status === 'success' || value.status === 'error'),
+}).strict();
+export function commandOutcomeUnknown(result: Record<string, unknown>): boolean {
+  const run = result.run;
+  return typeof run === 'object' && run !== null &&
+    (('state' in run && run.state === 'OutcomeUnknown') || ('tree' in run && run.tree === 'OwnershipUnknown'));
+}
 export const DiscoverySchema = z.object({
   mode: z.enum(['glob', 'grep']),
   path: z.string().max(4096).default('.'),
@@ -54,7 +76,7 @@ export const WriteScopeSchema = z.object({
 }).strict();
 export type WriteScope = z.infer<typeof WriteScopeSchema>;
 export const RunSchema = z.object({
-  protocol: z.literal(1), bridge_revision: z.literal(9), type: z.literal('run'), generation: z.number().int().positive(), task_id: z.number().int().positive(),
+  protocol: z.literal(1), bridge_revision: z.literal(10), type: z.literal('run'), generation: z.number().int().positive(), task_id: z.number().int().positive(),
   request_id: boundedText(256).nullish(),
   prompt: z.string().max(FRAME_LIMIT / 2), cwd: z.string().min(1).max(4096), state_dir: z.string().min(1).max(4096),
   operation: z.enum(['plan', 'implement']), write_scope: WriteScopeSchema,
@@ -333,12 +355,15 @@ export function assertSessionPolicy(raw: unknown, cliVersion: string, tools: rea
   const parsed = z.object({
     claude_code_version: VersionSchema, permissionMode: z.literal('default'),
     tools: z.array(z.string()).max(256),
-    mcp_servers: z.array(z.object({ name: z.literal(DISCOVERY_SERVER), status: z.literal('connected') })).max(1),
+    mcp_servers: z.array(z.object({ name: z.enum([DISCOVERY_SERVER, COMMAND_SERVER]), status: z.literal('connected') })).max(2),
     plugins: z.array(z.unknown()).max(0), skills: z.array(z.unknown()).max(0),
   }).safeParse(raw);
   if (!parsed.success || parsed.data.claude_code_version !== cliVersion ||
     parsed.data.tools.some(tool => !tools.includes(tool)) ||
-    (tools.includes(DISCOVERY_TOOL) ? parsed.data.mcp_servers.length !== 1 || !parsed.data.tools.includes(DISCOVERY_TOOL) : parsed.data.mcp_servers.length !== 0)) {
+    parsed.data.mcp_servers.length !== Number(tools.includes(DISCOVERY_TOOL)) + Number(tools.includes(COMMAND_TOOL)) ||
+    new Set(parsed.data.mcp_servers.map(server => server.name)).size !== parsed.data.mcp_servers.length ||
+    (tools.includes(DISCOVERY_TOOL) && (!parsed.data.tools.includes(DISCOVERY_TOOL) || !parsed.data.mcp_servers.some(server => server.name === DISCOVERY_SERVER))) ||
+    (tools.includes(COMMAND_TOOL) && (!parsed.data.tools.includes(COMMAND_TOOL) || !parsed.data.mcp_servers.some(server => server.name === COMMAND_SERVER)))) {
     throw new Error('Effective SDK identity/tool/config policy mismatch');
   }
 }
@@ -449,6 +474,7 @@ export class SDKWritePolicy {
   private readonly seen = new Set<string>();
   private readonly denied = new Map<string, { tool: string; input: unknown }>();
   private active: { id: string; tool: string; input: Record<string, unknown>; path: string; fingerprint: string; expected: string; approved: boolean } | undefined;
+  commandAvailable(): boolean { return this.active === undefined && !this.uncertain; }
   constructor(cwd: string, scope: WriteScope, runtimePaths: string[] = []) {
     this.root = realpathSync(cwd);
     if (toNamespacedPath(resolve(cwd)) !== toNamespacedPath(this.root) || directoryIdentity(this.root) === undefined) throw new SDKPolicyError('SDK cwd must be a canonical non-link directory');
@@ -805,6 +831,9 @@ export class SDKWritePolicy {
       return unchanged;
     }
     const file = this.scope.files.find(file => file.path === active.path)!;
+    // A reported success remains uncertain until ancestors and exact leaf
+    // bytes/identity reconcile; consuming the callback cannot reopen builds.
+    this.uncertain = true;
     if (directoryIdentity(this.root) !== this.scope.root_identity) return false;
     const parents = new Map<string, string>();
     for (const ancestor of file.ancestors) {
@@ -818,6 +847,7 @@ export class SDKWritePolicy {
     if (!state || state.content !== active.expected || (tool === 'Edit' && state.identity !== file.identity)) return false;
     for (const [path, identity] of parents) this.ownedParents.set(path, identity);
     file.kind = 'Replace'; file.identity = state.identity; file.sha256 = state.sha256; file.working_content = state.content;
+    this.uncertain = false;
     return true;
   }
 }

@@ -6,6 +6,9 @@ use crossterm::event::{KeyCode, KeyEvent};
 impl App {
     pub(super) fn context_tool_command(&mut self, input: &str) -> bool {
         let (name, argument) = input.split_once(char::is_whitespace).unwrap_or((input, ""));
+        if self.tool_plan_command(input) {
+            return true;
+        }
         if name == "remember-source" {
             let selected_basket = self.overlay == Some(Overlay::Sources)
                 && self.sources.mode == sources::Mode::Basket;
@@ -156,6 +159,9 @@ impl App {
         use crate::{
             i18n::Message,
             workspace::memory::{Provenance, SourceKind},
+        };
+        let Some(event) = self.receive_impact(event) else {
+            return;
         };
         if event.task_id != self.task_id {
             self.sources.cancel_memory_adoption();

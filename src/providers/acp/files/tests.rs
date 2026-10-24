@@ -32,11 +32,16 @@ fn file_capabilities_are_operation_bound_not_profile_guesses() {
                 client_capabilities(&input)["fs"]["readTextFile"],
                 operation != Operation::Review
             );
+            assert_eq!(
+                client_capabilities(&input)["terminal"],
+                operation == Operation::Implement
+            );
             input.inspect_models = true;
             assert_eq!(
                 client_capabilities(&input)["fs"],
                 json!({"readTextFile":false,"writeTextFile":false})
             );
+            assert_eq!(client_capabilities(&input)["terminal"], false);
         }
     }
 }

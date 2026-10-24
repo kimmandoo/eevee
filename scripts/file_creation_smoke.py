@@ -345,10 +345,12 @@ class CreationJourney(SurfaceJourney):
         claims = self.snapshot()['claims']
         assert len(claims) == 1 and bool(claims[0]['writing']) is writing, 'native operation bypassed its actual lease mode'
         body = self.peer.snapshot('POST')[before]['body']
-        expected = {'eevee_list_files', 'eevee_read_file', 'eevee_artifact_list',
-                    'eevee_artifact_read', 'eevee_artifact_search', 'eevee_artifact_locations'}
+        expected = {'eevee_list_files', 'eevee_read_file', 'eevee_structural_search',
+                    'eevee_artifact_list', 'eevee_artifact_read', 'eevee_artifact_search',
+                    'eevee_artifact_locations'}
         if writing:
-            expected |= {'eevee_write_file', 'eevee_edit_file', 'eevee_delete_file', 'eevee_rename_file'}
+            expected |= {'eevee_write_file', 'eevee_edit_file', 'eevee_delete_file',
+                         'eevee_rename_file', 'eevee_run_command'}
         assert advertised_tools(self.protocol, body) == expected, 'native operation advertised the wrong file capability'
         return before
 
@@ -1083,7 +1085,9 @@ def codex_case(binary, output, size, language, *, mutations=False):
             'model/role replacement reauthorized an old opaque provider session'
         claims = journey.snapshot()[2]
         assert len(claims) == 1 and not claims[0]['writing'], 'controlled Plan acquired writing authority'
-        assert set(journey.peers('session')[-1]['tools']) == {'eevee_list_files', 'eevee_read_file'}, 'controlled Plan advertised mutation tools'
+        effectful = {'eevee_write_file', 'eevee_edit_file', 'eevee_delete_file',
+                     'eevee_rename_file', 'eevee_run_command'}
+        assert effectful.isdisjoint(journey.peers('session')[-1]['tools']), 'controlled Plan advertised effects'
         journey.publish(marker + '.prompt', json.dumps([
             {'name': 'eevee_list_files', 'arguments': {'directory': '', 'query': 'generated', 'offset': 0}},
             {'name': 'eevee_read_file', 'arguments': {'path': FIRST, 'start_line': 1, 'end_line': 0}}]))
