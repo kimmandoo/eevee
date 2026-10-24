@@ -1,5 +1,12 @@
 # Troubleshooting
 
+### [2026-10-25] Cargo clean left a nonempty generated evidence tree
+
+- **Context / Symptom:** After all public release jobs finished, requested cleanup of67G `target` returned `Directory not empty (os error66)`. A subsequent filesystem read/measurement showed882M of older generated evidence trees remained.
+- **Root Cause:** Cargo's recursive cleanup did not remove the complete mixed build/evidence tree; the underlying filesystem trigger was not established. No new build or test was running.
+- **Solution:** First archived and verified current release/runtime and critical failure proof outside target, preserving a runnable genuine public binary. Confirmed target was not a symlink and contained no tracked files, then removed only the residual repository target and verified it absent. Source and user `.DS_Store` were untouched.
+- **Prevention / Reference:** Keep long-lived release evidence outside the build directory. The checkpoint records archive path/SHA256 and cleanup result; never delete evidence while runtime jobs still use it.
+
 ### [2026-10-25] Windows deadline fixture underflowed the monotonic clock
 
 - **Context / Symptom:** Exact-source run40106372420 passed Check and four native rows, but Windows job120908793907 failed `terminal_deadline_requests_cancellation_without_unblocking_unsettled_effects` with `overflow when subtracting duration from instant` in the Rust standard library;1,584 other Windows tests passed. No0.1.31 tag or partial release was created.
