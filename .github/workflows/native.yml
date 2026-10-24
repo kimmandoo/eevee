@@ -131,14 +131,16 @@ jobs:
           python scripts/file_creation_smoke.py --binary target/release/ev${{ runner.os == 'Windows' && '.exe' || '' }} --output "$NATIVE_SMOKE_OUTPUT/platform-files-ko" --language ko
       - name: Exercise reviewed context tools and continuation
         run: |
+          failed=0
           for language in en ko; do
-            python scripts/receipts_smoke.py --binary target/release/ev${{ runner.os == 'Windows' && '.exe' || '' }} --output "$NATIVE_SMOKE_OUTPUT/platform-tools-receipts-$language" --language "$language"
-            python scripts/context_optimizer_smoke.py --binary target/release/ev${{ runner.os == 'Windows' && '.exe' || '' }} --output "$NATIVE_SMOKE_OUTPUT/platform-tools-context-$language" --language "$language"
-            python scripts/tool_catalog_smoke.py --binary target/release/ev${{ runner.os == 'Windows' && '.exe' || '' }} --output "$NATIVE_SMOKE_OUTPUT/platform-tools-catalog-$language" --language "$language"
-            python scripts/artifacts_smoke.py --binary target/release/ev${{ runner.os == 'Windows' && '.exe' || '' }} --output "$NATIVE_SMOKE_OUTPUT/platform-tools-artifacts-$language" --language "$language"
-            python scripts/source_observation_smoke.py --binary target/release/ev${{ runner.os == 'Windows' && '.exe' || '' }} --output "$NATIVE_SMOKE_OUTPUT/platform-tools-sources-$language" --language "$language" --mode native
-            python scripts/conversation_flow_smoke.py --binary target/release/ev${{ runner.os == 'Windows' && '.exe' || '' }} --output "$NATIVE_SMOKE_OUTPUT/platform-tools-conversation-$language" --language "$language" --mode native
+            python scripts/receipts_smoke.py --binary target/release/ev${{ runner.os == 'Windows' && '.exe' || '' }} --output "$NATIVE_SMOKE_OUTPUT/platform-tools-receipts-$language" --language "$language" || failed=1
+            python scripts/context_optimizer_smoke.py --binary target/release/ev${{ runner.os == 'Windows' && '.exe' || '' }} --output "$NATIVE_SMOKE_OUTPUT/platform-tools-context-$language" --language "$language" || failed=1
+            python scripts/tool_catalog_smoke.py --binary target/release/ev${{ runner.os == 'Windows' && '.exe' || '' }} --output "$NATIVE_SMOKE_OUTPUT/platform-tools-catalog-$language" --language "$language" || failed=1
+            python scripts/artifacts_smoke.py --binary target/release/ev${{ runner.os == 'Windows' && '.exe' || '' }} --output "$NATIVE_SMOKE_OUTPUT/platform-tools-artifacts-$language" --language "$language" || failed=1
+            python scripts/source_observation_smoke.py --binary target/release/ev${{ runner.os == 'Windows' && '.exe' || '' }} --output "$NATIVE_SMOKE_OUTPUT/platform-tools-sources-$language" --language "$language" --mode native || failed=1
+            python scripts/conversation_flow_smoke.py --binary target/release/ev${{ runner.os == 'Windows' && '.exe' || '' }} --output "$NATIVE_SMOKE_OUTPUT/platform-tools-conversation-$language" --language "$language" --mode native || failed=1
           done
+          exit "$failed"
       - name: Retain platform file workflow evidence
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0

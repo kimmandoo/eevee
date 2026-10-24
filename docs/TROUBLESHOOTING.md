@@ -1,5 +1,12 @@
 # Troubleshooting
 
+### [2026-10-24] Text-mode fixture creation changed exact tool-read bytes on Windows
+
+- **Context / Symptom:** Run40040530847 passed Check and all four macOS/Linux native jobs. Windows passed bilingual files, English receipts and both English context sizes, then catalog acceptance reported `tool did not execute the actual owned source read`.
+- **Root Cause:** Retained `en-60x18/http.json` proved the selected tool succeeded and returned the exact source with `\r\n` and its matching digest. The fixture wrote `SOURCE` through default text-mode newline translation but compared the returned content/hash against LF-only UTF-8 bytes. The provider/executor had not changed or lost the file.
+- **Solution:** Wrote explicit UTF-8 fixture bytes and checked unchanged saved bytes with `read_bytes`, retaining strict tool status, exact content and exact SHA256 assertions without normalizing returned data. Continued every independent native context/tool journey after a failure while accumulating a nonzero overall exit status; this preserves all failure evidence without waiving any gate or retrying work.
+- **Prevention / Reference:** Use byte-explicit producers for exact-wire fixtures. The complete fresh Check/all-five-native run still must pass before tagging; four successful target jobs do not authorize publication.
+
 ### [2026-10-24] Reused compiler output directories and Windows path spellings blocked native evidence
 
 - **Context / Symptom:** Run40031296268 passed Check and both complete macOS jobs. Both Linux file drivers stopped at `FileExistsError` for `target/platform-files-en` before creating evidence. Windows passed all unit checks, bilingual file workflows and English receipts, then timed out waiting for an already committed owned-run activity.
