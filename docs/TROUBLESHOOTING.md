@@ -1,5 +1,12 @@
 # Troubleshooting
 
+### [2026-10-25] Delayed record refresh repainted an unchanged idle terminal
+
+- **Context / Symptom:** Public0.1.30 installation acceptance recorded20 passing lifecycle groups and13 passing terminal scenarios, then mono-ASCII100×30 emitted96 bytes/two cursor-only frames during idle despite identical before/after cells. The failed installation report was retained, not rerun into a pass.
+- **Root Cause:** A delayed genuine repository observation invalidated the derived record cache. Enqueuing its load and consuming the reply both unconditionally requested repaint although no home content changed. Pairing restoration also returned readiness rather than a visible-change signal. Temporary mailbox diagnostics and `target/late-git-idle-before` reproduced the exact96-byte failure with real Git behind a controlled release gate.
+- **Solution:** Separated hidden cache maintenance from visible invalidation, propagated correlated record-event change results through the existing store mailbox, and made pairing restoration report actual selection/badge changes. Habit/activity/held-item and open inspector changes retained repaint. Removed temporary production instrumentation. Candidate `8e664a08407c693dee7c2ab95d527a41ba207889949619ae27f479b65a8cd056` passed the identical delayed-Git case with zero bytes and all34 terminal scenarios; Rust1,640/two ignored, formatting, strict Clippy and release build passed. Fresh exact-source qualification/public installation still precede final acceptance;0.1.30 assets remain unchanged.
+- **Prevention / Reference:** Keep strict zero-output idle acceptance and bounded settling unchanged. Sample delayed genuine background completion, not just a fast warm startup; state applied successfully is not by itself a reason to repaint.
+
 ### [2026-10-24] Release source omitted bilingual catalog inputs
 
 - **Context / Symptom:** Exact-source native run40099449466 failed Check/all five native builds with38 `E0599` missing generated message/template variants, including `ToolPlanTitle`, `ImpactChecksCommand` and `DexComparisonUnavailable`.

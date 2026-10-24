@@ -369,8 +369,7 @@ fn run(config: Config) -> io::Result<()> {
             dirty |= app.drive_moves();
             app.records_pairing_selected();
             dirty |= app.drive_records();
-            // Restoration reports readiness, not a changed frame.
-            app.records_restore_pairing();
+            dirty |= app.records_restore_pairing();
             animation_dirty |= app.tick_evolution(std::time::Instant::now());
             if dirty || animation_dirty {
                 ui::portrait_targets(
@@ -610,11 +609,11 @@ fn run(config: Config) -> io::Result<()> {
                     && app.overlay != Some(app::Overlay::Memory)
                     && !app.memory.saving;
                 let revision = app.revision;
-                app.store_event(event);
+                let changed = app.store_event(event);
                 if restored && config.layout_explicit {
                     app.linear = config.layout == config::LayoutMode::Linear;
                 }
-                dirty |= !hidden_memory_load || app.revision != revision;
+                dirty |= changed && (!hidden_memory_load || app.revision != revision);
             }
             for index in 0..64 {
                 let Some(event) = repository.try_event() else {

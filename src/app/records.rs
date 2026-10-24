@@ -587,6 +587,7 @@ impl App {
     }
     pub fn drive_records(&mut self) -> bool {
         let mut changed = false;
+        let visible = matches!(self.overlay, Some(Overlay::Records | Overlay::Forms));
         let current_changed = {
             let unknown = InputSnapshot::default();
             let current = if self.repo_loading || self.repo_refresh || !self.repo_error.is_empty() {
@@ -615,13 +616,13 @@ impl App {
             self.records.snapshot.ribbons.clear();
             self.records.markers = Default::default();
             self.records.invalidate_review();
-            changed = true;
+            changed |= visible;
         }
         if current_changed {
             self.records.invalidated = true;
             self.records.load_failed = false;
             self.records.invalidate_review();
-            changed = true;
+            changed |= visible;
         }
         changed |= self.queue_memory_binding();
         if self.records.invalidated
@@ -635,7 +636,7 @@ impl App {
                     current: Some(self.records.current.clone()),
                 },
             );
-            changed = true;
+            changed |= visible;
         }
         if !self.records.snapshot.flavor_enabled {
             self.records.lines.clear();
@@ -676,11 +677,21 @@ impl App {
             0
         }
     }
-    pub fn records_event(&mut self, request: Request, result: Result<Box<Response>, String>) {
+    /// Apply every correlated result, but repaint only its visible consequences.
+    pub fn records_event(
+        &mut self,
+        request: Request,
+        result: Result<Box<Response>, String>,
+    ) -> bool {
         if self.records.inflight.as_ref() != Some(&request) {
-            return;
+            return false;
         }
         self.records.inflight = None;
+        let mut changed = !matches!(request.operation, Operation::Load { .. })
+            || matches!(
+                self.overlay,
+                Some(Overlay::Records | Overlay::Forms | Overlay::Held | Overlay::Sources)
+            );
         match result {
             Err(error) => {
                 self.records.notice = error.clone();
@@ -702,6 +713,7 @@ impl App {
                 if let Response::Snapshot(mut snapshot) = *response {
                     self.records.snapshot.flavor_enabled = snapshot.flavor_enabled;
                     if !snapshot.flavor_enabled {
+                        changed |= self.records.current_activity.is_some();
                         self.records.lines.clear();
                         self.records.current_activity = None;
                     }
@@ -748,6 +760,7 @@ impl App {
                             super::habits::eligible(habit) && habit.memory.is_none()
                         }) {
                             if !self.records.notified_habits.contains(&habit.key) {
+                                changed |= !self.records.habit_hint;
                                 self.records.notified_habits.insert(habit.key.clone());
                                 self.records.habit_hint = true;
                             }
@@ -770,13 +783,23 @@ impl App {
                         self.records.invalidated = true;
                     }
                 }
-                self.records_restore_pairing();
+                changed |= self.records_restore_pairing();
                 if mutation(&request) {
                     self.records.invalidated = true;
                 }
             }
         }
-        self.reconcile_held();
+        let held_visible = self.held.target.is_some()
+            || self.held.notice.is_some()
+            || self
+                .records
+                .snapshot
+                .held_items
+                .iter()
+                .any(|item| item.partner == self.lead().id && item.form == self.form());
+        let revision = self.revision;
+        changed |= self.reconcile_held() && (held_visible || self.revision != revision);
+        changed
     }
     pub fn records_pairing_selected(&mut self) {
         if !self.planning.take_pairing_offer() {
@@ -796,7 +819,7 @@ impl App {
             &self.planning.selection,
         );
     }
-    /// Apply committed data once per settled route/data identity, never per redraw.
+    /// Restore an idle route once per data identity; report a visible change, not readiness.
     pub fn records_restore_pairing(&mut self) -> bool {
         if !self.records.loaded {
             return false;
@@ -804,7 +827,7 @@ impl App {
         // Automatic selection preserves the actual provider/model/effort, even
         // when a committed pairing exists for the newly selected specialist.
         if self.lead().auto_form {
-            return true;
+            return false;
         }
         let owner = self.attribution();
         let context = (self.task_id, owner.partner, owner.form);
@@ -821,7 +844,7 @@ impl App {
             .as_ref()
             .is_some_and(|offer| offer.partner == owner.partner && offer.form == owner.form)
         {
-            return true;
+            return false;
         }
         let pairing = super::pairings::remembered(&self.records.snapshot.pairings, &owner);
         if self
@@ -832,8 +855,15 @@ impl App {
                 (*task, *partner, *form) == context && saved.as_ref() == pairing
             })
         {
-            return true;
+            return false;
         }
+        let changed = if let Some(pairing) = pairing {
+            self.planning.agent != pairing.agent
+                || self.planning.selection != pairing.selection
+                || self.planning.remembered_pairing() != Some((pairing.partner, pairing.form))
+        } else {
+            self.planning.remembered_pairing().is_some()
+        };
         let applied = if let Some(pairing) = pairing {
             self.planning.preselect_pairing(pairing)
         } else {
@@ -843,7 +873,7 @@ impl App {
             self.records.restored_pairing =
                 Some((context.0, context.1, context.2, pairing.cloned()));
         }
-        applied
+        applied && changed
     }
     pub fn has_pairing_offer(&self) -> bool {
         self.records.pairings.offer.as_ref().is_some_and(|offer| {
@@ -1701,23 +1731,23 @@ mod tests {
             },
         };
         app.records.snapshot.pairings.push(saved.clone());
-        assert!(app.records_restore_pairing());
+        app.records_restore_pairing();
         assert_eq!(app.planning.selection, saved.selection);
         let newer = crate::providers::ModelSelection {
             model: Some("explicit/new".into()),
             effort: None,
         };
         assert!(app.planning.select_model_id("explicit/new"));
-        assert!(app.records_restore_pairing());
-        assert!(app.records_restore_pairing());
+        app.records_restore_pairing();
+        app.records_restore_pairing();
         assert_eq!(app.planning.selection, newer);
         assert!(app.records.pairings.offer.is_some());
         app.lead.form = 1;
         app.record_form_switch(0, 1);
-        assert!(app.records_restore_pairing());
+        app.records_restore_pairing();
         app.lead.form = 0;
         app.record_form_switch(1, 0);
-        assert!(app.records_restore_pairing());
+        app.records_restore_pairing();
         assert_eq!(app.planning.selection, saved.selection);
     }
     #[test]

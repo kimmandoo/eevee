@@ -1830,7 +1830,7 @@ mod tests {
         app.submit_request();
         assert_eq!(app.planning.agent, Agent::Compatible);
         assert_eq!(app.planning.selection, selection);
-        assert!(app.records_restore_pairing());
+        app.records_restore_pairing();
         assert_eq!(app.planning.agent, Agent::Compatible);
         assert_eq!(app.planning.selection, selection);
         assert!(app.planning.thread_id.is_none());

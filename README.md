@@ -55,7 +55,7 @@ ev
 
 Terminal: **60 × 18 minimum**, **120 × 36 recommended**. Add `--language ko` for Korean.
 
-> **Upgrading?** Cleanly exit all instances and back up the **entire data directory**, including database, journals and outputs, before `ev update`. Current source targets v0.1.30 and retains SQL Schema19, but strict optional workflow-plan fields change durable-reader compatibility. Equal SQL schema does not make v0.1.29 a safe reader after those fields are saved. Restore the complete pre-upgrade backup rather than downgrading in place.
+> **Upgrading?** Cleanly exit all instances and back up the **entire data directory**, including database, journals and outputs, before `ev update`. Current source targets v0.1.31 and retains SQL Schema19. Durable readers are build-derived; equal SQL schema does not authorize an older release after strict workflow-plan records are saved. Restore the complete pre-upgrade backup rather than downgrading in place.
 
 ## Everyday use
 
@@ -161,7 +161,7 @@ Filename discovery accepts a project-relative directory scope before scanning. S
 
 Sprites use Kitty/Sixel when supported and fall back to text. Installers fetch verified artwork separately; source builds can use `ev --download-artwork`.
 
-## Current source — v0.1.30 Waves 1–4
+## Current source — v0.1.31 Waves 1–4
 
 `/evolution-preview` explains the current Request's predicted appearance, actual operation, automatic/manual mode and explicit policy. Inspection preserves the exact draft/caret and sends nothing; ordinary Send recomputes the decision. Appearance is never a write grant.
 
@@ -237,7 +237,7 @@ Default data directories: `~/.local/share/eevee` on Linux, `~/Library/Applicatio
 
 **Keep application storage separate from project source.** A project root used as `--data-dir` intentionally excludes that whole subtree from source tools. Provider configuration, hooks, external tools and resumed sessions may have effects beyond Eevee's mediated boundaries.
 
-Current v0.1.30 source retains **SQL Schema19** and requires complete Claude **bridge revision10** source/policy/dependency files, replaced together. Strict optional workflow-plan records change reader identity despite unchanged SQL; older readers/rollback candidates must refuse incompatible records. Full-directory backup is required, not a task export or database-only copy.
+Current v0.1.31 source retains **SQL Schema19** and requires complete Claude **bridge revision10** source/policy/dependency files, replaced together. Strict optional workflow-plan records change reader identity despite unchanged SQL; older readers/rollback candidates must refuse incompatible records. Full-directory backup is required, not a task export or database-only copy.
 
 ## Installation
 
@@ -295,7 +295,7 @@ Offline installs skip artwork. Run `ev --download-artwork` when online. Installe
 
 ## Development
 
-Source v0.1.30 targets **Rust1.90.0**. Optional complete bridge10 Claude sidecar: **Node24+**. These instructions build the checked-out source independently of package installation.
+Source v0.1.31 targets **Rust1.90.0**. Optional complete bridge10 Claude sidecar: **Node24+**. These instructions build the checked-out source independently of package installation.
 
 ```sh
 git clone https://github.com/kimmandoo/eevee.git

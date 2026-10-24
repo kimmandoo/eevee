@@ -4,11 +4,11 @@ Only unfinished work belongs here. Completed specifications and stable dependenc
 
 ## Current state
 
-- **Released:** [v0.1.29](https://github.com/kimmandoo/eevee/releases/tag/v0.1.29), source `d645b94`, passed Check/all five native targets and public package, installation, update, terminal and runtime verification. It shipped the selected ten context/tool contracts, provider-flow repairs and bounded CI coverage.
+- **Released:** [v0.1.30](https://github.com/kimmandoo/eevee/releases/tag/v0.1.30), source `1fa1a68`, passed Check/all five native targets, public asset byte identity and actual coding/wave runtime checks. Final public installation acceptance exposed idle redraw; the follow-up v0.1.31 patch is active, not yet qualified or published.
 - **Included milestones:** A08 → UX04A → S04 and P04A → P04B → T01B shipped: actionable connection diagnostics, persistent text density, reviewed portable workflows, reviewed updates/safe rollback and exact local context comparison. Specifications remain in [COMPLETED.md](tasks/COMPLETED.md).
-- **Compatibility:** Current v0.1.30 source retains SQL19, requires complete SDK bridge10 and extends strict workflow-plan/evidence reader compatibility. Genuine public0.1.29 admitted prior data, then refused new plan records without changing database bytes; current source resumed inspection without replay. Back up the entire data directory before upgrade; equal SQL schema is not downgrade permission.
+- **Compatibility:** Current v0.1.31 source retains SQL19, requires complete SDK bridge10 and build-derived strict workflow-plan/evidence reader compatibility. Genuine public0.1.29→0.1.30 admission/refusal/restart passed; older-reader refusal left database bytes unchanged. Back up the entire data directory before upgrade; equal SQL schema is not downgrade permission.
 - **Remaining:** **24 tasks**. All13 Wave1–4 contracts passed implementation and actual acceptance and moved intact to the completed archive.
-- **Current request:** Waves3–4 RX03/TC04/TC02/TC05/D01/PK07 and reference-backed native/Codex/SDK/ACP create/edit/build/run repairs passed local acceptance. Exact-source native qualification, v0.1.30 publication and public-package verification remain the active release gates; no later wave or paid/live call is authorized.
+- **Current request:** Waves3–4 RX03/TC04/TC02/TC05/D01/PK07 and reference-backed native/Codex/SDK/ACP create/edit/build/run repairs passed local acceptance and shipped in0.1.30. Complete the idle-redraw patch's fresh native qualification, v0.1.31 publication and public installation/runtime acceptance; no later wave or paid/live call is authorized.
 
 ## Completed Pokémon milestone
 
@@ -31,7 +31,7 @@ A/B/C/D/E/G are entirely completed and archived; F/H/I/J/K/R contain unfinished 
 
 ### Next order
 
-1. Waves1–4 are complete; do not restart archived tasks. Finish current exact-source v0.1.30 release qualification and public verification.
+1. Waves1–4 are complete; do not restart archived tasks. Finish current exact-source v0.1.31 idle patch qualification and public verification; preserve0.1.30 published assets.
 2. On the next authorized implementation request, Wave5 contains MV09 semantic move/TM review, PK08 deliberate held-reference renewal and PT12 formation readiness.
 3. [Wave plan](docs/WAVES.md) assigns all24 remaining tasks to Waves5–8 and conditional structure lanes; no later-wave implementation starts automatically.
 4. Local Q01/Q02/P03 evidence remains independently actionable; authenticated rows and Q03 live trials require separate permission. Existing published assets stay unchanged.
