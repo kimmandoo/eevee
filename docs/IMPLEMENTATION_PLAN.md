@@ -16,6 +16,8 @@ Steps1–4 implementation and local acceptance passed on candidateG:1,544 Rust t
 
 Native qualification remains mandatory on one exact source. Runs40040530847/40047151247/40054403499 passed Check and all four complete macOS/Linux jobs, but Windows Korean journeys failed. Paired native evidence proved orphan wide-character trailing cells before ConPTY serialization. CandidateJ includes a pinned localized Ratatui diff patch plus the recent-ten-hour review's artifact cursor/late-response/frozen-purge and goal-only Codex history repairs. J passed1,554 tests/two ignored, strict source checks and four bilingual artifact journeys24 groups; unchanged provider/context code in I passed conversation8/44 and Korean context2. Push the repaired exact source, inspect fresh paired Windows evidence and require complete Check/all-five-native success before tagging. No earlier-row success or failed diagnostic attempt authorizes release.
 
+Latest user priority: reduce excessive CI runtime before release. Use explicit coverage profiles rather than repeating all shared protocol cases on every architecture; preserve Windows/macOS rendering and native file/install boundaries, all selected failures and exact-source promotion. The planned matrix executes100 journeys instead of236, with two isolated drivers at a time. Local macOS-profile acceptance passed16 journeys in364.717s; semantic Codex paging passed four bilingual/both-size journeys. Push this CI change and record actual native before/after timing and all-five success before publication.
+
 
 ## Integrated repair — Windows authentication and WSL file workflow (qualification pending)
 

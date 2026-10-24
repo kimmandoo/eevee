@@ -1,5 +1,12 @@
 # Troubleshooting
 
+### [2026-10-24] Repeated terminal cross-products dominated native CI
+
+- **Context / Symptom:** The user reported excessive test volume and slow CI. Completed run40054403499 took70m52s on macOS x86; file journeys consumed21m09s and context/tools38m11s, compared with8m40s for Rust tests plus release compilation. Windows failed, so its duration is not a successful full-profile baseline.
+- **Root Cause:** Each of five native rows serially repeated shared protocol/language/size cross-products. Controlled file details also sent48 PageDown events after the final visible page, and optimizer input paid for two consecutive output-settling windows.
+- **Solution:** Assigned exhaustive shared coverage to Linux x86, preserved explicit Windows/macOS rendering coverage and representative bilingual native file coverage on every architecture, and retained all five native unit/build/install/package gates. A bounded two-driver runner records selected coverage, durations and file-backed logs and fails if any selected child fails, times out or changes the binary. Replaced fixed paging with sequential render-until-stable navigation and retained separate summary/consent checks; optimizer input now uses one unchanged bounded settled send. The matrix selected100 journeys instead of236. Python22/four skips and actionlint passed; real local macOS-profile16 journeys passed in364.717s and all four controlled Codex paging journeys passed. Fresh CI timing and all-platform success remain required.
+- **Prevention / Reference:** Inspect `coverage-manifest.json`, `results.json` and `logs/` in native evidence. Compare measured step/driver durations before deleting useful unit regressions or shortening readiness deadlines. Local smoke time is not a claimed hosted-CI duration; the timeout still fails rather than reducing scope or retrying into success.
+
 ### [2026-10-24] Goal-only Codex sessions poisoned the next ordinary implementation request
 
 - **Context / Symptom:** With a saved goal and empty Request, `/session-new` completed successfully but the next ordinary implementation request showed `Public implementation context lost its bounded task/partner/provider ownership`. CandidateH reproduced the refusal at both terminal sizes (`target/recent-review-before-goal-only`).

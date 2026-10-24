@@ -276,6 +276,16 @@ npm test --prefix sidecar
 ```
 
 - [Native CI](.github/workflows/native.yml) tests, packages and offline-installs all five targets. [Release CI](.github/workflows/release.yml) publishes the exact qualified packages.
+- Native runtime coverage is explicit rather than repeating the entire cross-product on every architecture. Independent drivers run two at a time; every selected driver must pass, and each run retains its coverage manifest, timings and failure logs.
+
+| Native target | Runtime coverage |
+| --- | --- |
+| Linux x86_64 | Full English/Korean protocol, controlled Codex, context and tool journeys at both sizes |
+| Windows x86_64 | Representative file route and all context/tool journeys in both languages and sizes |
+| macOS arm64 | Representative bilingual file route plus Korean context/tool journeys at both sizes |
+| Linux arm64, macOS x86_64 | Representative bilingual file route at both sizes; native unit/build/install gates remain |
+
+- Reproduce coverage with `python scripts/native_workflows_smoke.py --binary target/release/ev --output /tmp/ev-native-proof --profile full --jobs 2`; use a fresh output directory. `--plan-only` prints the selected scope without launching work. Individual driver defaults still run their full scope.
 - Terminal journeys: `scripts/*_smoke.py`, with `pyte==0.8.2` and `wcwidth==0.2.13`. Live provider checks are opt-in and may incur usage; deterministic peers are not live-account conformance.
 - Windows smoke hosts need an unpackaged Python installation, not a Microsoft Store/App Execution Alias interpreter; see [troubleshooting](docs/TROUBLESHOOTING.md).
 - Add Fluent resources under `locales/<BCP47-tag>/`. The build embeds them automatically with per-key English fallback; preserve message IDs and named arguments, without screen-level language branches.

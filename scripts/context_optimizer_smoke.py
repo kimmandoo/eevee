@@ -44,8 +44,7 @@ def selected_packet(wire):
 
 class OptimizerSession(SurfaceSession):
     def send(self, keys):
-        super().send(keys)
-        self.pump(0, settle=True)
+        super().send(keys, settle=True)
 
 
 class Journey(RecordsJourney):

@@ -14,8 +14,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Platform-independent checks run once. Every native row also exercises
-  # terminal file discovery, creation and editing with credential-free peers.
+  # Exhaustive shared behavior runs once; OS rendering and native file/install
+  # boundaries keep explicit coverage on every supported target.
   check:
     name: Check
     runs-on: ubuntu-22.04
@@ -54,18 +54,16 @@ jobs:
   native:
     name: Build / ${{ matrix.name }}
     runs-on: ${{ matrix.runner }}
-    # Complete bilingual file/context/tool journeys exceeded one hour on macOS.
-    # Keep every acceptance step mandatory instead of qualifying partial packages.
-    timeout-minutes: 120
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { name: macos-arm64, runner: macos-14, target: aarch64-apple-darwin, package: darwin-arm64 }
-          - { name: macos-x86_64, runner: macos-15-intel, target: x86_64-apple-darwin, package: darwin-x86_64 }
-          - { name: linux-x86_64, runner: ubuntu-22.04, target: x86_64-unknown-linux-gnu, package: linux-x86_64 }
-          - { name: linux-arm64, runner: ubuntu-22.04-arm, target: aarch64-unknown-linux-gnu, package: linux-arm64 }
-          - { name: windows-x86_64, runner: windows-2022, target: x86_64-pc-windows-msvc, package: windows-x86_64 }
+          - { name: macos-arm64, runner: macos-14, target: aarch64-apple-darwin, package: darwin-arm64, profile: macos }
+          - { name: macos-x86_64, runner: macos-15-intel, target: x86_64-apple-darwin, package: darwin-x86_64, profile: architecture }
+          - { name: linux-x86_64, runner: ubuntu-22.04, target: x86_64-unknown-linux-gnu, package: linux-x86_64, profile: full }
+          - { name: linux-arm64, runner: ubuntu-22.04-arm, target: aarch64-unknown-linux-gnu, package: linux-arm64, profile: architecture }
+          - { name: windows-x86_64, runner: windows-2022, target: x86_64-pc-windows-msvc, package: windows-x86_64, profile: windows }
     env:
       RUSTUP_TOOLCHAIN: 1.90.0
       CARGO_TERM_COLOR: never
@@ -125,30 +123,18 @@ jobs:
         run: python -m unittest discover -s scripts -p test_windows_conpty.py
       - name: Isolate current-run terminal evidence from compiler caches
         run: printf 'NATIVE_SMOKE_OUTPUT=%s/ev-native-workflows/%s-%s\n' "$RUNNER_TEMP" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" >> "$GITHUB_ENV"
-      - name: Exercise real file workflows in both languages
+      - name: Exercise qualified native coverage profile
         run: |
-          python scripts/file_creation_smoke.py --binary target/release/ev${{ runner.os == 'Windows' && '.exe' || '' }} --output "$NATIVE_SMOKE_OUTPUT/platform-files-en" --language en
-          python scripts/file_creation_smoke.py --binary target/release/ev${{ runner.os == 'Windows' && '.exe' || '' }} --output "$NATIVE_SMOKE_OUTPUT/platform-files-ko" --language ko
-      - name: Exercise reviewed context tools and continuation
-        run: |
-          failed=0
-          for language in en ko; do
-            python scripts/receipts_smoke.py --binary target/release/ev${{ runner.os == 'Windows' && '.exe' || '' }} --output "$NATIVE_SMOKE_OUTPUT/platform-tools-receipts-$language" --language "$language" || failed=1
-            python scripts/context_optimizer_smoke.py --binary target/release/ev${{ runner.os == 'Windows' && '.exe' || '' }} --output "$NATIVE_SMOKE_OUTPUT/platform-tools-context-$language" --language "$language" || failed=1
-            python scripts/tool_catalog_smoke.py --binary target/release/ev${{ runner.os == 'Windows' && '.exe' || '' }} --output "$NATIVE_SMOKE_OUTPUT/platform-tools-catalog-$language" --language "$language" || failed=1
-            python scripts/artifacts_smoke.py --binary target/release/ev${{ runner.os == 'Windows' && '.exe' || '' }} --output "$NATIVE_SMOKE_OUTPUT/platform-tools-artifacts-$language" --language "$language" || failed=1
-            python scripts/source_observation_smoke.py --binary target/release/ev${{ runner.os == 'Windows' && '.exe' || '' }} --output "$NATIVE_SMOKE_OUTPUT/platform-tools-sources-$language" --language "$language" --mode native || failed=1
-            python scripts/conversation_flow_smoke.py --binary target/release/ev${{ runner.os == 'Windows' && '.exe' || '' }} --output "$NATIVE_SMOKE_OUTPUT/platform-tools-conversation-$language" --language "$language" --mode native || failed=1
-          done
-          exit "$failed"
+          python scripts/native_workflows_smoke.py \
+            --binary target/release/ev${{ runner.os == 'Windows' && '.exe' || '' }} \
+            --output "$NATIVE_SMOKE_OUTPUT" --profile "${{ matrix.profile }}" --jobs 2
       - name: Retain platform file workflow evidence
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: file-workflows-${{ matrix.package }}
           path: |
-            ${{ env.NATIVE_SMOKE_OUTPUT }}/platform-files-*
-            ${{ env.NATIVE_SMOKE_OUTPUT }}/platform-tools-*
+            ${{ env.NATIVE_SMOKE_OUTPUT }}/
           if-no-files-found: error
           retention-days: 14
       - name: Upload native installation package
