@@ -85,7 +85,7 @@ records-op-run = 소유 실행 관찰 기록
 records-op-load = 기록 불러오기
 records-op-usage = 제공자 사용량 영수증
 records-controls = ↑↓ 선택 · PgUp/PgDn 페이지 · Home/End · Esc 돌아가기
-records-dex-controls = ↑↓ 실패 선택 · PgUp/PgDn 페이지 · /dex-resolve 관계 검토 · Esc
+records-dex-controls = ↑↓ 실패 · PgUp/PgDn 페이지 · r Umbreon 전달 검토 · /dex-resolve 관계 · Esc
 records-habits-controls = ↑↓ 제안 · /habit-approve 메모리 검토 · /habit-dismiss 거절 · PgUp/PgDn · Esc
 records-pairing-controls = ↑↓ 설정 · /save-pairing 저장 · /remove-pairing 제거 · PgUp/PgDn · Esc
 records-review-controls = { $stay } / { $action } · ←→ · Enter
@@ -169,3 +169,27 @@ ribbons-source-unavailable = 원본을 사용할 수 없거나 불명확합니�
 ribbons-hidden-tag = [숨김]{ " " }
 ribbons-source-evidence = 소스 / 작업 #{ $task } / 캡처 #{ $excerpt } / { $path }:{ $start }-{ $end }
 ribbons-run-evidence = 실행 / 작업 #{ $task } / { $run }
+dex-comparison-unavailable = 현재 작업 비교 불가: 참조 실패 실행이 없거나 다른 작업 소유입니다. 프로젝트의 과거 참조는 현재 검증이 아닙니다.
+dex-unresolved-new = 미해결 새 실패 또는 미일치 실패 / 이전 일치 명령 없음
+dex-unresolved-recurring = 미해결 반복 실패 / 정확한 명령
+dex-historical-supported-pass = 이 실패 이후 근거 있는 과거 통과 / 현재 검증 아님
+dex-support-retained = 보관된 과거 근거
+dex-support-stale = 현재 소스 기준 오래된 근거
+dex-support-missing = 참조 누락
+dex-support-unavailable = 사용 불가 또는 불완전한 근거
+dex-support-purged = 실행 출력 삭제·누락·교체로 사용 불가
+dex-support-different-command = 명령·폴더·실행파일 식별자가 다르거나 알 수 없음; 이 비교의 근거 아님
+dex-comparison = 실패 { $run }: { $state }
+    순서가 보존된 명령: { $command }
+    작업 폴더: { $cwd }
+    실패 소스: { $source }; 근거: { $support }
+    실패 소스 식별자: { $fingerprint }
+    동일 명령의 이전 실패: { $earlier }
+dex-historical-support = 과거 진단 { $support }: { $diagnosis }
+    통과 실행 { $run }: { $pass }
+    현재 관찰 대비 통과 소스: { $source }
+    통과 소스 식별자: { $fingerprint }
+    이 과거 관계는 현재 검증이나 인과관계를 확립하지 않습니다.
+dex-source-unknown = 소스 식별자 알 수 없음
+dex-foreign-support = 다른 작업의 과거 참조: 현재 작업에서 근거를 확인하지 않았습니다. 동일 명령·소스나 현재 사용 가능 여부를 추정하지 마세요.
+dex-relay-selection = 전달 선택: 현재 작업의 최신 실패 { $run }. r은 Umbreon 중립 참조 검토만 엽니다. 탐색으로 전송하거나 실행하지 않습니다.

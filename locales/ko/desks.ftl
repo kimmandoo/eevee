@@ -549,3 +549,9 @@ desks-workflows-diagnosis-fix = Flareon에게 진단 인계
 desks-workflows-refactor-fix = Flareon을 통한 범위 제한 리팩터링 요청
 
 desks-workflows-review-fix = 선택한 발견 사항을 Flareon에게 인계
+
+impact-checks-title = 영향 기반 검사 / 제안만 표시
+impact-checks-pending = 제한된 로컬 심볼·의존성·테스트 매핑·Dex 실패 기록을 분석 중입니다. 검사를 준비하거나 실행하지 않습니다.
+impact-checks-controls = PgUp/PgDn 확인 • s 제안만 저장 / 이후 Jolteon 개별 검토 • Esc 뒤로 / 실행 없음
+impact-checks-command = 소스·Dex 근거로 관련 검사를 제안 / 실행·완전성 보장 없음
+impact-checks-stage = 현재 검사를 실행 없는 계획으로 저장 / 명령마다 Jolteon의 정확한 검토가 필요

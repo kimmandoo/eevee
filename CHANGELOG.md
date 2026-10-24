@@ -2,6 +2,7 @@
 
 ## 2026-10-24
 
+- fix(release): included all six bilingual build-time feature catalogs omitted from the first committed candidate and required new exact-source native qualification instead of promoting its failed build.
 - feat(search): added RX03 bounded Rust expression-pattern search with exact source digests, capture ranges, snapshot-bound paging and explicit incomplete results, without semantic binding or rewriting.
 - fix(search): preserved every structural status in the shared native/controlled-Codex outcome envelope with truthful project-relative directory scope and explanatory messages, including invalid patterns, unsupported languages and incomplete metadata, without relaxing native admission or source/privacy/paging/cache bounds.
 - perf(tools): added TC04 request-private Read/Structural observation reuse with fresh source/policy fingerprints and honest cost labels; left List uncached and retained Git process/thread work without claiming speedups.

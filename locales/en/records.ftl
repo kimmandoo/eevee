@@ -88,7 +88,7 @@ records-op-run = owned run observation
 records-op-load = record load
 records-op-usage = provider usage receipt
 records-controls = ↑↓ choose · PgUp/PgDn page · Home/End · Esc back
-records-dex-controls = ↑↓ signature · PgUp/PgDn page · /dex-resolve review link · Esc back
+records-dex-controls = ↑↓ signature · PgUp/PgDn page · r review Umbreon relay · /dex-resolve link · Esc
 records-habits-controls = ↑↓ proposal · /habit-approve memory review · /habit-dismiss · PgUp/PgDn · Esc
 records-pairing-controls = ↑↓ pairing · /save-pairing · /remove-pairing · PgUp/PgDn · Esc
 records-review-controls = { $stay } / { $action } · ←→ · Enter
@@ -172,3 +172,27 @@ ribbons-source-unavailable = The original source is unavailable or ambiguous. Hi
 ribbons-hidden-tag = [hidden]{ " " }
 ribbons-source-evidence = Source / task #{ $task } / capture #{ $excerpt } / { $path }:{ $start }-{ $end }
 ribbons-run-evidence = Run / task #{ $task } / { $run }
+dex-comparison-unavailable = Current-task comparison unavailable: referenced failure runs are missing or belong to another task. Retained project references are not current verification.
+dex-unresolved-new = Unresolved new/unmatched failure / no earlier exact command identity
+dex-unresolved-recurring = Unresolved recurring failure / exact command
+dex-historical-supported-pass = Historical supported pass after this failure / never current verification
+dex-support-retained = retained historical evidence
+dex-support-stale = stale support against current source
+dex-support-missing = missing reference
+dex-support-unavailable = unavailable or incomplete support
+dex-support-purged = purged/missing/replaced run output; unavailable
+dex-support-different-command = different or unknown command/cwd/executable identity; not supporting this comparison
+dex-comparison = Failure { $run }: { $state }
+    Ordered command: { $command }
+    Cwd: { $cwd }
+    Failure source: { $source }; evidence: { $support }
+    Failure source identity: { $fingerprint }
+    Earlier exact-command failures: { $earlier }
+dex-historical-support = Historical diagnosis { $support }: { $diagnosis }
+    Passing run { $run }: { $pass }
+    Passing source against current observation: { $source }
+    Passing source identity: { $fingerprint }
+    This historical relation never establishes current verification or causality.
+dex-source-unknown = unknown source identity
+dex-foreign-support = Other-task historical reference: support was not inspected for this task. Do not infer matching command/source or current availability.
+dex-relay-selection = Relay selection: latest task-owned failure { $run }. r opens neutral Umbreon reference review only; navigation never sends or executes.
