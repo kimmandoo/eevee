@@ -2,6 +2,9 @@
 
 ## 2026-10-24
 
+- chore(release): published v0.1.29 from exact-source Check/all-five-native qualification and verified all public assets, qualified package identities, installed lifecycle, genuine prior-version migration and actual runtime behavior.
+- fix(verification): included the pinned local dependency in disposable upgrade and terminal-probe packages, then completed installed terminal and uninstall/reinstall acceptance without replacing public release assets.
+- docs(roadmap): specified seven additional product capabilities and six Eevee-specific extensions after release, preserving the existing eighteen tasks and recording priorities, dependencies, bounded acceptance and non-goals.
 - perf(ci): reduced repeated native runtime journeys from236 to100 with explicit shared/OS/architecture profiles, bounded two-driver concurrency and measured coverage reports while retaining all five native unit/build/install gates.
 - perf(verification): stopped detail paging at its actual end and removed duplicate optimizer idle settling without weakening consent or outcome assertions.
 - fix(verification): waited for rendered editor and pending-review ownership before selecting provider/catalog actions in concurrent native journeys.

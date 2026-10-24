@@ -851,6 +851,7 @@ def lifecycle_binary(root, output):
         (package / "src").mkdir()
         for name in ("Cargo.toml", "Cargo.lock"):
             shutil.copyfile(root / name, package / name)
+        shutil.copytree(root / "vendor", package / "vendor")
         shutil.copyfile(root / "src/platform/terminal.rs", package / "src/terminal.rs")
         shutil.copyfile(root / "src/platform/input.rs", package / "src/input.rs")
         shutil.copytree(root / "src/platform/input", package / "src/input")

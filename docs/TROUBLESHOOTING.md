@@ -1,5 +1,12 @@
 # Troubleshooting
 
+### [2026-10-24] Disposable installation and terminal packages omitted their local dependency
+
+- **Context / Symptom:** Public v0.1.29 verification initially failed to build its real older-version upgrade fixture because `upgrade-source-*/vendor/ratatui-core/Cargo.toml` was missing. After that fixture was repaired, installation and live self-update passed, but the isolated terminal lifecycle probe reported the same missing dependency.
+- **Root Cause:** Both temporary packages copied the root Cargo manifest and lockfile without its new pinned path dependency. The terminal probe used selected platform sources, but still inherited the complete root manifest.
+- **Solution:** Copied the tracked `vendor` tree into both disposable packages and selected CI-pinned Rust1.90.0. Kept the real older-version executable and real terminal lifecycle probe; published binaries/installers were unchanged. Retained successful installation/update evidence and continued terminal/uninstall acceptance separately rather than rebuilding the already-proven older-version fixture.
+- **Prevention / Reference:** Audit every temporary package that copies a manifest, including minimal probes, for local dependencies. Reports distinguish the original failed run from its subsequent continuation; no failed report is rewritten as a passing run.
+
 ### [2026-10-24] First-save task identity reset an already classified implementation request
 
 - **Context / Symptom:** Run40066393690's Linux compatible/Responses Korean compact journey selected Flareon but dispatched a nonwriting lease and read-only tools for `Generate three project files`. A deterministic regression reproduced frozen `Plan` input where `Implement` was required. CandidateJ also reproduced the nonwriting lease in the actual Korean compact UI with a rapid first paste/Enter (`target/first-save-before-rapid`).
