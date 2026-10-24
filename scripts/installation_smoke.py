@@ -297,6 +297,7 @@ def main():
             shutil.copytree(root / "src", package / "src")
             shutil.copyfile(root / "build.rs", package / "build.rs")
             shutil.copytree(root / "locales", package / "locales")
+            shutil.copytree(root / "vendor", package / "vendor")
             shutil.copyfile(root / "Cargo.lock", package / "Cargo.lock")
             for installer in ("install.sh", "install.ps1"):
                 shutil.copyfile(root / installer, package / installer)

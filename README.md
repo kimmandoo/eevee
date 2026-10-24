@@ -55,7 +55,7 @@ ev
 
 Terminal: **60 × 18 minimum**, **120 × 36 recommended**. Add `--language ko` for Korean.
 
-> **Upgrading?** Cleanly exit all instances and back up the **entire data directory**, including database, journals and outputs, before `ev update`. Source 0.1.29 migrates Schema18 to Schema19 for local receipts, context cache, reviewed tool catalog and tool artifacts. Older binaries must refuse the new store; restore the complete pre-upgrade backup rather than downgrading in place.
+> **Upgrading?** Cleanly exit all instances and back up the **entire data directory**, including database, journals and outputs, before `ev update`. v0.1.29 migrates Schema18 to Schema19 for local receipts, context cache, reviewed tool catalog and tool artifacts. Older binaries must refuse the new store; restore the complete pre-upgrade backup rather than downgrading in place.
 
 ## Everyday use
 
@@ -125,11 +125,11 @@ File-based project setup supports up to 32 distinct reviewed files per request, 
 
 Missing native model configuration opens the local model picker and keeps your request. Selecting a model does not send it: press Enter deliberately afterward. A file permission's Enter opens the proposed content; return to its decision controls to allow once or deny after inspecting the complete scope. Merely typing into an arriving popup grants nothing.
 
-Source 0.1.29 fixes short plan-to-implementation requests: after planning, `Implement it` / `구현해줘` selects reviewed implementation and carries the completed public plan forward. Plan-bound `진행해줘` also works; a generic continuation after analysis does not grant writes. Explicit Plan/Review still wins. Host file tools can create nested folders and save edits even when the provider's own shell is read-only; each changed file still needs exact approval.
+v0.1.29 fixes short plan-to-implementation requests: after planning, `Implement it` / `구현해줘` selects reviewed implementation and carries the completed public plan forward. Plan-bound `진행해줘` also works; a generic continuation after analysis does not grant writes. Explicit Plan/Review still wins. Host file tools can create nested folders and save edits even when the provider's own shell is read-only; each changed file still needs exact approval.
 
 Native account connections use Eevee's selected login/profile rather than silently reading CLI `auth.json`. To reuse CLI credentials, explicitly choose **Load CLI** in connection setup. Missing files, OS access denial and unsafe credential permissions are separate errors. Private Windows credentials owned by the current user or a trusted elevated owner are accepted only with a safe ACL; UTF-8 BOM is supported, UTF-16 is not. No credential file or permissions are silently repaired.
 
-### Reviewed context and tools — source 0.1.29
+### Reviewed context and tools — v0.1.29
 
 | Action | Boundary |
 | --- | --- |
@@ -199,18 +199,18 @@ Default data directories: `~/.local/share/eevee` on Linux, `~/Library/Applicatio
 
 **Keep application storage separate from project source.** A project root used as `--data-dir` intentionally excludes that whole subtree from source tools. Provider configuration, hooks, external tools and resumed sessions may have effects beyond Eevee's mediated boundaries.
 
-Source 0.1.29 storage is **Schema 19**; the Claude sidecar still requires complete **bridge revision 9** source/policy/dependency files. Migration preserves existing Schema18 task/evidence data and adds the context/tool tables atomically. Older writers refuse before changing the new store. See the full-backup warning above.
+v0.1.29 storage is **Schema 19**; the Claude sidecar still requires complete **bridge revision 9** source/policy/dependency files. Migration preserves existing Schema18 task/evidence data and adds the context/tool tables atomically. Older writers refuse before changing the new store. See the full-backup warning above.
 
 ## Installation
 
-| Platform | v0.1.28 package |
+| Platform | v0.1.29 package |
 | --- | --- |
-| macOS · Apple Silicon | [arm64](https://github.com/kimmandoo/eevee/releases/download/v0.1.28/ev-darwin-arm64.tar.gz) |
-| macOS · Intel | [x86_64](https://github.com/kimmandoo/eevee/releases/download/v0.1.28/ev-darwin-x86_64.tar.gz) |
-| Linux / WSL | [x86_64](https://github.com/kimmandoo/eevee/releases/download/v0.1.28/ev-linux-x86_64.tar.gz) · [arm64](https://github.com/kimmandoo/eevee/releases/download/v0.1.28/ev-linux-arm64.tar.gz) |
-| Windows | [x86_64](https://github.com/kimmandoo/eevee/releases/download/v0.1.28/ev-windows-x86_64.zip) |
+| macOS · Apple Silicon | [arm64](https://github.com/kimmandoo/eevee/releases/download/v0.1.29/ev-darwin-arm64.tar.gz) |
+| macOS · Intel | [x86_64](https://github.com/kimmandoo/eevee/releases/download/v0.1.29/ev-darwin-x86_64.tar.gz) |
+| Linux / WSL | [x86_64](https://github.com/kimmandoo/eevee/releases/download/v0.1.29/ev-linux-x86_64.tar.gz) · [arm64](https://github.com/kimmandoo/eevee/releases/download/v0.1.29/ev-linux-arm64.tar.gz) |
+| Windows | [x86_64](https://github.com/kimmandoo/eevee/releases/download/v0.1.29/ev-windows-x86_64.zip) |
 
-[Checksums](https://github.com/kimmandoo/eevee/releases/download/v0.1.28/SHA256SUMS) · [Release notes](CHANGELOG.md)
+[Checksums](https://github.com/kimmandoo/eevee/releases/download/v0.1.29/SHA256SUMS) · [Release notes](CHANGELOG.md)
 
 ```sh
 ev update --check   # read-only release check
@@ -226,8 +226,8 @@ Installers verify SHA-256, refuse unowned command collisions and **do not change
 **macOS / Linux**
 
 ```sh
-curl -fsSLo install-ev.sh https://github.com/kimmandoo/eevee/releases/download/v0.1.28/install.sh
-sh ./install-ev.sh --version v0.1.28
+curl -fsSLo install-ev.sh https://github.com/kimmandoo/eevee/releases/download/v0.1.29/install.sh
+sh ./install-ev.sh --version v0.1.29
 ```
 
 Add `export PATH="$HOME/.local/bin:$PATH"` to your shell profile (`~/.zshrc` or `~/.bashrc`) for future terminals. If macOS blocks a browser-downloaded archive, inspect its source/checksum before removing quarantine with `xattr -d com.apple.quarantine ~/.local/bin/ev`.
@@ -235,7 +235,7 @@ Add `export PATH="$HOME/.local/bin:$PATH"` to your shell profile (`~/.zshrc` or 
 **Windows**
 
 ```powershell
-& ([scriptblock]::Create((irm https://github.com/kimmandoo/eevee/releases/download/v0.1.28/install.ps1))) -Version v0.1.28
+& ([scriptblock]::Create((irm https://github.com/kimmandoo/eevee/releases/download/v0.1.29/install.ps1))) -Version v0.1.29
 [Environment]::SetEnvironmentVariable('Path', "$env:LOCALAPPDATA\ev\bin;" + [Environment]::GetEnvironmentVariable('Path', 'User'), 'User')
 ```
 
