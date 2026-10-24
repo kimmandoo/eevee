@@ -178,6 +178,9 @@ class Journey:
             self.session.paste(nickname)
             self.session.send("\r")
             self.until(lambda: next(row for row in self.snapshot()[1] if row["id"] == partner)["nickname"] == nickname, "nickname did not commit")
+            # The database commit can precede the editor's completion event.
+            # Reach the rendered workspace before opening another scoped chooser.
+            self.workspace()
             self.session.command("provider-codex")
             self.workspace()
         self.lead(1)
