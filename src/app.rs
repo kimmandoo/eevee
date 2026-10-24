@@ -86,6 +86,7 @@ pub enum Overlay {
     Artifacts,
     ToolCatalog,
     Receipts,
+    EvolutionPreview,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

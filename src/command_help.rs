@@ -58,6 +58,7 @@ pub fn key(command: &str) -> Option<Message> {
         "back-form" => Message::CmdBackForm,
         "suggestion-dismiss" => Message::CmdSuggestionDismiss,
         "carry-over" => Message::CmdCarryOver,
+        "evolution-preview" => Message::CmdEvolutionPreview,
         "files" => Message::CmdFiles,
         "tasks" => Message::CmdTasks,
         "party" => Message::CmdParty,

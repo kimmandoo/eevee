@@ -105,9 +105,9 @@ struct FilePreview {
     published: Option<(FilePhase, String)>,
 }
 impl FilePreview {
-    fn new(edit: bool) -> Self {
+    fn new() -> Self {
         Self {
-            stream: file_preview::Stream::new(edit),
+            stream: file_preview::Stream::new(false),
             seen: 0,
             received: false,
             checked_complete: false,
@@ -173,17 +173,17 @@ fn preview(
     arguments: &str,
     complete: bool,
 ) {
-    let edit = match name {
-        "eevee_write_file" => false,
-        "eevee_edit_file" => true,
-        _ => return,
-    };
+    // Original-snapshot replacements have no meaningful final-file bytes until
+    // preparation. Publish their complete proposal later, never a hunk fragment.
+    if name != "eevee_write_file" {
+        return;
+    }
     if !previews.contains_key(&index) && previews.len() >= CALL_LIMIT {
         return;
     }
     previews
         .entry(index)
-        .or_insert_with(|| FilePreview::new(edit))
+        .or_insert_with(FilePreview::new)
         .feed(name, arguments, complete);
 }
 
@@ -370,7 +370,7 @@ impl Calls {
                     let Some(name) = block.value["name"].as_str() else {
                         continue;
                     };
-                    if !matches!(name, "eevee_write_file" | "eevee_edit_file") {
+                    if name != "eevee_write_file" {
                         continue;
                     }
                     if !block.arguments.is_empty() {
@@ -393,7 +393,7 @@ impl Calls {
                         continue;
                     }
                     if let Some(call) = part.get("functionCall")
-                        && let (Some(name @ ("eevee_write_file" | "eevee_edit_file")), Some(args)) =
+                        && let (Some(name @ "eevee_write_file"), Some(args)) =
                             (call["name"].as_str(), call.get("args"))
                         && let Ok(arguments) = serde_json::to_string(args)
                     {

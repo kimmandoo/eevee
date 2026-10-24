@@ -12,8 +12,8 @@ use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
+use super::FilePhase;
 use super::writes::{WriteProposal, WriteSet};
-use super::{FilePhase, file_preview};
 use crate::providers::{
     ConversationMessage, ConversationOwner, ConversationRole, Event, Input, ItemKind,
     ModelCatalogue, ModelOption, NativeConversation, Operation, Outcome, PermissionOption, Preview,
@@ -282,9 +282,9 @@ fn worker(
                 ], payload: String::new(), blockers: Vec::new() };
                 if native_writing(&input) {
                     preview.trust.push(if input.edit_paths.is_empty() {
-                        "WORKSPACE IMPLEMENT: the model may propose project-relative filenames within frozen privacy and exclusion boundaries. Every exact create/replace, complete content and missing-parent scope requires separate deny/allow-once permission. Optional /paths restricts proposals to selected files. Native file content limit: 64 KiB. No command execution or verification."
+                        "WORKSPACE IMPLEMENT: exact create/replace, 1–32 original-snapshot literal replacements, irreversible regular-file delete and same-project no-overwrite rename are supported. Every complete operation and missing-parent scope requires separate deny/allow-once permission. Optional /paths restricts every source/destination. Files are at most 64 KiB. Local Rust parsing is advisory, not compilation or verification. No commands."
                     } else {
-                        "SELECTED IMPLEMENT: source read/list tools can inspect safe project files, but only reviewed write/edit proposals can change exact selected targets. Every complete content and missing-parent scope requires separate deny/allow-once permission. Native file content limit: 64 KiB. No command execution or verification."
+                        "SELECTED IMPLEMENT: read/list can inspect safe project files, but create/replace, original-snapshot edits, exact delete and no-overwrite rename may change only selected source/destination paths. Every complete operation and missing-parent scope requires separate deny/allow-once permission. Files are at most 64 KiB. Rust parsing is advisory, not compilation or verification. No commands."
                     }.into());
                 }
                 if native_tools(&input) && !native_writing(&input) {
@@ -537,9 +537,9 @@ fn payload(
         })).map_err(|_| "Cannot encode native context")?;
         (
             if native_writing(input) && input.edit_paths.is_empty() {
-                "Answer the user's current request directly; do not turn ordinary conversation into planning or unnecessary tool calls. When project context is needed, discover filenames with eevee_list_files and inspect actual bytes with eevee_read_file. When file changes are requested, actually call eevee_write_file to create, save or overwrite files, or eevee_edit_file for a unique literal edit using the preceding read sha256; fenced code alone does not create a file. Stay inside frozen workspace privacy/exclusion boundaries. Full-content writes are at most 64 KiB per file and must preserve unrelated dirty bytes; read existing bytes before replacement and use targeted edit rather than replacing a file from a partial read. Every write/edit and missing-parent scope requires a new one-shot permission. Invalid whole mutation batches have no effects; correct refusals. Tool results report actual local effects, not verification."
+                "Answer the user's current request directly. When context is needed, use eevee_list_files and eevee_read_file. Actually call eevee_write_file for full create/replace, eevee_edit_file for 1–32 nonoverlapping literal replacements against one preceding original full SHA-256, eevee_delete_file for irreversible regular-file deletion or eevee_rename_file for same-project no-overwrite rename. Delete/rename also require the preceding read SHA-256. Fenced code is not a filesystem change. Preserve unrelated dirty bytes, CRLF and Unicode. Never let replacement output become another replacement input. Source/result is at most 64 KiB; every complete operation and missing-parent scope requires new exact one-shot permission. Do not overwrite rename destinations, recurse, use shell, auto-repair or claim rollback. Local Rust parsing is advisory only, not compiled, type-correct or verified. Tool results report actual effects, never verification."
             } else if native_writing(input) {
-                "Answer the user's current request directly; do not force ordinary conversation into planning or unnecessary tool calls. When file changes are requested, actually use eevee_write_file or eevee_edit_file only for explicit selected paths, not merely fenced code. eevee_read_file and eevee_list_files may inspect other safe project context when needed without authorizing writes. Targeted edit requires the preceding read sha256 and a unique literal old_text; full files are at most 64 KiB. Preserve unrelated dirty bytes; do not replace a file from only partial read context. Each resulting complete content and missing-parent scope requires a new one-shot permission. Invalid whole mutation batches have no effects; correct refusals. Tool results report actual local effects, not verification."
+                "Answer the user's current request directly. Use eevee_write_file, eevee_edit_file, eevee_delete_file and eevee_rename_file only for exact selected paths, including rename destination. Reads/listing may inspect other safe context but grant no write authority. Edit takes 1–32 nonoverlapping literal replacements resolved only against a preceding original full read SHA-256; delete/rename require that SHA-256 too. Preserve unrelated dirty bytes, CRLF and Unicode. Files are at most 64 KiB. Every complete operation and missing-parent scope requires new exact one-shot permission. Delete is irreversible, rename never overwrites; no recursion, shell, auto-repair or promised rollback. Rust parsing is advisory, not compiled, type-correct or verified. Report only actual tool effects."
             } else {
                 "Answer the user's current request directly. Provide a plan when requested; do not implement changes. When project context is needed, use eevee_list_files and eevee_read_file to inspect actual safe working bytes. Read-only tools cannot authorize or perform changes."
             },
@@ -553,7 +553,7 @@ fn payload(
         );
     }
     let capability = if native_writing(input) {
-        "Available tools: eevee_list_files, eevee_read_file, eevee_write_file, eevee_edit_file. Reads/discovery grant no write authority. No shell, processes, project hooks, MCP, checks or commits. Treat denial/refusal as no grant; never request an alternate write route or claim verification. Report writes only from actual tool results."
+        "Available tools: eevee_list_files, eevee_read_file, eevee_write_file, eevee_edit_file, eevee_delete_file, eevee_rename_file. Reads/discovery grant no write authority. No shell, processes, project hooks, MCP, checks or commits. Treat denial/refusal as no grant; never request an alternate write route or claim verification. Report mutations only from actual tool results."
     } else {
         "Available tools: eevee_list_files and eevee_read_file only. No mutation tools, mutation permission, shell, processes, project hooks, MCP, checks or commits. Never claim files changed, commands ran, or checks passed."
     };

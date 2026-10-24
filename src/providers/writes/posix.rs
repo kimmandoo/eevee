@@ -74,6 +74,16 @@ pub(super) fn observation_stamp(file: &File) -> Result<FileStamp, String> {
     })
 }
 
+pub(super) fn same_file(left: &FileStamp, right: &FileStamp) -> bool {
+    left.device == right.device
+        && left.inode == right.inode
+        && left.owner == right.owner
+        && left.group == right.group
+        && left.mode == right.mode
+        && left.size == right.size
+        && left.modified == right.modified
+}
+
 #[derive(Clone, Debug)]
 pub(super) struct Directory(Arc<DirectoryHandle>);
 #[derive(Debug)]
@@ -412,6 +422,136 @@ impl Directory {
             return Err("Selected file is busy; leaf replacement refused".into());
         }
         Ok(file)
+    }
+
+    pub(super) fn mutation_file(&self, value: &OsStr) -> Result<File, String> {
+        self.verify()?;
+        let file = self.open_file(value, false)?;
+        file_stamp(&file)?;
+        if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+            return Err("Selected file is busy; namespace mutation refused".into());
+        }
+        Ok(file)
+    }
+
+    pub(super) fn same_volume(&self, other: &Self) -> bool {
+        self.0.identity.device == other.0.identity.device
+    }
+
+    fn mutation_name(&self, value: &OsStr, file: &File) -> Result<CString, String> {
+        self.verify()?;
+        file_stamp(file)?;
+        let component = name(value)?;
+        let mut named = std::mem::MaybeUninit::<libc::stat>::uninit();
+        if unsafe {
+            libc::fstatat(
+                self.0.file.as_raw_fd(),
+                component.as_ptr(),
+                named.as_mut_ptr(),
+                libc::AT_SYMLINK_NOFOLLOW,
+            )
+        } != 0
+        {
+            return Err(last_error("Reviewed mutation source disappeared"));
+        }
+        let opened = file
+            .metadata()
+            .map_err(|_| "Cannot inspect retained mutation source")?;
+        if !named_regular_matches(&unsafe { named.assume_init() }, &opened) {
+            return Err("Reviewed mutation source name changed; no effect".into());
+        }
+        Ok(component)
+    }
+
+    pub(super) fn remove(&self, value: &OsStr, file: &File) -> Result<(), WriteFailure> {
+        let component = self.mutation_name(value, file)?;
+        // Like all descriptor-relative POSIX namespace operations, this is not
+        // an identity-CAS against an uncooperative same-user name substitution.
+        if unsafe { libc::unlinkat(self.0.file.as_raw_fd(), component.as_ptr(), 0) } != 0 {
+            let error = io::Error::last_os_error();
+            return Err(failure(
+                format!("Exact regular-file deletion failed: {error}"),
+                error.kind() == io::ErrorKind::Interrupted
+                    || error.raw_os_error() == Some(libc::EIO),
+            ));
+        }
+        self.0.file.sync_all().map_err(|error| {
+            failure(
+                format!("Deletion occurred but parent sync failed; no rollback claimed: {error}"),
+                true,
+            )
+        })
+    }
+
+    pub(super) fn rename(
+        &self,
+        value: &OsStr,
+        file: &File,
+        destination: &Self,
+        destination_value: &OsStr,
+    ) -> Result<(), WriteFailure> {
+        if !self.same_volume(destination) {
+            return Err("Cross-volume rename is unsupported; no move occurred"
+                .to_owned()
+                .into());
+        }
+        let source = self.mutation_name(value, file)?;
+        destination.verify()?;
+        let target = name(destination_value)?;
+        if !destination.absent(destination_value)? {
+            return Err("Rename destination appeared; nothing was overwritten"
+                .to_owned()
+                .into());
+        }
+        #[cfg(target_os = "macos")]
+        let result = unsafe {
+            libc::renameatx_np(
+                self.0.file.as_raw_fd(),
+                source.as_ptr(),
+                destination.0.file.as_raw_fd(),
+                target.as_ptr(),
+                libc::RENAME_EXCL,
+            )
+        };
+        #[cfg(target_os = "linux")]
+        let result = unsafe {
+            libc::renameat2(
+                self.0.file.as_raw_fd(),
+                source.as_ptr(),
+                destination.0.file.as_raw_fd(),
+                target.as_ptr(),
+                libc::RENAME_NOREPLACE,
+            )
+        };
+        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+        return Err(
+            "This platform has no supported anchored no-overwrite rename; no move occurred"
+                .to_owned()
+                .into(),
+        );
+        #[cfg(any(target_os = "macos", target_os = "linux"))]
+        {
+            if result != 0 {
+                let error = io::Error::last_os_error();
+                return Err(failure(
+                    format!("Anchored no-overwrite rename refused: {error}"),
+                    error.kind() == io::ErrorKind::Interrupted
+                        || error.raw_os_error() == Some(libc::EIO),
+                ));
+            }
+            self.0
+                .file
+                .sync_all()
+                .and_then(|_| destination.0.file.sync_all())
+                .map_err(|error| {
+                    failure(
+                        format!(
+                            "Rename occurred but parent sync failed; no rollback claimed: {error}"
+                        ),
+                        true,
+                    )
+                })
+        }
     }
 
     pub(super) fn create_directory(&self, value: &OsStr) -> Result<Self, WriteFailure> {

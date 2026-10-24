@@ -243,3 +243,14 @@ core-evolution-transition = { $mode } { $from } → { $to }: { $reason }{ $fresh
 core-evolution-popup-title = { "Evolution!" }
 core-evolution-popup-continue = { "Keep typing" }
 core-evolution-popup-manual-reason = { "Same project, conversation and tools" }
+
+core-evolution-preview-title = Next evolution · local preview
+core-evolution-preview-form = Appearance: { $form } · { $mode }
+core-evolution-preview-operation = Effective operation: { $operation }
+core-evolution-preview-reason = Reason: { $reason }
+core-evolution-preview-policy = Explicit policy: { $policy }
+core-evolution-preview-none = No explicit restriction
+core-evolution-preview-guard = Appearance grants nothing. File/command effects still need their own review.
+core-evolution-preview-controls = Esc returns · Up/Down scroll · Send recomputes from the current draft.
+core-evolution-preview-stale = Draft, owner or policy changed. Reopen /evolution-preview; nothing sent.
+core-evolution-unchanged = Ambiguous request: keep current appearance and operation

@@ -1271,8 +1271,10 @@ fn plain_project_discovery_read_generate_and_reviewed_edit_preserve_dirty_crlf()
     let mut edit = FileTool::Edit {
         path: "src/lib.rs".into(),
         sha256: source["sha256"].as_str().unwrap().into(),
-        old_text: "{ 1 }".into(),
-        new_text: "{ 2 }".into(),
+        replacements: vec![tools::Replacement {
+            old_text: "{ 1 }".into(),
+            new_text: "{ 2 }".into(),
+        }],
     };
     set.admit_paths(&[edit.path().into()]).unwrap();
     let proposal = set.propose_tool(&mut edit).unwrap();
@@ -1391,8 +1393,10 @@ fn stale_and_ambiguous_edits_refuse_before_enrollment_or_effects() {
     let mut edit = FileTool::Edit {
         path: "source.txt".into(),
         sha256: read["sha256"].as_str().unwrap().into(),
-        old_text: "same".into(),
-        new_text: "other".into(),
+        replacements: vec![tools::Replacement {
+            old_text: "same".into(),
+            new_text: "other".into(),
+        }],
     };
     assert!(
         candidate
@@ -1400,8 +1404,8 @@ fn stale_and_ambiguous_edits_refuse_before_enrollment_or_effects() {
             .unwrap_err()
             .contains("exactly once")
     );
-    if let FileTool::Edit { old_text, .. } = &mut edit {
-        *old_text = "same same".into();
+    if let FileTool::Edit { replacements, .. } = &mut edit {
+        replacements[0].old_text = "same same".into();
     }
     let reviewed = candidate.propose_tool(&mut edit).unwrap();
     std::fs::write(project.root.join("source.txt"), "concurrent user bytes\r\n").unwrap();
@@ -1810,4 +1814,546 @@ fn readonly_scope_refuses_rebound_source_root_before_observation_or_mutation() {
     assert!(scope.admit_paths(&["unapproved.txt".into()]).is_err());
     std::fs::remove_dir_all(&project.root).unwrap();
     std::fs::rename(moved, &project.root).unwrap();
+}
+
+fn prepare_exact_tool(
+    scope: &mut WriteSet,
+    name: &str,
+    arguments: Value,
+) -> Result<WriteProposal, String> {
+    let mut tool = FileTool::parse(name, arguments)?;
+    let mut candidate = scope.clone();
+    candidate.admit_paths(
+        &tool
+            .mutation_paths()
+            .map(Path::to_path_buf)
+            .collect::<Vec<_>>(),
+    )?;
+    let proposal = candidate.propose_tool(&mut tool)?;
+    *scope = candidate;
+    Ok(proposal)
+}
+
+#[test]
+fn original_snapshot_replacements_preserve_crlf_unicode_and_never_chain() {
+    let project = Project::new();
+    let original = "// 사용자 e\u{301}\r\nalpha\r\nunchanged 界\r\nbeta\r\n";
+    std::fs::write(project.root.join("literal.txt"), original).unwrap();
+    let mut scope = WriteSet::capture_workspace(&project.root, &project.data, &[]).unwrap();
+    let read = scope.observe_tool(&read_tool("literal.txt")).unwrap();
+    let proposal = prepare_exact_tool(
+        &mut scope,
+        "eevee_edit_file",
+        json!({
+            "path":"literal.txt","sha256":read["sha256"],"replacements":[
+                {"old_text":"alpha","new_text":"beta"},
+                {"old_text":"beta","new_text":"gamma"},
+            ]
+        }),
+    )
+    .unwrap();
+    assert_eq!(
+        std::fs::read(project.root.join("literal.txt")).unwrap(),
+        original.as_bytes()
+    );
+    assert_eq!(
+        proposal.content,
+        "// 사용자 e\u{301}\r\nbeta\r\nunchanged 界\r\ngamma\r\n"
+    );
+    assert!(proposal.description().contains("[CRLF]"));
+    scope.apply(&proposal).unwrap();
+    scope.verify().unwrap();
+    assert_eq!(
+        std::fs::read(project.root.join("literal.txt")).unwrap(),
+        proposal.content.as_bytes()
+    );
+}
+
+#[test]
+fn invalid_original_snapshot_replacements_have_no_effect_or_enrollment() {
+    let project = Project::new();
+    let original = "aaa alpha beta\r\n";
+    std::fs::write(project.root.join("literal.txt"), original).unwrap();
+    let mut scope = WriteSet::capture_workspace(&project.root, &project.data, &[]).unwrap();
+    let read = scope.observe_tool(&read_tool("literal.txt")).unwrap();
+    let mut cases = vec![
+        json!([]),
+        json!([{"old_text":"","new_text":"x"}]),
+        // "aa" has two overlapping occurrences in "aaa".
+        json!([{"old_text":"aa","new_text":"x"}]),
+        json!([{"old_text":"alpha beta","new_text":"x"},{"old_text":"beta","new_text":"y"}]),
+        json!([{"old_text":"absent","new_text":"x"}]),
+        json!([{"old_text":"alpha","new_text":"x".repeat(MAX_BYTES)}]),
+    ];
+    cases.push(json!(
+        (0..33)
+            .map(|_| json!({"old_text":"alpha","new_text":"x"}))
+            .collect::<Vec<_>>()
+    ));
+    for replacements in cases {
+        assert!(
+            prepare_exact_tool(
+                &mut scope,
+                "eevee_edit_file",
+                json!({
+                    "path":"literal.txt","sha256":read["sha256"],"replacements":replacements
+                })
+            )
+            .is_err()
+        );
+        assert!(scope.targets.is_empty());
+        assert_eq!(
+            std::fs::read(project.root.join("literal.txt")).unwrap(),
+            original.as_bytes()
+        );
+    }
+    assert!(
+        FileTool::parse(
+            "eevee_edit_file",
+            json!({
+                "path":"literal.txt","sha256":read["sha256"],"old_text":"alpha","new_text":"x"
+            })
+        )
+        .is_err(),
+        "obsolete single-hunk wire shape is not a compatibility dialect"
+    );
+}
+
+#[test]
+fn thirty_two_replacements_use_one_complete_final_proposal() {
+    let project = Project::new();
+    let original = (0..32)
+        .map(|index| format!("anchor-{index:02}\r\n"))
+        .collect::<String>();
+    std::fs::write(project.root.join("many.txt"), &original).unwrap();
+    let mut scope = WriteSet::capture_workspace(&project.root, &project.data, &[]).unwrap();
+    let read = scope.observe_tool(&read_tool("many.txt")).unwrap();
+    let replacements = (0..32)
+        .map(|index| {
+            json!({
+                "old_text":format!("anchor-{index:02}"),"new_text":format!("changed-{index:02}")
+            })
+        })
+        .collect::<Vec<_>>();
+    let proposal = prepare_exact_tool(
+        &mut scope,
+        "eevee_edit_file",
+        json!({
+            "path":"many.txt","sha256":read["sha256"],"replacements":replacements
+        }),
+    )
+    .unwrap();
+    assert_eq!(proposal.content, original.replace("anchor-", "changed-"));
+    assert_eq!(scope.targets.len(), 1);
+    scope.apply(&proposal).unwrap();
+    assert_eq!(
+        std::fs::read(project.root.join("many.txt")).unwrap(),
+        proposal.content.as_bytes()
+    );
+}
+
+#[test]
+fn rust_syntax_disclosure_distinguishes_baselines_and_is_bound_to_exact_bytes() {
+    use super::super::RustSyntaxReview::*;
+    let project = Project::new();
+    for (name, baseline, proposed, expected) in [
+        (
+            "introduced.rs",
+            Some("fn value() {}\r\n"),
+            "fn value() {\r\n",
+            NewlyInvalid,
+        ),
+        (
+            "old.rs",
+            Some("fn value() {\r\n"),
+            "fn other() {\r\n",
+            PreExistingInvalid,
+        ),
+        (
+            "fixed.rs",
+            Some("fn value() {\r\n"),
+            "fn value() {}\r\n",
+            InvalidToValid,
+        ),
+        (
+            "valid.rs",
+            Some("fn value() {}\r\n"),
+            "fn other() {}\r\n",
+            Parseable,
+        ),
+        ("new.rs", None, "fn value() {}\r\n", CreatedParseable),
+        ("invalid-new.rs", None, "fn value() {\r\n", CreatedInvalid),
+        ("plain.txt", None, "not Rust", Unsupported),
+    ] {
+        if let Some(baseline) = baseline {
+            std::fs::write(project.root.join(name), baseline).unwrap();
+        }
+        let mut scope = project.capture(&[name]);
+        let proposal = scope.propose(name.into(), proposed.into()).unwrap();
+        assert_eq!(proposal.file_review().syntax, Some(expected));
+        assert_eq!(project.root.join(name).exists(), baseline.is_some());
+        let mut changed = proposal.clone();
+        changed.content.push_str("// changed");
+        changed.patch = scope.targets[0].patch(&changed.content);
+        assert!(!scope.apply(&changed).unwrap_err().uncertain);
+        assert_eq!(project.root.join(name).exists(), baseline.is_some());
+    }
+}
+
+#[test]
+fn exact_delete_and_rename_only_affect_reviewed_regular_file() {
+    let project = Project::new();
+    let original = "// 사용자 dirty\r\nfn source() {}\r\n";
+    std::fs::write(project.root.join("source.rs"), original).unwrap();
+    std::fs::write(
+        project.root.join("unrelated.txt"),
+        "unrelated dirty bytes\r\n",
+    )
+    .unwrap();
+    let mut scope = WriteSet::capture_workspace(&project.root, &project.data, &[]).unwrap();
+    let read = scope.observe_tool(&read_tool("source.rs")).unwrap();
+    let rename = prepare_exact_tool(
+        &mut scope,
+        "eevee_rename_file",
+        json!({
+            "path":"source.rs","destination":"new/한글.rs","sha256":read["sha256"]
+        }),
+    )
+    .unwrap();
+    assert_eq!(
+        rename.file_review().kind,
+        super::super::FileReviewKind::Rename
+    );
+    assert_eq!(
+        rename.file_review().destination.as_deref(),
+        Some("new/한글.rs")
+    );
+    assert_eq!(rename.file_review().bytes, original.len());
+    assert!(
+        !project.root.join("new").exists(),
+        "preparation/cancellation is inert"
+    );
+    let result = scope.apply(&rename).unwrap();
+    assert_eq!(result.source_sha256, None);
+    assert!(result.destination_sha256.is_some());
+    assert!(!project.root.join("source.rs").exists());
+    assert_eq!(
+        std::fs::read(project.root.join("new/한글.rs")).unwrap(),
+        original.as_bytes()
+    );
+    scope.verify().unwrap();
+    let read = scope.observe_tool(&read_tool("new/한글.rs")).unwrap();
+    let delete = prepare_exact_tool(
+        &mut scope,
+        "eevee_delete_file",
+        json!({
+            "path":"new/한글.rs","sha256":read["sha256"]
+        }),
+    )
+    .unwrap();
+    assert_eq!(delete.file_review().syntax, None);
+    assert_eq!(delete.file_review().bytes, original.len());
+    assert!(project.root.join("new/한글.rs").exists());
+    let result = scope.apply(&delete).unwrap();
+    assert_eq!(result.source_sha256, None);
+    assert_eq!(result.destination_sha256, None);
+    assert!(!project.root.join("new/한글.rs").exists());
+    assert!(project.root.join("new").is_dir(), "delete is not recursive");
+    assert_eq!(
+        std::fs::read_to_string(project.root.join("unrelated.txt")).unwrap(),
+        "unrelated dirty bytes\r\n"
+    );
+    scope.verify().unwrap();
+}
+
+#[test]
+fn delete_and_rename_require_exact_read_sha_and_selected_destination() {
+    let project = Project::new();
+    std::fs::write(project.root.join("source.txt"), "dirty\r\n").unwrap();
+    for tool in ["eevee_delete_file", "eevee_rename_file"] {
+        let mut scope = project.capture(&["source.txt"]);
+        let mut arguments = json!({"path":"source.txt","sha256":"0".repeat(64)});
+        if tool == "eevee_rename_file" {
+            arguments["destination"] = json!("other.txt");
+        }
+        assert!(prepare_exact_tool(&mut scope, tool, arguments.clone()).is_err());
+        let read = scope.observe_tool(&read_tool("source.txt")).unwrap();
+        arguments["sha256"] = json!(read["sha256"].as_str().unwrap()[..8].to_owned());
+        assert!(prepare_exact_tool(&mut scope, tool, arguments.clone()).is_err());
+        if tool == "eevee_rename_file" {
+            arguments["sha256"] = read["sha256"].clone();
+            assert!(
+                prepare_exact_tool(&mut scope, tool, arguments).is_err(),
+                "destination not selected"
+            );
+        }
+        assert_eq!(
+            std::fs::read(project.root.join("source.txt")).unwrap(),
+            b"dirty\r\n"
+        );
+        assert!(!project.root.join("other.txt").exists());
+    }
+}
+
+#[test]
+fn delete_rename_and_multihunk_refuse_stale_source_or_ancestors() {
+    for tool in ["eevee_delete_file", "eevee_rename_file", "eevee_edit_file"] {
+        for ancestor in [false, true] {
+            let project = Project::new();
+            std::fs::create_dir(project.root.join("src")).unwrap();
+            std::fs::write(project.root.join("src/source.txt"), "original\r\n").unwrap();
+            let mut scope = WriteSet::capture_workspace(&project.root, &project.data, &[]).unwrap();
+            let read = scope.observe_tool(&read_tool("src/source.txt")).unwrap();
+            let arguments = match tool {
+                "eevee_rename_file" => {
+                    json!({"path":"src/source.txt","destination":"moved.txt","sha256":read["sha256"]})
+                }
+                "eevee_edit_file" => {
+                    json!({"path":"src/source.txt","sha256":read["sha256"],"replacements":[{"old_text":"original","new_text":"changed"}]})
+                }
+                _ => json!({"path":"src/source.txt","sha256":read["sha256"]}),
+            };
+            let proposal = prepare_exact_tool(&mut scope, tool, arguments).unwrap();
+            if ancestor {
+                std::fs::rename(project.root.join("src"), project.root.join("retained")).unwrap();
+                std::fs::create_dir(project.root.join("src")).unwrap();
+            }
+            std::fs::write(
+                project.root.join("src/source.txt"),
+                "concurrent user bytes\r\n",
+            )
+            .unwrap();
+            assert!(!scope.apply(&proposal).unwrap_err().uncertain);
+            assert_eq!(
+                std::fs::read(project.root.join("src/source.txt")).unwrap(),
+                b"concurrent user bytes\r\n"
+            );
+            assert!(!project.root.join("moved.txt").exists());
+            if ancestor {
+                assert_eq!(
+                    std::fs::read(project.root.join("retained/source.txt")).unwrap(),
+                    b"original\r\n"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn rename_collision_and_destination_ancestor_change_never_overwrite_or_move() {
+    for change_ancestor in [false, true] {
+        let project = Project::new();
+        std::fs::create_dir(project.root.join("dst")).unwrap();
+        std::fs::write(project.root.join("source.txt"), "source\r\n").unwrap();
+        let mut scope = WriteSet::capture_workspace(&project.root, &project.data, &[]).unwrap();
+        let read = scope.observe_tool(&read_tool("source.txt")).unwrap();
+        let proposal = prepare_exact_tool(
+            &mut scope,
+            "eevee_rename_file",
+            json!({
+                "path":"source.txt","destination":"dst/target.txt","sha256":read["sha256"]
+            }),
+        )
+        .unwrap();
+        if change_ancestor {
+            std::fs::rename(project.root.join("dst"), project.root.join("old-dst")).unwrap();
+            std::fs::create_dir(project.root.join("dst")).unwrap();
+        }
+        std::fs::write(project.root.join("dst/target.txt"), "occupied\r\n").unwrap();
+        assert!(!scope.apply(&proposal).unwrap_err().uncertain);
+        assert_eq!(
+            std::fs::read(project.root.join("source.txt")).unwrap(),
+            b"source\r\n"
+        );
+        assert_eq!(
+            std::fs::read(project.root.join("dst/target.txt")).unwrap(),
+            b"occupied\r\n"
+        );
+    }
+}
+
+#[test]
+fn post_rename_unknown_effect_is_not_a_fictional_rollback() {
+    let project = Project::new();
+    std::fs::write(project.root.join("source.txt"), "source\r\n").unwrap();
+    let mut scope = WriteSet::capture_workspace(&project.root, &project.data, &[]).unwrap();
+    let read = scope.observe_tool(&read_tool("source.txt")).unwrap();
+    let proposal = prepare_exact_tool(
+        &mut scope,
+        "eevee_rename_file",
+        json!({
+            "path":"source.txt","destination":"target.txt","sha256":read["sha256"]
+        }),
+    )
+    .unwrap();
+    let target = project.root.join("target.txt");
+    on_after_leaf_write(move || std::fs::write(target, "concurrent destination bytes").unwrap());
+    let failure = scope.apply(&proposal).unwrap_err();
+    assert!(failure.uncertain);
+    assert!(failure.message.contains("no rollback"));
+    assert!(!project.root.join("source.txt").exists());
+    assert_eq!(
+        std::fs::read(project.root.join("target.txt")).unwrap(),
+        b"concurrent destination bytes"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn reviewed_namespace_mutations_refuse_late_symlink_sources_and_destinations() {
+    use std::os::unix::fs::symlink;
+    for rename in [false, true] {
+        let project = Project::new();
+        std::fs::write(project.root.join("source.txt"), "source\r\n").unwrap();
+        std::fs::write(project.root.join("neighbor.txt"), "private neighbor\r\n").unwrap();
+        let mut scope = WriteSet::capture_workspace(&project.root, &project.data, &[]).unwrap();
+        let read = scope.observe_tool(&read_tool("source.txt")).unwrap();
+        let mut arguments = json!({"path":"source.txt","sha256":read["sha256"]});
+        let name = if rename {
+            arguments["destination"] = json!("destination.txt");
+            "eevee_rename_file"
+        } else {
+            "eevee_delete_file"
+        };
+        let proposal = prepare_exact_tool(&mut scope, name, arguments).unwrap();
+        std::fs::rename(
+            project.root.join("source.txt"),
+            project.root.join("retained.txt"),
+        )
+        .unwrap();
+        symlink("neighbor.txt", project.root.join("source.txt")).unwrap();
+        assert!(!scope.apply(&proposal).unwrap_err().uncertain);
+        assert!(
+            std::fs::symlink_metadata(project.root.join("source.txt"))
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
+        assert_eq!(
+            std::fs::read(project.root.join("neighbor.txt")).unwrap(),
+            b"private neighbor\r\n"
+        );
+        assert_eq!(
+            std::fs::read(project.root.join("retained.txt")).unwrap(),
+            b"source\r\n"
+        );
+        assert!(!project.root.join("destination.txt").exists());
+    }
+    let project = Project::new();
+    std::fs::write(project.root.join("source.txt"), "source\r\n").unwrap();
+    std::fs::write(project.root.join("neighbor.txt"), "neighbor\r\n").unwrap();
+    let mut scope = WriteSet::capture_workspace(&project.root, &project.data, &[]).unwrap();
+    let read = scope.observe_tool(&read_tool("source.txt")).unwrap();
+    let proposal = prepare_exact_tool(
+        &mut scope,
+        "eevee_rename_file",
+        json!({
+            "path":"source.txt","destination":"destination.txt","sha256":read["sha256"]
+        }),
+    )
+    .unwrap();
+    symlink("neighbor.txt", project.root.join("destination.txt")).unwrap();
+    assert!(!scope.apply(&proposal).unwrap_err().uncertain);
+    assert_eq!(
+        std::fs::read(project.root.join("source.txt")).unwrap(),
+        b"source\r\n"
+    );
+    assert!(
+        std::fs::symlink_metadata(project.root.join("destination.txt"))
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+    assert_eq!(
+        std::fs::read(project.root.join("neighbor.txt")).unwrap(),
+        b"neighbor\r\n"
+    );
+}
+
+#[test]
+fn namespace_mutations_refuse_protected_excluded_and_case_only_scopes() {
+    let project = Project::new();
+    std::fs::create_dir(project.root.join("private")).unwrap();
+    std::fs::create_dir_all(&project.data).unwrap();
+    std::fs::write(project.root.join("source.txt"), "source").unwrap();
+    std::fs::write(project.root.join("private/retained.txt"), "excluded").unwrap();
+    std::fs::write(project.data.join("retained.txt"), "protected").unwrap();
+    let mut scope =
+        WriteSet::capture_workspace(&project.root, &project.data, &["private".into()]).unwrap();
+    let read = scope.observe_tool(&read_tool("source.txt")).unwrap();
+    for destination in ["private/renamed.txt", "own-data/renamed.txt", "SOURCE.txt"] {
+        assert!(
+            prepare_exact_tool(
+                &mut scope,
+                "eevee_rename_file",
+                json!({
+                    "path":"source.txt","destination":destination,"sha256":read["sha256"]
+                })
+            )
+            .is_err()
+        );
+    }
+    for source in [
+        "private/retained.txt",
+        "own-data/retained.txt",
+        ".git/config",
+    ] {
+        assert!(
+            prepare_exact_tool(
+                &mut scope,
+                "eevee_delete_file",
+                json!({
+                    "path":source,"sha256":"0".repeat(64)
+                })
+            )
+            .is_err()
+        );
+    }
+    assert_eq!(
+        std::fs::read(project.root.join("source.txt")).unwrap(),
+        b"source"
+    );
+    assert_eq!(
+        std::fs::read(project.root.join("private/retained.txt")).unwrap(),
+        b"excluded"
+    );
+    assert_eq!(
+        std::fs::read(project.data.join("retained.txt")).unwrap(),
+        b"protected"
+    );
+}
+
+#[test]
+fn changed_rename_destination_cannot_reuse_the_original_review() {
+    let project = Project::new();
+    std::fs::write(project.root.join("source.txt"), "source\r\n").unwrap();
+    let mut scope = WriteSet::capture_workspace(&project.root, &project.data, &[]).unwrap();
+    let read = scope.observe_tool(&read_tool("source.txt")).unwrap();
+    scope.admit_paths(&["other.txt".into()]).unwrap();
+    let mut proposal = prepare_exact_tool(
+        &mut scope,
+        "eevee_rename_file",
+        json!({
+            "path":"source.txt","destination":"approved.txt","sha256":read["sha256"]
+        }),
+    )
+    .unwrap();
+    proposal.destination = Some("other.txt".into());
+    let target = scope
+        .targets
+        .iter()
+        .find(|target| target.path == Path::new("source.txt"))
+        .unwrap();
+    proposal.patch = target.mutation_patch(
+        proposal.kind,
+        proposal.destination.as_deref(),
+        &proposal.content,
+    );
+    assert!(!scope.apply(&proposal).unwrap_err().uncertain);
+    assert_eq!(
+        std::fs::read(project.root.join("source.txt")).unwrap(),
+        b"source\r\n"
+    );
+    assert!(!project.root.join("approved.txt").exists());
+    assert!(!project.root.join("other.txt").exists());
 }

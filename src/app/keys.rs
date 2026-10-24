@@ -97,6 +97,7 @@ impl App {
                 self.artifacts.paste(&text)
             }
             Event::Paste(_) if self.overlay == Some(Overlay::Receipts) => false,
+            Event::Paste(_) if self.overlay == Some(Overlay::EvolutionPreview) => false,
             Event::Paste(text) if self.nickname_editor.is_some() => self.nickname_paste(&text),
             Event::Paste(text)
                 if self.overlay == Some(Overlay::Agents) && self.agents.connection_editing() =>
@@ -977,6 +978,13 @@ impl App {
             return true;
         }
         match self.overlay {
+            Some(Overlay::EvolutionPreview) => {
+                if key.code == KeyCode::Esc {
+                    self.close_overlay();
+                    return true;
+                }
+                return self.scroll_key(key.code);
+            }
             Some(Overlay::Updates) => return self.lifecycle_key(key),
             Some(Overlay::Artifacts | Overlay::ToolCatalog | Overlay::Receipts) => {
                 return self.context_tool_key(key);

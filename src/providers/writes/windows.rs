@@ -500,6 +500,10 @@ impl Directory {
         self.node.identity == other.node.identity
     }
 
+    pub(super) fn same_volume(&self, other: &Self) -> bool {
+        self.node.identity.volume == other.node.identity.volume
+    }
+
     pub(super) fn name_policy(&self) -> NamePolicy {
         directory_name_policy(&self.node.file)
     }
@@ -608,6 +612,121 @@ impl Directory {
         }
         self.verify()?;
         Ok(file)
+    }
+
+    /// Retain the reviewed object with DELETE access, excluding other writers
+    /// and deleters until this handle is dropped. Readers used for baseline
+    /// validation must share DELETE, as `open_file(name, false)` does.
+    pub(super) fn mutation_file(&self, name: &OsStr) -> Result<File, String> {
+        let native = Name::new(name)?;
+        self.verify()?;
+        let file = relative_open(
+            &self.node.file,
+            &native,
+            FILE_GENERIC_READ | DELETE,
+            FILE_SHARE_READ,
+            FILE_OPEN,
+            FILE_NON_DIRECTORY_FILE,
+        )
+        .map_err(nt_error)?;
+        self.mutation_source(name, &file)?;
+        Ok(file)
+    }
+
+    fn mutation_source(&self, name: &OsStr, file: &File) -> Result<FileStamp, String> {
+        self.verify()?;
+        let stamp = file_stamp(file)?;
+        if final_path(file)? != self.node.path.join(name) {
+            return Err("Retained Windows mutation source has a different final path.".into());
+        }
+        let named = self.open_file(name, false)?;
+        if file_stamp(&named)? != stamp || file_stamp(file)? != stamp {
+            return Err("Windows source no longer names the exact reviewed file.".into());
+        }
+        self.verify()?;
+        Ok(stamp)
+    }
+
+    /// Marks only the exact retained file for deletion. Windows completes this
+    /// disposition on close: after Ok, the caller MUST drop `file` and every
+    /// other source handle, then use `absent` to establish named absence before
+    /// reporting success. A failed post-close check is an uncertain outcome;
+    /// no pathname-based cleanup or retry is safe.
+    pub(super) fn remove(&self, name: &OsStr, file: &File) -> Result<(), WriteFailure> {
+        let before = |message| WriteFailure {
+            message,
+            uncertain: false,
+        };
+        self.mutation_source(name, file).map_err(before)?;
+        dispose_native(file).map_err(|error| WriteFailure {
+            message: format!("Exact Windows file deletion failed: {error}"),
+            uncertain: !matches!(
+                error.raw_os_error(),
+                Some(1 | 2 | 3 | 5 | 6 | 19 | 32 | 50 | 87 | 145 | 303)
+            ),
+        })?;
+        self.verify().map_err(|message| WriteFailure {
+            message: format!("Windows deletion is pending handle close: {message}"),
+            uncertain: true,
+        })
+    }
+
+    pub(super) fn rename(
+        &self,
+        name: &OsStr,
+        file: &File,
+        destination: &Self,
+        destination_name: &OsStr,
+    ) -> Result<(), WriteFailure> {
+        let before = |message| WriteFailure {
+            message,
+            uncertain: false,
+        };
+        let native = Name::new(destination_name).map_err(before)?;
+        if !self.same_volume(destination) {
+            return Err(before(
+                "Windows rename requires the same retained volume; no copy was attempted.".into(),
+            ));
+        }
+        let stamp = self.mutation_source(name, file).map_err(before)?;
+        destination.verify().map_err(before)?;
+        if !destination.absent(destination_name).map_err(before)? {
+            return Err(before(
+                "Windows rename destination already exists; nothing was overwritten.".into(),
+            ));
+        }
+        self.mutation_source(name, file)
+            .and_then(|current| {
+                if current != stamp {
+                    return Err("Windows rename source changed before mutation.".into());
+                }
+                destination.verify()
+            })
+            .map_err(before)?;
+        rename_no_replace_native(file, &destination.node.file, &native).map_err(|status| {
+            WriteFailure {
+                message: format!("No-replace Windows rename failed: {}", nt_error(status)),
+                uncertain: !mutation_status_refused(status),
+            }
+        })?;
+        let result = (|| {
+            self.verify()?;
+            let after = destination.mutation_source(destination_name, file)?;
+            if !same_file(&stamp, &after) {
+                return Err(
+                    "Renamed Windows file metadata differs from the reviewed source.".into(),
+                );
+            }
+            if !self.absent(name)? {
+                return Err("Windows rename source name is no longer absent.".into());
+            }
+            destination.verify()?;
+            self.verify()
+        })();
+        result.map_err(|message| WriteFailure {
+            message: format!("Windows file was renamed; local effects may remain: {message}"),
+            uncertain: true,
+        })
     }
 
     pub(super) fn create_directory(&self, name: &OsStr) -> Result<Self, WriteFailure> {
@@ -771,6 +890,15 @@ impl Directory {
 // native class explicitly: RootDirectory anchors the destination, and the zero
 // ReplaceIfExists/Flags field guarantees failure for *any* appeared entry.
 fn rename_no_replace(file: &File, parent: &File, name: &Name) -> Result<(), String> {
+    rename_no_replace_native(file, parent, name).map_err(|status| {
+        format!(
+            "No-replace Windows publication refused: {}",
+            nt_error(status)
+        )
+    })
+}
+
+fn rename_no_replace_native(file: &File, parent: &File, name: &Name) -> Result<(), i32> {
     let bytes = (offset_of!(FILE_RENAME_INFO, FileName) + name.length * 2)
         .max(size_of::<FILE_RENAME_INFO>());
     let mut storage = [0usize; (size_of::<FILE_RENAME_INFO>() + 510).div_ceil(size_of::<usize>())];
@@ -798,15 +926,16 @@ fn rename_no_replace(file: &File, parent: &File, name: &Name) -> Result<(), Stri
         )
     };
     if status < 0 {
-        return Err(format!(
-            "No-replace Windows publication refused: {}",
-            nt_error(status)
-        ));
+        return Err(status);
     }
     Ok(())
 }
 
 fn dispose(file: &File) -> Result<(), String> {
+    dispose_native(file).map_err(|error| error.to_string())
+}
+
+fn dispose_native(file: &File) -> io::Result<()> {
     let info = FILE_DISPOSITION_INFO { DeleteFile: true };
     if unsafe {
         SetFileInformationByHandle(
@@ -817,9 +946,47 @@ fn dispose(file: &File) -> Result<(), String> {
         )
     } == 0
     {
-        return Err(io::Error::last_os_error().to_string());
+        return Err(io::Error::last_os_error());
     }
     Ok(())
+}
+
+// These namespace, access, sharing, and unsupported-operation refusals are
+// known not to apply a rename. Transport/I/O and unfamiliar statuses remain
+// uncertain rather than claiming that an attempted mutation had no effect.
+fn mutation_status_refused(status: i32) -> bool {
+    matches!(
+        status as u32,
+        0xc000_0008 | // STATUS_INVALID_HANDLE
+        0xc000_000d | // STATUS_INVALID_PARAMETER
+        0xc000_0010 | // STATUS_INVALID_DEVICE_REQUEST
+        0xc000_0022 | // STATUS_ACCESS_DENIED
+        0xc000_0033 | // STATUS_OBJECT_NAME_INVALID
+        0xc000_0034 | // STATUS_OBJECT_NAME_NOT_FOUND
+        0xc000_0035 | // STATUS_OBJECT_NAME_COLLISION
+        0xc000_003a | // STATUS_OBJECT_PATH_NOT_FOUND
+        0xc000_0043 | // STATUS_SHARING_VIOLATION
+        0xc000_0056 | // STATUS_DELETE_PENDING
+        0xc000_00a2 | // STATUS_MEDIA_WRITE_PROTECTED
+        0xc000_00ba | // STATUS_FILE_IS_A_DIRECTORY
+        0xc000_00bb | // STATUS_NOT_SUPPORTED
+        0xc000_00d4 | // STATUS_NOT_SAME_DEVICE
+        0xc000_0101 | // STATUS_DIRECTORY_NOT_EMPTY
+        0xc000_0103 | // STATUS_NOT_A_DIRECTORY
+        0xc000_0121 | // STATUS_CANNOT_DELETE
+        0xc000_0128 // STATUS_FILE_CLOSED
+    )
+}
+
+/// Stable object and metadata comparison across a namespace-only mutation.
+/// Windows may update ChangeTime during rename, so it is excluded here.
+pub(super) fn same_file(left: &FileStamp, right: &FileStamp) -> bool {
+    left.identity == right.identity
+        && left.size == right.size
+        && left.created == right.created
+        && left.written == right.written
+        && left.attributes == right.attributes
+        && left.links == right.links
 }
 
 pub(super) fn file_stamp(file: &File) -> Result<FileStamp, String> {
@@ -952,6 +1119,144 @@ mod tests {
         assert!(fs::remove_file(temp.0.join(name)).is_err());
         drop(retained);
         fs::remove_file(temp.0.join(name)).unwrap();
+    }
+
+    #[test]
+    fn exact_delete_completes_after_all_source_handles_close() {
+        let temp = Temp::new();
+        let root = temp.directory();
+        let name = OsStr::new("reviewed.txt");
+        fs::write(temp.0.join(name), b"reviewed bytes").unwrap();
+        let retained = root.mutation_file(name).unwrap();
+        let named = root.open_file(name, false).unwrap();
+        assert_eq!(file_stamp(&retained).unwrap(), file_stamp(&named).unwrap());
+        assert!(root.open_file(name, true).is_err());
+        assert!(fs::remove_file(temp.0.join(name)).is_err());
+        assert!(fs::rename(temp.0.join(name), temp.0.join("moved")).is_err());
+        root.remove(name, &retained).unwrap();
+        drop(retained);
+        // A successful disposition is not a successful end-to-end deletion:
+        // this preexisting reader still keeps the exact file delete-pending.
+        assert!(root.absent(name).is_err());
+        drop(named);
+        assert!(root.absent(name).unwrap());
+        root.verify().unwrap();
+    }
+
+    #[test]
+    fn mutation_rejects_a_different_named_source_before_any_effect() {
+        let temp = Temp::new();
+        let root = temp.directory();
+        let selected = OsStr::new("selected");
+        let other = OsStr::new("other");
+        fs::write(temp.0.join(selected), b"same").unwrap();
+        fs::write(temp.0.join(other), b"same").unwrap();
+        let retained = root.mutation_file(selected).unwrap();
+        assert!(!root.remove(other, &retained).unwrap_err().uncertain);
+        assert!(
+            !root
+                .rename(other, &retained, &root, OsStr::new("destination"))
+                .unwrap_err()
+                .uncertain
+        );
+        drop(retained);
+        assert_eq!(fs::read(temp.0.join(selected)).unwrap(), b"same");
+        assert_eq!(fs::read(temp.0.join(other)).unwrap(), b"same");
+        assert!(root.absent(OsStr::new("destination")).unwrap());
+    }
+
+    #[test]
+    fn exact_rename_moves_between_retained_directories_without_changing_metadata() {
+        let temp = Temp::new();
+        let root = temp.directory();
+        let destination = root.create_directory(OsStr::new("destination")).unwrap();
+        let source = OsStr::new("source.txt");
+        let target = OsStr::new("새 이름.txt");
+        fs::write(temp.0.join(source), b"exact\r\nbytes").unwrap();
+        let retained = root.mutation_file(source).unwrap();
+        let before = file_stamp(&retained).unwrap();
+        assert!(root.same_volume(&destination));
+        root.rename(source, &retained, &destination, target)
+            .unwrap();
+        assert!(root.absent(source).unwrap());
+        let named = destination.open_file(target, false).unwrap();
+        let after = file_stamp(&named).unwrap();
+        assert_eq!(file_stamp(&retained).unwrap(), after);
+        assert!(same_file(&before, &after));
+        let mut namespace_change = before.clone();
+        namespace_change.changed = namespace_change.changed.wrapping_add(1);
+        assert!(same_file(&before, &namespace_change));
+        let mut different_object = before.clone();
+        different_object.identity.file[0] ^= 1;
+        assert!(!same_file(&before, &different_object));
+        assert_eq!(before.identity, after.identity);
+        assert_eq!(before.size, after.size);
+        assert_eq!(before.created, after.created);
+        assert_eq!(before.written, after.written);
+        assert_eq!(before.attributes, after.attributes);
+        assert_eq!(before.links, after.links);
+        assert!(destination.open_file(target, true).is_err());
+        assert!(fs::remove_file(temp.0.join("destination").join(target)).is_err());
+        drop(named);
+        drop(retained);
+        assert_eq!(
+            fs::read(temp.0.join("destination").join(target)).unwrap(),
+            b"exact\r\nbytes"
+        );
+    }
+
+    #[test]
+    fn rename_refuses_existing_files_directories_and_raced_native_targets() {
+        let temp = Temp::new();
+        let root = temp.directory();
+        let source = OsStr::new("source");
+        fs::write(temp.0.join(source), b"reviewed").unwrap();
+        fs::write(temp.0.join("file"), b"do not overwrite").unwrap();
+        fs::create_dir(temp.0.join("directory")).unwrap();
+        let retained = root.mutation_file(source).unwrap();
+        for target in ["file", "directory"] {
+            assert!(
+                !root
+                    .rename(source, &retained, &root, OsStr::new(target))
+                    .unwrap_err()
+                    .uncertain
+            );
+        }
+        let raced = OsStr::new("raced");
+        assert!(root.absent(raced).unwrap());
+        fs::write(temp.0.join(raced), b"raced bytes").unwrap();
+        let status =
+            rename_no_replace_native(&retained, &root.node.file, &Name::new(raced).unwrap())
+                .unwrap_err();
+        assert!(mutation_status_refused(status));
+        assert!(!mutation_status_refused(0xc000_0185u32 as i32)); // STATUS_IO_DEVICE_ERROR
+        drop(retained);
+        assert_eq!(fs::read(temp.0.join(source)).unwrap(), b"reviewed");
+        assert_eq!(fs::read(temp.0.join("file")).unwrap(), b"do not overwrite");
+        assert_eq!(fs::read(temp.0.join(raced)).unwrap(), b"raced bytes");
+        assert!(temp.0.join("directory").is_dir());
+    }
+
+    #[test]
+    fn mutation_handles_reject_hardlinks_directories_and_reparse_leaves() {
+        let temp = Temp::new();
+        let root = temp.directory();
+        fs::write(temp.0.join("original"), b"do not touch").unwrap();
+        fs::hard_link(temp.0.join("original"), temp.0.join("alias")).unwrap();
+        fs::create_dir(temp.0.join("directory")).unwrap();
+        assert!(root.mutation_file(OsStr::new("original")).is_err());
+        assert!(root.mutation_file(OsStr::new("alias")).is_err());
+        assert!(root.mutation_file(OsStr::new("directory")).is_err());
+        if has_symlink_privilege(symlink_file(temp.0.join("original"), temp.0.join("link"))) {
+            assert!(root.mutation_file(OsStr::new("link")).is_err());
+            assert!(has_symlink_privilege(symlink_file(
+                temp.0.join("missing"),
+                temp.0.join("dangling"),
+            )));
+            assert!(root.mutation_file(OsStr::new("dangling")).is_err());
+            assert!(!temp.0.join("missing").exists());
+        }
+        assert_eq!(fs::read(temp.0.join("original")).unwrap(), b"do not touch");
     }
 
     #[test]

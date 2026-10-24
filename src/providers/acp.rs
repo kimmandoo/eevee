@@ -407,7 +407,7 @@ fn payload(
     let sources = input.source_payload(&workspace.exclusions)?;
     let text = crate::workspace::context::optimizer::encode_context(json!({
         "purpose": if input.operation == Operation::Implement {
-            "Implement the requested project changes. Use client fs/read_text_file to read actual working files and fs/write_text_file to create or replace full UTF-8 files; use absolute paths under session cwd. Each client write requires exact separate user consent; preserve unrelated dirty bytes. Do not substitute fenced code for requested file creation. Agent-owned tools remain external provider policy, not client confinement. No check or success may be claimed without observed results."
+            "Implement the requested project changes. Client fs/read_text_file reads actual working files and fs/write_text_file creates/replaces full UTF-8 files at absolute paths under session cwd. Mediated delete, rename and original-snapshot multi-hunk tools are unsupported on this ACP route; do not claim those operations or emulate them with empty writes or agent-owned shell tools. Each client write requires exact separate user consent; preserve unrelated dirty bytes. Local Rust syntax disclosure applies to mediated full-file writes, not agent-owned tools. Fenced code is not file creation. Agent-owned tools remain external provider policy, not client confinement. No check or success may be claimed without observed results."
         } else {
             "Answer the current request directly. Inspect actual admitted project files through fs/read_text_file when needed; plan only when asked. Do not implement or write files. Agent-owned tools remain external provider policy; this instruction is not an enforced sandbox."
         },

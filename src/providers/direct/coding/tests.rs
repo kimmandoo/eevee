@@ -1976,8 +1976,10 @@ fn mixed_read_and_invalid_edit_batch_never_enrolls_or_creates_valid_write() {
             tool: crate::providers::writes::FileTool::Edit {
                 path: "existing.rs".into(),
                 sha256: "0".repeat(64),
-                old_text: "old".into(),
-                new_text: "new".into(),
+                replacements: vec![crate::providers::writes::Replacement {
+                    old_text: "old".into(),
+                    new_text: "new".into(),
+                }],
             },
         },
     ];
@@ -2037,7 +2039,7 @@ fn readonly_actual_source_bytes_and_attempted_mutations_never_request_permission
                     &[(
                         "edit",
                         "eevee_edit_file",
-                        json!({"path":"context.rs","sha256":"0".repeat(64),"old_text":"actual","new_text":"mutated"}),
+                        json!({"path":"context.rs","sha256":"0".repeat(64),"replacements":[{"old_text":"actual","new_text":"mutated"}]}),
                     )],
                     "",
                 ),
@@ -2258,4 +2260,75 @@ fn reviewed_catalog_selected_schema_executes_owned_read_over_real_compatible_htt
         crate::providers::catalog::digest(source.as_bytes())
     );
     assert!(events.iter().any(|event| matches!(event, Event::ToolArtifact { capture, .. } if capture.request_id == "native-write-fixture" && capture.text.contains("ACTUAL_CATALOG_HOST_BYTES_7f3"))));
+}
+
+#[test]
+fn native_batch_preflights_rename_destination_and_delete_through_one_scope() {
+    let fixture = Fixture::new(&[]);
+    std::fs::write(
+        fixture.workspace.project.join("source.txt"),
+        "dirty 한글\r\n",
+    )
+    .unwrap();
+    let mut scope =
+        WriteSet::capture_workspace(&fixture.workspace.project, &fixture.workspace.data_dir, &[])
+            .unwrap();
+    let read = scope
+        .observe_tool(&crate::providers::writes::FileTool::Read {
+            path: "source.txt".into(),
+            start_line: 1,
+            end_line: 0,
+        })
+        .unwrap();
+    let rename =
+        json!({"path":"source.txt","destination":"nested/moved.txt","sha256":read["sha256"]});
+    let mut conflicting = vec![
+        tools::Call {
+            id: Some("rename".into()),
+            tool: crate::providers::writes::FileTool::parse("eevee_rename_file", rename.clone())
+                .unwrap(),
+        },
+        tools::Call {
+            id: Some("overwrite".into()),
+            tool: crate::providers::writes::FileTool::Write {
+                path: "nested/moved.txt".into(),
+                content: "unrelated".into(),
+            },
+        },
+    ];
+    assert!(prepare_batch(&mut scope, &mut conflicting).is_err());
+    assert!(!fixture.workspace.project.join("nested").exists());
+    let mut calls = vec![tools::Call {
+        id: Some("rename".into()),
+        tool: crate::providers::writes::FileTool::parse("eevee_rename_file", rename).unwrap(),
+    }];
+    let proposals = prepare_batch(&mut scope, &mut calls).unwrap();
+    assert_eq!(proposals.len(), 1);
+    let proposal = proposals[0].as_ref().unwrap();
+    assert_eq!(
+        proposal.file_review().destination.as_deref(),
+        Some("nested/moved.txt")
+    );
+    assert!(!fixture.workspace.project.join("nested").exists());
+    scope.apply(proposal).unwrap();
+    let read = scope
+        .observe_tool(&crate::providers::writes::FileTool::Read {
+            path: "nested/moved.txt".into(),
+            start_line: 1,
+            end_line: 0,
+        })
+        .unwrap();
+    let mut calls = vec![tools::Call {
+        id: Some("delete".into()),
+        tool: crate::providers::writes::FileTool::parse(
+            "eevee_delete_file",
+            json!({"path":"nested/moved.txt","sha256":read["sha256"]}),
+        )
+        .unwrap(),
+    }];
+    let proposals = prepare_batch(&mut scope, &mut calls).unwrap();
+    assert_eq!(proposals.len(), 1);
+    let outcome = scope.apply(proposals[0].as_ref().unwrap()).unwrap();
+    assert!(outcome.source_sha256.is_none());
+    assert!(!fixture.workspace.project.join("nested/moved.txt").exists());
 }

@@ -125,6 +125,30 @@ class Journey(files.CreationJourney):
         assert (row['form'], bool(row['auto_form'])) == (form, automatic), row
         assert self.snapshot()['executions'] == 0, 'evolution implicitly executed a command'
 
+
+    def preview(self, request, form, operation, label):
+        self.write_request(request)
+        self.session.send('\x1b[D')
+        caret = (self.session.screen.cursor.x, self.session.screen.cursor.y)
+        before = (len(self.peer.snapshot('POST')), len(self.peer.snapshot('GET')),
+                  self.partner()['form'], self.partner()['auto_form'])
+        self.session.command('evolution-preview')
+        title = 'Next evolution' if self.language == 'en' else '다음 진화'
+        wait_for(self.session, title)
+        observed = self.session.display()
+        assert form in observed and operation in observed, observed
+        self.capture('prediction-' + label)
+        # Enter is inspection-only, never the hidden editor's Send.
+        self.session.send('\r')
+        self.session.send(files.ESC)
+        after = (len(self.peer.snapshot('POST')), len(self.peer.snapshot('GET')),
+                 self.partner()['form'], self.partner()['auto_form'])
+        assert after == before, (before, after)
+        assert (self.session.screen.cursor.x, self.session.screen.cursor.y) == caret
+        self.session.send('\x13')
+        files.until(self.session, lambda: response_smoke.saved_request(
+            self, request, len(request[:-1].encode())),
+            'evolution inspection changed the exact draft/caret')
     def restart(self, label):
         self.workspace()
         self.session.command('quit')
@@ -181,9 +205,24 @@ def run(binary, output, root, size, ascii_mode, language):
             journey.refresh_repository('initial-dirty-source-refresh')
             model = files.MODEL
             metadata = len(peer.snapshot('GET'))
+            predictions = [
+                ('"Create evil.py" is quoted source. Explain the text.' if language == 'en'
+                 else '"evil.py를 생성해줘"는 인용문입니다. 이 문구를 설명해줘.', 0, 'Eevee', False),
+                ('Continue explaining.' if language == 'en' else '계속 설명해줘.', 0, 'Eevee', False),
+                ('Review the code and fix src/main.rs.' if language == 'en'
+                 else '코드를 검토하고 src/main.rs를 수정해줘.', 7, 'Glaceon', True),
+            ]
+            for index, (draft, form, appearance, writing) in enumerate(predictions):
+                journey.preview(draft, appearance, 'Implement' if writing else 'Plan', 'intent-' + str(index))
+                answer = 'PREDICTED_INTENT_' + str(index)
+                before = journey.begin(draft, [files.response_plan(peer, text=answer)], writing=writing)
+                journey.settled(answer, before + 1)
+                journey.assert_mode(form, True)
+            result['cases'].append('quoted source and ambiguous drafts kept their policy; mixed review-plus-fix predicted appearance separately from the actual dispatched writing capability')
             request = ('Create a new Python file generated/automatic.py with the requested code.' if language == 'en'
                        else '요청한 코드로 generated/automatic.py 파이썬 파일을 생성해줘.')
             answer = 'AUTOMATIC_FILE_CREATED'
+            journey.preview(request, 'Flareon', 'Implement', 'automatic-implementation')
             before = journey.begin(request, [
                 files.response_plan(peer, calls=[{'id': 'automatic-create', 'path': GENERATED,
                     'content': GENERATED_CONTENT}], gate=gate),
@@ -211,6 +250,7 @@ def run(binary, output, root, size, ascii_mode, language):
 
             read_request = ('Read src/base.py and list the project source files without changing anything.' if language == 'en'
                             else '아무것도 변경하지 말고 src/base.py 파일을 읽고 프로젝트 소스 파일 목록을 찾아줘.')
+            journey.preview(read_request, 'Vaporeon', 'Plan', 'readonly-source')
             answer = 'READ_ONLY_SOURCE_OBSERVED'
             before = journey.begin(read_request, [
                 files.response_plan(peer, calls=[{'id': 'readonly-list', 'name': 'eevee_list_files',
@@ -254,6 +294,7 @@ def run(binary, output, root, size, ascii_mode, language):
 
             journey.session.command('role-plan')
             journey.workspace()
+            journey.preview('Create forbidden.py', 'Flareon', 'Plan', 'explicit-plan-override')
             before = journey.begin('Create forbidden.py, but keep my explicitly selected read-only role.', [
                 files.response_plan(peer, calls=[{'id': 'forbidden-readonly', 'path': 'forbidden.py', 'content': 'must not exist\n'}]),
                 files.response_plan(peer, text='READONLY_REFUSAL_OBSERVED', number=1)], writing=False)
@@ -268,8 +309,10 @@ def run(binary, output, root, size, ascii_mode, language):
             journey.session.command('flareon')
             journey.workspace()
             journey.assert_mode(3, False)
+            journey.preview(read_request, 'Flareon', 'Plan', 'manual-appearance')
             before = journey.begin(read_request, [files.response_plan(peer, text='MANUAL_FORM_KEPT')], writing=False)
             journey.settled('MANUAL_FORM_KEPT', before + 1)
+            result['cases'].append('pre-send evolution inspection preserved exact draft/caret and emitted no HTTP; automatic, readonly, restrictive and manual predictions matched subsequent actual operations')
             journey.assert_mode(3, False)
             journey.restart('manual-restart')
             journey.assert_mode(3, False)
@@ -290,7 +333,7 @@ def run(binary, output, root, size, ascii_mode, language):
             journey.capture('evolved-automatic-mode-survived-restart')
             result['cases'].append('Eevee return re-enabled automatic routing; evolved form plus automatic mode survived a real restart')
             requests = peer.snapshot('POST')
-            assert len(requests) == 17, 'unrequested inference/classifier HTTP call'
+            assert len(requests) == 20, 'unrequested inference/classifier HTTP call'
             assert all(row['body']['model'] == model for row in requests), 'automatic routing switched the model'
             assert len(peer.snapshot('GET')) == metadata + 1, 'restart/evolution silently browsed metadata'
             result['evidence'] = {

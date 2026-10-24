@@ -649,6 +649,7 @@ pub fn render(
         match overlay {
             Overlay::Forms => forms(frame, area, app, config, &paint, artwork),
             Overlay::Help => help(frame, area, app, config, &paint),
+            Overlay::EvolutionPreview => evolution_preview(frame, area, app, config, &paint),
             Overlay::Preview => preview(frame, area, app, config, &paint),
             Overlay::Tasks => tasks(frame, area, app, config, &paint),
             Overlay::Criteria => criteria(frame, area, app, config, &paint),
@@ -1867,6 +1868,76 @@ fn help(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &P
             .wrap(Wrap { trim: false }),
         app,
         ScrollSurface::Help,
+    );
+}
+
+fn evolution_preview(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &Paint) {
+    let area = sheet(area, 78, 20);
+    frame.render_widget(Clear, area);
+    let block = panel(
+        paint.hint(Message::CoreEvolutionPreviewTitle),
+        config,
+        paint,
+        true,
+    );
+    let content = block.inner(area);
+    frame.render_widget(block, area);
+    let operation = |operation| match operation {
+        crate::providers::Operation::Plan => "Plan",
+        crate::providers::Operation::Implement => "Implement",
+        crate::providers::Operation::Review => "Review",
+    };
+    let value = if let Some(preview) = app.evolution_preview() {
+        [
+            paint.format(
+                Template::CoreEvolutionPreviewForm,
+                &[
+                    ("form", FORMS[preview.selection.form].name),
+                    (
+                        "mode",
+                        paint.hint(if preview.automatic {
+                            Message::CoreEvolutionAuto
+                        } else {
+                            Message::CoreEvolutionManual
+                        }),
+                    ),
+                ],
+            ),
+            paint.format(
+                Template::CoreEvolutionPreviewOperation,
+                &[("operation", operation(preview.selection.operation))],
+            ),
+            paint.format(
+                Template::CoreEvolutionPreviewReason,
+                &[("reason", paint.hint(preview.selection.reason))],
+            ),
+            paint.format(
+                Template::CoreEvolutionPreviewPolicy,
+                &[(
+                    "policy",
+                    preview
+                        .restriction
+                        .map(operation)
+                        .unwrap_or_else(|| paint.hint(Message::CoreEvolutionPreviewNone)),
+                )],
+            ),
+            String::new(),
+            paint.hint(Message::CoreEvolutionPreviewGuard).into(),
+            String::new(),
+            paint.hint(Message::CoreEvolutionPreviewControls).into(),
+        ]
+        .join("\n")
+    } else {
+        paint.hint(Message::CoreEvolutionPreviewStale).into()
+    };
+    scroll_text(
+        frame,
+        content,
+        Paragraph::new(value)
+            .style(paint.surface)
+            .wrap(Wrap { trim: false }),
+        app,
+        ScrollSurface::Preview,
     );
 }
 

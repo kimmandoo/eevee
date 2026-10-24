@@ -987,3 +987,18 @@ providers-planning-file-deny-button = { "[ 거부 ]" }
 providers-planning-file-allow-button = { "[ 한 번 허용 ]" }
 
 providers-planning-waiting-for-review = { "검토 대기" }
+
+providers-planning-file-delete = 파일 삭제 · 되돌릴 수 없음
+providers-planning-file-rename = 파일 이름 변경 · 덮어쓰지 않음
+providers-planning-file-destination = 대상 경로: { $path }
+providers-planning-file-syntax-newly-invalid = Rust 구문: 새 오류 발생
+providers-planning-file-syntax-pre-existing-invalid = Rust 구문: 변경 전부터 오류 있음
+providers-planning-file-syntax-invalid-to-valid = Rust 구문: 오류 → 파싱 가능
+providers-planning-file-syntax-parseable = Rust 구문: 변경 전후 파싱 가능
+providers-planning-file-syntax-created-parseable = Rust 구문: 새 파일 파싱 가능 · 이전 내용 없음
+providers-planning-file-syntax-created-invalid = Rust 구문: 새 파일 오류 · 이전 내용 없음
+providers-planning-file-syntax-unsupported = 구문: 이 언어는 검사하지 않음
+providers-planning-file-syntax-unavailable = Rust 구문: 분석 불가
+providers-planning-file-syntax-advisory = 파서 참고 정보이며 컴파일·타입 검사·검증 결과가 아닙니다.
+providers-planning-file-removed-bytes = 삭제할 원본 · { $bytes } B · 일부
+providers-planning-file-moved-bytes = 이동할 내용 · { $bytes } B · 일부

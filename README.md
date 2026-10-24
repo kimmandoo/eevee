@@ -161,6 +161,23 @@ Filename discovery accepts a project-relative directory scope before scanning. S
 
 Sprites use Kitty/Sixel when supported and fall back to text. Installers fetch verified artwork separately; source builds can use `ev --download-artwork`.
 
+## Source additions — Waves 1–2 (not yet published)
+
+`/evolution-preview` explains the current Request's predicted appearance, actual operation, automatic/manual mode and explicit policy. Inspection preserves the exact draft/caret and sends nothing; ordinary Send recomputes the decision. Appearance is never a write grant.
+
+Offline snapshots copy the **entire data directory**, including private text and any secrets present there. They are not encrypted or redacted. Stop all Eevee instances first; the source is read without migration or repair. Source and destination must be separate, and destinations must not exist:
+
+```sh
+ev snapshot create --data-dir /absolute/eevee-data --destination /absolute/new-backup --acknowledge-private-data
+ev snapshot verify --source /absolute/new-backup
+ev snapshot restore --source /absolute/new-backup --destination /absolute/new-data --acknowledge-private-data
+ev --data-dir /absolute/new-data
+```
+
+Restore validates integrity and current-reader compatibility before removing its incomplete marker. It preserves original project identities, task drafts and retained evidence, not active ownership, running work, provider sessions or approvals. It does not merge data, relocate projects or import external credentials. Interrupted/failed destinations remain visibly incomplete and cannot be opened as usable app data; the source and backup are unchanged.
+
+Controlled native/Codex file tools also support exact regular-file deletion and same-project no-overwrite rename after a preceding full-digest read and explicit review. Deletion is irreversible; neither operation promises rollback. Exact edits use 1–32 nonoverlapping literal replacements against one original full SHA-256, with one final-content approval and the existing64-KiB limit. Rust proposals show baseline/proposed parse outcomes **before writing**; this is not compilation, type checking or verification, and never repairs or reformats bytes automatically. Unsupported adapter operations are disclosed rather than delegated to an unreviewed shell.
+
 ## Providers
 
 Open **`/connect openai`** for the unified OpenAI family: account login, API key, compatible/local endpoint or an advanced CLI route. The selected method determines the transport — no silent billing, account, protocol or model fallback.

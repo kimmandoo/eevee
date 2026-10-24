@@ -52,6 +52,65 @@ fn main() -> ExitCode {
                 ExitCode::FAILURE
             }
         },
+        Ok(Command::Snapshot {
+            operation,
+            source,
+            destination,
+        }) => {
+            println!("{}", store::snapshot::DISCLOSURE);
+            println!(
+                "Operation: {operation:?}; source: {source:?}; destination (create-only): {destination:?}"
+            );
+            if operation == config::SnapshotOperation::Restore {
+                match store::snapshot::verify(&source) {
+                    Ok(manifest) => println!(
+                        "Restore review: verified snapshot format {}; original data directory {:?}; creator {:?}; platform {:?}; {} members. Fresh destination only: {destination:?}. Historical facts are not present execution authority.",
+                        manifest.format,
+                        manifest.origin,
+                        manifest.created_by,
+                        manifest.platform,
+                        manifest.members.len()
+                    ),
+                    Err(error) => {
+                        eprintln!("ev: {error}");
+                        return ExitCode::FAILURE;
+                    }
+                }
+            }
+            let result = match operation {
+                config::SnapshotOperation::Create => store::snapshot::create(
+                    &source,
+                    destination.as_deref().expect("parser requires destination"),
+                ),
+                config::SnapshotOperation::Verify => store::snapshot::verify(&source),
+                config::SnapshotOperation::Restore => store::snapshot::restore(
+                    &source,
+                    destination.as_deref().expect("parser requires destination"),
+                ),
+            };
+            match result {
+                Ok(manifest) => {
+                    println!(
+                        "Complete: {operation:?}; snapshot format {}; origin {:?}; creator {:?}; platform {:?}; {} members.",
+                        manifest.format,
+                        manifest.origin,
+                        manifest.created_by,
+                        manifest.platform,
+                        manifest.members.len()
+                    );
+                    if operation == config::SnapshotOperation::Verify {
+                        println!(
+                            "All member SHA-256 digests match. Integrity is not authenticity, reader compatibility or historical outcome verification."
+                        );
+                    }
+                    ExitCode::SUCCESS
+                }
+                Err(error) => {
+                    eprintln!("ev: {error}");
+                    ExitCode::FAILURE
+                }
+            }
+        }
         Ok(Command::Export { data_dir, output }) => {
             match store::export_readable(&data_dir, &output) {
                 Ok(()) => ExitCode::SUCCESS,

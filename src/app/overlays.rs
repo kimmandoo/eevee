@@ -122,7 +122,11 @@ impl App {
         }
         if matches!(
             overlay,
-            Overlay::Tasks | Overlay::Criteria | Overlay::Repository | Overlay::Sources
+            Overlay::Tasks
+                | Overlay::Criteria
+                | Overlay::Repository
+                | Overlay::Sources
+                | Overlay::EvolutionPreview
         ) {
             self.surface_scroll[ScrollSurface::Preview.index()] = 0;
         }
@@ -425,6 +429,7 @@ impl App {
             Some(Overlay::Help) => ScrollSurface::Help,
             Some(
                 Overlay::Preview
+                | Overlay::EvolutionPreview
                 | Overlay::Tasks
                 | Overlay::Criteria
                 | Overlay::Repository

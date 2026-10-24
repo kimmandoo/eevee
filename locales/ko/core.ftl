@@ -243,3 +243,14 @@ core-evolution-transition = { $mode } { $from } → { $to }: { $reason }{ $fresh
 core-evolution-popup-title = { "진화했어요!" }
 core-evolution-popup-continue = { "계속 입력하세요" }
 core-evolution-popup-manual-reason = { "프로젝트·대화·도구는 그대로" }
+
+core-evolution-preview-title = 다음 진화 · 로컬 미리보기
+core-evolution-preview-form = 모습: { $form } · { $mode }
+core-evolution-preview-operation = 실제 작업: { $operation }
+core-evolution-preview-reason = 이유: { $reason }
+core-evolution-preview-policy = 명시적 정책: { $policy }
+core-evolution-preview-none = 명시적 제한 없음
+core-evolution-preview-guard = 모습은 권한이 아닙니다. 파일·명령 작업은 별도 승인이 필요합니다.
+core-evolution-preview-controls = Esc 돌아가기 · 위/아래 스크롤 · 전송 시 현재 초안으로 다시 판단합니다.
+core-evolution-preview-stale = 초안·소유자·정책이 바뀌었습니다. /evolution-preview를 다시 여세요. 전송하지 않았습니다.
+core-evolution-unchanged = 모호한 요청: 현재 모습과 작업 유지

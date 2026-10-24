@@ -4,7 +4,7 @@ use super::*;
 /// A directory handle anchors POSIX operations. On Windows, deny-delete handles
 /// retain every ancestor while an operation uses its path; final files are no-follow.
 pub(super) struct SpoolDirectory {
-    root: File,
+    pub(super) root: File,
     #[cfg(windows)]
     path: PathBuf,
     #[cfg(windows)]
@@ -67,7 +67,7 @@ impl SpoolDirectory {
     #[cfg(unix)]
     pub(super) fn open_file(&self, name: &str, flags: i32) -> Result<File, String> {
         use std::os::fd::{AsRawFd, FromRawFd};
-        validate_spool_name(name)?;
+        validate_member_name(name)?;
         let name = std::ffi::CString::new(name).map_err(|error| error.to_string())?;
         // SAFETY: root is owned and live, the filename is a single validated component,
         // and the returned descriptor is adopted exactly once.
@@ -89,6 +89,13 @@ impl SpoolDirectory {
     }
 
     pub(super) fn create(&self, name: &str) -> Result<File, String> {
+        validate_spool_name(name)?;
+        self.create_member(name)
+    }
+
+    /// Private create-only publication for other app-owned storage members.
+    pub(super) fn create_member(&self, name: &str) -> Result<File, String> {
+        validate_member_name(name)?;
         #[cfg(unix)]
         {
             self.open_file(name, libc::O_RDWR | libc::O_CREAT | libc::O_EXCL)
@@ -106,7 +113,7 @@ impl SpoolDirectory {
                 CREATE_NEW, CreateFileW, FILE_FLAG_OPEN_REPARSE_POINT, FILE_GENERIC_READ,
                 FILE_GENERIC_WRITE,
             };
-            validate_spool_name(name)?;
+            validate_member_name(name)?;
             let path: Vec<u16> = self
                 .path
                 .join(name)
@@ -268,6 +275,34 @@ impl SpoolDirectory {
             Ok(())
         }
     }
+}
+
+pub(super) fn validate_member_name(name: &str) -> Result<(), String> {
+    if name.is_empty()
+        || name == "."
+        || name == ".."
+        || name.contains(['/', '\\', ':', '\0', '<', '>', '"', '|', '?', '*'])
+        || name.ends_with(['.', ' '])
+        || name.chars().any(char::is_control)
+    {
+        return Err("Storage member must be a safe single path component".into());
+    }
+    // Refuse Windows device/alternate-stream names on every platform.
+    let stem = name.split('.').next().unwrap_or("");
+    let numbered_device = stem.get(..3).is_some_and(|prefix| {
+        prefix.eq_ignore_ascii_case("COM") || prefix.eq_ignore_ascii_case("LPT")
+    }) && stem.get(3..).is_some_and(|suffix| {
+        suffix.len() == 1 && suffix.as_bytes()[0].is_ascii_digit()
+            || matches!(suffix, "¹" | "²" | "³")
+    });
+    if ["CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$", "CLOCK$"]
+        .iter()
+        .any(|reserved| stem.eq_ignore_ascii_case(reserved))
+        || numbered_device
+    {
+        return Err("Storage member uses a reserved platform filename".into());
+    }
+    Ok(())
 }
 
 pub(super) fn validate_spool_name(name: &str) -> Result<(), String> {

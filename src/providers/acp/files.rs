@@ -170,6 +170,8 @@ pub(super) fn external_file_review(tool: &Value) -> Option<crate::providers::Fil
     let (path, content, old) = diffs[0];
     Some(crate::providers::FileReview {
         path: path.into(),
+        destination: None,
+        syntax: Some(crate::providers::RustSyntaxReview::Unavailable),
         kind: if old.is_some() {
             crate::providers::FileReviewKind::Modify
         } else {

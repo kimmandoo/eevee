@@ -1,42 +1,8 @@
 # I — Additional product capabilities
 
-Planned after the verified v0.1.29 release on 2026-10-24; none of these features is claimed shipped or authorized for implementation by this roadmap update. Existing context/tool and acceptance work stays in [F](F-context-tools.md) and [H](H-provider-acceptance.md). Reuse the current executor, writer, approvals and receipt authority; [design rules](../docs/DESIGN_RULES.md) remain binding.
+GP01–GP04 completed in Waves1–2; specifications and scoped proof are in [COMPLETED.md](COMPLETED.md). The three remaining capabilities below are planned only. Reuse the current executor, writer, approvals and receipt authority; [design rules](../docs/DESIGN_RULES.md) remain binding.
 
 Verification for each task: targeted consumer-visible regressions and an actual disposable CLI/TUI journey. Reuse bounded native coverage profiles; do not multiply every case across every architecture or test internal wiring. Live model interpretation requires separate authorization.
-
-### GP01 — Complete offline data snapshot
-
-- [ ] Create and inspect a complete pre-upgrade backup without modifying its source.
-- **Priority:** 1. **Needs:** —. **Builds on:** E03, P02, T01C, TC03A.
-- **Gap:** Readable task export is not a complete database, journal and artifact backup; upgrades currently require the user to back up the whole data directory.
-- **Change:** Explicit offline snapshot command, exclusive ownership with settled writers, create-only destination and versioned manifest. Include owned database, journals, outputs, artifacts and archived tasks; inspect integrity read-only. Disclose private app-owned content and any secrets before copying.
-- **Accept:** Snapshot a task with a draft, run, receipt and artifact; verify identities and all member digests. Live owner, destination collision, links/escaping paths, changed/missing/truncated members and unknown manifest versions refuse truthfully. Cancellation or disk-full never advertises a complete backup; source bytes remain unchanged.
-- **Watch out:** Do not migrate or repair the source to make its pre-upgrade backup. No external credential-store access, cloud sync, scheduling or new encryption subsystem.
-
-### GP02 — Restore verified snapshot into a fresh data directory
-
-- [ ] Recover a complete verified backup without overwriting current work or replaying operations.
-- **Priority:** 1. **Needs:** GP01. **Builds on:** E02, E03, P02, P04B.
-- **Change:** Review origin, format, privacy and a nonexisting destination; validate before publishing a usable restored directory. Preserve identities, preferences, drafts and retained evidence. Restore neither active requests nor usable grants.
-- **Accept:** Launch against a restored snapshot and inspect the original task/draft/run/receipt/artifact with zero dispatch. Corruption, links/traversal, incompatible reader, interrupted restore and destination collision leave the backup and current data unchanged. Unknown historical outcomes remain unknown.
-- **Watch out:** No merge, in-place downgrade, project relocation, credential import or portable provider-session claim. Reuse current recovery and older-writer refusal.
-
-### GP03 — Reviewed regular-file deletion
-
-- [ ] Delete one exact regular file through the existing reviewed executor.
-- **Priority:** 1. **Needs:** —. **Builds on:** A03, C01, R02.
-- **Gap:** Current provider write operations support creation/replacement, not a first-class exact-file deletion contract.
-- **Change:** Extend native and controlled Codex operation handling with frozen source identity/content and explicit irreversible-effect review. Retain project scope, writer ownership, protected-path and exclusion policies; unsupported adapters report that limit.
-- **Accept:** Actual deny/cancel leaves bytes intact; allow removes only the reviewed file and records the actual result. Source/ancestor changes, links/reparse points, protected data and scope changes refuse before effect. Exercise both supported routes and stale-source boundaries.
-- **Watch out:** No directory/recursive deletion, shell escape, batch grant or fictional rollback. Interrupted outcomes follow the existing unknown-outcome contract.
-
-### GP04 — Reviewed same-project file rename
-
-- [ ] Move one regular file to an exact unoccupied destination after review.
-- **Priority:** 2. **Needs:** —. **Builds on:** A03, C01, R02.
-- **Change:** Freeze source bytes/identity, destination and parent identities; use existing writer ownership and consent. Preserve literal content and supported metadata. Reject unsupported case-only/cross-volume moves before any effect.
-- **Accept:** Native and controlled Codex journeys cover allow, cancel, changed source, changed ancestor and newly occupied destination. Never overwrite a destination or affect unrelated dirty files; journal actual effects and invalidate source freshness accurately.
-- **Watch out:** Independent of GP03; no directory move, import rewriting, automatic rename tracking or claimed rollback after partial/unknown effects.
 
 ### GP05 — Project search of retained task facts and evidence summaries
 

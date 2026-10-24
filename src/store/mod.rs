@@ -25,6 +25,7 @@ mod recovery;
 mod ribbons;
 mod runs;
 mod schema;
+pub mod snapshot;
 mod spool;
 mod tasks;
 #[cfg(test)]
