@@ -4,6 +4,7 @@
 
 - perf(ci): reduced repeated native runtime journeys from236 to100 with explicit shared/OS/architecture profiles, bounded two-driver concurrency and measured coverage reports while retaining all five native unit/build/install gates.
 - perf(verification): stopped detail paging at its actual end and removed duplicate optimizer idle settling without weakening consent or outcome assertions.
+- fix(verification): waited for rendered editor and pending-review ownership before selecting provider/catalog actions in concurrent native journeys.
 - fix(artifacts): bound page/search/location cursors and late responses to their exact inspected handle and view, preserved selection across new captures and rendered purge consent from its frozen identity.
 - fix(providers): kept goal-only Codex answers visible without adding empty user-history turns that blocked ordinary implementation follow-ups.
 - fix(terminal): invalidated uncovered neutral wide-character cells and shifted old glyph footprints without full-frame repainting, with the pinned Ratatui core patch and upstream license retained locally.

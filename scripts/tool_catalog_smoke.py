@@ -218,7 +218,12 @@ def run(binary, output, root, size, language):
             before = len(peer.snapshot('POST'))
             journey.write_request('Explain the actual defect file again; do not mutate it.')
             journey.session.send('\r', settle=False)
-            journey.session.command('approvals')
+            files.until(journey.session,
+                        lambda: 'Alt+A' in journey.session.display() or
+                        ('Catalog' in journey.session.display() and 'setup required' in journey.session.display()),
+                        'changed-schema submission did not expose its owned review', timeout=35)
+            if not ('Catalog' in journey.session.display() and 'setup required' in journey.session.display()):
+                journey.session.send(ESC + 'a', settle=False)
             files.until(journey.session, lambda: 'Catalog' in journey.session.display() and 'setup required' in journey.session.display(),
                         'changed selected schema was not blocked before network dispatch', timeout=35)
             assert len(peer.snapshot('POST')) == before

@@ -18,6 +18,8 @@ Native qualification remains mandatory on one exact source. Runs40040530847/4004
 
 Latest user priority: reduce excessive CI runtime before release. Use explicit coverage profiles rather than repeating all shared protocol cases on every architecture; preserve Windows/macOS rendering and native file/install boundaries, all selected failures and exact-source promotion. The planned matrix executes100 journeys instead of236, with two isolated drivers at a time. Local macOS-profile acceptance passed16 journeys in364.717s; semantic Codex paging passed four bilingual/both-size journeys. Push this CI change and record actual native before/after timing and all-five success before publication.
 
+The first optimized run40064426753 passed Check and four native targets, but Linux full coverage exposed two fixture synchronization races (nickname persistence versus rendered editor ownership; asynchronous catalog review versus chooser scope). Kept the product's stale-owner refusal and all assertions; changed only the drivers to await the actual interaction owner. Six focused concurrent journeys and Python22/four skips passed. Push that fixture repair and qualify a fresh complete run; do not reuse the failed run's partial success.
+
 
 ## Integrated repair — Windows authentication and WSL file workflow (qualification pending)
 
