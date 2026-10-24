@@ -41,6 +41,17 @@ CREATED = 'The reviewed fixture files were created.'
 REPLACED = 'The reviewed existing file was replaced.'
 DENIED = 'Denied fixture; no file was created.'
 SIGNATURE = 'Zml4dHVyZS1vcGFxdWUtc2lnbmF0dXJl'
+SIZES = (((120, 36), False), ((60, 18), True))
+
+
+def selected_variants(profile):
+    """Keep platform rendering proof on one real route; full retains every wire protocol."""
+    if profile == 'full':
+        return MATRIX
+    if profile == 'platform':
+        return tuple(variant for variant in MATRIX
+                     if variant[:2] == ('compatible', 'chat_completions'))
+    raise ValueError('unknown file coverage profile: ' + profile)
 
 
 def save(path, value):
@@ -664,6 +675,18 @@ class CodexCreationJourney(cooperation_smoke.Journey):
         until(self.session, check, reason, timeout)
 
 
+def inspect_to_bottom(session):
+    """Render each detail page once; stop only when paging no longer changes it."""
+    previous = session.display()
+    for _ in range(48):
+        session.send(ESC + '[6~')
+        current = session.display()
+        if current == previous:
+            return
+        previous = current
+    raise AssertionError('file review did not reach its final visible detail page')
+
+
 def codex_case(binary, output, size, language):
     result = {'status': 'failed', 'route': 'codex-controlled', 'language': language,
               'size': list(size), 'cases': [], 'scope': 'Actual Eevee writes, deterministic JSONL peer; not live Codex conformance'}
@@ -722,8 +745,7 @@ def codex_case(binary, output, size, language):
                 journey.session.send('\r\r')
                 assert not journey.peers('answer', marker), 'neutral inspection denied the controlled write'
                 assert not (journey.project / FIRST).parent.exists()
-            for _ in range(48):
-                journey.session.send(ESC + '[6~')
+            inspect_to_bottom(journey.session)
             journey.session.send('d')
             journey.until(lambda: file_review_pending(journey.session),
                           'controlled file decision controls')
@@ -768,8 +790,7 @@ def codex_case(binary, output, size, language):
         journey.session.send('\r')
         journey.until(lambda: normalized(FIRST) in journey.session.display(),
                       'controlled exact edit content inspection')
-        for _ in range(48):
-            journey.session.send(ESC + '[6~')
+        inspect_to_bottom(journey.session)
         journey.session.send('d')
         journey.until(lambda: file_review_pending(journey.session),
                       'controlled edit decision controls')
@@ -842,25 +863,27 @@ def main():
     parser.add_argument('--binary', required=True, type=Path)
     parser.add_argument('--output', required=True, type=Path)
     parser.add_argument('--language', default='en', choices=('en', 'ko'))
+    parser.add_argument('--profile', default='full', choices=('full', 'platform'),
+                        help='full protocol/Codex matrix or representative native platform coverage')
     args = parser.parse_args()
     binary, output = args.binary.resolve(), args.output.resolve()
     output.mkdir(parents=True, exist_ok=False)
     before = hashlib.sha256(binary.read_bytes()).hexdigest()
     report = {'status': 'failed', 'binary': str(binary), 'sha256': before,
-              'language': args.language, 'journeys': [],
+              'language': args.language, 'profile': args.profile, 'journeys': [],
               'limits': ['Synthetic protocol peers are not live model/billing conformance.',
                          'Native ChatGPT official endpoint is not redirected to a fixture.',
                          'PTY/ConPTY proof is not physical GUI/mouse certification.']}
     try:
-        for size, ascii_mode in (((120, 36), False), ((60, 18), True)):
-            for variant in MATRIX:
+        for size, ascii_mode in SIZES:
+            for variant in selected_variants(args.profile):
                 label = '{}x{}-{}-{}-{}'.format(*size, args.language, variant[0], variant[1])
                 with tempfile.TemporaryDirectory(prefix='ev-file-create-漢字-') as temporary:
                     result = native_case(binary, output / label, Path(temporary).resolve(), size,
                                          ascii_mode, args.language, variant,
                                          advanced=(size[0] == (120 if args.language == 'en' else 60)))
                 report['journeys'].append(result)
-            if os.name == 'posix':
+            if args.profile == 'full' and os.name == 'posix':
                 report['journeys'].append(codex_case(binary, output, size, args.language))
         assert hashlib.sha256(binary.read_bytes()).hexdigest() == before, 'supplied binary changed during qualification'
         report['status'] = 'passed' if all(row['status'] == 'passed' for row in report['journeys']) else 'failed'
