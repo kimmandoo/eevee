@@ -1,5 +1,19 @@
 # Troubleshooting
 
+### [2026-10-24] First-save task identity reset an already classified implementation request
+
+- **Context / Symptom:** Run40066393690's Linux compatible/Responses Korean compact journey selected Flareon but dispatched a nonwriting lease and read-only tools for `Generate three project files`. A deterministic regression reproduced frozen `Plan` input where `Implement` was required. CandidateJ also reproduced the nonwriting lease in the actual Korean compact UI with a rapid first paste/Enter (`target/first-save-before-rapid`).
+- **Root Cause:** The first durable save assigned the existing local task an ID, but its planner retained task0. Subsequent preparation treated that identity assignment as a task switch and reset the selected operation to its default.
+- **Solution:** Adopted the first durable identity in current and parked initial planner states without resetting capability, explicit Plan/Review policy or local selection. Actual task switches retain the existing reset boundary. The frozen-input regression passed for ordinary implementation and both explicit read-only policies. CandidateK passed pinned Rust1.90.0 formatting,1,555 tests/two ignored, strict Clippy, release build and actionlint. All eight rapid first-save native journeys passed across English/Korean, both sizes and both compatible protocols, with real reviewed exact-byte file creation (`target/first-save-after`).
+- **Prevention / Reference:** Persistence acknowledgment is not a new task. Do not compensate with an explicit implementation command in the fixture; ordinary first submission must retain the user's classified intent.
+
+### [2026-10-24] Artifact fixture bypassed explicit writer unlock and early failure broadened evidence scanning
+
+- **Context / Symptom:** The same run's macOS arm64 artifact reopen test failed with `Cannot acquire the writer lock ... operation would block`. The subsequent evidence uploader reported `EACCES ... /Library/Application Support/Apple/AssetCache/Data`.
+- **Root Cause:** Fixture shutdown took/dropped the file descriptor directly instead of following production's explicit unlock, allowing another test's concurrent fork to retain the open-file lock until exec. Separately, the output-directory environment was initialized after tests; early failure interpolated an empty value into `/`.
+- **Solution:** Explicitly unlocked after closing SQLite in fixture reopen/cleanup, retaining the real ten-MiB exact paging/search/reopen test. Conditioned evidence upload on a nonempty initialized output namespace; selected runtime failures still retain their complete evidence and reject qualification. No retry, serialized test suite or timeout increase was added.
+- **Prevention / Reference:** Keep fixtures consistent with `State::drop` and never append `/` to an unchecked optional artifact path. Local qualification uses pinned Rust1.90.0; README development commands now select it explicitly rather than the host's newer lint set.
+
 ### [2026-10-24] Concurrent smoke drivers selected commands before their rendered owner settled
 
 - **Context / Symptom:** Optimized run40064426753 passed Check and four native targets but the Linux full profile failed two journeys. Controlled Korean setup left literal `provider-codex` in Request instead of selecting the provider. The catalog refusal journey stayed in `/approvals` search with `The workspace changed while commands were open`.

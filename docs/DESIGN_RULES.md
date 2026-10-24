@@ -111,6 +111,7 @@ All nine forms can discover/read the current project and request exact approved 
 ### Boundaries
 
 - Eevee accepts ordinary requests without manual specialist setup. In automatic mode, the explicit send locally selects the appropriate form before ownership/preparation; ambiguous follow-ups keep the current form. Espeon designs rather than acting as a mandatory intake step. Automatic routing never overrides explicit Plan/Review or permits writing without exact consent.
+- Assigning the first durable ID to the current local task is not a task switch. Preserve its selected request capability and explicit Plan/Review policy across that save; preparation must not reset an already classified implementation request to the default read-only operation.
 - Vaporeon gathers context; Umbreon tests explanations of a failure or risk.
 - Flareon changes behavior; Leafeon improves structure or efficiency within an agreed behavioral contract.
 - Jolteon records execution, not correctness judgments. Provider-native runs may be observed without being launched by Eevee; never duplicate them to simulate control. Explicit independent Review judges evidence and never silently fixes its own findings. Ordinary review-plus-fix requests are not independent Review and still need exact consent.

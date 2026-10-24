@@ -20,6 +20,8 @@ Latest user priority: reduce excessive CI runtime before release. Use explicit c
 
 The first optimized run40064426753 passed Check and four native targets, but Linux full coverage exposed two fixture synchronization races (nickname persistence versus rendered editor ownership; asynchronous catalog review versus chooser scope). Kept the product's stale-owner refusal and all assertions; changed only the drivers to await the actual interaction owner. Six focused concurrent journeys and Python22/four skips passed. Push that fixture repair and qualify a fresh complete run; do not reuse the failed run's partial success.
 
+Run40066393690 then exposed a real first-save planner identity reset and an artifact test's direct descriptor-drop race. CandidateK preserves initial-task operation and restrictive policy, explicitly unlocks the fixture and guards empty evidence-upload namespaces. Pinned source gates passed1,555 tests/two ignored; the previous binary reproduced rapid first-send failure and K passed all eight actual English/Korean, compact/wide, compatible-protocol first-save journeys. Commit/push K and require complete new native qualification before publication.
+
 
 ## Integrated repair — Windows authentication and WSL file workflow (qualification pending)
 

@@ -56,7 +56,9 @@ impl Fixture {
 impl Drop for Fixture {
     fn drop(&mut self) {
         self.state.connection.take();
-        self.state.lock.take();
+        if let Some(lock) = self.state.lock.take() {
+            let _ = lock.unlock();
+        }
         let _ = fs::remove_dir_all(&self.root);
     }
 }
@@ -131,7 +133,7 @@ fn generic_ten_mib_tool_result_pages_searches_exact_bytes_and_survives_reopen() 
         matches!(locations,Response::Locations{slices,..} if slices.iter().any(|s|s.location.path=="src/defect.rs"&&s.location.line==42))
     );
     fixture.state.connection.take();
-    fixture.state.lock.take();
+    fixture.state.lock.take().unwrap().unlock().unwrap();
     fixture.state.open_and_load().unwrap();
     assert!(
         fixture

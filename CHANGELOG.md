@@ -7,6 +7,8 @@
 - fix(verification): waited for rendered editor and pending-review ownership before selecting provider/catalog actions in concurrent native journeys.
 - fix(artifacts): bound page/search/location cursors and late responses to their exact inspected handle and view, preserved selection across new captures and rendered purge consent from its frozen identity.
 - fix(providers): kept goal-only Codex answers visible without adding empty user-history turns that blocked ordinary implementation follow-ups.
+- fix(providers): preserved first-request capability and explicit read-only policy when the initial save assigned the current task its durable identity.
+- fix(ci): kept early-failure evidence uploads scoped and explicitly released artifact-fixture writer locks before reopening.
 - fix(terminal): invalidated uncovered neutral wide-character cells and shifted old glyph footprints without full-frame repainting, with the pinned Ratatui core patch and upstream license retained locally.
 - feat(context): implemented T01C restart-safe dispatched-request receipts with source-only purge and preserved exact local counts.
 - feat(context): implemented T02A/T02B reviewed budgeted ranking, syntax-aware ranges and honest text fallback with source-change dispatch refusal.
@@ -141,6 +143,7 @@
 - fix(verification): corrected asynchronous ConPTY capture and bounded literal input clearing without masking active work or widening final settling.
 - fix(artifacts): preserved exact purge-review identity during concurrent captures and isolated pagination and cancelled inspection responses by immutable owner and view.
 - fix(providers): allowed ordinary implementation follow-ups after goal-only Codex sessions without inventing empty user-history turns.
+- fix(providers): preserved classified implementation and explicit read-only policy across the first durable task save.
 - fix(terminal): repaired uncovered neutral and shifted wide-cell invalidation without full-frame redraws.
 - perf(ci): consolidated duplicate cross-platform runtime coverage and ran independent drivers two at a time while retaining strict same-source native qualification.
 - feat(storage)!: migrated Schema18 to Schema19 on the existing single writer; required a complete data-directory backup and refused incompatible older writers rather than supporting an in-place downgrade.
