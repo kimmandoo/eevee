@@ -987,3 +987,18 @@ providers-planning-file-deny-button = { "[ Deny ]" }
 providers-planning-file-allow-button = { "[ Allow once ]" }
 
 providers-planning-waiting-for-review = { "waiting for your review" }
+
+providers-planning-file-delete = Delete file · irreversible; no rollback
+providers-planning-file-rename = Rename file · no overwrite
+providers-planning-file-destination = Destination: { $path }
+providers-planning-file-syntax-newly-invalid = Rust syntax: newly invalid
+providers-planning-file-syntax-pre-existing-invalid = Rust syntax: already invalid before this change
+providers-planning-file-syntax-invalid-to-valid = Rust syntax: invalid → parseable
+providers-planning-file-syntax-parseable = Rust syntax: parseable before and after
+providers-planning-file-syntax-created-parseable = Rust syntax: new file parseable; no baseline
+providers-planning-file-syntax-created-invalid = Rust syntax: new file invalid; no baseline
+providers-planning-file-syntax-unsupported = Syntax: not checked for this language
+providers-planning-file-syntax-unavailable = Rust syntax: analysis unavailable
+providers-planning-file-syntax-advisory = Parser advice only; not compiled, type-checked or verified.
+providers-planning-file-removed-bytes = Removed source · { $bytes } B · excerpt
+providers-planning-file-moved-bytes = Moved contents · { $bytes } B · excerpt

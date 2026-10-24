@@ -39,6 +39,12 @@ impl State {
     }
 
     fn open_and_load_with_baseline(&mut self, startup: bool) -> Result<Project, String> {
+        if fs::symlink_metadata(self.data_dir.join(super::snapshot::INCOMPLETE)).is_ok() {
+            return Err(
+                "This data directory is an incomplete restore; it cannot be opened or migrated"
+                    .into(),
+            );
+        }
         if self.project.is_empty() {
             return Err("The canonical Unicode project identity is empty".into());
         }

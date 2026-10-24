@@ -1676,6 +1676,8 @@ mod tests {
                         description: "Exact provider scope".into(),
                         file: Some(providers::FileReview {
                             path: "src/new.rs".into(),
+                            destination: None,
+                            syntax: None,
                             kind: providers::FileReviewKind::Create,
                             directories: Vec::new(),
                             bytes: 0,

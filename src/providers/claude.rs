@@ -2356,6 +2356,8 @@ fn prompt_kind(value: &Value) -> Result<PromptKind, String> {
         };
         file = Some(super::FileReview {
             path: scope.path.clone(),
+            destination: None,
+            syntax: Some(super::RustSyntaxReview::Unavailable),
             kind: match scope.kind {
                 SdkWriteKind::Create => super::FileReviewKind::Create,
                 SdkWriteKind::Replace => super::FileReviewKind::Modify,

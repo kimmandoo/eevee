@@ -244,7 +244,7 @@ impl Stream {
                             }
                             Field::Path
                         }
-                        "new_text" | "new_string" if self.edit => {
+                        "new_string" if self.edit => {
                             if self.content_seen {
                                 self.invalid = true;
                             }

@@ -1,4 +1,4 @@
-//! Worker-owned bounded project observations and exact create/replace authority.
+//! Worker-owned bounded project observations and exact single-file mutation authority.
 //! Retained handles and stale checks are not an OS sandbox or compare-and-swap.
 //! Name admission is read-only: native IDs and known directory capabilities
 //! reject established aliases before mutation. Unknown collation never merges
@@ -25,6 +25,8 @@ mod platform;
 mod platform;
 
 mod tools;
+#[cfg(test)]
+pub(crate) use tools::Replacement;
 pub(crate) use tools::{FileTool, ToolKind, definitions};
 
 pub(crate) const TOOL_NAME: &str = "eevee_write_file";
@@ -80,12 +82,16 @@ impl NamePolicy {
 pub(crate) enum WriteKind {
     Create,
     Replace,
+    Delete,
+    Rename,
 }
 impl WriteKind {
     fn name(self) -> &'static str {
         match self {
             Self::Create => "Create",
             Self::Replace => "Replace",
+            Self::Delete => "Delete",
+            Self::Rename => "Rename",
         }
     }
 }
@@ -96,16 +102,58 @@ pub(crate) struct WriteProposal {
     pub content: String,
     pub patch: String,
     pub kind: WriteKind,
+    pub destination: Option<PathBuf>,
+    syntax: Option<SyntaxAnalysis>,
+    binding: [u8; 32],
     pub directories: Vec<PathBuf>,
 }
 impl WriteProposal {
+    fn fingerprint(&self) -> [u8; 32] {
+        let mut hash = Sha256::new();
+        hash.update([
+            self.kind as u8,
+            self.syntax
+                .as_ref()
+                .map_or(0, |analysis| analysis.review as u8 + 1),
+        ]);
+        let fields = [
+            self.path.as_os_str().as_encoded_bytes(),
+            self.destination
+                .as_ref()
+                .map_or(&[][..], |path| path.as_os_str().as_encoded_bytes()),
+            self.content.as_bytes(),
+            self.patch.as_bytes(),
+        ];
+        for field in fields.into_iter().chain(
+            self.directories
+                .iter()
+                .map(|path| path.as_os_str().as_encoded_bytes()),
+        ) {
+            hash.update((field.len() as u64).to_le_bytes());
+            hash.update(field);
+        }
+        hash.finalize().into()
+    }
+
+    fn sealed(mut self) -> Self {
+        self.binding = self.fingerprint();
+        self
+    }
+
     pub(crate) fn file_review(&self) -> super::FileReview {
         super::FileReview {
             path: self.path.to_string_lossy().into_owned(),
             kind: match self.kind {
                 WriteKind::Create => super::FileReviewKind::Create,
                 WriteKind::Replace => super::FileReviewKind::Modify,
+                WriteKind::Delete => super::FileReviewKind::Delete,
+                WriteKind::Rename => super::FileReviewKind::Rename,
             },
+            destination: self
+                .destination
+                .as_ref()
+                .map(|path| path.to_string_lossy().into_owned()),
+            syntax: self.syntax.as_ref().map(|analysis| analysis.review),
             directories: self
                 .directories
                 .iter()
@@ -117,9 +165,27 @@ impl WriteProposal {
             external: false,
         }
     }
+    pub(crate) fn preview(&self, complete: bool) -> String {
+        let content =
+            super::file_preview::display(&self.path.to_string_lossy(), &self.content, complete);
+        match self.kind {
+            WriteKind::Delete => format!(
+                "DELETE exact regular file: {}\nIrreversible removal. Content below is the reviewed ORIGINAL source, not a proposed new file.\n{content}",
+                self.path.display()
+            ),
+            WriteKind::Rename => format!(
+                "RENAME exact regular file: {} -> {}\nNever overwrite. Content below is the unchanged ORIGINAL source.\n{content}",
+                self.path.display(),
+                self.destination
+                    .as_ref()
+                    .map_or_else(String::new, |path| path.display().to_string())
+            ),
+            _ => content,
+        }
+    }
     pub(crate) fn description(&self) -> String {
         let mut description = format!(
-            "{} file\nPath: {}\n{}\nOnly this exact full UTF-8 content is allowed once. Existing baselines include dirty working bytes; preserve unrelated user changes. No provider-native write grant, commit or verification.\n",
+            "{} file\nPath: {}\n{}\nOnly this exact reviewed file operation is allowed once. Existing baselines include dirty working bytes; preserve unrelated user changes. No provider-native write grant, commit or verification.\n",
             self.kind.name(),
             self.path.display(),
             if self.directories.is_empty() {
@@ -135,6 +201,17 @@ impl WriteProposal {
                 )
             }
         );
+        match self.kind {
+            WriteKind::Delete => description.push_str("IRREVERSIBLE: remove only this exact regular file. No recycle bin, recursive deletion or rollback is provided.\n"),
+            WriteKind::Rename => {
+                description.push_str(&format!("Destination: {}\nMove only this exact regular file without overwriting any destination. Literal content and supported file metadata are retained; no import rewriting or rollback.\n", self.destination.as_ref().map_or_else(String::new, |path| path.display().to_string())));
+            }
+            _ => {}
+        }
+        if let Some(analysis) = &self.syntax {
+            description.push_str(analysis.description());
+            description.push_str("Local parsing is advisory only: not compiled, type-correct or verified. No automatic repair or subprocess is started.\n");
+        }
         if !self.directories.is_empty() {
             description.push_str("Only still-absent approved parents are created; unchanged parents created by this request for selected siblings may be reused.\n");
         }
@@ -148,13 +225,16 @@ pub(crate) struct WriteResult {
     pub message: String,
     pub kind: WriteKind,
     pub path: PathBuf,
+    pub destination: Option<PathBuf>,
     pub directories: Vec<PathBuf>,
-    pub source_sha256: [u8; 32],
+    pub source_sha256: Option<[u8; 32]>,
+    pub destination_sha256: Option<[u8; 32]>,
+    pub original_source_sha256: Option<[u8; 32]>,
 }
 
 impl WriteResult {
     pub(crate) fn receipt(&self) -> String {
-        json!({"status":"success","path":self.path,"source_sha256":self.source_sha256}).to_string()
+        json!({"status":"success","effect":"applied","kind":format!("{:?}",self.kind),"path":self.path,"destination":self.destination,"source_state":if matches!(self.kind,WriteKind::Delete | WriteKind::Rename) {"absent"} else {"present"},"original_source_sha256":self.original_source_sha256,"source_sha256":self.source_sha256,"destination_sha256":self.destination_sha256,"message":self.message}).to_string()
     }
 }
 
@@ -258,6 +338,28 @@ impl Target {
     }
 }
 
+impl Target {
+    fn mutation_patch(&self, kind: WriteKind, destination: Option<&Path>, content: &str) -> String {
+        match kind {
+            WriteKind::Delete => format!(
+                "DELETE exact regular file {}; baseline sha256={}; irreversible, no recycle bin.\n{}",
+                self.path.display(),
+                self.baseline
+                    .as_ref()
+                    .map_or("", |baseline| baseline.digest.as_str()),
+                self.patch(""),
+            ),
+            WriteKind::Rename => format!(
+                "RENAME exact regular file {} -> {}; destination must remain absent; no overwrite. Content below is unchanged.\n{}",
+                self.path.display(),
+                destination.map_or_else(String::new, |path| path.display().to_string()),
+                self.patch(content),
+            ),
+            _ => self.patch(content),
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct WriteSet {
     source_root: PathBuf,
@@ -295,6 +397,60 @@ fn review_fits(proposal: &WriteProposal) -> bool {
     description.len() <= REVIEW_BYTES && description.lines().count() <= REVIEW_LINES
 }
 
+#[derive(Clone, Debug, PartialEq)]
+struct SyntaxAnalysis {
+    review: super::RustSyntaxReview,
+}
+impl SyntaxAnalysis {
+    fn prepare(path: &Path, baseline: Option<&str>, content: &str) -> Self {
+        use super::RustSyntaxReview::*;
+        let review = if path.extension().is_none_or(|extension| extension != "rs") {
+            Unsupported
+        } else {
+            std::panic::catch_unwind(|| {
+                let proposed = syn::parse_file(content).is_ok();
+                match baseline.map(|text| syn::parse_file(text).is_ok()) {
+                    Some(true) if proposed => Parseable,
+                    Some(true) => NewlyInvalid,
+                    Some(false) if proposed => InvalidToValid,
+                    Some(false) => PreExistingInvalid,
+                    None if proposed => CreatedParseable,
+                    None => CreatedInvalid,
+                }
+            })
+            .unwrap_or(Unavailable)
+        };
+        Self { review }
+    }
+    fn description(&self) -> &'static str {
+        use super::RustSyntaxReview::*;
+        match self.review {
+            NewlyInvalid => {
+                "Rust syntax: NEWLY INVALID — baseline parses; proposed bytes fail parsing.\n"
+            }
+            PreExistingInvalid => {
+                "Rust syntax: pre-existing invalid — baseline and proposed bytes fail parsing.\n"
+            }
+            InvalidToValid => {
+                "Rust syntax: invalid-to-valid — baseline fails parsing; proposed bytes parse.\n"
+            }
+            Parseable => {
+                "Rust syntax: baseline and proposed bytes parse. Advisory only: not compiled, type-correct or verified.\n"
+            }
+            CreatedParseable => {
+                "Rust syntax: proposed new file parses; no baseline exists. Advisory only: not compiled, type-correct or verified.\n"
+            }
+            CreatedInvalid => "Rust syntax: proposed new file fails parsing; no baseline exists.\n",
+            Unsupported => {
+                "Syntax analysis: unsupported file type; no syntax, compilation or verification claim.\n"
+            }
+            Unavailable => {
+                "Rust syntax analysis unavailable; no syntax, compilation or verification claim.\n"
+            }
+        }
+    }
+}
+
 fn safe_text(text: &str) -> bool {
     !text.as_bytes().iter().enumerate().any(|(index, byte)| {
         *byte == b'\r' && text.as_bytes().get(index + 1) != Some(&b'\n')
@@ -324,6 +480,12 @@ pub(crate) fn semantic_proposal_refusal(message: &str) -> bool {
             | "Edit requires a preceding successful read of this exact path"
             | "Edit requires an unchanged admitted file at most 64 KiB; read again before proposing a write"
             | "Edit sha256 does not match the preceding source read; read again"
+            | "Edit requires 1–32 literal replacements"
+            | "Edit old_text must be nonempty and replacement text at most 64 KiB"
+            | "Edit replacement spans overlap in the original source"
+            | "Same-path and case-only rename are unsupported; no move occurred"
+            | "Rename destination must be absent; existing entries are never overwritten"
+            | "Cross-volume rename is unsupported; no move occurred"
             | "Edit old_text must be nonempty and match exactly once; read and select an unambiguous literal span"
             | "Edit text exceeds the 64 KiB file bound"
             | "File tool arguments must exactly match the advertised schema"
@@ -853,17 +1015,130 @@ impl WriteSet {
         }
         let kind = target.kind();
         let patch = target.patch(&content);
+        let syntax = Some(SyntaxAnalysis::prepare(
+            &path,
+            target
+                .baseline
+                .as_ref()
+                .map(|baseline| baseline.text.as_str()),
+            &content,
+        ));
         let proposal = WriteProposal {
             path,
             content,
             patch,
             kind,
+            destination: None,
+            syntax,
+            binding: [0; 32],
             directories: target.missing_parents.clone(),
-        };
+        }
+        .sealed();
         if !review_fits(&proposal) {
             return Err(
                 "Exact content/path/parent review exceeds 256 KiB or 32768 lines; reduce the change".into(),
             );
+        }
+        Ok(proposal)
+    }
+
+    fn mutation_baseline(&self, path: &Path, digest: &str) -> Result<&Baseline, String> {
+        let observed = self
+            .observed
+            .get(path)
+            .ok_or("Edit requires a preceding successful read of this exact path")?;
+        let baseline = self.targets.iter().find(|target| target.path == path)
+            .and_then(|target| target.baseline.as_ref())
+            .filter(|baseline| observed.matches(baseline))
+            .ok_or("Edit requires an unchanged admitted file at most 64 KiB; read again before proposing a write")?;
+        if baseline.digest != digest {
+            return Err("Edit sha256 does not match the preceding source read; read again".into());
+        }
+        Ok(baseline)
+    }
+
+    fn propose_mutation(
+        &self,
+        path: PathBuf,
+        digest: &str,
+        destination: Option<PathBuf>,
+    ) -> Result<WriteProposal, String> {
+        self.verify()?;
+        self.require_writing()?;
+        let baseline = self.mutation_baseline(&path, digest)?;
+        let target = self
+            .targets
+            .iter()
+            .find(|target| target.path == path)
+            .ok_or("Only an exact reviewed selected path may be written")?;
+        let (kind, directories, syntax) = if let Some(destination) = &destination {
+            if path
+                .to_string_lossy()
+                .chars()
+                .flat_map(char::to_lowercase)
+                .eq(destination
+                    .to_string_lossy()
+                    .chars()
+                    .flat_map(char::to_lowercase))
+            {
+                return Err(
+                    "Same-path and case-only rename are unsupported; no move occurred".into(),
+                );
+            }
+            let destination_target = self
+                .targets
+                .iter()
+                .find(|target| target.path == *destination)
+                .ok_or("Only an exact reviewed selected path may be written")?;
+            if destination_target.baseline.is_some() {
+                return Err(
+                    "Rename destination must be absent; existing entries are never overwritten"
+                        .into(),
+                );
+            }
+            let source_parent = self
+                .directories
+                .get(path.parent().unwrap_or(Path::new("")))
+                .ok_or("Selected parent baseline missing")?;
+            let mut parent = destination.parent().unwrap_or(Path::new(""));
+            let destination_parent = loop {
+                if let Some(directory) = self.directories.get(parent) {
+                    break directory;
+                }
+                parent = parent
+                    .parent()
+                    .ok_or("Destination parent baseline missing")?;
+            };
+            if !source_parent.same_volume(destination_parent) {
+                return Err("Cross-volume rename is unsupported; no move occurred".into());
+            }
+            let syntax = Some(SyntaxAnalysis::prepare(
+                destination,
+                (path.extension().is_some_and(|extension| extension == "rs"))
+                    .then_some(baseline.text.as_str()),
+                &baseline.text,
+            ));
+            (
+                WriteKind::Rename,
+                destination_target.missing_parents.clone(),
+                syntax,
+            )
+        } else {
+            (WriteKind::Delete, Vec::new(), None)
+        };
+        let proposal = WriteProposal {
+            patch: target.mutation_patch(kind, destination.as_deref(), &baseline.text),
+            content: baseline.text.clone(),
+            path,
+            kind,
+            destination,
+            syntax,
+            directories,
+            binding: [0; 32],
+        }
+        .sealed();
+        if !review_fits(&proposal) {
+            return Err("Exact content/path/parent review exceeds 256 KiB or 32768 lines; reduce the change".into());
         }
         Ok(proposal)
     }
@@ -876,25 +1151,55 @@ impl WriteSet {
             .iter()
             .find(|target| target.path == proposal.path)
             .ok_or("Only an exact reviewed selected path may be written".to_owned())?;
+        let expected_directories = if proposal.kind == WriteKind::Rename {
+            proposal
+                .destination
+                .as_ref()
+                .and_then(|path| self.targets.iter().find(|target| target.path == *path))
+                .filter(|target| target.baseline.is_none())
+                .map(|target| target.missing_parents.as_slice())
+        } else if proposal.kind == WriteKind::Delete {
+            Some([].as_slice())
+        } else {
+            Some(target.missing_parents.as_slice())
+        };
+        let mutation = matches!(proposal.kind, WriteKind::Delete | WriteKind::Rename);
         if proposal.content.len() > MAX_BYTES
             || !safe_text(&proposal.content)
-            || proposal.kind != target.kind()
-            || proposal.directories != target.missing_parents
-            || proposal.patch != target.patch(&proposal.content)
+            || (!mutation && proposal.kind != target.kind())
+            || (mutation
+                && target
+                    .baseline
+                    .as_ref()
+                    .is_none_or(|baseline| baseline.text != proposal.content))
+            || (proposal.kind == WriteKind::Rename) != proposal.destination.is_some()
+            || expected_directories != Some(proposal.directories.as_slice())
+            || proposal.patch
+                != target.mutation_patch(
+                    proposal.kind,
+                    proposal.destination.as_deref(),
+                    &proposal.content,
+                )
+            || proposal.binding != proposal.fingerprint()
             || !review_fits(proposal)
         {
-            return Err("Exact reviewed create/replace proposal changed; no write"
+            return Err("Exact reviewed file proposal changed; no write"
                 .to_owned()
                 .into());
         }
+        let original_source_sha256 = target.baseline.as_ref().map(|baseline| baseline.hash);
         let mut created = Vec::new();
         let outcome = self.apply_exact(proposal, &mut created);
         match outcome {
             Ok(source_sha256) => Ok(WriteResult {
                 message: format!(
-                    "Applied reviewed {} to {}{}; inspect the working diff. No local check, commit or verification occurred.",
+                    "Applied reviewed {} to {}{}{}; inspect the working diff. No compilation, type check, commit or verification occurred.",
                     proposal.kind.name(),
                     proposal.path.display(),
+                    proposal
+                        .destination
+                        .as_ref()
+                        .map_or_else(String::new, |path| format!(" -> {}", path.display())),
                     if created.is_empty() {
                         String::new()
                     } else {
@@ -910,10 +1215,24 @@ impl WriteSet {
                 ),
                 kind: proposal.kind,
                 path: proposal.path.clone(),
+                destination: proposal.destination.clone(),
                 directories: created,
-                source_sha256,
+                source_sha256: matches!(proposal.kind, WriteKind::Create | WriteKind::Replace)
+                    .then_some(source_sha256),
+                destination_sha256: (proposal.kind == WriteKind::Rename).then_some(source_sha256),
+                original_source_sha256,
             }),
             Err(mut failure) => {
+                failure.message = format!(
+                    "{} {}{}: {}",
+                    proposal.kind.name(),
+                    proposal.path.display(),
+                    proposal
+                        .destination
+                        .as_ref()
+                        .map_or_else(String::new, |path| format!(" -> {}", path.display())),
+                    failure.message
+                );
                 if !created.is_empty() {
                     failure.uncertain = true;
                     failure.message.push_str(
@@ -968,6 +1287,9 @@ impl WriteSet {
             .path
             .file_name()
             .ok_or("Selected file name missing".to_owned())?;
+        if matches!(proposal.kind, WriteKind::Delete | WriteKind::Rename) {
+            return self.apply_mutation(proposal);
+        }
         let mut written = if proposal.kind == WriteKind::Create {
             directory.publish(name, proposal.content.as_bytes())?
         } else {
@@ -1023,6 +1345,90 @@ impl WriteSet {
         // Other selected targets may have changed after this exact leaf write.
         // They make future proposals stale, not this established local outcome.
         Ok(source_sha256)
+    }
+
+    fn apply_mutation(&mut self, proposal: &WriteProposal) -> Result<[u8; 32], WriteFailure> {
+        let path = &proposal.path;
+        let directory = self
+            .directories
+            .get(path.parent().unwrap_or(Path::new("")))
+            .ok_or("Selected parent baseline missing".to_owned())?;
+        let name = path
+            .file_name()
+            .ok_or("Selected file name missing".to_owned())?;
+        let expected = self
+            .targets
+            .iter()
+            .find(|target| target.path == *path)
+            .and_then(|target| target.baseline.as_ref())
+            .ok_or("Selected mutation baseline missing".to_owned())?;
+        let mut file = directory.mutation_file(name)?;
+        if read_baseline(&mut file)? != *expected {
+            return Err(
+                "Mutation source identity or working bytes changed; no effect"
+                    .to_owned()
+                    .into(),
+            );
+        }
+        self.verify()?;
+        let result = if let Some(destination) = &proposal.destination {
+            let parent = self
+                .directories
+                .get(destination.parent().unwrap_or(Path::new("")))
+                .ok_or("Destination parent baseline missing".to_owned())?;
+            if !directory.same_volume(parent) {
+                return Err("Cross-volume rename is unsupported; no move occurred"
+                    .to_owned()
+                    .into());
+            }
+            let destination_name = destination
+                .file_name()
+                .ok_or("Destination filename missing".to_owned())?;
+            directory.rename(name, &file, parent, destination_name)
+        } else {
+            directory.remove(name, &file)
+        };
+        result?;
+        // Windows deletion completes only when this DELETE handle closes.
+        drop(file);
+        #[cfg(test)]
+        tests::after_leaf_write();
+        let actual = (|| -> Result<Option<Baseline>, String> {
+            directory.verify()?;
+            if !directory.absent(name)? {
+                return Err("Mutation source name is not absent".into());
+            }
+            if let Some(destination) = &proposal.destination {
+                let parent = self.directories.get(destination.parent().unwrap_or(Path::new("")))
+                    .ok_or("Destination parent baseline missing")?;
+                parent.verify()?;
+                let actual = read_baseline(&mut parent.open_file(destination.file_name().ok_or("Destination filename missing")?, false)?)?;
+                if actual.text != proposal.content || !platform::same_file(&expected.stamp, &actual.stamp) {
+                    return Err("Renamed destination identity or bytes differ from the reviewed source".into());
+                }
+                Ok(Some(actual))
+            } else { Ok(None) }
+        })().map_err(|message| WriteFailure {
+            message: format!("File mutation occurred but its resulting scope could not be established; inspect local changes, no rollback claimed: {message}"),
+            uncertain: true,
+        })?;
+        let hash = actual
+            .as_ref()
+            .map_or(expected.hash, |baseline| baseline.hash);
+        for target in &mut self.targets {
+            if target.path == *path {
+                target.baseline = None;
+                target.missing_parents.clear();
+            } else if proposal.destination.as_ref() == Some(&target.path) {
+                target.baseline = actual.clone();
+                target.missing_parents.clear();
+            }
+        }
+        self.observed.remove(path);
+        if let Some(destination) = &proposal.destination {
+            self.observed.remove(destination);
+        }
+        Ok(hash)
     }
 }
 

@@ -1,8 +1,74 @@
 # Completed work
 
-Updated on 2026-10-24 through the source 0.1.29 implementation milestone; publication is qualified separately in the checkpoint. This is historical completion evidence, not an execution queue. Active work and its priority live in [task.md](../task.md); the current contract is [DESIGN_RULES.md](../docs/DESIGN_RULES.md). Release/runtime evidence remains in [WORK_CHECKPOINT.md](../docs/WORK_CHECKPOINT.md) and [CHANGELOG.md](../CHANGELOG.md).
+Updated on 2026-10-24 through accepted Wave1–2 source additions; v0.1.29 remains the public release and publication is qualified separately in the checkpoint. This is historical completion evidence, not an execution queue. Active work and priority live in [task.md](../task.md); the current contract is [DESIGN_RULES.md](../docs/DESIGN_RULES.md). Release/runtime evidence remains in [WORK_CHECKPOINT.md](../docs/WORK_CHECKPOINT.md) and [CHANGELOG.md](../CHANGELOG.md).
 
 The specifications below retain their original acceptance notes and wording. Old schema numbers, limits, priorities, proposed ordering and release statements are historical; they do not override the current contract. Scoped completion does not establish authenticated conformance for every provider. T05 was dropped, not completed.
+
+## Waves 1–2 — accepted source additions (unpublished)
+
+GP01, GP02, EV19, GP03, GP04, RX01 and RX02 passed implementation and actual runtime acceptance on 2026-10-24. Pinned Rust1.90.0 gates passed1,588 tests/two ignored, formatting, strict Clippy and release build. Actual snapshot/restore preserved task/draft/run/receipt/artifact identities and retained bytes without replay; corrupt/interrupted copies refused. Four final English/Korean compact/wide evolution journeys proved quoted-source, ambiguous, mixed-intent, restrictive-policy and manual-appearance previews against actual dispatch. Eight native/controlled Codex mutation journeys proved exact delete/rename/multi-hunk effects, denial/cancellation, source/ancestor/destination races and advisory Rust parsing. Evidence: `target/wave12-source-verification.json`, `target/wave12-mutation-verification.json`, `target/wave12-snapshot-final`, `target/wave12-evolution-{en,ko}-final`. These are local macOS/loopback observations, not a new public release, live model conformance or Windows runtime qualification.
+
+### GP01 — Complete offline data snapshot
+
+- [x] Create and inspect a complete pre-upgrade backup without modifying its source.
+- **Priority:** 1. **Needs:** —. **Builds on:** E03, P02, T01C, TC03A.
+- **Gap:** Readable task export is not a complete database, journal and artifact backup; upgrades currently require the user to back up the whole data directory.
+- **Change:** Explicit offline snapshot command, exclusive ownership with settled writers, create-only destination and versioned manifest. Include owned database, journals, outputs, artifacts and archived tasks; inspect integrity read-only. Disclose private app-owned content and any secrets before copying.
+- **Accept:** Snapshot a task with a draft, run, receipt and artifact; verify identities and all member digests. Live owner, destination collision, links/escaping paths, changed/missing/truncated members and unknown manifest versions refuse truthfully. Cancellation or disk-full never advertises a complete backup; source bytes remain unchanged.
+- **Watch out:** Do not migrate or repair the source to make its pre-upgrade backup. No external credential-store access, cloud sync, scheduling or new encryption subsystem.
+
+### GP02 — Restore verified snapshot into a fresh data directory
+
+- [x] Recover a complete verified backup without overwriting current work or replaying operations.
+- **Priority:** 1. **Needs:** GP01. **Builds on:** E02, E03, P02, P04B.
+- **Change:** Review origin, format, privacy and a nonexisting destination; validate before publishing a usable restored directory. Preserve identities, preferences, drafts and retained evidence. Restore neither active requests nor usable grants.
+- **Accept:** Launch against a restored snapshot and inspect the original task/draft/run/receipt/artifact with zero dispatch. Corruption, links/traversal, incompatible reader, interrupted restore and destination collision leave the backup and current data unchanged. Unknown historical outcomes remain unknown.
+- **Watch out:** No merge, in-place downgrade, project relocation, credential import or portable provider-session claim. Reuse current recovery and older-writer refusal.
+
+### GP03 — Reviewed regular-file deletion
+
+- [x] Delete one exact regular file through the existing reviewed executor.
+- **Priority:** 1. **Needs:** —. **Builds on:** A03, C01, R02.
+- **Gap:** Current provider write operations support creation/replacement, not a first-class exact-file deletion contract.
+- **Change:** Extend native and controlled Codex operation handling with frozen source identity/content and explicit irreversible-effect review. Retain project scope, writer ownership, protected-path and exclusion policies; unsupported adapters report that limit.
+- **Accept:** Actual deny/cancel leaves bytes intact; allow removes only the reviewed file and records the actual result. Source/ancestor changes, links/reparse points, protected data and scope changes refuse before effect. Exercise both supported routes and stale-source boundaries.
+- **Watch out:** No directory/recursive deletion, shell escape, batch grant or fictional rollback. Interrupted outcomes follow the existing unknown-outcome contract.
+
+### GP04 — Reviewed same-project file rename
+
+- [x] Move one regular file to an exact unoccupied destination after review.
+- **Priority:** 2. **Needs:** —. **Builds on:** A03, C01, R02.
+- **Change:** Freeze source bytes/identity, destination and parent identities; use existing writer ownership and consent. Preserve literal content and supported metadata. Reject unsupported case-only/cross-volume moves before any effect.
+- **Accept:** Native and controlled Codex journeys cover allow, cancel, changed source, changed ancestor and newly occupied destination. Never overwrite a destination or affect unrelated dirty files; journal actual effects and invalidate source freshness accurately.
+- **Watch out:** Independent of GP03; no directory move, import rewriting, automatic rename tracking or claimed rollback after partial/unknown effects.
+
+### EV19 — Explain the next evolution before send
+
+- [x] Inspect why the current request would select a form and what operation it would actually permit.
+- **Priority:** 1. **Needs:** —. **Builds on:** EV18, EV01A, EV01B, EV02, PK03.
+- **Change:** Reuse the submission classifier and effective-policy resolver. Distinguish predicted appearance from operation, manual/automatic selection, restrictive override and ambiguous keep-current behavior. Bind the transient preview to the draft revision; submit recomputes it.
+- **Accept:** Mixed intent, quoted source, ambiguity and explicit read-only requests produce a preview consistent with actual explicitly submitted loopback receipts. Editing invalidates it; inspection preserves draft/caret and performs no selection change, dispatch or approval answer. Exercise English/Korean and both sizes.
+- **Watch out:** No model classifier, confidence/ability score, custom routing language, automatic rule change or additional animation.
+
+### RX01 — Snapshot-bound multi-hunk editing of one file
+
+- [x] Apply several exact replacements with one final-file review instead of repeated reads and writes.
+- **Priority:** 2. **Needs:** —. **Builds on:** A03, C01, R02.
+- **Reference:** [Original-snapshot hunk coordinates](https://github.com/can1357/oh-my-pi/blob/f979f4639777858de28e6ecb99d577443abe0b7b/docs/tools/edit.md#L47-L59) and [prepare/conflict handling](https://github.com/can1357/oh-my-pi/blob/f979f4639777858de28e6ecb99d577443abe0b7b/docs/tools/edit.md#L145-L154).
+- **Eevee gap:** `src/providers/writes/tools.rs` accepts one `old_text`/`new_text` replacement against a full-file digest. This is a richer single-file edit representation, not TC02's execution plan or a multi-file transaction.
+- **Change:** Extend the existing edit operation with at most32 literal replacements bound to one original full SHA-256. Resolve all spans against that baseline, reject overlap/ambiguity and construct one final proposal through the existing writer and consent. Retain the64-KiB final-file limit and actual adapter capability disclosure.
+- **Accept:** Two separated edits land after one complete review with unrelated CRLF/Unicode bytes unchanged. A replacement's output cannot become another replacement's input. Empty/ambiguous anchors, overlap, oversized output, stale source/ancestor and cancellation cause no write. Exercise supported native and controlled-host routes with exact final bytes.
+- **Watch out:** No short normalized tags, fuzzy stale recovery, last-edit-wins overlap, registers, automatic dialect selection or batch grants. GP03/GP04 still own deletion/rename.
+
+### RX02 — Pre-write Rust syntax-regression disclosure
+
+- [x] See an introduced Rust parse failure before approving a file mutation.
+- **Priority:** 2. **Needs:** —. **Builds on:** A03, T02B.
+- **Reference:** [Edit syntax warnings and repair behavior](https://github.com/can1357/oh-my-pi/blob/f979f4639777858de28e6ecb99d577443abe0b7b/docs/tools/edit.md#L139-L143). Adapt detection, not its post-write warning or automatic repair semantics.
+- **Eevee gap:** `src/workspace/context/symbols.rs` already uses a Rust parser for context; `src/providers/writes.rs` proposal preparation does not compare baseline/proposed parse outcomes.
+- **Change:** Parse bounded frozen `.rs` baseline/proposal bytes locally off the input/render path; place the result in the existing file review. Distinguish newly invalid, pre-existing invalid, invalid-to-valid, parseable and unavailable/unsupported analysis. Creation has no fictional baseline. This is advisory disclosure, not an extra approval queue.
+- **Accept:** A missing delimiter is visible before any write, including compact English/Korean review. Parseable means neither compiled nor type-correct nor verified. Changed proposal bytes invalidate the analysis; changed disk identity retains stale-write refusal. Cancel starts no subprocess, formatter, repair or model call and changes no file.
+- **Watch out:** Never alter reviewed bytes automatically, run a background compiler or treat a parser result as a passing check. D01 retains verification planning.
 
 ## Reviewed context and tool workflows — source 0.1.29
 

@@ -4044,6 +4044,8 @@ fn file_review_state() -> State {
                 description: "Exact full content".into(),
                 file: Some(crate::providers::FileReview {
                     path: "src/새.py".into(),
+                    destination: None,
+                    syntax: None,
                     kind: crate::providers::FileReviewKind::Create,
                     directories: vec!["src".into()],
                     bytes: 12,

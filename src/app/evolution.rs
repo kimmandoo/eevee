@@ -17,11 +17,25 @@ pub struct Transition {
     pub fresh: bool,
 }
 
+/// A local prediction, not a prepared request or an authority-bearing receipt.
+pub struct Preview {
+    pub selection: Selection,
+    pub automatic: bool,
+    pub restriction: Option<Operation>,
+    input: String,
+    task: i64,
+    partner: i64,
+    form: usize,
+    operation: Operation,
+    completed_plan: bool,
+}
+
 #[derive(Default)]
 pub struct State {
     pub transition: Option<Transition>,
     pub popup_shown: bool,
     pub(super) motion: Option<super::evolution_motion::Motion>,
+    preview: Option<Preview>,
 }
 
 struct Rule {
@@ -690,9 +704,9 @@ impl App {
             })
     }
 
-    /// Called only after ordinary Submit's owner/safety guards, before save.
-    pub(super) fn evolve_request(&mut self) -> bool {
-        let Some(mut choice) = classify(&self.input).or_else(|| {
+    /// Shared by inspection and ordinary Submit; does not mutate or prepare work.
+    fn request_evolution(&self) -> Option<Selection> {
+        let mut choice = classify(&self.input).or_else(|| {
             (self.planning.operation == Operation::Plan
                 && proceed_with_plan(&self.input)
                 && classify(&self.planning.submitted_request)
@@ -703,9 +717,7 @@ impl App {
                 operation: Operation::Implement,
                 reason: Message::CoreEvolutionImplementation,
             })
-        }) else {
-            return false;
-        };
+        })?;
         if !self.lead.auto_form {
             // Pin appearance, never the tools needed for the current request.
             choice.form = self.form();
@@ -720,6 +732,52 @@ impl App {
             choice.operation = Operation::Plan;
             choice.reason = Message::CoreEvolutionReadonly;
         }
+        Some(choice)
+    }
+
+    pub(super) fn open_evolution_preview(&mut self) {
+        if !self.composer_is_request() {
+            self.notice =
+                "Open the Request composer to inspect its next evolution; nothing sent.".into();
+            return;
+        }
+        let selection = self.request_evolution().unwrap_or(Selection {
+            form: self.form(),
+            operation: self.planning.operation,
+            reason: Message::CoreEvolutionUnchanged,
+        });
+        self.evolution.preview = Some(Preview {
+            selection,
+            automatic: self.lead.auto_form,
+            restriction: self.planning.explicit_operation(),
+            input: self.input.clone(),
+            task: self.task_id,
+            partner: self.lead.id,
+            form: self.form(),
+            operation: self.planning.operation,
+            completed_plan: self.planning.has_completed_plan(),
+        });
+        self.open_overlay(super::Overlay::EvolutionPreview);
+    }
+
+    pub fn evolution_preview(&self) -> Option<&Preview> {
+        self.evolution.preview.as_ref().filter(|preview| {
+            preview.input == self.input
+                && preview.task == self.task_id
+                && preview.partner == self.lead.id
+                && preview.form == self.form()
+                && preview.operation == self.planning.operation
+                && preview.automatic == self.lead.auto_form
+                && preview.restriction == self.planning.explicit_operation()
+                && preview.completed_plan == self.planning.has_completed_plan()
+        })
+    }
+
+    /// Called only after ordinary Submit's owner/safety guards, before save.
+    pub(super) fn evolve_request(&mut self) -> bool {
+        let Some(choice) = self.request_evolution() else {
+            return false;
+        };
         let from = self.form();
         let fresh = self.planning.prepare_automatic_operation(choice.operation);
         if from != choice.form || fresh {
@@ -753,6 +811,93 @@ mod tests {
         app.planning.reset(7);
         app.planning.preference_event(Ok(None));
         app
+    }
+
+    #[test]
+    fn prediction_preserves_draft_and_matches_submitted_appearance_and_policy() {
+        for draft in [
+            "Review the code and fix src/main.rs.",
+            "코드를 검토하고 src/main.rs를 수정해줘.",
+            "Read src/main.rs; do not change files.",
+            "\"Create src/main.rs\" is quoted text.",
+            "계속 설명해줘.",
+        ] {
+            for manual in [false, true] {
+                for restriction in [None, Some(Operation::Plan), Some(Operation::Review)] {
+                    let mut app = app();
+                    app.open_editor(store::EditorField::Request);
+                    app.lead.auto_form = !manual;
+                    app.input = draft.into();
+                    app.cursor = draft.len();
+                    if let Some(restriction) = restriction {
+                        app.planning.set_operation(restriction);
+                    }
+                    let before = (app.form(), app.planning.operation, app.cursor);
+                    app.open_evolution_preview();
+                    let predicted = app.evolution_preview().unwrap().selection;
+                    assert_eq!((app.form(), app.planning.operation, app.cursor), before);
+                    assert_eq!(app.input, draft);
+                    assert!(app.pending_request.is_none() && app.planning.pending.is_none());
+                    app.close_overlay();
+                    app.submit_request();
+                    assert_eq!(
+                        (app.form(), app.planning.operation),
+                        (predicted.form, predicted.operation),
+                        "{draft}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn prediction_invalidates_changed_draft_owner_and_policy() {
+        for change in 0..5 {
+            let mut app = app();
+            app.open_editor(store::EditorField::Request);
+            app.input = "Create src/new.rs".into();
+            app.open_evolution_preview();
+            match change {
+                0 => app.input.push('!'),
+                1 => app.task_id += 1,
+                2 => app.lead.id += 1,
+                3 => app.lead.auto_form = false,
+                _ => app.planning.set_operation(Operation::Review),
+            }
+            assert!(app.evolution_preview().is_none());
+            assert!(app.pending_request.is_none() && app.planning.pending.is_none());
+        }
+    }
+
+    #[test]
+    fn prediction_inspector_cannot_send_or_edit_the_hidden_request() {
+        let mut app = app();
+        app.open_editor(store::EditorField::Request);
+        app.input = "Create src/한글.rs".into();
+        app.cursor = app.input.len() - 3;
+        let original = (app.input.clone(), app.cursor);
+        app.open_evolution_preview();
+        let now = std::time::Instant::now();
+        app.update_at(
+            Event::Key(crossterm::event::KeyEvent::new(
+                crossterm::event::KeyCode::Enter,
+                crossterm::event::KeyModifiers::NONE,
+            )),
+            now,
+        );
+        app.update_at(Event::Paste("unrequested replacement".into()), now);
+        assert!(app.pending_request.is_none() && app.planning.pending.is_none());
+        assert_eq!((&app.input, app.cursor), (&original.0, original.1));
+        app.update_at(
+            Event::Key(crossterm::event::KeyEvent::new(
+                crossterm::event::KeyCode::Esc,
+                crossterm::event::KeyModifiers::NONE,
+            )),
+            now,
+        );
+        assert_eq!(app.overlay, None);
+        assert!(app.composer_is_request());
+        assert_eq!((&app.input, app.cursor), (&original.0, original.1));
     }
     fn planned_app() -> App {
         let mut app = app();

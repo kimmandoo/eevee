@@ -1,30 +1,10 @@
 # K — Reference-derived capabilities
 
-Requested on 2026-10-24 after v0.1.29. These six tasks adapt useful behavior from the read-only `../oh-my-pi` reference at commit `f979f4639777858de28e6ecb99d577443abe0b7b`; they are planned, not implemented. Pinned upstream links identify the inspected reference, not proof that Eevee already supports it.
+These capabilities adapt useful behavior from the read-only `../oh-my-pi` reference at commit `f979f4639777858de28e6ecb99d577443abe0b7b`. RX01/RX02 completed in Wave2 and moved to [COMPLETED.md](COMPLETED.md); the four remaining tasks below are planned only. Pinned upstream links identify the inspected reference, not proof that Eevee already supports a planned task.
 
-Existing [F](F-context-tools.md), [I](I-product-capabilities.md), [J](J-eevee-workflows.md) and [completed work](COMPLETED.md) retain their scopes. In particular, do not rebuild symbol excerpts, compaction, catalog search, artifact paging, memory, party/formation/relay, or the proposed delete/rename/search/screenshot/Git features. [Design rules](../docs/DESIGN_RULES.md) remain binding. Each implementation needs focused behavioral regressions and an actual disposable runtime journey through existing bounded CI profiles, not another full platform cross-product.
+Existing [F](F-context-tools.md), [I](I-product-capabilities.md), [J](J-eevee-workflows.md) and [completed work](COMPLETED.md) retain their scopes. Do not rebuild shipped symbol/context/catalog/artifact/party workflows or the accepted delete/rename/multi-hunk/syntax additions. Proposed search/screenshot/Git features retain their own tasks. [Design rules](../docs/DESIGN_RULES.md) remain binding; use focused behavior regressions and actual runtime proof rather than another blanket platform cross-product.
 
 Reference inspection did not copy implementation or prompts. The reference root [MIT license](https://github.com/can1357/oh-my-pi/blob/f979f4639777858de28e6ecb99d577443abe0b7b/LICENSE) requires retained notices for copied substantial portions; any later code reuse must check the actual component and dependency licenses separately.
-
-### RX01 — Snapshot-bound multi-hunk editing of one file
-
-- [ ] Apply several exact replacements with one final-file review instead of repeated reads and writes.
-- **Priority:** 2. **Needs:** —. **Builds on:** A03, C01, R02.
-- **Reference:** [Original-snapshot hunk coordinates](https://github.com/can1357/oh-my-pi/blob/f979f4639777858de28e6ecb99d577443abe0b7b/docs/tools/edit.md#L47-L59) and [prepare/conflict handling](https://github.com/can1357/oh-my-pi/blob/f979f4639777858de28e6ecb99d577443abe0b7b/docs/tools/edit.md#L145-L154).
-- **Eevee gap:** `src/providers/writes/tools.rs` accepts one `old_text`/`new_text` replacement against a full-file digest. This is a richer single-file edit representation, not TC02's execution plan or a multi-file transaction.
-- **Change:** Extend the existing edit operation with at most32 literal replacements bound to one original full SHA-256. Resolve all spans against that baseline, reject overlap/ambiguity and construct one final proposal through the existing writer and consent. Retain the64-KiB final-file limit and actual adapter capability disclosure.
-- **Accept:** Two separated edits land after one complete review with unrelated CRLF/Unicode bytes unchanged. A replacement's output cannot become another replacement's input. Empty/ambiguous anchors, overlap, oversized output, stale source/ancestor and cancellation cause no write. Exercise supported native and controlled-host routes with exact final bytes.
-- **Watch out:** No short normalized tags, fuzzy stale recovery, last-edit-wins overlap, registers, automatic dialect selection or batch grants. GP03/GP04 still own deletion/rename.
-
-### RX02 — Pre-write Rust syntax-regression disclosure
-
-- [ ] See an introduced Rust parse failure before approving a file mutation.
-- **Priority:** 2. **Needs:** —. **Builds on:** A03, T02B.
-- **Reference:** [Edit syntax warnings and repair behavior](https://github.com/can1357/oh-my-pi/blob/f979f4639777858de28e6ecb99d577443abe0b7b/docs/tools/edit.md#L139-L143). Adapt detection, not its post-write warning or automatic repair semantics.
-- **Eevee gap:** `src/workspace/context/symbols.rs` already uses a Rust parser for context; `src/providers/writes.rs` proposal preparation does not compare baseline/proposed parse outcomes.
-- **Change:** Parse bounded frozen `.rs` baseline/proposal bytes locally off the input/render path; place the result in the existing file review. Distinguish newly invalid, pre-existing invalid, invalid-to-valid, parseable and unavailable/unsupported analysis. Creation has no fictional baseline. This is advisory disclosure, not an extra approval queue.
-- **Accept:** A missing delimiter is visible before any write, including compact English/Korean review. Parseable means neither compiled nor type-correct nor verified. Changed proposal bytes invalidate the analysis; changed disk identity retains stale-write refusal. Cancel starts no subprocess, formatter, repair or model call and changes no file.
-- **Watch out:** Never alter reviewed bytes automatically, run a background compiler or treat a parser result as a passing check. D01 retains verification planning.
 
 ### RX03 — Bounded Rust structural source search
 

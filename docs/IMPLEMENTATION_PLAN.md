@@ -1,6 +1,6 @@
 # Eevee Implementation Plan
 
-Updated: 2026-10-24. v0.1.29 remains the verified public release. The user authorized implementing Waves1–2: GP01, GP02, EV19, GP03, GP04, RX01 and RX02. The37-task backlog is fully assigned in [wave plan](WAVES.md); later waves remain planning only. No paid/live calls or publication is included in this implementation authorization.
+Updated: 2026-10-24. v0.1.29 remains the verified public release. All seven authorized Wave1–2 tasks passed implementation and actual acceptance: GP01, GP02, EV19, GP03, GP04, RX01 and RX02. They are archived source additions, not a new release. The30 remaining tasks are assigned in [wave plan](WAVES.md); later waves remain planning only. No paid/live calls were made.
 
 Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPATIBILITY.md). Live-provider conformance remains distinct from implemented transports and deterministic runtime proof.
 
@@ -13,13 +13,13 @@ Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPAT
 - Installation evidence is explicitly composed: the original run passed20 cases before a missing local dependency stopped its temporary terminal probe; the fixed probe passed34 scenarios, followed by three uninstall/reinstall cases. Reports retain the original failure. Only fixture/docs changes followed the release tag; no published package was replaced.
 - See [checkpoint](WORK_CHECKPOINT.md) for exact hashes, run links, reports and measured CI durations. GitHub reports `immutable:false`; versioned assets were left unchanged, not claimed server-protected. Live-account/physical WSL gaps remain explicit.
 
-## Active implementation — Waves 1–2
+## Completed implementation — Waves 1–2
 
-1. Wave1: implement complete offline snapshot and verified fresh-directory restore (GP01→GP02), preserving source bytes, ownership, integrity and no-replay recovery. Implement independent EV19 using the same intent/policy resolution as actual Submit.
-2. Wave2: one integration owner extends existing reviewed file operations for exact delete/rename, original-snapshot multi-hunk edits and pre-write Rust syntax disclosure (GP03, GP04, RX01, RX02). Parent integrates existing review surfaces/locales; no second executor or consent authority.
-3. Consolidate source gates after independent edits settle; run targeted consumer-visible regressions and real disposable CLI/TUI/provider journeys for all seven exact contracts. No live model calls. Update schema/compatibility/backup guidance if persistence changes.
-4. Archive only fully accepted tasks; update contracts, changelog, checkpoint and wave status, then commit. A source feature is not a published release.
-5. [Waves3–8](WAVES.md) retain existing task contracts, authorization gates and just-in-time structure assignments. Do not start later features automatically.
+1. GP01/GP02: implemented complete offline format1 snapshots, read-only integrity verification and fresh-directory restore with exclusive source ownership, unchanged source/backup bytes, strict reader admission, verified retained-output rebinding and no replay.
+2. EV19: implemented `/evolution-preview` from the same pure intent/effective-policy resolution as Submit, with exact draft/caret preservation and invalidation. Actual bilingual compact/wide journeys covered quoted source, ambiguity, mixed intent, explicit Plan and manual appearance against real loopback dispatch.
+3. GP03/GP04/RX01/RX02: extended one reviewed file executor for exact regular-file deletion, same-project no-overwrite rename,1–32 original-snapshot replacements and pre-write advisory Rust parsing. Eight real native/controlled Codex journeys covered approval/denial/cancel, literal bytes, stale sources/ancestors and destination races.
+4. Final source gates passed1,588 tests/two ignored with four local test threads, formatting, strict all-target/all-feature Clippy and release build. Python22/four platform skips passed. Snapshot candidateB passed actual CLI/TUI recovery; its only change from UI/file-tested candidateA was frozen-manifest integrity. Exact commands, hashes, composed proofs and limitations are recorded in the checkpoint.
+5. [Waves3–8](WAVES.md) retain30 unfinished tasks, existing contracts, authorization gates and just-in-time structure assignments. Do not start later features or publish a new release automatically.
 
 
 ## Integrated repair — Windows authentication and WSL file workflow (shipped; physical WSL/live-auth acceptance unclaimed)

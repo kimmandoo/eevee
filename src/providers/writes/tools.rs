@@ -14,6 +14,8 @@ pub(crate) enum ToolKind {
     Read,
     List,
     Edit,
+    Delete,
+    Rename,
     ArtifactList,
     ArtifactRead,
     ArtifactSearch,
@@ -26,6 +28,8 @@ impl ToolKind {
             "eevee_read_file" => Ok(Self::Read),
             "eevee_list_files" => Ok(Self::List),
             "eevee_edit_file" => Ok(Self::Edit),
+            "eevee_delete_file" => Ok(Self::Delete),
+            "eevee_rename_file" => Ok(Self::Rename),
             "eevee_artifact_list" => Ok(Self::ArtifactList),
             "eevee_artifact_read" => Ok(Self::ArtifactRead),
             "eevee_artifact_search" => Ok(Self::ArtifactSearch),
@@ -39,12 +43,21 @@ impl ToolKind {
             Self::Read => "eevee_read_file",
             Self::List => "eevee_list_files",
             Self::Edit => "eevee_edit_file",
+            Self::Delete => "eevee_delete_file",
+            Self::Rename => "eevee_rename_file",
             Self::ArtifactList => "eevee_artifact_list",
             Self::ArtifactRead => "eevee_artifact_read",
             Self::ArtifactSearch => "eevee_artifact_search",
             Self::ArtifactLocations => "eevee_artifact_locations",
         }
     }
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct Replacement {
+    pub old_text: String,
+    pub new_text: String,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -68,8 +81,15 @@ pub(crate) enum FileTool {
     Edit {
         path: PathBuf,
         sha256: String,
-        old_text: String,
-        new_text: String,
+        replacements: Vec<Replacement>,
+    },
+    #[serde(rename = "eevee_delete_file")]
+    Delete { path: PathBuf, sha256: String },
+    #[serde(rename = "eevee_rename_file")]
+    Rename {
+        path: PathBuf,
+        destination: PathBuf,
+        sha256: String,
     },
     #[serde(rename = "eevee_artifact_list")]
     ArtifactList {},
@@ -104,7 +124,11 @@ impl FileTool {
             .map_err(|_| {
                 "File tool arguments must exactly match the advertised schema".to_owned()
             })?;
-        if tool.path().as_os_str().len() > 4096 {
+        if tool.path().as_os_str().len() > 4096
+            || tool
+                .mutation_paths()
+                .any(|path| path.as_os_str().len() > 4096)
+        {
             return Err(
                 "File tool path exceeds 4096 bytes; use a literal project-relative filename".into(),
             );
@@ -117,6 +141,8 @@ impl FileTool {
             Self::Read { .. } => ToolKind::Read,
             Self::List { .. } => ToolKind::List,
             Self::Edit { .. } => ToolKind::Edit,
+            Self::Delete { .. } => ToolKind::Delete,
+            Self::Rename { .. } => ToolKind::Rename,
             Self::ArtifactList { .. } => ToolKind::ArtifactList,
             Self::ArtifactRead { .. } => ToolKind::ArtifactRead,
             Self::ArtifactSearch { .. } => ToolKind::ArtifactSearch,
@@ -126,7 +152,11 @@ impl FileTool {
     }
     pub(crate) fn path(&self) -> &Path {
         match self {
-            Self::Write { path, .. } | Self::Read { path, .. } | Self::Edit { path, .. } => path,
+            Self::Write { path, .. }
+            | Self::Read { path, .. }
+            | Self::Edit { path, .. }
+            | Self::Delete { path, .. }
+            | Self::Rename { path, .. } => path,
             Self::List { directory, .. } => directory,
             Self::Invalid { .. }
             | Self::ArtifactList { .. }
@@ -136,10 +166,21 @@ impl FileTool {
         }
     }
     pub(crate) fn mutating(&self) -> bool {
-        matches!(self.kind(), ToolKind::Write | ToolKind::Edit)
+        matches!(
+            self.kind(),
+            ToolKind::Write | ToolKind::Edit | ToolKind::Delete | ToolKind::Rename
+        )
     }
     pub(crate) fn invalid(&self) -> bool {
         matches!(self, Self::Invalid { .. })
+    }
+    pub(crate) fn mutation_paths(&self) -> impl Iterator<Item = &Path> {
+        std::iter::once(self.path())
+            .filter(|_| self.mutating())
+            .chain(match self {
+                Self::Rename { destination, .. } => Some(destination.as_path()),
+                _ => None,
+            })
     }
     pub(crate) fn artifact_operation(&self) -> Option<crate::workspace::artifacts::Operation> {
         use crate::workspace::artifacts::{Handle, Operation};
@@ -191,7 +232,7 @@ impl FileTool {
 
 /// Provider-independent declarations: callers adapt only the protocol envelope.
 pub(crate) fn definitions(writing: bool) -> Vec<Value> {
-    let mut declarations = Vec::with_capacity(if writing { 4 } else { 2 });
+    let mut declarations = Vec::with_capacity(if writing { 6 } else { 2 });
     if writing {
         declarations.push(
         json!({"name":TOOL_NAME,"description":"Create or replace an actual project file through the host file executor, even when the provider's own shell is read-only. Supply complete UTF-8 content (64 KiB maximum); do not substitute a fenced code response for a requested save. Missing parent folders are created after exact full-content allow-once approval. No path preselection is required in workspace mode; an explicit selected-path restriction still applies. Preserve unrelated dirty bytes. No shell or verification.","parameters":{"type":"object","properties":{"path":{"type":"string","description":"Literal project-relative filename, for example src/app/main.py. Nested folders and Unicode names are supported. Do not use an absolute path or parent traversal."},"content":{"type":"string"}},"required":["path","content"],"additionalProperties":false}}),
@@ -202,9 +243,11 @@ pub(crate) fn definitions(writing: bool) -> Vec<Value> {
         json!({"name":"eevee_list_files","description":"Inspect actual safe project filenames, including plain non-Git projects and files too large to edit. directory is a literal project-relative directory (empty means the project root), applied before enumeration and Git inventory. query is a literal substring; offset starts at zero. At most 128 filenames per page, 10000 scanned entries within that directory. Use next_offset for another page; if the scan bound is exceeded, choose a narrower directory, not another query or offset. Returned paths remain relative to the project root. Discovery grants no write authority.","parameters":{"type":"object","properties":{"directory":{"type":"string","description":"Literal project-relative directory to search recursively; empty selects project root. No absolute path or parent traversal."},"query":{"type":"string"},"offset":{"type":"integer","minimum":0}},"required":["directory","query","offset"],"additionalProperties":false}}),
     ]);
     if writing {
-        declarations.push(
-        json!({"name":"eevee_edit_file","description":"Save one literal targeted edit of a previously read file through the host executor. Supply that read's full-file sha256 and a nonempty old_text matching exactly once; replace it with new_text, preserving all other bytes including CRLF. Stale reads and ambiguous matches are refused: read again before correcting the proposal. The resulting complete file requires exact allow-once review through the same executor as writes.","parameters":{"type":"object","properties":{"path":{"type":"string","description":"The exact project-relative filename used in the preceding eevee_read_file call."},"sha256":{"type":"string"},"old_text":{"type":"string"},"new_text":{"type":"string"}},"required":["path","sha256","old_text","new_text"],"additionalProperties":false}}),
-        );
+        declarations.extend([
+        json!({"name":"eevee_edit_file","description":"Save 1–32 literal replacements against one previously read original file and its full 64-hex SHA-256. Every nonempty old_text must match exactly once in the ORIGINAL bytes, and spans must not overlap. Replacement output is never input to another replacement. Preserve every unrelated byte, including CRLF and Unicode. Final file is at most 64 KiB and receives one complete exact allow-once review; stale source/ancestors, ambiguous anchors or overlap refuse without writing. Local Rust syntax disclosure is advisory, not compilation or verification.","parameters":{"type":"object","properties":{"path":{"type":"string"},"sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"},"replacements":{"type":"array","minItems":1,"maxItems":32,"items":{"type":"object","properties":{"old_text":{"type":"string","minLength":1},"new_text":{"type":"string"}},"required":["old_text","new_text"],"additionalProperties":false}}},"required":["path","sha256","replacements"],"additionalProperties":false}}),
+        json!({"name":"eevee_delete_file","description":"Irreversibly delete one exact regular project file (at most 64 KiB), bound to its preceding eevee_read_file full SHA-256 and frozen source/ancestors. Requires separate exact allow-once approval; no recursive deletion, recycle bin, shell or rollback. Links, protected/excluded files and stale scope refuse.","parameters":{"type":"object","properties":{"path":{"type":"string"},"sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"}},"required":["path","sha256"],"additionalProperties":false}}),
+        json!({"name":"eevee_rename_file","description":"Rename one exact regular project file (at most 64 KiB) to an exact unoccupied same-project destination. Bind to the preceding read full SHA-256. One approval freezes original bytes, source/destination and ancestors; approved absent destination parents may be created. Never overwrite; case-only and cross-volume moves refuse. Preserve literal bytes and supported metadata; no imports rewriting, shell or rollback.","parameters":{"type":"object","properties":{"path":{"type":"string"},"destination":{"type":"string"},"sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"}},"required":["path","destination","sha256"],"additionalProperties":false}}),
+        ]);
     }
     declarations
 }
@@ -504,36 +547,63 @@ impl WriteSet {
             FileTool::Edit {
                 path,
                 sha256,
-                old_text,
-                new_text,
+                replacements,
             } => {
-                let observed = self
-                    .observed
-                    .get(path.as_path())
-                    .ok_or("Edit requires a preceding successful read of this exact path")?;
-                let baseline = self.targets.iter()
-                    .find(|target| target.path == *path)
-                    .and_then(|target| target.baseline.as_ref())
-                    .filter(|baseline| observed.matches(baseline))
-                    .ok_or("Edit requires an unchanged admitted file at most 64 KiB; read again before proposing a write")?;
-                if baseline.digest.as_str() != sha256.as_str() {
-                    return Err(
-                        "Edit sha256 does not match the preceding source read; read again".into(),
-                    );
+                let baseline = self.mutation_baseline(path, sha256)?;
+                if replacements.is_empty() || replacements.len() > 32 {
+                    return Err("Edit requires 1–32 literal replacements".into());
                 }
-                if old_text.is_empty()
-                    || baseline.text.match_indices(old_text.as_str()).count() != 1
-                {
-                    return Err("Edit old_text must be nonempty and match exactly once; read and select an unambiguous literal span".into());
+                let mut spans = Vec::with_capacity(replacements.len());
+                let mut size = baseline.text.len();
+                for replacement in replacements {
+                    let old = replacement.old_text.as_str();
+                    if old.is_empty()
+                        || old.len() > MAX_BYTES
+                        || replacement.new_text.len() > MAX_BYTES
+                    {
+                        return Err(
+                            "Edit old_text must be nonempty and replacement text at most 64 KiB"
+                                .into(),
+                        );
+                    }
+                    let Some(start) = baseline.text.find(old) else {
+                        return Err("Edit old_text must be nonempty and match exactly once; read and select an unambiguous literal span".into());
+                    };
+                    // Advance one Unicode scalar, not the whole match, so
+                    // overlapping occurrences are ambiguous too ("aa"/"aaa").
+                    let next = start + old.chars().next().expect("nonempty anchor").len_utf8();
+                    if baseline.text[next..].contains(old) {
+                        return Err("Edit old_text must be nonempty and match exactly once; read and select an unambiguous literal span".into());
+                    }
+                    size = size
+                        .checked_sub(old.len())
+                        .and_then(|size| size.checked_add(replacement.new_text.len()))
+                        .ok_or("Edit text exceeds the 64 KiB file bound")?;
+                    spans.push((start, start + old.len(), replacement.new_text.as_str()));
                 }
-                if old_text.len() > MAX_BYTES || new_text.len() > MAX_BYTES {
+                spans.sort_unstable_by_key(|span| span.0);
+                if spans.windows(2).any(|pair| pair[0].1 > pair[1].0) {
+                    return Err("Edit replacement spans overlap in the original source".into());
+                }
+                if size > MAX_BYTES {
                     return Err("Edit text exceeds the 64 KiB file bound".into());
                 }
-                let content = baseline
-                    .text
-                    .replacen(old_text.as_str(), new_text.as_str(), 1);
+                let mut content = String::with_capacity(size);
+                let mut offset = 0;
+                for (start, end, replacement) in spans {
+                    content.push_str(&baseline.text[offset..start]);
+                    content.push_str(replacement);
+                    offset = end;
+                }
+                content.push_str(&baseline.text[offset..]);
                 self.propose(path.clone(), content)
             }
+            FileTool::Delete { path, sha256 } => self.propose_mutation(path.clone(), sha256, None),
+            FileTool::Rename {
+                path,
+                destination,
+                sha256,
+            } => self.propose_mutation(path.clone(), sha256, Some(destination.clone())),
             _ => Err("Read/list tools cannot propose filesystem changes".into()),
         }
     }

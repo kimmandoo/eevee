@@ -1,5 +1,19 @@
 # Troubleshooting
 
+### [2026-10-24] Mutation acceptance confused automatic arrival, selected consent and durable settlement
+
+- **Context / Symptom:** New controlled mutation journeys reported `file review did not reach its final visible detail page`, then encountered a null cancelled JSON-RPC result. Korean journeys also submitted an implementation-capable request after a fixture attempted to select Plan too early.
+- **Root Cause:** Automatic permission arrival ignores scroll until explicit engagement. Selecting Right engaged the summary and selected Allow; a later Enter confirmed that choice rather than opening details. Cancellation correctly returned `result: null` with JSON-RPC cancellation code `-32800`. Separately, the durable write claim disappeared before the front-end consumed its terminal event: the captured Korean frame still showed `Receiving response`, `working` and the busy `/cancel` footer. The fixture's role command was refused while busy; it had not established an accepted Plan policy.
+- **Solution:** Engaged the real summary before contiguous scope paging, used `d` for details instead of confirming a selected decision, handled null cancellation without treating it as success, and waited for the rendered nonbusy Request owner before changing role. Kept all actual file-byte, collision, stale-source/ancestor, authority and outcome assertions. All eight native/controlled English/Korean compact/wide journeys passed, including the actual nonwriting Plan transition; composed proof is in `target/wave12-mutation-verification.json`, with original failures retained.
+- **Prevention / Reference:** SQL claim settlement is not proof that a rendered control accepts a new action. Use actual owner readiness; never compensate by adding read-only words to the request, removing authority assertions or automatically retrying a model call.
+
+### [2026-10-24] A real version-probe fixture exceeded its unchanged deadline under default test concurrency
+
+- **Context / Symptom:** `providers::agent::tests::consented_probe_keeps_only_a_recognized_version` reported `Version probe timed out after 3 seconds; no version accepted` during the complete default-concurrency run.
+- **Root Cause:** The real-process fixture crossed its wall-clock deadline under that run's scheduling/load; the exact scheduler cause was not established. It was not a failing version-parser assertion.
+- **Solution:** Kept the production three-second deadline and all assertions. Ran the complete suite with bounded local test concurrency: `cargo +1.90.0 test --locked --all-targets --all-features -- --test-threads=4`; all1,588 cases passed with two existing ignored fixtures. No test was retried inside the suite, skipped or marked successful on timeout.
+- **Prevention / Reference:** Report the actual concurrency used. This local verification command did not change CI configuration or claim that default-concurrency behavior was repaired.
+
 ### [2026-10-24] Disposable installation and terminal packages omitted their local dependency
 
 - **Context / Symptom:** Public v0.1.29 verification initially failed to build its real older-version upgrade fixture because `upgrade-source-*/vendor/ratatui-core/Cargo.toml` was missing. After that fixture was repaired, installation and live self-update passed, but the isolated terminal lifecycle probe reported the same missing dependency.

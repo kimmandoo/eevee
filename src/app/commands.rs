@@ -631,6 +631,10 @@ impl App {
                 "Dismiss this task's current suggestion; no work",
             ),
             ("carry-over", "Reopen the last form carry-over; no work"),
+            (
+                "evolution-preview",
+                "Explain next evolution and operation; nothing sent",
+            ),
             ("party", "Party roster"),
             (
                 "formation",
@@ -1447,6 +1451,10 @@ impl App {
                 return true;
             }
             _ => {}
+        }
+        if name == "evolution-preview" {
+            self.open_evolution_preview();
+            return true;
         }
         if name == "carry-over" {
             // A display-only action must not retain/hide the Request editor.

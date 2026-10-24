@@ -826,7 +826,7 @@ fn resolve_with<F: Fn(&str) -> Option<String>>(
         }
     };
     let description = format!(
-        "{}: {:?} at {}; {}; no host CLI required. Submitted input and bounded process-local conversation only. Implement supports workspace filename proposals, optionally restricted by /paths, with Eevee-mediated create/replace after exact one-shot approval (64 KiB per file). Plan, Review and metadata are non-writing. No shell, project hooks, MCP, hidden source or automatic edits. Request launch never refreshes credentials or changes storage. Account access and billing are not authenticated by configuration.",
+        "{}: {:?} at {}; {}; no host CLI required. Submitted input and bounded process-local conversation only. Implement supports workspace filenames optionally restricted by /paths: reviewed create/replace, original-snapshot literal edits, exact irreversible regular-file delete and same-project no-overwrite rename (64 KiB per file). Each complete operation requires one-shot approval. Rust syntax is advisory only. Plan/Review/metadata do not write. No shell, hooks, MCP, hidden source or automatic repair. Launch never refreshes credentials or changes storage. Configuration does not authenticate access/billing.",
         provider.label(),
         settings.protocol,
         settings.base_url,
@@ -1036,7 +1036,7 @@ pub(crate) fn profile(provider: Agent) -> agent::Profile {
     } else {
         "Credential source: own session/private local configuration when explicitly applied; otherwise the selected API-key environment variable. Configured is not authenticated. Passive discovery does not read credential files.".into()
     };
-    let boundary = "Native HTTP sends the explicitly submitted request and bounded process-local conversation. Implement supports project-relative workspace filename proposals within frozen privacy/exclusion boundaries; optional /paths restricts targets. Eevee-mediated create/replace requires exact one-shot approval of each complete proposal (64 KiB per file). Plan, Review and metadata do not write files. No shell, project hooks, MCP, hidden files, restart-resumable provider sessions or automatic edits.";
+    let boundary = "Native HTTP sends the explicit request and bounded process-local conversation. Implement supports workspace filenames within frozen privacy/exclusion boundaries; /paths restricts every source/destination. Eevee mediates create/replace, original-snapshot literal edits, irreversible exact regular-file delete and same-project no-overwrite rename, each after exact one-shot approval (64 KiB per file). Rust parsing is advisory, not compilation or verification. Plan/Review/metadata do not write. No shell, hooks, MCP, hidden files, restart-resumable sessions or automatic repair.";
     agent::Profile {
         revision: 1,
         name: provider.label().into(),

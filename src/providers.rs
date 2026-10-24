@@ -788,11 +788,27 @@ pub struct PermissionOption {
 pub enum FileReviewKind {
     Create,
     Modify,
+    Delete,
+    Rename,
+}
+/// Advisory local parsing only; never compilation, type checking or verification.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RustSyntaxReview {
+    NewlyInvalid,
+    PreExistingInvalid,
+    InvalidToValid,
+    Parseable,
+    CreatedParseable,
+    CreatedInvalid,
+    Unsupported,
+    Unavailable,
 }
 #[derive(Clone, Debug)]
 pub struct FileReview {
     pub path: String,
     pub kind: FileReviewKind,
+    pub destination: Option<String>,
+    pub syntax: Option<RustSyntaxReview>,
     pub directories: Vec<String>,
     /// UTF-8 bytes of the new file, or the replacement fragment when `edit`.
     pub bytes: usize,

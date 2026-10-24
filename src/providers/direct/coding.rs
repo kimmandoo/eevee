@@ -562,8 +562,7 @@ fn prepare_batch(
     let mut unique = HashSet::new();
     let paths = calls
         .iter()
-        .filter(|call| call.tool.mutating())
-        .map(|call| call.tool.path().to_path_buf())
+        .flat_map(|call| call.tool.mutation_paths().map(|path| path.to_path_buf()))
         .collect::<Vec<_>>();
     if paths.iter().any(|path| !unique.insert(path)) {
         return Err("Repeated target in one proposal batch".into());
@@ -628,12 +627,14 @@ fn permission(
             options: vec![
                 PermissionOption {
                     label: "Deny".into(),
-                    description: "Do not write; return this denial to the model".into(),
+                    description: "Do not apply this file operation; return the denial to the model"
+                        .into(),
                     answer: deny.clone(),
                 },
                 PermissionOption {
                     label: "Allow once".into(),
-                    description: "Only this exact file and reviewed parents.".into(),
+                    description:
+                        "Only this exact file operation, destination and reviewed parents.".into(),
                     answer: allow.clone(),
                 },
             ],
@@ -653,7 +654,7 @@ fn permission(
         round,
         index,
         FilePhase::AwaitingReview,
-        file_preview::display(&proposal.path.to_string_lossy(), &proposal.content, true),
+        proposal.preview(true),
     )?;
     let deadline = Instant::now() + timeout;
     let result = (|| loop {
@@ -735,7 +736,7 @@ fn journal(
             turn_id: format!("eevee-native-request:{}", owner.request_id),
             item_id,
             origin: "Eevee-mediated native file tool".into(),
-            coverage: "Exact approved create/replace and parent scope only; observed local filesystem result, not command verification, commit or an OS sandbox".into(),
+            coverage: "Exact approved file operation and parent scope only; observed local filesystem result, not command verification, commit or an OS sandbox".into(),
             text: safe(receipt.unwrap_or(text), true),
             complete: true,
             partner: Some(owner.owner.clone()),
@@ -788,24 +789,27 @@ fn execute_write(
                 round,
                 index,
                 FilePhase::Interrupted,
-                file_preview::display(&proposal.path.to_string_lossy(), &proposal.content, false),
+                proposal.preview(false),
             )?;
             return Err(error);
         }
     };
     let mut receipt = None;
     let result = if !allowed {
-        json!({"status":"denied", "path":proposal.path, "message":"User denied this exact file proposal; no Eevee write occurred"})
+        json!({"status":"denied", "path":proposal.path, "destination":proposal.destination, "message":"User denied this exact file proposal; no Eevee filesystem mutation occurred"})
     } else if let Err(error) = validate_active(workspace, run, connection, control, revalidate) {
-        json!({"status":"refused", "path":proposal.path, "message":error})
+        json!({"status":"refused", "path":proposal.path, "destination":proposal.destination, "message":error})
     } else {
         let writes = run.writes.as_mut().ok_or("Native file scope disappeared")?;
         match writes.apply(proposal) {
             Ok(applied) => {
                 receipt = Some(applied.receipt());
                 json!({"status":"success", "effect":"applied", "path":applied.path,
+                    "destination":applied.destination,
                     "kind":format!("{:?}", applied.kind), "directories":applied.directories,
-                    "source_sha256":applied.source_sha256, "message":applied.message})
+                    "source_state":if matches!(applied.kind, super::super::writes::WriteKind::Delete | super::super::writes::WriteKind::Rename) {"absent"} else {"present"},
+                    "original_source_sha256":applied.original_source_sha256,
+                    "source_sha256":applied.source_sha256, "destination_sha256":applied.destination_sha256, "message":applied.message})
             }
             Err(failure) => failed_write(run, events, round, index, proposal, failure)?,
         }
@@ -833,11 +837,7 @@ fn execute_write(
         round,
         index,
         phase,
-        file_preview::display(
-            &proposal.path.to_string_lossy(),
-            &proposal.content,
-            phase != FilePhase::Unknown,
-        ),
+        proposal.preview(phase != FilePhase::Unknown),
     )?;
     Ok(result)
 }
@@ -851,7 +851,9 @@ fn failed_write(
     failure: crate::providers::writes::WriteFailure,
 ) -> Result<Value, String> {
     if !failure.uncertain {
-        return Ok(json!({"status":"refused", "path":proposal.path, "message":failure.message}));
+        return Ok(
+            json!({"status":"refused", "path":proposal.path, "destination":proposal.destination, "message":failure.message}),
+        );
     }
     // Only the actual filesystem engine can establish local uncertainty.
     // Keep this event ahead of journals and the terminal event, including
@@ -882,7 +884,7 @@ fn failed_write(
         round,
         index,
         FilePhase::Unknown,
-        file_preview::display(&proposal.path.to_string_lossy(), &proposal.content, false),
+        proposal.preview(false),
     )?;
     Err(format!(
         "Local filesystem effects remain uncertain: {}",

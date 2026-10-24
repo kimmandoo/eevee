@@ -164,10 +164,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
     {
         Some(format!(
             "{} · {}",
-            paint.hint(match file.kind {
-                FileReviewKind::Create => Message::ProvidersPlanningFileCreate,
-                FileReviewKind::Modify => Message::ProvidersPlanningFileModify,
-            }),
+            paint.hint(file_kind_message(file.kind)),
             crate::store::Attribution::label(app.planning.owner()),
         ))
     } else if app.planning.required_permission_review() {
@@ -619,6 +616,31 @@ pub(super) fn render_summary(
     area.width >= 40 && area.height as usize >= lines.len()
 }
 
+fn file_kind_message(kind: FileReviewKind) -> Message {
+    match kind {
+        FileReviewKind::Create => Message::ProvidersPlanningFileCreate,
+        FileReviewKind::Modify => Message::ProvidersPlanningFileModify,
+        FileReviewKind::Delete => Message::ProvidersPlanningFileDelete,
+        FileReviewKind::Rename => Message::ProvidersPlanningFileRename,
+    }
+}
+
+fn syntax_message(syntax: crate::providers::RustSyntaxReview) -> Message {
+    use crate::providers::RustSyntaxReview;
+    match syntax {
+        RustSyntaxReview::NewlyInvalid => Message::ProvidersPlanningFileSyntaxNewlyInvalid,
+        RustSyntaxReview::PreExistingInvalid => {
+            Message::ProvidersPlanningFileSyntaxPreExistingInvalid
+        }
+        RustSyntaxReview::InvalidToValid => Message::ProvidersPlanningFileSyntaxInvalidToValid,
+        RustSyntaxReview::Parseable => Message::ProvidersPlanningFileSyntaxParseable,
+        RustSyntaxReview::CreatedParseable => Message::ProvidersPlanningFileSyntaxCreatedParseable,
+        RustSyntaxReview::CreatedInvalid => Message::ProvidersPlanningFileSyntaxCreatedInvalid,
+        RustSyntaxReview::Unsupported => Message::ProvidersPlanningFileSyntaxUnsupported,
+        RustSyntaxReview::Unavailable => Message::ProvidersPlanningFileSyntaxUnavailable,
+    }
+}
+
 /// Scope can wrap and scroll without hiding the fixed decision controls.
 /// Consent requires contiguous exposure of every immutable scope row.
 fn render_file_summary(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) -> bool {
@@ -629,12 +651,7 @@ fn render_file_summary(frame: &mut Frame, area: Rect, state: &mut State, paint: 
         _ => return false,
     };
     let mut scope = [
-        paint
-            .hint(match file.kind {
-                FileReviewKind::Create => Message::ProvidersPlanningFileCreate,
-                FileReviewKind::Modify => Message::ProvidersPlanningFileModify,
-            })
-            .to_owned(),
+        paint.hint(file_kind_message(file.kind)).to_owned(),
         paint.format(Template::ProvidersPlanningFilePath, &[("path", &file.path)]),
         if file.directories.is_empty() {
             paint
@@ -647,15 +664,31 @@ fn render_file_summary(frame: &mut Frame, area: Rect, state: &mut State, paint: 
             )
         },
         paint.format(
-            if file.edit {
-                Template::ProvidersPlanningFileReplacementBytes
-            } else {
-                Template::ProvidersPlanningFileContentBytes
+            match file.kind {
+                FileReviewKind::Delete => Template::ProvidersPlanningFileRemovedBytes,
+                FileReviewKind::Rename => Template::ProvidersPlanningFileMovedBytes,
+                _ if file.edit => Template::ProvidersPlanningFileReplacementBytes,
+                _ => Template::ProvidersPlanningFileContentBytes,
             },
             &[("bytes", &file.bytes.to_string())],
         ),
     ]
     .join("\n");
+    if let Some(destination) = &file.destination {
+        scope.push('\n');
+        scope.push_str(&paint.format(
+            Template::ProvidersPlanningFileDestination,
+            &[("path", destination)],
+        ));
+    }
+    if let Some(syntax) = file.syntax {
+        scope.push('\n');
+        scope.push_str(paint.hint(syntax_message(syntax)));
+        if syntax != crate::providers::RustSyntaxReview::Unsupported {
+            scope.push('\n');
+            scope.push_str(paint.hint(Message::ProvidersPlanningFileSyntaxAdvisory));
+        }
+    }
     let scope_paragraph = Paragraph::new(scope.as_str())
         .style(paint.surface)
         .wrap(Wrap { trim: false });
@@ -2959,6 +2992,8 @@ mod tests {
                         description: format!("Create\nPath: new/새.rs\nCreate directories: new\n--- /dev/null\n+++ new/새.rs\n{}", "+exact content\n".repeat(1000)),
                         file: Some(FileReview {
                             path: "new/새.rs".into(),
+                            destination: None,
+                            syntax: None,
                             kind: FileReviewKind::Create,
                             directories: vec!["new".into()],
                             bytes: 14000,
@@ -3373,6 +3408,8 @@ mod tests {
                 description: format!("Create {path} with exact content"),
                 file: Some(FileReview {
                     path,
+                    destination: None,
+                    syntax: None,
                     directories,
                     kind: FileReviewKind::Create,
                     bytes: 12,
@@ -3431,6 +3468,64 @@ mod tests {
     }
 
     #[test]
+    fn rename_destination_and_syntax_warning_are_part_of_required_consent_scope() {
+        for tag in ["en", "ko"] {
+            let language = crate::i18n::Language::parse(tag).unwrap();
+            let destination = format!("{}new.rs", "long_destination/".repeat(12));
+            let (mut app, task) = bolt_prompt(PromptKind::Permission {
+                description: "Rename exact source".into(),
+                file: Some(FileReview {
+                    path: "old.rs".into(),
+                    destination: Some(destination.clone()),
+                    syntax: Some(crate::providers::RustSyntaxReview::NewlyInvalid),
+                    kind: FileReviewKind::Rename,
+                    directories: Vec::new(),
+                    bytes: 8,
+                    excerpt: "fn main(".into(),
+                    edit: false,
+                    external: false,
+                }),
+                options: vec![
+                    PermissionOption {
+                        label: "Deny".into(),
+                        description: String::new(),
+                        answer: serde_json::json!("deny"),
+                    },
+                    PermissionOption {
+                        label: "Allow once".into(),
+                        description: String::new(),
+                        answer: serde_json::json!("once"),
+                    },
+                ],
+            });
+            app.planning.auto_permission_review = true;
+            let mut observed = screen(&draw_language(&mut app, language));
+            key(&mut app, &task, KeyCode::Char('y'));
+            assert!(
+                app.planning.pending.is_none(),
+                "unseen destination must block permission"
+            );
+            key(&mut app, &task, KeyCode::Right);
+            observed.push_str(&screen(&draw_language(&mut app, language)));
+            for _ in 0..100 {
+                if app.planning.scroll == app.planning.scroll_max {
+                    break;
+                }
+                key(&mut app, &task, KeyCode::PageDown);
+                observed.push_str(&screen(&draw_language(&mut app, language)));
+            }
+            assert!(app.planning.reviewed, "{observed}");
+            assert!(observed.contains("new.rs"), "{observed}");
+            assert!(
+                observed.contains(language.text(Message::ProvidersPlanningFileSyntaxNewlyInvalid)),
+                "{observed}"
+            );
+            key(&mut app, &task, KeyCode::Char('y'));
+            assert!(matches!(app.planning.pending, Some(Request::Answer { .. })));
+        }
+    }
+
+    #[test]
     fn typed_file_summary_shows_localized_operation_empty_and_unicode_source_at_minimum_size() {
         for tag in ["en", "ko"] {
             let language = crate::i18n::Language::parse(tag).unwrap();
@@ -3445,6 +3540,8 @@ mod tests {
                                 .into(),
                             file: Some(FileReview {
                                 path: "src/새.rs".into(),
+                                destination: None,
+                                syntax: None,
                                 kind,
                                 directories: Vec::new(),
                                 bytes: content.len(),
@@ -3467,13 +3564,7 @@ mod tests {
                         });
                         let text = screen(&draw_language(&mut app, language));
                         assert!(app.planning.reviewed, "{text}");
-                        assert!(
-                            text.contains(paint.hint(match kind {
-                                FileReviewKind::Create => Message::ProvidersPlanningFileCreate,
-                                FileReviewKind::Modify => Message::ProvidersPlanningFileModify,
-                            })),
-                            "{text}"
-                        );
+                        assert!(text.contains(paint.hint(file_kind_message(kind))), "{text}");
                         assert!(text.contains("src/새.rs") && text.contains("a/y"), "{text}");
                         assert!(
                             !text.contains("Untrusted generic")

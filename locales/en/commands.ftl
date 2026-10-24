@@ -393,3 +393,5 @@ cmd-search-provider = connect connection setup
 cmd-search-files = attachment files context
 cmd-search-cancellation = stop cancel
 cmd-search-evidence = evidence journal history
+
+cmd-evolution-preview = Explain next evolution and operation; nothing sent

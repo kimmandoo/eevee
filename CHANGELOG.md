@@ -2,6 +2,13 @@
 
 ## 2026-10-24
 
+- feat(recovery): added complete offline format1 snapshots, read-only member verification and fresh-directory restore with private-data disclosure, unchanged source/backup bytes, current-reader admission and no replay.
+- feat(evolution): added local pre-send appearance/operation/policy inspection using Submit's resolver while preserving exact drafts and recomputing on send.
+- feat(tools): added reviewed exact regular-file deletion and same-project no-overwrite rename through the existing native/controlled Codex executor.
+- feat(tools): replaced single-pair edit arguments with one full-digest-bound set of up to thirty-two original-snapshot literal replacements and one final-file approval.
+- feat(review): disclosed Rust baseline/proposed syntax outcomes before writing without compiling, repairing, formatting or claiming verification.
+- fix(verification): distinguished automatic arrival from selected consent, handled null cancellation and awaited rendered provider settlement before changing policy in focused mutation journeys.
+- docs(plan): archived all seven accepted Wave1–2 specifications, retained thirty unfinished tasks and kept later waves and publication separately authorized.
 - docs(plan): assigned all thirty-seven tasks to dependency-aware delivery waves and recorded authorization to implement the seven Wave1–2 contracts without starting later waves.
 - docs(roadmap): added six evidence-linked oh-my-pi adaptations with explicit consent boundaries and non-goals, deduplicated existing work and reconciled the thirty-seven-task backlog.
 - chore(release): published v0.1.29 from exact-source Check/all-five-native qualification and verified all public assets, qualified package identities, installed lifecycle, genuine prior-version migration and actual runtime behavior.

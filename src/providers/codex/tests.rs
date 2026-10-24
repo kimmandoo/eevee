@@ -63,12 +63,11 @@ fn complete_codex_proposals_have_guarded_display_only_snapshots() {
     let read = requested_tool(&json!({"tool":"eevee_read_file","arguments":{"path":"src/새.rs","start_line":1,"end_line":2}})).unwrap();
     assert!(received_file_preview(&input, &read).is_none());
     let edit = requested_tool(&json!({"tool":"eevee_edit_file","arguments":{
-        "path":"src/새.rs","sha256":"0".repeat(64),"old_text":"not displayed","new_text":"replacement\n"
+        "path":"src/새.rs","sha256":"0".repeat(64),"replacements":[{"old_text":"not displayed","new_text":"replacement\n"}]
     }})).unwrap();
-    let text = received_file_preview(&input, &edit).unwrap();
-    assert!(text.contains("replacement"));
-    assert!(!text.contains("not displayed"));
-    assert!(!text.contains(&"0".repeat(64)));
+    // Multi-hunk fragments are not a fabricated final-file preview. The
+    // complete frozen result appears only after original-snapshot preparation.
+    assert!(received_file_preview(&input, &edit).is_none());
 }
 
 #[cfg(unix)]
@@ -684,7 +683,9 @@ fn readonly_roles_capture_real_source_without_mutation_targets_or_writer_lease()
         );
         for attempted in [
             json!({"tool":"eevee_write_file","arguments":{"path":"unapproved/new.rs","content":"no effect"}}),
-            json!({"tool":"eevee_edit_file","arguments":{"path":"actual.rs","sha256":"0".repeat(64),"old_text":"source","new_text":"mutated"}}),
+            json!({"tool":"eevee_edit_file","arguments":{"path":"actual.rs","sha256":"0".repeat(64),"replacements":[{"old_text":"source","new_text":"mutated"}]}}),
+            json!({"tool":"eevee_delete_file","arguments":{"path":"actual.rs","sha256":"0".repeat(64)}}),
+            json!({"tool":"eevee_rename_file","arguments":{"path":"actual.rs","destination":"renamed.rs","sha256":"0".repeat(64)}}),
         ] {
             assert!(
                 proposed_write(&mut scope, &attempted)
@@ -1788,7 +1789,7 @@ fn controlled_dynamic_tools_discover_read_edit_and_create_using_real_executor() 
     let observed = writes.observe_tool(&read).unwrap();
     assert_eq!(observed["content"], "// dirty\r\nfn old() {}\r\n");
     let edit = proposed_write(&mut writes, &json!({"tool":"eevee_edit_file","arguments":{
-        "path":"existing.rs","sha256":observed["sha256"],"old_text":"fn old()","new_text":"fn new()"
+        "path":"existing.rs","sha256":observed["sha256"],"replacements":[{"old_text":"fn old()","new_text":"fn new()"}]
     }})).unwrap();
     assert_eq!(
         std::fs::read_to_string(fixture.root.join("existing.rs")).unwrap(),
@@ -1815,4 +1816,85 @@ fn controlled_dynamic_tools_discover_read_edit_and_create_using_real_executor() 
         )
         .is_err()
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn controlled_delete_and_rename_share_exact_permission_and_real_executor() {
+    let fixture = WriteFixture::new();
+    let original = "// dirty 한글\r\nfn source() {}\r\n";
+    std::fs::write(fixture.root.join("source.rs"), original).unwrap();
+    std::fs::write(fixture.root.join("neighbor.txt"), "unrelated dirty\r\n").unwrap();
+    let mut writes = WriteSet::capture_workspace(&fixture.root, &fixture.data, &[]).unwrap();
+    let read = requested_tool(&json!({"tool":"eevee_read_file","arguments":{
+        "path":"source.rs","start_line":1,"end_line":0
+    }}))
+    .unwrap();
+    let source = writes.observe_tool(&read).unwrap();
+    let rename = proposed_write(
+        &mut writes,
+        &json!({"tool":"eevee_rename_file","arguments":{
+            "path":"source.rs","destination":"nested/한글.rs","sha256":source["sha256"]
+        }}),
+    )
+    .unwrap();
+    let PromptKind::Permission {
+        file: Some(review),
+        options,
+        ..
+    } = write_permission(&rename)
+    else {
+        panic!("Missing exact rename permission")
+    };
+    assert_eq!(review.kind, crate::providers::FileReviewKind::Rename);
+    assert_eq!(review.destination.as_deref(), Some("nested/한글.rs"));
+    assert_eq!(options.len(), 2);
+    assert_eq!(options[0].answer, json!({"decision":"decline"}));
+    assert!(
+        !fixture.root.join("nested").exists(),
+        "deny/cancel preparation has no effect"
+    );
+    let outcome = writes.apply(&rename).unwrap();
+    assert_eq!(
+        outcome.destination.as_deref(),
+        Some(Path::new("nested/한글.rs"))
+    );
+    assert!(!fixture.root.join("source.rs").exists());
+    assert_eq!(
+        std::fs::read(fixture.root.join("nested/한글.rs")).unwrap(),
+        original.as_bytes()
+    );
+    let read = requested_tool(&json!({"tool":"eevee_read_file","arguments":{
+        "path":"nested/한글.rs","start_line":1,"end_line":0
+    }}))
+    .unwrap();
+    let source = writes.observe_tool(&read).unwrap();
+    let delete = proposed_write(
+        &mut writes,
+        &json!({"tool":"eevee_delete_file","arguments":{
+            "path":"nested/한글.rs","sha256":source["sha256"]
+        }}),
+    )
+    .unwrap();
+    let PromptKind::Permission {
+        file: Some(review),
+        options,
+        ..
+    } = write_permission(&delete)
+    else {
+        panic!("Missing exact deletion permission")
+    };
+    assert_eq!(review.kind, crate::providers::FileReviewKind::Delete);
+    assert_eq!(options[0].answer, json!({"decision":"decline"}));
+    assert!(fixture.root.join("nested/한글.rs").exists());
+    let outcome = writes.apply(&delete).unwrap();
+    let receipt: Value = serde_json::from_str(&outcome.receipt()).unwrap();
+    assert_eq!(receipt["source_state"], "absent");
+    assert!(receipt["source_sha256"].is_null());
+    assert!(!fixture.root.join("nested/한글.rs").exists());
+    assert_eq!(
+        std::fs::read(fixture.root.join("neighbor.txt")).unwrap(),
+        b"unrelated dirty\r\n"
+    );
+    writes.verify().unwrap();
 }

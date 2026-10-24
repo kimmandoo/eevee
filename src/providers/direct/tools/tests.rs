@@ -927,7 +927,7 @@ fn mixed_file_tool_identities_survive_every_protocol_continuation() {
         ),
         (
             "eevee_edit_file",
-            json!({"path":"src/lib.rs","sha256":"a".repeat(64),"old_text":"old","new_text":"new"}),
+            json!({"path":"src/lib.rs","sha256":"a".repeat(64),"replacements":[{"old_text":"old","new_text":"new"}]}),
             ToolKind::Edit,
         ),
         (

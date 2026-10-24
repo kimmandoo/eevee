@@ -57,6 +57,11 @@ pub enum Command {
         data_dir: PathBuf,
         output: PathBuf,
     },
+    Snapshot {
+        operation: SnapshotOperation,
+        source: PathBuf,
+        destination: Option<PathBuf>,
+    },
     Update {
         check_only: bool,
         no_animation: bool,
@@ -66,16 +71,38 @@ pub enum Command {
     Version,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SnapshotOperation {
+    Create,
+    Verify,
+    Restore,
+}
+
 pub const HELP: &str = "Eevee — local-first evolution workbench
 
 Usage: ev [OPTIONS]
        ev update [--check] [--no-animation]
        ev uninstall
+       ev snapshot create --data-dir SOURCE --destination NEW --acknowledge-private-data
+       ev snapshot verify --source BACKUP
+       ev snapshot restore --source BACKUP --destination NEW --acknowledge-private-data
 
 Binary lifecycle:
   update --check       Check the latest release without changing files
   update               Update an installer-owned binary in its original directory
   uninstall            Remove the owned binary and licenses; keep all user data
+
+Offline data recovery (never starts the application):
+  snapshot create      Complete versioned-manifest backup; requires stopped writers
+  snapshot verify      Read-only member/digest integrity inspection, not reader admission
+  snapshot restore     Validate with this reader and restore into a nonexisting directory
+  Snapshot format 1 includes origin, private tasks/drafts/journals/outputs/artifacts,
+  archived tasks, preferences and ANY saved app secrets/credentials. Not encrypted
+  or redacted; no external credential-store access. Explicit privacy acknowledgement
+  is required before copying. No source migration/repair, merge or overwrite.
+  Failures may retain marked incomplete copies, never usable restored app data.
+  Restore retains project identities and historical unknowns, not active requests,
+  provider sessions or usable grants. No automatic dispatch or execution.
 
 Options:
   --theme dark|light    Terminal theme (default: dark)
@@ -143,6 +170,10 @@ fn parse_with(
     environment: impl Fn(&str) -> Option<OsString>,
 ) -> Result<Command, String> {
     let mut args = args.into_iter().peekable();
+    if args.peek().is_some_and(|argument| argument == "snapshot") {
+        args.next();
+        return parse_snapshot(args);
+    }
     if let Some(command @ ("update" | "uninstall")) =
         args.peek().and_then(|argument| argument.to_str())
     {
@@ -440,6 +471,75 @@ fn parse_with(
         Command::Download(config)
     } else {
         Command::Run(config)
+    })
+}
+
+fn parse_snapshot(mut args: impl Iterator<Item = OsString>) -> Result<Command, String> {
+    let operation = match args.next().as_deref().and_then(|value| value.to_str()) {
+        Some("create") => SnapshotOperation::Create,
+        Some("verify") => SnapshotOperation::Verify,
+        Some("restore") => SnapshotOperation::Restore,
+        Some("--help" | "-h") => return Ok(Command::Help),
+        _ => return Err("usage: ev snapshot create|verify|restore; see --help".into()),
+    };
+    let mut source = None;
+    let mut destination = None;
+    let mut acknowledged = false;
+    while let Some(argument) = args.next() {
+        if argument == "--help" || argument == "-h" {
+            return Ok(Command::Help);
+        }
+        if argument == "--acknowledge-private-data" {
+            if acknowledged {
+                return Err("Duplicate privacy acknowledgement".into());
+            }
+            acknowledged = true;
+            continue;
+        }
+        let text = argument.to_str().ok_or("Snapshot option must be Unicode")?;
+        let (flag, attached) = text
+            .split_once('=')
+            .map_or((text, None), |(a, b)| (a, Some(b)));
+        let target = match flag {
+            "--data-dir" if operation == SnapshotOperation::Create => &mut source,
+            "--source" if operation != SnapshotOperation::Create => &mut source,
+            "--destination" if operation != SnapshotOperation::Verify => &mut destination,
+            _ => {
+                return Err(format!(
+                    "Unexpected snapshot option {argument:?}; see --help"
+                ));
+            }
+        };
+        if target.is_some() {
+            return Err(format!("Duplicate snapshot option {flag}"));
+        }
+        let path = attached
+            .map(OsString::from)
+            .or_else(|| args.next())
+            .ok_or_else(|| format!("{flag} requires a path"))?;
+        if path.is_empty() {
+            return Err(format!("{flag} requires a nonempty path"));
+        }
+        *target = Some(PathBuf::from(path));
+    }
+    if operation != SnapshotOperation::Verify && !acknowledged {
+        return Err(format!(
+            "{}\\nCopy refused: add --acknowledge-private-data only after reviewing these effects.",
+            crate::store::snapshot::DISCLOSURE
+        ));
+    }
+    if operation == SnapshotOperation::Verify && acknowledged {
+        return Err("Verification copies no data; omit --acknowledge-private-data".into());
+    }
+    let source = source
+        .ok_or("Snapshot requires an explicit --data-dir (create) or --source (verify/restore)")?;
+    if operation != SnapshotOperation::Verify && destination.is_none() {
+        return Err("Snapshot copy requires --destination NEW (must not exist)".into());
+    }
+    Ok(Command::Snapshot {
+        operation,
+        source,
+        destination,
     })
 }
 
@@ -878,5 +978,80 @@ mod tests {
                 no_animation: true
             })
         ));
+    }
+    #[test]
+    fn snapshot_root_actions_are_explicit_offline_and_privacy_acknowledged() {
+        assert!(matches!(
+            parse_with(
+                ["snapshot", "verify", "--source", "backup"].map(OsString::from),
+                |_| None
+            ),
+            Ok(Command::Snapshot {
+                operation: SnapshotOperation::Verify,
+                destination: None,
+                ..
+            })
+        ));
+        for operation in ["create", "restore"] {
+            let source_flag = if operation == "create" {
+                "--data-dir"
+            } else {
+                "--source"
+            };
+            let arguments = [
+                "snapshot",
+                operation,
+                source_flag,
+                "source",
+                "--destination",
+                "new",
+            ];
+            let error = parse_with(arguments.map(OsString::from), |_| None).unwrap_err();
+            assert!(error.contains("NOT encrypted"));
+            assert!(error.contains("--acknowledge-private-data"));
+            assert!(matches!(
+                parse_with(
+                    arguments
+                        .into_iter()
+                        .chain(["--acknowledge-private-data"])
+                        .map(OsString::from),
+                    |_| None
+                ),
+                Ok(Command::Snapshot {
+                    destination: Some(_),
+                    ..
+                })
+            ));
+        }
+        for arguments in [
+            vec![
+                "snapshot",
+                "restore",
+                "--source",
+                "backup",
+                "--acknowledge-private-data",
+            ],
+            vec![
+                "snapshot",
+                "verify",
+                "--source",
+                "backup",
+                "--download-artwork",
+            ],
+            vec![
+                "snapshot", "verify", "--source", "backup", "--source", "other",
+            ],
+            vec![
+                "snapshot",
+                "create",
+                "--source",
+                "backup",
+                "--acknowledge-private-data",
+            ],
+        ] {
+            assert!(parse_with(arguments.into_iter().map(OsString::from), |_| None).is_err());
+        }
+        assert!(HELP.contains("ANY saved app secrets"));
+        assert!(HELP.contains("No source migration"));
     }
 }

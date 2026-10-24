@@ -1,16 +1,8 @@
 # J — Eevee-specific workflow extensions
 
-Planned after verified v0.1.29 publication on 2026-10-24. These extend shipped forms, moves/TMs, Dex, formations, held references and partner summaries rather than rebuilding them. This request authorized documentation, not implementation. See [completed foundations](COMPLETED.md), [active order](../task.md) and [design rules](../docs/DESIGN_RULES.md).
+EV19 completed in Wave1; its specification and scoped proof are in [COMPLETED.md](COMPLETED.md). The five remaining extensions below are planned only and extend shipped forms, moves/TMs, Dex, formations, held references and summaries rather than rebuilding them. See [active order](../task.md) and [design rules](../docs/DESIGN_RULES.md).
 
 Keep the concept useful to coding: no XP, levels, streaks, random unlocks, productivity scores or provider gates. Flavor stays out of provider packets and portable handoffs. Navigation never dispatches, executes, grants or changes a frozen request. Reuse existing storage and inspectors; preserve exact drafts/carets, single-writer ownership and truthful unknown outcomes. Use focused behavior regressions plus actual English/Korean compact/wide journeys where the changed surface warrants them, not a new blanket platform cross-product. Existing rights review is not legal clearance; new assets/names require their own review.
-
-### EV19 — Explain the next evolution before send
-
-- [ ] Inspect why the current request would select a form and what operation it would actually permit.
-- **Priority:** 1. **Needs:** —. **Builds on:** EV18, EV01A, EV01B, EV02, PK03.
-- **Change:** Reuse the submission classifier and effective-policy resolver. Distinguish predicted appearance from operation, manual/automatic selection, restrictive override and ambiguous keep-current behavior. Bind the transient preview to the draft revision; submit recomputes it.
-- **Accept:** Mixed intent, quoted source, ambiguity and explicit read-only requests produce a preview consistent with actual explicitly submitted loopback receipts. Editing invalidates it; inspection preserves draft/caret and performs no selection change, dispatch or approval answer. Exercise English/Korean and both sizes.
-- **Watch out:** No model classifier, confidence/ability score, custom routing language, automatic rule change or additional animation.
 
 ### MV09 — Semantic move and TM replacement review
 

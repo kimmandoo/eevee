@@ -162,7 +162,7 @@ def run_case(binary, output, root, size, language, route, protocol, form):
                       'arguments': {'path': TARGET, 'start_line': 1, 'end_line': 0}}],
                     [{'id': f'edit-{allow}', 'name': 'eevee_edit_file',
                       'arguments': {'path': TARGET, 'sha256': hashlib.sha256(CONTENT.encode()).hexdigest(),
-                                    'old_text': 'true', 'new_text': 'false'}}],
+                                    'replacements': [{'old_text': 'true', 'new_text': 'false'}]}}],
                 ], reply)
                 decide(TARGET, allow, CONTENT.encode())
                 journey.settled(reply, before + count)

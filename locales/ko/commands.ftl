@@ -393,3 +393,5 @@ cmd-search-provider = 프로바이더 연결 설정
 cmd-search-files = 첨부 파일 맥락
 cmd-search-cancellation = 중지 취소
 cmd-search-evidence = 근거 증거 기록
+
+cmd-evolution-preview = 다음 진화와 실제 작업 설명 · 전송하지 않음
