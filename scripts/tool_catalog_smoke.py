@@ -160,7 +160,7 @@ class Journey(files.CreationJourney):
         result = json.loads(results['selected-catalog-read'])
         assert result['status'] == 'success' and result['content'] == SOURCE, 'tool did not execute the actual owned source read'
         assert result['sha256'] == hashlib.sha256(SOURCE.encode()).hexdigest(), 'read digest not actual source bytes'
-        assert (self.project / 'defect.txt').read_text() == SOURCE
+        assert (self.project / 'defect.txt').read_bytes() == SOURCE.encode()
         assert self.snapshot()['executions'] == 0, 'metadata or source read executed a command'
         self.session.command('response')
         self.session.send(ALT_END)
@@ -189,7 +189,7 @@ def run(binary, output, root, size, language):
             journey.session.paste('TC01 actual trusted metadata fixture')
             journey.session.send('\r')
             wait_for(journey.session, 'Storage: saved', timeout=35)
-            (journey.project / 'defect.txt').write_text(SOURCE)
+            (journey.project / 'defect.txt').write_bytes(SOURCE.encode())
             journey.setup_route()
             journey.session.command('role-plan')
             journey.workspace()
