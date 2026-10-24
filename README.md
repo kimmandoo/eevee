@@ -268,9 +268,10 @@ cargo build --locked --release
 <summary>Checks, terminal smoke runs and localization</summary>
 
 ```sh
-cargo fmt --all -- --check
-cargo clippy --locked --all-targets --all-features -- -D warnings
-cargo test --locked --all-targets --all-features
+rustup toolchain install 1.90.0 --profile minimal --component rustfmt --component clippy
+cargo +1.90.0 fmt --all -- --check
+cargo +1.90.0 clippy --locked --all-targets --all-features -- -D warnings
+cargo +1.90.0 test --locked --all-targets --all-features
 npm ci --ignore-scripts --no-audit --no-fund --prefix sidecar
 npm test --prefix sidecar
 ```

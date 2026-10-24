@@ -463,6 +463,10 @@ impl App {
                         *task = snapshot.id;
                     }
                     self.task_id = snapshot.id;
+                    self.planning.adopt_initial_task(snapshot.id);
+                    for state in self.cooperation.parked.values_mut() {
+                        state.adopt_initial_task(snapshot.id);
+                    }
                     self.memory.reset(snapshot.id, snapshot.project.clone());
                     self.memory_loading = true;
                     self.memory_request = Some(store::MemoryRequest {

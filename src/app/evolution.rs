@@ -1237,6 +1237,32 @@ mod tests {
     }
 
     #[test]
+    fn first_saved_identity_preserves_requested_capability_and_explicit_readonly_policy() {
+        for policy in [None, Some(Operation::Plan), Some(Operation::Review)] {
+            let mut app = App::new("/workspace".into(), 120, 36);
+            app.storage = StorageState::Saved;
+            app.planning.preference_event(Ok(None));
+            app.planning.agent = Agent::Compatible;
+            if let Some(policy) = policy {
+                app.planning.set_operation(policy);
+            }
+            let text = "Generate three project files; propose their paths and preserve literal CRLF/Unicode and an empty file.";
+            app.input = text.into();
+            app.submit_request();
+            let mut snapshot = app.snapshot("/workspace");
+            snapshot.id = 7;
+            app.store_event(store::Event::Saved(snapshot.clone()));
+            assert!(app.planning.command("new", true, &snapshot, &[], None));
+            let Some(Request::Preview(input)) = app.planning.pending.take() else {
+                panic!("missing first saved request preparation");
+            };
+            assert_eq!(input.task.id, 7);
+            assert_eq!(input.task.request_text(), text);
+            assert_eq!(input.operation, policy.unwrap_or(Operation::Implement));
+        }
+    }
+
+    #[test]
     fn mixed_discovery_edit_freezes_writing_after_automatic_readonly_request() {
         let mut app = app();
         app.input = "Read the project source files.".into();

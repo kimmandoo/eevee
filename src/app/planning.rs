@@ -404,6 +404,13 @@ impl State {
         self.unknown_effects
     }
 
+    /// A first save names this same local task; it is not a task switch.
+    pub(super) fn adopt_initial_task(&mut self, task_id: i64) {
+        if self.task == 0 {
+            self.task = task_id;
+        }
+    }
+
     pub fn reset(&mut self, task_id: i64) {
         if !self.busy() && !self.journal_failed() && !self.unknown_effects() {
             self.clear_pairing();
