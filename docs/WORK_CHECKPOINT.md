@@ -1,5 +1,12 @@
 # Work Checkpoint
 
+## 2026-10-26 — README screenshot and v0.1.32 release (in progress)
+
+- **Request:** Add a real screenshot to the README and publish a release.
+- **Screenshot:** `docs/assets/screenshot.png` (2383×1564, rendered from the real release binary's colored pyte screen at 120×36: auto-approve on, scripted loopback Chat Completions model `local-model` writes `snake.py`, runs `python3 snake.py --self-test`, reports). Captioned as a scripted local model, not a live provider. Generator scripts were session-only (scratchpad `probe/shot.py`, `probe/render_png.py`).
+- **Release plan:** Cargo/tag `0.1.32` with existing `## 0.1.32` changelog notes; push this commit, require its native run (Check + five targets) to pass, then push annotated tag `v0.1.32` so `release.yml` qualifies and publishes the exact artifacts.
+- **Active task / exact next action:** Confirm native run success for this commit, tag and push `v0.1.32`, confirm the release workflow and public assets, then record the outcome here.
+
 ## 2026-10-26 — Open-source style README
 
 - **Request:** After CI is green, rewrite the README to feel like an open-source project.

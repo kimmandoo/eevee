@@ -23,6 +23,12 @@
 
 ---
 
+<p align="center">
+  <img src="docs/assets/screenshot.png" width="900" alt="ev at 120×36: the agent created snake.py, ran its self-test under auto-approve, and reported the result; the partner panel shows an Eevee evolving into Jolteon">
+  <br>
+  <sub>The real <code>ev</code> binary at 120×36 with <code>/auto-approve</code> on, driven by a scripted local model: it writes <code>snake.py</code>, runs its self-test and reports back.</sub>
+</p>
+
 `ev` is a single native binary that turns any folder into an agent workspace. Type a request; the model you connected reads your project, writes files, runs builds and tests, reads the real errors and fixes them — the same loop you know from Codex or Claude Code, with any provider and with every effect shown to you first.
 
 It also happens to come with a companion: a party of Eevee forms that evolve with the kind of work you do. Purely cosmetic — every form can code.
@@ -72,11 +78,11 @@ Pin a version:
 
 ```sh
 curl -fsSLo install-ev.sh https://github.com/kimmandoo/eevee/releases/latest/download/install.sh
-sh ./install-ev.sh --version v0.1.31
+sh ./install-ev.sh --version v0.1.32
 ```
 
 ```powershell
-& ([scriptblock]::Create((irm https://github.com/kimmandoo/eevee/releases/latest/download/install.ps1))) -Version v0.1.31
+& ([scriptblock]::Create((irm https://github.com/kimmandoo/eevee/releases/latest/download/install.ps1))) -Version v0.1.32
 ```
 
 Offline: download the matching archive, `SHA256SUMS` and installer from one release, then:
