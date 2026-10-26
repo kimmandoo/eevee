@@ -610,6 +610,16 @@ impl State {
         self.operation_explicit.then_some(self.operation)
     }
 
+    /// A planning/diagnosis exchange is under way in the current Plan session.
+    pub(in crate::app) fn plan_conversation(&self) -> bool {
+        self.operation == Operation::Plan
+            && (!self.submitted_request.is_empty()
+                || self.thread_id.is_some()
+                || self
+                    .native_histories
+                    .contains_key(&(self.agent, Operation::Plan)))
+    }
+
     pub(in crate::app) fn has_completed_plan(&self) -> bool {
         let Some(owner) = &self.front else {
             return false;

@@ -2,6 +2,8 @@
 
 ## 2026-10-26
 
+- fix(forms): gave ordinary unclassified requests (for example `make a snake game in python`, `implement dark mode`, `다크모드 구현해줘`, `README에 설치 방법 써줘`) the Implement tool set like other coding agents instead of silently staying read-only, so the model can create and edit project files after exact approval; explicit Plan/Review, read-only wording and ongoing planning conversations still restrict it.
+- fix(forms): treated elliptical follow-ups such as `fix it`, `do it`, `고쳐줘`, `수정해줘`, `그렇게 해줘` as implementation requests carrying the completed plan/diagnosis turn.
 - feat(execution): showed only the exact command, source-coverage caveat and a readable expiry in command approvals by default; request/run IDs, executable hashes/identity, raw timestamps, quotas and enforcement prose moved behind `d`, which toggles without changing the neutral choice.
 - fix(execution): wrapped long approval commands at word boundaries over up to four summary rows (using the choices row when it fits on one line and the optional editing/hint row) instead of clipping them to one row at 60 columns, while keeping every effect disclosure visible.
 - feat(execution): opened agent-requested command approvals automatically for the current owner, like file reviews, instead of waiting for `/approvals`; arriving typing still cannot answer and Enter only engages the review.

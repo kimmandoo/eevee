@@ -1,5 +1,14 @@
 # Work Checkpoint
 
+## 2026-10-26 — Codex/Claude Code-like default capability (completed)
+
+- **Request:** The flow must work like Codex/Claude Code: input → connected provider model acts; no "cannot create files in this project" problems.
+- **Finding:** Capability came from keyword classification (`app/evolution.rs::classify`). A fresh session's operation defaults to Plan, and unclassified requests kept it, so common requests (`make a snake game in python`, `add a login page`, `implement dark mode`, `다크모드 구현해줘`, `README에 설치 방법 써줘`, `의존성 업데이트해줘`, `고쳐줘` after a diagnosis) were dispatched read-only: no write/command tools, so the model reported it could not create files.
+- **Change:** `request_evolution` falls back to Implement when nothing classifies, unless `PlanningState::plan_conversation()` (Plan with a submitted request, thread or native Plan history) is true. `implementation_followup` accepts elliptical act-on-it phrases (EN/KO). Explicit Plan/Review and read-only wording unchanged; per-effect exact approval unchanged.
+- **Changed files:** `src/app/evolution.rs`, `src/app/planning.rs`, `CHANGELOG.md`, `docs/AGENT_COMPATIBILITY.md`, this checkpoint.
+- **Verification:** `cargo clippy --all-targets` clean; `cargo test` 1,677 passed/2 ignored (new `ordinary_coding_requests_get_write_tools_like_other_agents`; one fixed-form expectation changed `Continue.` Plan→Implement on a fresh session). Ad hoc release-binary PTY journeys (scratchpad `probe/vague_request.py`): Chat Completions `make a snake game in python`, Anthropic `다크모드 구현해줘`, Gemini `add a login page` each advertised write tools, showed the auto file review and created `app/main.py` after Allow once. `agent_coding_smoke.py --profile native` passed both journeys. No live provider call.
+- **Active task / next action:** None.
+
 ## 2026-10-26 — Command approval brief/full details and wrapping (completed)
 
 - **Request:** Do both follow-ups: collapse raw identity details in command approvals and show long commands fully at 60 columns.

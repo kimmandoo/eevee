@@ -631,6 +631,32 @@ fn implementation_followup(literal: &str) -> bool {
             | "구현하자"
             | "이대로 구현해줘"
             | "계획대로 구현해줘"
+            // Elliptical "act on what we discussed" requests.
+            | "fix it"
+            | "fix this"
+            | "fix them"
+            | "please fix it"
+            | "do it"
+            | "yes do it"
+            | "yes, do it"
+            | "make it"
+            | "apply it"
+            | "apply the fix"
+            | "apply the changes"
+            | "고쳐줘"
+            | "고쳐 줘"
+            | "고쳐주세요"
+            | "수정해줘"
+            | "수정해 줘"
+            | "수정해주세요"
+            | "적용해줘"
+            | "적용해 줘"
+            | "반영해줘"
+            | "만들어줘"
+            | "만들어 줘"
+            | "그렇게 해줘"
+            | "응 그렇게 해줘"
+            | "그대로 해줘"
     )
 }
 
@@ -797,18 +823,30 @@ impl App {
 
     /// Shared by inspection and ordinary Submit; does not mutate or prepare work.
     fn request_evolution(&self) -> Option<Selection> {
-        let mut choice = classify(&self.input).or_else(|| {
-            (self.planning.operation == Operation::Plan
-                && proceed_with_plan(&self.input)
-                && classify(&self.planning.submitted_request)
-                    .is_some_and(|prior| prior.reason == Message::CoreEvolutionPlanning)
-                && self.planning.has_completed_plan())
-            .then_some(Selection {
-                form: 3,
-                operation: Operation::Implement,
-                reason: Message::CoreEvolutionImplementation,
+        let mut choice = classify(&self.input)
+            .or_else(|| {
+                (self.planning.operation == Operation::Plan
+                    && proceed_with_plan(&self.input)
+                    && classify(&self.planning.submitted_request)
+                        .is_some_and(|prior| prior.reason == Message::CoreEvolutionPlanning)
+                    && self.planning.has_completed_plan())
+                .then_some(Selection {
+                    form: 3,
+                    operation: Operation::Implement,
+                    reason: Message::CoreEvolutionImplementation,
+                })
             })
-        })?;
+            .or_else(|| {
+                // Like other coding agents, an unclassified request gets the full
+                // tool set: every file effect and command still needs exact
+                // one-shot approval. An ongoing planning/diagnosis conversation
+                // keeps its session for ambiguous follow-ups instead.
+                (!self.planning.plan_conversation()).then_some(Selection {
+                    form: self.form(),
+                    operation: Operation::Implement,
+                    reason: Message::CoreEvolutionImplementation,
+                })
+            })?;
         if !self.lead.auto_form {
             // Pin appearance, never the tools needed for the current request.
             choice.form = self.form();
@@ -1141,6 +1179,53 @@ mod tests {
                 assert!(input.validate_review().is_ok());
                 assert!(!app.execution.busy());
             }
+        }
+    }
+
+    #[test]
+    fn ordinary_coding_requests_get_write_tools_like_other_agents() {
+        for text in [
+            "make a snake game in python",
+            "add a login page",
+            "implement dark mode",
+            "다크모드 구현해줘",
+            "README에 설치 방법 써줘",
+            "의존성 업데이트해줘",
+            "hello world 출력하는 파이썬 파일",
+            "뭐 더하면 좋을까?",
+        ] {
+            let mut app = app();
+            app.input = text.into();
+            app.submit_request();
+            assert_eq!(app.planning.operation, Operation::Implement, "{text}");
+            let snapshot = app.snapshot("/workspace");
+            app.planning.command("new", true, &snapshot, &[], None);
+            let Some(Request::Preview(input)) = app.planning.pending.take() else {
+                panic!("missing preparation: {text}");
+            };
+            assert!(providers::writing_required(input.operation), "{text}");
+        }
+        // Explicit read-only intent and a Plan restriction still win.
+        for (text, restrict) in [("이 코드 설명해줘, 읽기만", false), ("make a game", true)] {
+            let mut app = app();
+            if restrict {
+                app.planning.set_operation(Operation::Plan);
+            }
+            app.input = text.into();
+            app.submit_request();
+            assert_eq!(app.planning.operation, Operation::Plan, "{text}");
+        }
+        // After a diagnosis, an elliptical fix request gains write tools.
+        for followup in ["고쳐줘", "fix it", "응 그렇게 해줘"] {
+            let mut app = app();
+            app.input = "Analyze the error.".into();
+            app.submit_request();
+            assert_eq!(app.planning.operation, Operation::Plan);
+            app.pending_request = None;
+            app.planning.thread_id = Some("diagnosis-thread".into());
+            app.input = followup.into();
+            app.submit_request();
+            assert_eq!(app.planning.operation, Operation::Implement, "{followup}");
         }
     }
 
@@ -1686,7 +1771,8 @@ mod tests {
                     "Diagnose the failure and repair the code.",
                     Operation::Implement,
                 ),
-                ("Continue.", Operation::Plan),
+                // A fresh unclassified request has tools, like other agents.
+                ("Continue.", Operation::Implement),
                 ("Read only.", Operation::Plan),
             ] {
                 let mut app = app();
