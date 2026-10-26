@@ -1,11 +1,13 @@
 # Work Checkpoint
 
-## 2026-10-26 — README screenshot and v0.1.32 release (in progress)
+## 2026-10-26 — README screenshot and v0.1.32 release (completed)
 
 - **Request:** Add a real screenshot to the README and publish a release.
-- **Screenshot:** `docs/assets/screenshot.png` (2383×1564, rendered from the real release binary's colored pyte screen at 120×36: auto-approve on, scripted loopback Chat Completions model `local-model` writes `snake.py`, runs `python3 snake.py --self-test`, reports). Captioned as a scripted local model, not a live provider. Generator scripts were session-only (scratchpad `probe/shot.py`, `probe/render_png.py`).
-- **Release plan:** Cargo/tag `0.1.32` with existing `## 0.1.32` changelog notes; push this commit, require its native run (Check + five targets) to pass, then push annotated tag `v0.1.32` so `release.yml` qualifies and publishes the exact artifacts.
-- **Active task / exact next action:** Confirm native run success for this commit, tag and push `v0.1.32`, confirm the release workflow and public assets, then record the outcome here.
+- **Screenshot:** `docs/assets/screenshot.png` (2383×1564, rendered from the real release binary's colored pyte screen at 120×36: auto-approve on, scripted loopback Chat Completions model `local-model` writes `snake.py`, runs `python3 snake.py --self-test`, reports). Captioned as a scripted local model, not a live provider. Generator scripts were session-only.
+- **Qualification:** Native run `40298177253` on `24083ee` passed Check and all five targets. Annotated tag `v0.1.32` → `24083ee`.
+- **Publication:** Release workflow run `40300882851` succeeded; [v0.1.32](https://github.com/kimmandoo/eevee/releases/tag/v0.1.32) is public, not draft/prerelease, marked latest, with five native archives, `install.sh`, `install.ps1` and `SHA256SUMS`.
+- **Public checks:** Downloaded `ev-linux-x86_64.tar.gz` matched `SHA256SUMS` and printed `ev 0.1.32`; the `releases/latest` `install.sh` into an isolated HOME installed and ran `ev 0.1.32` without editing profiles. macOS/Windows packages were verified only by CI; no full public installation/terminal acceptance matrix (as recorded for v0.1.31) was rerun, and no live provider call was made.
+- **Active task / next action:** None.
 
 ## 2026-10-26 — Open-source style README
 
