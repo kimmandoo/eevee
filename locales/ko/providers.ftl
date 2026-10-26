@@ -667,6 +667,16 @@ providers-execution-stop-s-command-deny-it-or-cancel = { $owner }{ "의 명령 �
 
 providers-execution-wants-to-run = { $owner }{ "의 실행 요청: " }{ $command }
 
+providers-execution-directory = { "디렉터리: " }{ $path }
+
+providers-execution-executable = { "실행 파일: " }{ $path }
+
+providers-execution-owner-editing = { $owner }{ " 편집 중" }
+
+providers-execution-auto-review-actions =
+    { "명령 실행 승인 필요 · Enter 검토 (승인 아님)" }
+    { "검토 후 선택·확인 | Esc 나중에 · 승인 안 됨" }
+
 providers-execution-requested-action-the-final-execution-record-is =
     { "요청: " }{ $action }
     { "최종 실행 기록은 메모리에만 있습니다. 재시작 시 마지막 커밋된 예약/실행은 완료가 아닌 중단으로 표시됩니다. 스풀 바이트가 부분적으로 남을 수 있으며 명령은 재실행하지 않습니다." }

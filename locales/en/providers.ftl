@@ -667,6 +667,16 @@ providers-execution-stop-s-command-deny-it-or-cancel = { "Stop " }{ $owner }{ "'
 
 providers-execution-wants-to-run = { $owner }{ " wants to run: " }{ $command }
 
+providers-execution-directory = { "Directory: " }{ $path }
+
+providers-execution-executable = { "Executable: " }{ $path }
+
+providers-execution-owner-editing = { $owner }{ " is editing" }
+
+providers-execution-auto-review-actions =
+    { "Command approval required · Enter to review (not approve)" }
+    { "Then choose and confirm | Esc later · no approval" }
+
 providers-execution-requested-action-the-final-execution-record-is =
     { "Requested: " }{ $action }
     { "The final execution record is retained only in memory. On restart, the last committed reservation/run will be interrupted, not magically completed. Spool bytes may remain partial; no command will be re-executed." }

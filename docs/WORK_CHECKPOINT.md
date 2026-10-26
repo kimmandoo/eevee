@@ -1,5 +1,15 @@
 # Work Checkpoint
 
+## 2026-10-26 — Agent command approval UX (completed)
+
+- **Request:** Improve poor UX when using the agent.
+- **Method:** Ran the real native coding journey (`scripts/agent_coding_smoke.py --profile native`, EN 120×36 / KO 60×18, real rustc, loopback Chat Completions peer) and inspected captures.
+- **Findings fixed:** (1) Agent-requested command approvals never auto-opened; the owner saw only "Waiting for you" and had to type `/approvals` (file reviews already auto-open). (2) The command line rendered as a JSON array beginning with the full executable path, so even at 120 columns the arguments were clipped. (3) Korean command reviews mixed in English "Directory/Executable/1 of 1/is editing".
+- **Change:** `reconcile_permission_review` now auto-presents `Pending::Command` entries that have an owned provider command callback; `execution::State::auto_presented` makes typing/arrows/`y` inert until Enter engages, Esc defers without reopening. `command_summary` renders shell-quoted argv; `approval_command_summary` drops a repeated absolute program path. New EN/KO messages for those lines. The smoke driver engages an auto-presented review before choosing.
+- **Changed files:** `src/app/cooperation.rs`, `src/app/execution.rs`, `src/app/execution/tests.rs`, `src/app/suggestions/tests.rs`, `src/ui.rs`, `src/ui/execution.rs`, `locales/{en,ko}/providers.ftl`, `scripts/agent_coding_smoke.py`, `CHANGELOG.md`, `docs/DESIGN_RULES.md`, this checkpoint.
+- **Verification:** `cargo clippy --all-targets` clean; `cargo test` 1,675 passed/2 ignored (new `agent_command_review_opens_itself_but_arriving_keys_cannot_answer`; extended summary test). Release-binary `agent_coding_smoke.py --profile native` passed both journeys; typed `/approvals` dropped from 10 to 4 per journey (remaining ones are deliberate defer/deny/cancel steps). Other opt-in smoke drivers that open command reviews were not rerun.
+- **Active task / next action:** None.
+
 ## 2026-10-26 — Smooth live file-generation preview (completed)
 
 - **Request:** Files being generated must appear live in the output with a good experience; it felt too choppy.

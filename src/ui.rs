@@ -659,14 +659,21 @@ pub fn render(
             Overlay::Execution => {
                 let queue = app.approval_position().map(|(position, total)| {
                     format!(
-                        " {position} of {total} / {} ",
-                        cooperation::approval_owner(app)
+                        " {} ",
+                        paint.format(
+                            Template::ProvidersPlanningPositionOfTotal,
+                            &[
+                                ("position", &position.to_string()),
+                                ("total", &total.to_string()),
+                                ("owner", &cooperation::approval_owner(app)),
+                            ],
+                        )
                     )
                 });
                 let editing = app.write_owner().map(|claim| {
-                    format!(
-                        "{} is editing",
-                        store::Attribution::label(Some(&claim.owner))
+                    paint.format(
+                        Template::ProvidersExecutionOwnerEditing,
+                        &[("owner", &store::Attribution::label(Some(&claim.owner)))],
                     )
                 });
                 execution::render(

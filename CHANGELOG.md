@@ -2,6 +2,9 @@
 
 ## 2026-10-26
 
+- feat(execution): opened agent-requested command approvals automatically for the current owner, like file reviews, instead of waiting for `/approvals`; arriving typing still cannot answer and Enter only engages the review.
+- fix(execution): showed approved commands as a readable shell-quoted argv line (for example `cargo test`) without repeating the separately disclosed executable path, so narrow terminals keep the arguments visible.
+- fix(i18n): localized the command approval queue position, directory, executable and editing-owner lines.
 - fix(providers): advanced live file-generation previews at most once per ~33 ms frame whenever new bytes arrive, so unfinished lines keep moving instead of jumping only at newlines or 256-byte steps.
 - fix(providers): requested `eager_input_streaming` for Anthropic Messages tools so file contents stream as they are generated instead of arriving in one buffered burst; the owned tool schema still validates the completed input.
 - fix(providers): accepted OpenAI-compatible Chat Completions tool-call variants (omitted `index`/`type`, null or empty optional fields, repeated whole names, missing call IDs) so file creation, edits and build commands assemble the same exact calls across compatible services, while present non-function types and legacy `function_call` still refuse.

@@ -189,6 +189,9 @@ def command_decision(journey, *, decision='allow', retain_draft=False):
     elif decision == 'deny':
         session.command('deny')
     else:
+        # An automatically presented review must be engaged before choosing.
+        if any(hint in session.display() for hint in ('Enter to review (not approve)', 'Enter 검토 (승인 아님)')):
+            session.send('\r')
         session.send(ESC + '[C' + '\r', settle=False)
 
 

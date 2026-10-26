@@ -1442,3 +1442,131 @@ fn rejected_move_preparation_does_not_attribute_later_manual_command() {
     assert!(state.prepared.is_none());
     assert!(state.confirmation.is_none());
 }
+
+#[test]
+fn agent_command_review_opens_itself_but_arriving_keys_cannot_answer() {
+    use crate::providers::{self, Agent, Operation, Preview, Request};
+    let mut app = crate::app::App::new("/project".into(), 120, 36);
+    app.task_id = 1;
+    let owner = store::Attribution::of(&app.lead);
+    let mut task = store::Snapshot::empty("/project".into());
+    task.id = 1;
+    task.goal = "Build after exact consent".into();
+    task.form = owner.form;
+    task.lead_partner = owner.partner;
+    app.planning = app.planning.new_partner(owner.clone(), 1);
+    app.planning.agent = Agent::OpenAI;
+    app.planning.set_operation(Operation::Implement);
+    app.planning.command("new", true, &task, &[], None);
+    let claim = store::WorkClaim {
+        task_id: 1,
+        owner: owner.clone(),
+        request_id: "provider-writer".into(),
+        writing: true,
+    };
+    app.planning.stage_work(claim.clone());
+    let acquire = app.planning.work_pending.take().unwrap();
+    app.planning.work_event(acquire, Ok(vec![claim.clone()]));
+    assert!(matches!(
+        app.planning.pending.take(),
+        Some(Request::Preview(_))
+    ));
+    app.planning.event(providers::Event::Preview(Preview {
+        comparison_scope: None,
+        arrival: 1,
+        generation: 7,
+        task_id: 1,
+        thread_id: None,
+        destination: None,
+        requires_connection_review: false,
+        trust: Vec::new(),
+        payload: "{}".into(),
+        blockers: Vec::new(),
+    }));
+    assert!(app.planning.dispatch_prepared());
+    app.planning.pending.take();
+    let mut prepared = prepared();
+    prepared.partner = Some(owner);
+    let (reply, _received) = std::sync::mpsc::sync_channel(1);
+    assert!(app.provider_command(
+        app.lead.id,
+        7,
+        1,
+        "/unopened-data".into(),
+        claim,
+        "agent-command".into(),
+        "".into(),
+        prepared.spec.clone(),
+        Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        reply,
+    ));
+    app.execution.pending_spec = None;
+    app.execution.request_id = Some(prepared.request_id.clone());
+    app.execution.prepared = Some(prepared);
+    app.overlay = None;
+
+    // The agent's command opens without /approvals, unengaged and at Stay.
+    app.refresh_approvals();
+    assert_eq!(app.overlay, Some(crate::app::Overlay::Execution));
+    assert!(matches!(
+        app.execution.confirmation,
+        Some(Confirmation::Approval)
+    ));
+    assert!(app.execution.auto_presented);
+    app.execution.confirmation_visible = true;
+    for code in [
+        KeyCode::Char('y'),
+        KeyCode::Right,
+        KeyCode::Tab,
+        KeyCode::Char('a'),
+    ] {
+        app.execution.key(key(code));
+        assert!(!app.execution.affirmative && !app.execution.reserving);
+    }
+    // Enter engages inspection only and leaves the choice at Stay.
+    app.execution.key(key(KeyCode::Enter));
+    assert!(!app.execution.auto_presented && !app.execution.reserving);
+    assert!(app.execution.confirmation.is_some());
+    // Esc defers this identity; reconciliation does not immediately reopen it.
+    app.execution.key(key(KeyCode::Esc));
+    assert!(app.execution.confirmation.is_none());
+    app.overlay = None;
+    app.refresh_approvals();
+    assert_eq!(app.overlay, None);
+    assert!(app.execution.prepared.is_some());
+    // A deliberate reopen is engaged, so an explicit choice confirms.
+    app.command("approvals");
+    assert_eq!(app.overlay, Some(crate::app::Overlay::Execution));
+    assert!(!app.execution.auto_presented);
+    app.execution.confirmation_visible = true;
+    app.execution.key(key(KeyCode::Char('y')));
+    assert!(app.execution.reserving);
+}
+
+#[test]
+fn command_summary_is_a_readable_unambiguous_argv_line() {
+    let spec = runner::CommandSpec::Direct {
+        program: "cargo".into(),
+        args: vec![
+            "test".into(),
+            "--package=eevee".into(),
+            "中文 space".into(),
+            "it's".into(),
+            "".into(),
+            "$(touch x)".into(),
+        ],
+    };
+    assert_eq!(
+        command_summary(&spec),
+        r#"cargo test --package=eevee '中文 space' 'it'\''s' '' '$(touch x)'"#
+    );
+    let mut p = prepared();
+    p.spec = runner::CommandSpec::Direct {
+        program: "/tool path/tool".into(),
+        args: vec!["build".into()],
+    };
+    // The canonical executable line already shows the repeated full path.
+    assert_eq!(approval_command_summary(&p), "tool build");
+    p.executable.path = "/elsewhere/tool".into();
+    assert_eq!(approval_command_summary(&p), "'/tool path/tool' build");
+}

@@ -747,7 +747,6 @@ impl App {
             || self.management.is_some()
             || self.planning.cancelling
             || self.planning.pending.is_some()
-            || !self.planning.required_permission_review()
             || self
                 .planning
                 .owner()
@@ -755,6 +754,7 @@ impl App {
         {
             return false;
         }
+        let file_review = self.planning.required_permission_review();
         let request = self
             .cooperation
             .approvals
@@ -765,11 +765,22 @@ impl App {
                     task,
                     generation,
                     request,
-                } if *partner == self.lead.id
+                } if file_review
+                    && *partner == self.lead.id
                     && *task == self.task_id
                     && self.planning.matches(*generation, *task)
                     && self.planning.focus_prompt(*generation, request)
                     && !self.cooperation.presented_permissions.contains(pending) =>
+                {
+                    Some(pending.clone())
+                }
+                // Agent-requested commands are required tool approvals too;
+                // explicitly typed local commands already open their own review.
+                Pending::Command { partner, task, .. }
+                    if *partner == self.lead.id
+                        && *task == self.task_id
+                        && self.cooperation.command_callbacks.contains_key(partner)
+                        && !self.cooperation.presented_permissions.contains(pending) =>
                 {
                     Some(pending.clone())
                 }
@@ -784,8 +795,12 @@ impl App {
         if self.cooperation.focused.as_ref() != Some(&request) {
             return false;
         }
+        if matches!(request, Pending::Command { .. }) {
+            self.execution.auto_presented = true;
+        } else {
+            self.planning.auto_permission_review = true;
+        }
         self.cooperation.presented_permissions.push(request);
-        self.planning.auto_permission_review = true;
         true
     }
 

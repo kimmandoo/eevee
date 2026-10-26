@@ -146,7 +146,7 @@ fn ordered_rules_cover_goal_criteria_failure_diff_pass_and_no_match() {
             .as_ref()
             .unwrap()
             .reason
-            .contains("[\"cargo\",\"test\"]")
+            .contains("Local cargo test failed")
     );
     assert!(app.suggestion.as_ref().unwrap().reason.contains("exit 17"));
     app.execution.history.clear();

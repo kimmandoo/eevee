@@ -169,6 +169,9 @@ enum RepoPurpose {
 pub struct State {
     pub task_id: i64,
     pub shown: bool,
+    /// Safely auto-presented agent command review; arriving keys cannot answer
+    /// until Enter deliberately engages it.
+    pub auto_presented: bool,
     pub view: View,
     pub prepared: Option<runner::Prepared>,
     pub active: Option<runner::RunRecord>,
@@ -241,6 +244,7 @@ impl Default for State {
         Self {
             task_id: 0,
             shown: false,
+            auto_presented: false,
             view: View::Output,
             prepared: None,
             active: None,
@@ -546,6 +550,7 @@ impl State {
             return false;
         };
         self.approval_review = Some(prepared);
+        self.auto_presented = false;
         self.confirmation = Some(Confirmation::Approval);
         self.confirmation_visible = false;
         self.affirmative = false;
@@ -572,6 +577,7 @@ impl State {
         }
         self.confirmation = None;
         self.approval_review = None;
+        self.auto_presented = false;
         self.confirmation_visible = false;
         self.affirmative = false;
         self.shown = false;
@@ -1692,6 +1698,22 @@ impl State {
             if key.kind != KeyEventKind::Press {
                 return None;
             }
+            if self.auto_presented && matches!(self.confirmation, Some(Confirmation::Approval)) {
+                match key.code {
+                    // Engagement only inspects; the choice still starts at Stay.
+                    KeyCode::Enter if key.modifiers.is_empty() => {
+                        self.auto_presented = false;
+                        self.affirmative = false;
+                        return None;
+                    }
+                    KeyCode::Esc
+                    | KeyCode::Up
+                    | KeyCode::Down
+                    | KeyCode::PageUp
+                    | KeyCode::PageDown => {}
+                    _ => return None,
+                }
+            }
             if key.modifiers.is_empty()
                 && self.confirmation_visible
                 && self.shown
@@ -2180,14 +2202,50 @@ pub fn safe_text(text: &str) -> String {
 /// direct commands, or the JSON-quoted text for an explicit shell.
 pub fn command_summary(spec: &runner::CommandSpec) -> String {
     match spec {
-        runner::CommandSpec::Direct { program, args } => {
-            serde_json::to_string(&std::iter::once(program).chain(args).collect::<Vec<_>>())
-                .unwrap_or_else(|_| "[unavailable command]".into())
-        }
+        // A readable, unambiguous argv line; exact argv stays in the details.
+        runner::CommandSpec::Direct { program, args } => std::iter::once(program)
+            .chain(args)
+            .map(|word| quoted_word(word))
+            .collect::<Vec<_>>()
+            .join(" "),
         runner::CommandSpec::Shell { text, dialect, .. } => format!(
             "{dialect:?} shell {}",
             serde_json::to_string(text).unwrap_or_else(|_| "[unavailable command]".into())
         ),
+    }
+}
+
+/// The full executable path is disclosed on its own line; avoid repeating it
+/// so the requested arguments stay visible in narrow approval summaries.
+pub fn approval_command_summary(prepared: &runner::Prepared) -> String {
+    match &prepared.spec {
+        runner::CommandSpec::Direct { program, args }
+            if Path::new(program).is_absolute()
+                && Path::new(program) == prepared.executable.path =>
+        {
+            let name = Path::new(program).file_name().map_or_else(
+                || program.clone(),
+                |name| name.to_string_lossy().into_owned(),
+            );
+            command_summary(&runner::CommandSpec::Direct {
+                program: name,
+                args: args.clone(),
+            })
+        }
+        spec => command_summary(spec),
+    }
+}
+
+/// POSIX-style single quoting only when a word is not plainly safe to read.
+fn quoted_word(word: &str) -> String {
+    let plain = !word.is_empty()
+        && word
+            .chars()
+            .all(|c| c.is_alphanumeric() || "_-./=:,+@%".contains(c));
+    if plain {
+        word.to_owned()
+    } else {
+        format!("'{}'", word.replace('\'', "'\\''"))
     }
 }
 

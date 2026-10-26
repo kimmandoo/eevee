@@ -292,11 +292,17 @@ fn confirmation(
                         Template::ProvidersExecutionWantsToRun,
                         &[
                             ("owner", &(execution::requester(prepared.partner.as_ref()))),
-                            ("command", &(execution::command_summary(&prepared.spec))),
+                            ("command", &(execution::approval_command_summary(prepared))),
                         ],
                     ),
-                    format!("Directory: {}", prepared.cwd.display()),
-                    format!("Executable: {}", prepared.executable.path.display()),
+                    paint.format(
+                        Template::ProvidersExecutionDirectory,
+                        &[("path", &prepared.cwd.display().to_string())],
+                    ),
+                    paint.format(
+                        Template::ProvidersExecutionExecutable,
+                        &[("path", &prepared.executable.path.display().to_string())],
+                    ),
                     paint
                         .hint(Message::ProvidersExecutionOneLocalCommandMayWriteFilesAnd)
                         .into(),
@@ -400,7 +406,13 @@ fn confirmation(
     text(
         frame,
         row(area, area.height.saturating_sub(2), 2),
-        paint.hint(Message::ProvidersExecutionYConfirmNStayTabChooseEnter),
+        paint.hint(
+            if state.auto_presented && matches!(confirm, Confirmation::Approval) {
+                Message::ProvidersExecutionAutoReviewActions
+            } else {
+                Message::ProvidersExecutionYConfirmNStayTabChooseEnter
+            },
+        ),
         paint.accent,
     );
 }
@@ -668,7 +680,7 @@ mod tests {
             match state.confirmation {
                 Some(Confirmation::Approval) => {
                     assert!(
-                        text.contains(r#"Bolt (Jolteon) wants to run: ["cargo","test"]"#),
+                        text.contains("Bolt (Jolteon) wants to run: cargo test"),
                         "{text}"
                     );
                     assert!(text.contains("Approve this exact command"), "{text}");
