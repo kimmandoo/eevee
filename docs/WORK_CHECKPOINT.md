@@ -1,12 +1,20 @@
 # Work Checkpoint
 
+## 2026-10-26 — Open-source style README
+
+- **Request:** After CI is green, rewrite the README to feel like an open-source project.
+- **Change:** README restructured for GitHub visitors: badges (Native CI, release, license, Rust, platforms), one-paragraph pitch, Highlights, Install (+ pinned/offline details), Quick start with everyday controls, Providers, Safety model (callouts for backup and no-sandbox), The party, Build from source, Contributing (bug reports, commit format, binding design rules) and unchanged license/attribution text. Wave-by-wave release history and internal acceptance evidence were removed from the README; they remain in CHANGELOG, docs and this checkpoint.
+- **Verification:** Relative links resolve; referenced commands (`/role-plan`, `/approvals`, `/chat-new`, `/reset`, `/auto-approve`, `ev --version`) exist in the current binary/source. No code change.
+- **Active task / next action:** None.
+
 ## 2026-10-26 — Native CI repair for alias pre-filter and Windows path test
 
 - **Request:** Fix CI errors.
 - **Evidence:** Run `40291871944` (`15ffc18`): Check and Linux passed; macOS arm64/x86_64 failed 3 alias tests; Windows failed 2 alias tests plus `command_summary_is_a_readable_unambiguous_argv_line` (non-absolute `/tool path/tool` on Windows). Annotations read through the public check-runs API.
 - **Change:** `src/providers/writes.rs` `alias_candidates` (resolved-identity/folded keys; prefix pairs plus differently spelled equal prefixes) used by `verify_name_bindings`; `Directory::object_key` on POSIX/Windows; new unit test `alias_candidates_cover_every_pair_the_native_walk_can_reject`; platform-absolute program in the summary test.
 - **Verification:** `cargo fmt`, `cargo clippy --all-targets` clean; `cargo test` 1,680 passed/2 ignored on Linux; `cargo check --tests --target x86_64-pc-windows-gnu` compiled (pre-existing Windows-only unused warnings). macOS/Windows execution only via CI after push.
-- **Active task / next action:** Confirm the pushed commit's native run passes Check and all five targets; if not, read its annotations and repair.
+- **CI result:** Run `40293562544` on `2a57ade` passed Check and all five native targets (macOS arm64/x86_64, Linux x86_64/arm64, Windows x86_64).
+- **Active task / next action:** None.
 
 ## 2026-10-26 — English-only UX pushed; release deferred
 
