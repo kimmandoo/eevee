@@ -1,5 +1,14 @@
 # Work Checkpoint
 
+## 2026-10-26 — Smooth live file-generation preview (completed)
+
+- **Request:** Files being generated must appear live in the output with a good experience; it felt too choppy.
+- **Finding:** Native previews (`FilePreview` in `src/providers/direct/tools.rs`) published only on a decoded newline or every 256 wire bytes, so an unfinished line stayed frozen and then jumped. Anthropic Messages additionally buffers whole tool inputs by default, so its file content arrived in one burst. The UI loop already drains at 30 ms and coalesces same-item events.
+- **Change:** Previews also publish when new bytes arrived and ≥33 ms passed since the last frame (no repeat without new bytes). Messages tool declarations carry `eager_input_streaming: true`. Credential-safe redaction still withholds the trailing unfinished word.
+- **Changed files:** `src/providers/direct/tools.rs`, `src/providers/direct/tools/tests.rs`, `CHANGELOG.md`, `docs/AGENT_COMPATIBILITY.md`, `docs/DESIGN_RULES.md`, this checkpoint.
+- **Verification:** `cargo fmt`; `cargo clippy --all-targets` clean; `cargo test` 1,673 passed/2 ignored, including new `unfinished_file_lines_advance_each_frame_without_waiting_for_a_newline` and the eager-streaming advertisement assertion. No live provider or interactive terminal capture was run.
+- **Active task / next action:** None. Optional: actual terminal capture against a slow local SSE fixture to tune the 33 ms interval.
+
 ## 2026-10-26 — Provider-independent native tool parsing (completed)
 
 - **Request:** Make agent responses, file creation, code edits and builds work regardless of provider.

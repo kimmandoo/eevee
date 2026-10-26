@@ -104,6 +104,12 @@ fn advertisements_are_exact_native_function_declarations() {
         if matches!(protocol, Protocol::Responses | Protocol::Codex) {
             assert_eq!(body["include"], json!(["reasoning.encrypted_content"]));
         }
+        assert_eq!(
+            declaration
+                .get("eager_input_streaming")
+                .and_then(Value::as_bool),
+            (protocol == Protocol::Messages).then_some(true)
+        );
     }
 }
 
@@ -1133,4 +1139,28 @@ fn gemini_partless_finish_and_argumentless_calls_are_tolerated() {
     let decoded = calls.finish(true).unwrap();
     assert_eq!(decoded.len(), 1);
     assert_eq!(decoded[0].tool.kind().name(), "eevee_artifact_list");
+}
+
+#[test]
+fn unfinished_file_lines_advance_each_frame_without_waiting_for_a_newline() {
+    let mut preview = FilePreview::new();
+    let mut wire = String::from(r#"{"path":"src/main.rs","content":"fn main() { "#);
+    preview.feed(TOOL_NAME, &wire, false);
+    let first = preview.snapshot().unwrap().1;
+    assert!(first.contains("fn main() {"));
+    // A same-frame token is coalesced rather than rendered immediately.
+    wire.push_str("let ");
+    preview.feed(TOOL_NAME, &wire, false);
+    assert!(preview.snapshot().is_none());
+    // Once a frame has elapsed, the unfinished line moves without a newline.
+    preview.published_at = Some(Instant::now() - PREVIEW_INTERVAL);
+    wire.push_str("value ");
+    preview.feed(TOOL_NAME, &wire, false);
+    let (phase, text) = preview.snapshot().unwrap();
+    assert_eq!(phase, FilePhase::Generating);
+    assert!(text.contains("fn main() { let value"));
+    // No new bytes means no repeated frame.
+    preview.published_at = Some(Instant::now() - PREVIEW_INTERVAL);
+    preview.feed(TOOL_NAME, &wire, false);
+    assert!(preview.snapshot().is_none());
 }

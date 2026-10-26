@@ -2,6 +2,7 @@
 use std::collections::{BTreeMap, HashSet};
 #[cfg(test)]
 use std::path::PathBuf;
+use std::time::{Duration, Instant};
 
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -15,6 +16,8 @@ use crate::providers::{FilePhase, file_preview};
 const CALL_LIMIT: usize = 16;
 const ID_LIMIT: usize = 256;
 const NAME_LIMIT: usize = 128;
+// About one terminal frame: partial lines keep moving without rendering every token.
+const PREVIEW_INTERVAL: Duration = Duration::from_millis(33);
 pub(super) const PATH_LIMIT: usize = 4096;
 // JSON may escape every source byte as a six-byte Unicode escape.
 const ARGUMENT_LIMIT: usize = 6 * (2 * MAX_BYTES + PATH_LIMIT) + 256;
@@ -46,7 +49,9 @@ pub(super) fn advertise_selected(
             json!({"type":"function","function":entry})
         }).collect()),
         Protocol::Messages => Value::Array(declarations.into_iter().map(|entry| {
-            json!({"name":entry["name"],"description":entry["description"],"input_schema":entry["parameters"]})
+            // Without eager streaming, Messages buffers whole tool inputs and file
+            // previews arrive in one burst; the owned schema still validates them.
+            json!({"name":entry["name"],"description":entry["description"],"input_schema":entry["parameters"],"eager_input_streaming":true})
         }).collect()),
         Protocol::Gemini => json!([{"functionDeclarations":declarations.into_iter().map(|entry| {
             json!({"name":entry["name"],"description":entry["description"],"parametersJsonSchema":entry["parameters"]})
@@ -86,6 +91,7 @@ struct FilePreview {
     checked_complete: bool,
     ready: bool,
     published_bytes: usize,
+    published_at: Option<Instant>,
     published: Option<(FilePhase, String)>,
 }
 impl FilePreview {
@@ -97,6 +103,7 @@ impl FilePreview {
             checked_complete: false,
             ready: true,
             published_bytes: 0,
+            published_at: None,
             published: None,
         }
     }
@@ -113,7 +120,12 @@ impl FilePreview {
             || arguments.len().saturating_sub(self.published_bytes) >= 256
             // Decoded boundaries include split escapes and Unicode newlines.
             // A useful completed line must not wait for another wire frame.
-            || self.stream.line_revision() != lines;
+            || self.stream.line_revision() != lines
+            // Slow token streams still advance the unfinished line every frame.
+            || (!delta.is_empty()
+                && self
+                    .published_at
+                    .is_none_or(|at| at.elapsed() >= PREVIEW_INTERVAL));
         self.seen = arguments.len();
         if complete && !self.checked_complete {
             self.checked_complete = true;
@@ -130,6 +142,7 @@ impl FilePreview {
         }
         self.ready = false;
         self.published_bytes = self.seen;
+        self.published_at = Some(Instant::now());
         let text = self.stream.text(self.received)?;
         let phase = if self.received {
             FilePhase::Received

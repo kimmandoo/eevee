@@ -2,6 +2,8 @@
 
 ## 2026-10-26
 
+- fix(providers): advanced live file-generation previews at most once per ~33 ms frame whenever new bytes arrive, so unfinished lines keep moving instead of jumping only at newlines or 256-byte steps.
+- fix(providers): requested `eager_input_streaming` for Anthropic Messages tools so file contents stream as they are generated instead of arriving in one buffered burst; the owned tool schema still validates the completed input.
 - fix(providers): accepted OpenAI-compatible Chat Completions tool-call variants (omitted `index`/`type`, null or empty optional fields, repeated whole names, missing call IDs) so file creation, edits and build commands assemble the same exact calls across compatible services, while present non-function types and legacy `function_call` still refuse.
 - fix(providers): echoed request-local `reasoning_content` and per-call `extra_content` (for example Gemini thought signatures) in Chat Completions tool continuations, as DeepSeek/Kimi thinking and Gemini OpenAI-compatible endpoints require; neither is retained in conversation history.
 - fix(providers): accepted native Gemini finishing candidates without `parts` and argumentless `functionCall` objects instead of failing the whole response.
