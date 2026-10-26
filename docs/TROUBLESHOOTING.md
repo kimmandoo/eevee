@@ -1,5 +1,12 @@
 # Troubleshooting
 
+### [2026-10-26] Public native CI failures lacked accessible assertion details
+
+- **Context / Symptom:** Native run40288713516 passed Check/Linux but failed Rust tests on macOS/Windows. Public check annotations exposed only exit101; raw job-log API returned403, and linked web step logs were unavailable without authentication.
+- **Root Cause:** Repository SSH push access does not authorize GitHub Actions log APIs. The previous plain Cargo step did not include assertion details in public check annotations.
+- **Solution:** Kept the exact locked/all-target Cargo invocation and original exit status, while emitting only a bounded escaped failure section as a check annotation. An actual isolated Cargo fixture verified failure exit101, percent/newline escaping, and passing exit0 without error annotations. No release gate was waived and no credential files were inspected.
+- **Prevention / Reference:** Full console output remains in the normal job log; bounded annotations make native-only failures diagnosable through the ordinary public Checks API.
+
 ### [2026-10-26] Context smoke attempted connection setup before committed-input readiness
 
 - **Context / Symptom:** The fixture waited for an API-key editor, but the retained frame explicitly refused setup with “Finish or retry task/context/journal saves and active work before connection setup.”

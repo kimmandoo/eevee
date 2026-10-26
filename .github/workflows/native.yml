@@ -90,7 +90,22 @@ jobs:
           key: ${{ matrix.target }}-cargo-about-0.9.2
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Test locked dependencies
-        run: cargo test --locked --all-targets
+        shell: python
+        run: |
+          import subprocess
+          import sys
+
+          result = subprocess.run(
+              ["cargo", "test", "--locked", "--all-targets"],
+              stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+              encoding="utf-8", errors="replace",
+          )
+          print(result.stdout, end="")
+          if result.returncode:
+              details = result.stdout.partition("\nfailures:\n")[2] or result.stdout
+              details = details[-12000:].replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+              print("::error title=Native Rust test failure::" + details)
+          sys.exit(result.returncode)
       - name: Build native release
         run: cargo build --release --locked
       - name: Generate native dependency notices
