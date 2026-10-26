@@ -172,6 +172,9 @@ pub struct State {
     /// Safely auto-presented agent command review; arriving keys cannot answer
     /// until Enter deliberately engages it.
     pub auto_presented: bool,
+    /// The approval body shows the exact command by default; identities,
+    /// quotas and enforcement details stay one `d` away.
+    pub approval_full: bool,
     pub view: View,
     pub prepared: Option<runner::Prepared>,
     pub active: Option<runner::RunRecord>,
@@ -245,6 +248,7 @@ impl Default for State {
             task_id: 0,
             shown: false,
             auto_presented: false,
+            approval_full: false,
             view: View::Output,
             prepared: None,
             active: None,
@@ -551,6 +555,7 @@ impl State {
         };
         self.approval_review = Some(prepared);
         self.auto_presented = false;
+        self.approval_full = false;
         self.confirmation = Some(Confirmation::Approval);
         self.confirmation_visible = false;
         self.affirmative = false;
@@ -1710,9 +1715,19 @@ impl State {
                     | KeyCode::Up
                     | KeyCode::Down
                     | KeyCode::PageUp
-                    | KeyCode::PageDown => {}
+                    | KeyCode::PageDown
+                    | KeyCode::Char('d') => {}
                     _ => return None,
                 }
+            }
+            if key.code == KeyCode::Char('d')
+                && key.modifiers.is_empty()
+                && matches!(self.confirmation, Some(Confirmation::Approval))
+            {
+                // Inspection only; the selected choice is unchanged.
+                self.approval_full = !self.approval_full;
+                self.detail_scroll = 0;
+                return None;
             }
             if key.modifiers.is_empty()
                 && self.confirmation_visible
@@ -2269,7 +2284,19 @@ pub fn approval_details(p: &runner::Prepared, capacity: u64) -> String {
         p.prepared_at_ms,
         p.expires_at_ms
     );
-    match &p.spec {
+    text.push_str(&exact_command_lines(&p.spec));
+    text.push_str(&format!("\nPermission duration: ONE command; no reusable grant or automatic retry. Runtime duration: until exit or deliberate cancellation; no promised completion time.\nScope: arbitrary filesystem/network effects UNKNOWN. Not read-only, not sandboxed.\nEnforcement: Eevee dispatch checks + {} cancellation ownership before user execution. Escaped POSIX sessions/external effects are not contained.\nNull stdin; no interactive-shell inheritance.\nPrivate output capacity: {} bytes, committed under local quota BEFORE dispatch. Sanitized/redacted best-effort capture; full capture/queues drain and discard with explicit partial-evidence notices.\nBefore source identity: {:?}\n", if cfg!(windows) { "Windows kill-on-close Job" } else { "POSIX process group" }, capacity.clamp(1024, 16 * 1024 * 1024), p.before));
+    text.push_str("Storage additionally reserves 256 KiB of bounded journal/metadata headroom; shared quota may refuse the request before any execution.\n");
+    text.push_str("Environment boundary: inherits Eevee's current process environment; values are not reviewed, frozen or sanitized and may affect child execution. Model cannot supply an environment overlay. Explicit shells may interpret startup/configuration behavior; this is not an OS sandbox.\n");
+    if source_coverage_partial(p) {
+        text.push_str("Source coverage UNKNOWN/PARTIAL: this approval permits execution without complete stable source identity (including plain non-Git folders). Known source identities are rechecked; unknown coverage is not invented. An exit code cannot establish fresh source verification for unavailable coverage.\n");
+    }
+    text
+}
+/// Exact, JSON-escaped route/program/argv: what the one-shot approval runs.
+pub fn exact_command_lines(spec: &runner::CommandSpec) -> String {
+    let mut text = String::new();
+    match spec {
         runner::CommandSpec::Direct { program, args } => {
             text.push_str("Route: direct argv; no implicit shell\n");
             text.push_str(&format!("program = {}\n", serde_json::to_string(program).unwrap()));
@@ -2277,14 +2304,14 @@ pub fn approval_details(p: &runner::Prepared, capacity: u64) -> String {
         }
         runner::CommandSpec::Shell { executable, dialect, text: shell } => text.push_str(&format!("Route: explicit shell {:?}\nShell executable = {}\nExact shell text (JSON escaped) = {}\n", dialect, serde_json::to_string(executable).unwrap(), serde_json::to_string(shell).unwrap())),
     }
-    text.push_str(&format!("\nPermission duration: ONE command; no reusable grant or automatic retry. Runtime duration: until exit or deliberate cancellation; no promised completion time.\nScope: arbitrary filesystem/network effects UNKNOWN. Not read-only, not sandboxed.\nEnforcement: Eevee dispatch checks + {} cancellation ownership before user execution. Escaped POSIX sessions/external effects are not contained.\nNull stdin; no interactive-shell inheritance.\nPrivate output capacity: {} bytes, committed under local quota BEFORE dispatch. Sanitized/redacted best-effort capture; full capture/queues drain and discard with explicit partial-evidence notices.\nBefore source identity: {:?}\n", if cfg!(windows) { "Windows kill-on-close Job" } else { "POSIX process group" }, capacity.clamp(1024, 16 * 1024 * 1024), p.before));
-    text.push_str("Storage additionally reserves 256 KiB of bounded journal/metadata headroom; shared quota may refuse the request before any execution.\n");
-    text.push_str("Environment boundary: inherits Eevee's current process environment; values are not reviewed, frozen or sanitized and may affect child execution. Model cannot supply an environment overlay. Explicit shells may interpret startup/configuration behavior; this is not an OS sandbox.\n");
-    if p.before.fingerprint.is_none() || !p.before.complete || !p.before.stable {
-        text.push_str("Source coverage UNKNOWN/PARTIAL: this approval permits execution without complete stable source identity (including plain non-Git folders). Known source identities are rechecked; unknown coverage is not invented. An exit code cannot establish fresh source verification for unavailable coverage.\n");
-    }
     text
 }
+
+/// Coverage the approval cannot establish is decision-relevant, not an internal detail.
+pub fn source_coverage_partial(p: &runner::Prepared) -> bool {
+    p.before.fingerprint.is_none() || !p.before.complete || !p.before.stable
+}
+
 pub fn evidence_label(record: &runner::RunRecord, latest: &runner::InputSnapshot) -> String {
     let mut labels = Vec::new();
     match record.state {

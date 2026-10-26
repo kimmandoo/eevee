@@ -189,7 +189,17 @@ fn confirmation(
             state
                 .prepared
                 .as_ref()
-                .map(|p| execution::approval_details(p, state.capture_capacity))
+                .map(|p| {
+                    if state.approval_full {
+                        format!(
+                            "{}\n\n{}",
+                            paint.hint(Message::ProvidersExecutionBriefDetailsHint),
+                            execution::approval_details(p, state.capture_capacity)
+                        )
+                    } else {
+                        approval_brief(p, paint)
+                    }
+                })
                 .unwrap_or_else(|| {
                     paint
                         .hint(Message::ProvidersExecutionThisRequestWasInvalidatedReturnAndPrepare)
@@ -273,9 +283,15 @@ fn confirmation(
             },
         ),
     ]);
+    // Choices that fit one row give that row to the command summary.
+    let summary_start = if choices.width() <= area.width as usize {
+        2
+    } else {
+        3
+    };
     frame.render_widget(
         Paragraph::new(choices).wrap(Wrap { trim: false }),
-        row(area, 1, 2),
+        row(area, 1, summary_start - 1),
     );
     let mut summary = match confirm {
         Confirmation::Approval => state.prepared.as_ref().map_or_else(
@@ -374,29 +390,48 @@ fn confirmation(
                 .into(),
         ],
     };
-    if let Some(editing) = editing {
-        if matches!(confirm, Confirmation::Approval) && state.prepared.is_some() {
-            // The details navigation is already disclosed in the footer.
-            // Keep the six-row consent budget at 60x18 without painting over
-            // the permission title or any effect/identity disclosure.
-            let last = summary.last_mut().expect("approval summary");
+    if matches!(confirm, Confirmation::Approval) && state.prepared.is_some() {
+        // The details navigation is already disclosed in the footer. Keep
+        // the consent budget at 60x18 without painting over the permission
+        // title or any effect/identity disclosure: the trailing hint/editing
+        // line is optional, and spare rows let the command wrap instead of
+        // being clipped to one row.
+        let last = summary.last_mut().expect("approval summary");
+        if let Some(editing) = editing {
             last.clear();
             last.push_str(editing);
-        } else {
-            summary.push(editing.to_owned());
         }
+        let available = (area.height as usize).saturating_sub(summary_start as usize + 2);
+        let required = summary.len() - 1;
+        let spare = available.saturating_sub(required);
+        let command =
+            crate::workspace::privacy::redact(&summary[0].replace(['\n', '\r', '\t'], " "))
+                .into_owned();
+        let needed = wrapped_rows(&command, area.width as usize, usize::MAX).len();
+        let rows = needed.clamp(1, spare.clamp(1, APPROVAL_COMMAND_ROWS));
+        if rows + required > available {
+            summary.pop();
+        }
+        summary.splice(0..1, wrapped_rows(&command, area.width as usize, rows));
+    } else if let Some(editing) = editing {
+        summary.push(editing.to_owned());
     }
     let summary_height = summary.len() as u16;
     state.confirmation_visible = super::planning::render_summary(
         frame,
-        row(area, 3, summary_height.min(area.height.saturating_sub(5))),
+        row(
+            area,
+            summary_start,
+            summary_height.min(area.height.saturating_sub(summary_start + 2)),
+        ),
         &summary,
         paint,
     );
     let body = row(
         area,
-        3 + summary_height,
-        area.height.saturating_sub(5 + summary_height),
+        summary_start + summary_height,
+        area.height
+            .saturating_sub(summary_start + 2 + summary_height),
     );
     let paragraph = Paragraph::new(description)
         .style(paint.surface)
@@ -415,6 +450,63 @@ fn confirmation(
         ),
         paint.accent,
     );
+}
+
+/// Long commands wrap up to this many summary rows; exact argv is below.
+const APPROVAL_COMMAND_ROWS: usize = 4;
+
+/// Split by display width at spaces when possible; the final permitted row
+/// is clipped with `…`.
+fn wrapped_rows(value: &str, columns: usize, rows: usize) -> Vec<String> {
+    let columns = columns.max(2);
+    let width = |text: &str| Span::raw(text).width();
+    let mut lines = vec![String::new()];
+    for grapheme in unicode_segmentation::UnicodeSegmentation::graphemes(value, true) {
+        let last = lines.last().expect("row");
+        if width(last) + width(grapheme) > columns {
+            if lines.len() == rows {
+                let last = lines.last_mut().expect("row");
+                *last = super::clipped(&format!("{last}{grapheme}…"), columns).into_owned();
+                return lines;
+            }
+            // Carry an unfinished word to the next row instead of splitting it.
+            let carried = match last.rfind(' ') {
+                Some(space) if grapheme != " " && space > 0 => {
+                    let tail = last[space + 1..].to_owned();
+                    let last = lines.last_mut().expect("row");
+                    last.truncate(space + 1);
+                    tail
+                }
+                _ => String::new(),
+            };
+            lines.push(carried);
+            if grapheme == " " {
+                continue;
+            }
+        }
+        lines.last_mut().expect("row").push_str(grapheme);
+    }
+    lines
+}
+
+/// What the approval actually runs plus decision-relevant limits. Identity
+/// hashes, IDs, timestamps, quotas and enforcement prose stay behind `d`.
+fn approval_brief(p: &crate::workspace::runner::Prepared, paint: &Paint) -> String {
+    let mut text = execution::exact_command_lines(&p.spec);
+    if execution::source_coverage_partial(p) {
+        text.push_str(paint.hint(Message::ProvidersExecutionSourceCoveragePartial));
+        text.push('\n');
+    }
+    let remaining = p
+        .expires_at_ms
+        .saturating_sub(crate::workspace::tool_plans::now_ms());
+    text.push_str(&paint.format(
+        Template::ProvidersExecutionApprovalExpiresIn,
+        &[("minutes", &remaining.div_ceil(60_000).to_string())],
+    ));
+    text.push_str("\n\n");
+    text.push_str(paint.hint(Message::ProvidersExecutionFullDetailsHint));
+    text
 }
 
 fn details(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
@@ -735,6 +827,58 @@ mod tests {
             .map(|cell| cell.symbol())
             .collect();
         assert!(!rendered.contains('\u{1b}'));
+    }
+
+    #[test]
+    fn compact_approval_wraps_the_command_and_hides_identity_until_details() {
+        let mut p = prepared();
+        p.spec = crate::workspace::runner::CommandSpec::Direct {
+            program: "/tool path".into(),
+            args: (0..12).map(|i| format!("--flag-{i}=value")).collect(),
+        };
+        p.expires_at_ms = u64::MAX;
+        let mut state = State::default();
+        state.prepared = Some(p);
+        state.confirmation = Some(Confirmation::Approval);
+        let draw = |state: &mut State| {
+            let mut terminal = Terminal::new(TestBackend::new(60, 18)).unwrap();
+            terminal
+                .draw(|frame| {
+                    let area = frame.area();
+                    confirmation(frame, area, state, &paint(), Some("Bolt is editing"));
+                })
+                .unwrap();
+            let buffer = terminal.backend().buffer().clone();
+            (0..18)
+                .map(|y| (0..60).map(|x| buffer[(x, y)].symbol()).collect::<String>())
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
+        let text = draw(&mut state);
+        assert!(state.confirmation_visible, "{text}");
+        // Wrapped rows show arguments a single clipped row could not.
+        assert!(text.contains("--flag-0=value"), "{text}");
+        assert!(text.contains("--flag-6=value"), "{text}");
+        assert_eq!(
+            wrapped_rows("rustc --edition=2021 --color=never", 24, 4),
+            ["rustc --edition=2021 ", "--color=never"]
+        );
+        assert_eq!(wrapped_rows("abcdefgh", 4, 1), ["abc…"]);
+        assert!(text.contains("One local command"), "{text}");
+        assert!(text.contains("Not sandboxed"), "{text}");
+        let full = execution::approval_details(state.prepared.as_ref().unwrap(), 4096);
+        let brief = approval_brief(state.prepared.as_ref().unwrap(), &paint());
+        assert!(full.contains("Executable SHA-256") && !brief.contains("SHA-256"));
+        assert!(brief.contains("argv[11] = \"--flag-11=value\""), "{brief}");
+        assert!(brief.contains("d Full identity"), "{brief}");
+        // `d` reveals the full record without changing the neutral choice.
+        state.shown = true;
+        state.key(ratatui::crossterm::event::KeyEvent::from(
+            ratatui::crossterm::event::KeyCode::Char('d'),
+        ));
+        assert!(state.approval_full && !state.affirmative);
+        draw(&mut state);
+        assert!(state.confirmation_visible);
     }
 
     #[test]

@@ -1,5 +1,13 @@
 # Work Checkpoint
 
+## 2026-10-26 — Command approval brief/full details and wrapping (completed)
+
+- **Request:** Do both follow-ups: collapse raw identity details in command approvals and show long commands fully at 60 columns.
+- **Change:** `ui/execution.rs` approval body is now `approval_brief` (exact argv via new `execution::exact_command_lines`, localized source-coverage caveat via `execution::source_coverage_partial`, "expires in about N min", `d` hint); `d` toggles `State::approval_full` to the unchanged `approval_details` record (allowed even while auto-presented; never changes `affirmative`). The summary uses one choices row when it fits, wraps the redacted command at spaces into up to 4 rows (`wrapped_rows`, last row clipped with `…`), and drops the optional editing/"details below" row before any effect line. Footer hints updated EN/KO.
+- **Changed files:** `src/app/execution.rs`, `src/ui/execution.rs`, `locales/{en,ko}/providers.ftl`, `CHANGELOG.md`, `docs/DESIGN_RULES.md`, this checkpoint.
+- **Verification:** `cargo clippy --all-targets` clean; `cargo test` 1,676 passed/2 ignored (new `compact_approval_wraps_the_command_and_hides_identity_until_details`). Release `agent_coding_smoke.py --profile native` passed both journeys; KO 60×18 capture shows the complete `rustc --edition=2021 --color=never main.rs -o agent-program` over two rows with all disclosures; EN 120×36 shows the brief body without hashes/IDs.
+- **Active task / next action:** None.
+
 ## 2026-10-26 — Agent command approval UX (completed)
 
 - **Request:** Improve poor UX when using the agent.

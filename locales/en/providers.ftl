@@ -540,7 +540,7 @@ providers-execution-stay-and-journal-retry-retries-storage-only = { "Stay and /j
 
 providers-execution-y-confirm-n-stay-tab-choose-enter =
     { "y Confirm / n Stay / Tab Choose / Enter / Esc Stay" }
-    { "PgUp/Dn inspect exact details; no scroll gate" }
+    { "PgUp/Dn scroll · d full details; no scroll gate" }
 
 providers-execution-no-retained-executions-for-this-task-command = { "No retained executions for this task. /command-edit edits a command; /execute reviews a prepared request. /run only inspects command evidence. Loading history never executes a saved command. Interrupted startup records are evidence, not live process ownership." }
 
@@ -672,6 +672,14 @@ providers-execution-directory = { "Directory: " }{ $path }
 providers-execution-executable = { "Executable: " }{ $path }
 
 providers-execution-owner-editing = { $owner }{ " is editing" }
+
+providers-execution-approval-expires-in = { "Approval expires in about " }{ $minutes }{ " min; then the agent must request it again." }
+
+providers-execution-source-coverage-partial = { "Source coverage unknown/partial: an exit code cannot verify files outside known identities." }
+
+providers-execution-full-details-hint = { "d Full identity, quotas & enforcement details" }
+
+providers-execution-brief-details-hint = { "d Back to the exact command" }
 
 providers-execution-auto-review-actions =
     { "Command approval required · Enter to review (not approve)" }

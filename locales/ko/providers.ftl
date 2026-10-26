@@ -540,7 +540,7 @@ providers-execution-stay-and-journal-retry-retries-storage-only = { "머물러�
 
 providers-execution-y-confirm-n-stay-tab-choose-enter =
     { "y 확인 / n 머무르기 / Tab 선택 / Enter / Esc 머무르기" }
-    { "PgUp/Dn 정확한 상세 확인; 스크롤 승인 조건 없음" }
+    { "PgUp/Dn 스크롤 · d 전체 상세; 스크롤 승인 조건 없음" }
 
 providers-execution-no-retained-executions-for-this-task-command = { "이 작업의 보관 실행이 없습니다. /command-edit 명령 편집; /execute 준비된 요청 검토. /run은 명령 증거만 확인합니다. 기록을 불러와도 저장된 명령을 실행하지 않습니다. 시작 시 중단된 기록은 증거이지 실행 중인 프로세스 소유권이 아닙니다." }
 
@@ -672,6 +672,14 @@ providers-execution-directory = { "디렉터리: " }{ $path }
 providers-execution-executable = { "실행 파일: " }{ $path }
 
 providers-execution-owner-editing = { $owner }{ " 편집 중" }
+
+providers-execution-approval-expires-in = { "승인은 약 " }{ $minutes }{ "분 후 만료되며, 이후 에이전트가 다시 요청해야 합니다." }
+
+providers-execution-source-coverage-partial = { "소스 범위 미확인/일부: 종료 코드로 알려지지 않은 파일을 검증할 수 없습니다." }
+
+providers-execution-full-details-hint = { "d 전체 식별 정보·한도·적용 방식 보기" }
+
+providers-execution-brief-details-hint = { "d 정확한 명령으로 돌아가기" }
 
 providers-execution-auto-review-actions =
     { "명령 실행 승인 필요 · Enter 검토 (승인 아님)" }
