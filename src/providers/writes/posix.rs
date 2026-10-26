@@ -259,6 +259,11 @@ impl Directory {
             && self.0.identity.inode == other.0.identity.inode
     }
 
+    /// Hashable form of `same_object` equality.
+    pub(super) fn object_key(&self) -> String {
+        format!("{}:{}", self.0.identity.device, self.0.identity.inode)
+    }
+
     pub(super) fn name_policy(&self) -> NamePolicy {
         #[cfg(target_os = "macos")]
         {

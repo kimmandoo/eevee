@@ -1635,15 +1635,22 @@ fn command_summary_is_a_readable_unambiguous_argv_line() {
         command_summary(&spec),
         r#"cargo test --package=eevee '中文 space' 'it'\''s' '' '$(touch x)'"#
     );
+    // Absolute on every host (a drive is required on Windows).
+    let program = if cfg!(windows) {
+        r"C:\tool path\tool"
+    } else {
+        "/tool path/tool"
+    };
     let mut p = prepared();
     p.spec = runner::CommandSpec::Direct {
-        program: "/tool path/tool".into(),
+        program: program.into(),
         args: vec!["build".into()],
     };
+    p.executable.path = program.into();
     // The canonical executable line already shows the repeated full path.
     assert_eq!(approval_command_summary(&p), "tool build");
     p.executable.path = "/elsewhere/tool".into();
-    assert_eq!(approval_command_summary(&p), "'/tool path/tool' build");
+    assert_eq!(approval_command_summary(&p), format!("'{program}' build"));
 }
 
 #[test]

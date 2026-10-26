@@ -2,6 +2,8 @@
 
 ## 2026-10-26
 
+- fix(files): restored case- and Unicode-normalization alias refusal on macOS and Windows for large write scopes by deriving comparison candidates from resolved directory identities and equal folded prefixes that are spelled differently, not only from equal or prefix paths.
+- test(execution): made the approval command-summary test use a platform-absolute program path so it also holds on Windows.
 - feat(ui): removed multilingual display support, Korean catalogs, `--language`, `EV_LANGUAGE` selection and runtime Fluent processing; compiled English messages directly while preserving Unicode input, source text and natural-language requests.
 - fix(ux): made the empty home lead with request input instead of criteria/form setup, kept the auto-approve stop command visible at minimum width, and stopped unrelated command arguments from advertising partner selection.
 - fix(navigation): prevented an empty provider search from opening actions for a hidden route through arrow or Tab navigation while retaining the unsent draft and caret.

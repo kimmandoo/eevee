@@ -694,38 +694,10 @@ fn verify_name_bindings<'a>(
     paths: impl Iterator<Item = &'a Path> + Clone,
     directories: &BTreeMap<PathBuf, platform::Directory>,
 ) -> Result<(), String> {
-    // Only paths whose case-folded, normalized components are equal or a
-    // component prefix of one another can alias or conflict; every such pair
-    // still receives the exact native comparison below. This keeps large
-    // scaffolds linear instead of comparing every pair on each operation.
-    let key = |path: &Path| -> Vec<String> {
-        path.components()
-            .map(|part| {
-                part.as_os_str()
-                    .to_string_lossy()
-                    .nfc()
-                    .collect::<String>()
-                    .to_lowercase()
-            })
-            .collect()
-    };
-    let keys: Vec<Vec<String>> = paths.clone().map(key).collect();
-    let mut groups: std::collections::HashMap<&[String], Vec<usize>> =
-        std::collections::HashMap::new();
-    for (index, key) in keys.iter().enumerate() {
-        groups.entry(key.as_slice()).or_default().push(index);
-    }
-    let mut candidates = BTreeSet::new();
-    for (index, key) in keys.iter().enumerate() {
-        for length in 1..=key.len() {
-            for &other in groups.get(&key[..length]).into_iter().flatten() {
-                if other != index {
-                    candidates.insert((index.max(other), index.min(other)));
-                }
-            }
-        }
-    }
     let paths: Vec<&Path> = paths.collect();
+    let candidates = alias_candidates(&paths, |prefix| {
+        directories.get(prefix).map(platform::Directory::object_key)
+    });
     for (index, right_index) in candidates {
         let (left, right) = (paths[index], paths[right_index]);
         'comparison: for right in std::iter::once(right) {
@@ -780,6 +752,93 @@ fn verify_name_bindings<'a>(
         }
     }
     Ok(())
+}
+
+/// Path pairs that the exact comparison in `verify_name_bindings` could
+/// reject; every other pair is provably distinct, so large scopes avoid
+/// quadratic native comparisons. Each component prefix gets a resolved key:
+/// an existing directory's object identity, otherwise its NFC, lowercased
+/// spelling (a superset of every Equivalent name relation). A pair is a
+/// candidate when one resolved key is a prefix of the other (the walk never
+/// finds a distinct component) or when equal resolved prefixes are spelled
+/// differently (an alias the walk inspects at that component).
+fn alias_candidates(
+    paths: &[&Path],
+    existing: impl Fn(&Path) -> Option<String>,
+) -> BTreeSet<(usize, usize)> {
+    use std::collections::HashMap;
+    let mut keys = Vec::with_capacity(paths.len());
+    for path in paths {
+        let mut prefix = PathBuf::new();
+        let mut key = Vec::new();
+        for part in path.components() {
+            prefix.push(part);
+            key.push(existing(&prefix).map_or_else(
+                || {
+                    format!(
+                        "name:{}",
+                        part.as_os_str()
+                            .to_string_lossy()
+                            .nfc()
+                            .collect::<String>()
+                            .to_lowercase()
+                    )
+                },
+                |object| format!("dir:{object}"),
+            ));
+        }
+        keys.push(key);
+    }
+    let mut candidates = BTreeSet::new();
+    let mut add = |a: usize, b: usize| {
+        if a != b {
+            candidates.insert((a.max(b), a.min(b)));
+        }
+    };
+    let mut whole: HashMap<&[String], Vec<usize>> = HashMap::new();
+    for (index, key) in keys.iter().enumerate() {
+        whole.entry(key.as_slice()).or_default().push(index);
+    }
+    for (index, key) in keys.iter().enumerate() {
+        for length in 1..=key.len() {
+            for &other in whole.get(&key[..length]).into_iter().flatten() {
+                add(index, other);
+            }
+        }
+    }
+    // Same resolved prefix, different literal spelling of that prefix.
+    let raw: Vec<Vec<&std::ffi::OsStr>> = paths
+        .iter()
+        .map(|path| path.components().map(|part| part.as_os_str()).collect())
+        .collect();
+    let longest = keys.iter().map(Vec::len).max().unwrap_or(0);
+    for length in 1..=longest {
+        let mut groups: HashMap<&[String], HashMap<&[&std::ffi::OsStr], Vec<usize>>> =
+            HashMap::new();
+        for (index, key) in keys.iter().enumerate() {
+            if key.len() >= length {
+                groups
+                    .entry(&key[..length])
+                    .or_default()
+                    .entry(&raw[index][..length])
+                    .or_default()
+                    .push(index);
+            }
+        }
+        for spellings in groups.values().filter(|spellings| spellings.len() > 1) {
+            let spellings: Vec<&Vec<usize>> = spellings.values().collect();
+            for (position, left) in spellings.iter().enumerate() {
+                for right in &spellings[..position] {
+                    for &a in left.iter() {
+                        for &b in right.iter() {
+                            add(a, b);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    candidates
 }
 
 impl WriteSet {

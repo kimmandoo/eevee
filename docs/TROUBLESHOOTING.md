@@ -1,5 +1,12 @@
 # Troubleshooting
 
+### [2026-10-26] Alias pre-filter missed case/normalization-aliased parents on macOS and Windows
+
+- **Context / Symptom:** Native CI (run `40291871944`) failed `actual_case_aliases_are_rejected_without_capture_mutation_when_supported`, `workspace_alias_batches_never_gain_partial_authority` (macOS, Windows) and `actual_normalization_aliases_never_overwrite_or_manufacture_uncertain_effects` (macOS: `Reviewed absent parent appeared ... uncertain: true`). Linux passed because its byte-sensitive policy skips these cases.
+- **Root Cause:** The quadratic-avoidance pre-filter in `verify_name_bindings` only compared paths whose folded keys were equal or a component prefix. The native walk also refuses pairs like `parent/a.txt` vs `PARENT/b.txt` or NFC vs NFD `é/…`, where an aliased *parent* is spelled differently but the leaves differ, so those pairs were never compared and admission accepted them.
+- **Solution:** `alias_candidates` builds a resolved key per component prefix (existing directory object identity, otherwise NFC lowercase) and adds every pair whose resolved key is a prefix of the other, plus every pair whose equal resolved prefix is spelled differently. A Linux-runnable unit test covers case, normalization, prefix and same-object (short-name) cases. Separately, a summary test used `/tool path/tool`, which is not absolute on Windows.
+- **Prevention / Reference:** Alias/normalization behavior is platform-dependent; pre-filters must be proved as supersets of the exact check with host-independent unit tests, and Linux-only local runs are insufficient. `cargo check --tests --target x86_64-pc-windows-gnu` compiles Windows-only code locally.
+
 ### [2026-10-26] Public native CI failures lacked accessible assertion details
 
 - **Context / Symptom:** Native run40288713516 passed Check/Linux but failed Rust tests on macOS/Windows. Public check annotations exposed only exit101; raw job-log API returned403, and linked web step logs were unavailable without authentication.

@@ -503,6 +503,11 @@ impl Directory {
         self.node.identity == other.node.identity
     }
 
+    /// Hashable form of `same_object` equality.
+    pub(super) fn object_key(&self) -> String {
+        format!("{:?}", self.node.identity)
+    }
+
     pub(super) fn same_volume(&self, other: &Self) -> bool {
         self.node.identity.volume == other.node.identity.volume
     }

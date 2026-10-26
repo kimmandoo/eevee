@@ -2824,3 +2824,39 @@ fn observations_honor_owning_cancel_and_shared_deadline_without_partial_results(
     );
     assert!(checks.load(Ordering::Acquire) < 10);
 }
+
+#[test]
+fn alias_candidates_cover_every_pair_the_native_walk_can_reject() {
+    let candidates = |paths: &[&str], existing: &[(&str, &str)]| {
+        let paths: Vec<PathBuf> = paths.iter().map(PathBuf::from).collect();
+        let refs: Vec<&Path> = paths.iter().map(PathBuf::as_path).collect();
+        alias_candidates(&refs, |prefix| {
+            existing
+                .iter()
+                .find(|(path, _)| Path::new(path) == prefix)
+                .map(|(_, object)| (*object).to_owned())
+        })
+    };
+    // Case- and normalization-aliased absent parents, even with distinct leaves.
+    assert!(candidates(&["parent/a.txt", "PARENT/b.txt"], &[]).contains(&(1, 0)));
+    assert!(candidates(&["e\u{301}/first.txt", "\u{e9}/second.txt"], &[]).contains(&(1, 0)));
+    // Equal, case-equal and prefix (file vs directory) targets.
+    assert!(candidates(&["a.txt", "A.TXT"], &[]).contains(&(1, 0)));
+    assert!(candidates(&["src", "src/main.rs"], &[]).contains(&(1, 0)));
+    // Differently spelled existing directories that are one object (for
+    // example a Windows short name) reach the exact comparison.
+    assert!(
+        candidates(
+            &["PROGRA~1/a.txt", "Program Files/a.txt"],
+            &[("PROGRA~1", "id-1"), ("Program Files", "id-1")]
+        )
+        .contains(&(1, 0))
+    );
+    // Provably distinct names in one directory are not compared pairwise.
+    let many: Vec<String> = (0..200)
+        .map(|index| format!("scaffold/file-{index}.txt"))
+        .collect();
+    let refs: Vec<&str> = many.iter().map(String::as_str).collect();
+    assert!(candidates(&refs, &[]).is_empty());
+    assert!(candidates(&["one/a.txt", "two/a.txt"], &[("one", "x"), ("two", "y")]).is_empty());
+}
