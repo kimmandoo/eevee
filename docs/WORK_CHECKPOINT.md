@@ -1,5 +1,14 @@
 # Work Checkpoint
 
+## 2026-10-26 — Provider-independent native tool parsing (completed)
+
+- **Request:** Make agent responses, file creation, code edits and builds work regardless of provider.
+- **Finding:** All native dialects already advertise and execute the same file/command tools, so the cross-provider gap was strict wire parsing in `src/providers/direct/tools.rs`. Common OpenAI-compatible stream variants (no `index`, no `type`, `null`/empty optional fields, repeated names, missing IDs, `tool_calls:null`/`function_call:null`) failed the entire round, and continuations dropped `reasoning_content` (DeepSeek/Kimi thinking tool loops reject this) and per-call `extra_content` (Gemini OpenAI-compatible thought signatures). Native Gemini failed on part-less finishing candidates and argument-less calls.
+- **Change:** Tolerant fragment assembly with ID/latest-call index inference and `call_<index>` fallback IDs; request-local echo of `reasoning_content`/`extra_content`; Gemini empty parts and `{}` args. Approval, writer, terminal-completion and refusal checks are unchanged. Wire requests (tool schemas, `strict`, Anthropic `max_tokens`) were not changed.
+- **Changed files:** `src/providers/direct/tools.rs`, `src/providers/direct/tools/tests.rs`, `CHANGELOG.md`, `docs/AGENT_COMPATIBILITY.md`, this checkpoint.
+- **Verification:** `cargo fmt`; `cargo clippy --all-targets` clean; `cargo test` 1,672 passed/2 ignored, including the two new regressions `compatible_chat_variants_keep_calls_and_continuation_metadata` and `gemini_partless_finish_and_argumentless_calls_are_tolerated`. No live/paid provider call was made; this is fixture proof only. No strategy/backtest applies.
+- **Active task / next action:** None. Possible follow-ups needing live evidence: OpenRouter `reasoning_details` echo, `strict` handling on non-OpenAI Chat Completions servers, configurable Anthropic-compatible `max_tokens`.
+
 ## 2026-10-25 — v0.1.31 verified; Wave5 completed and target cleaned
 
 - **Current request:** Finish the existing release, then clean `target`, then implement the next wave. Wave5 MV09/PK08/PT12 is now explicitly authorized; Waves6–8 and paid/live calls are not.

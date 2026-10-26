@@ -1024,3 +1024,113 @@ fn mixed_file_tool_identities_survive_every_protocol_continuation() {
         }
     }
 }
+
+#[test]
+fn compatible_chat_variants_keep_calls_and_continuation_metadata() {
+    // Unindexed, typeless, null-padded and repeated-name fragments from
+    // OpenAI-compatible services still assemble one exact call per ID.
+    let first = args("src/a.rs", "a");
+    let second = args("src/b.rs", "b");
+    let signature = json!({"google":{"thought_signature":"signed"}});
+    let mut calls = Calls::new(Protocol::ChatCompletions);
+    calls
+        .observe("", &json!({"choices":[{"index":0,"delta":{"role":"assistant","content":null,"reasoning_content":"private ","function_call":null,"tool_calls":null}}]}))
+        .unwrap();
+    chat_fragment(&mut calls, json!([
+        {"id":"one","function":{"name":TOOL_NAME,"arguments":&first[..6]},"extra_content":signature}
+    ]), None).unwrap();
+    chat_fragment(
+        &mut calls,
+        json!([
+            {"id":"","type":null,"function":{"name":TOOL_NAME,"arguments":&first[6..]}}
+        ]),
+        None,
+    )
+    .unwrap();
+    calls
+        .observe(
+            "",
+            &json!({"choices":[{"index":0,"delta":{"reasoning_content":"plan"}}]}),
+        )
+        .unwrap();
+    chat_fragment(
+        &mut calls,
+        json!([
+            {"id":"two","type":"function","function":{"name":TOOL_NAME,"arguments":second}}
+        ]),
+        None,
+    )
+    .unwrap();
+    chat_stop(&mut calls, "tool_calls").unwrap();
+    let decoded = calls.finish(true).unwrap();
+    assert_eq!(decoded.len(), 2);
+    assert_eq!(decoded[0].id.as_deref(), Some("one"));
+    assert_eq!(write_content(&decoded[0]), "a");
+    assert_eq!(decoded[1].id.as_deref(), Some("two"));
+    let mut body = json!({"messages":[]});
+    calls
+        .append_results(&mut body, &[result("denied"), result("denied")])
+        .unwrap();
+    assert_eq!(
+        body["messages"][0],
+        json!({"role":"assistant","content":null,"reasoning_content":"private plan","tool_calls":[
+            {"id":"one","type":"function","function":{"name":TOOL_NAME,"arguments":first},"extra_content":signature},
+            {"id":"two","type":"function","function":{"name":TOOL_NAME,"arguments":second}}
+        ]})
+    );
+
+    // Services that omit call IDs receive position-derived correlation IDs.
+    let mut calls = Calls::new(Protocol::ChatCompletions);
+    chat_fragment(&mut calls, json!([
+        {"index":0,"type":"function","function":{"name":TOOL_NAME,"arguments":args("src/a.rs","a")}}
+    ]), None).unwrap();
+    chat_stop(&mut calls, "stop").unwrap();
+    assert_eq!(calls.finish(true).unwrap()[0].id.as_deref(), Some("call_0"));
+    let mut body = json!({"messages":[]});
+    calls
+        .append_results(&mut body, &[result("denied")])
+        .unwrap();
+    assert_eq!(body["messages"][0]["tool_calls"][0]["id"], "call_0");
+    assert!(body["messages"][0].get("reasoning_content").is_none());
+    assert_eq!(body["messages"][1]["tool_call_id"], "call_0");
+
+    // Present but non-function types and real legacy calls still refuse.
+    assert!(
+        chat_fragment(
+            &mut Calls::new(Protocol::ChatCompletions),
+            json!([{"type":"custom"}]),
+            None
+        )
+        .is_err()
+    );
+    assert!(
+        Calls::new(Protocol::ChatCompletions)
+            .observe(
+                "",
+                &json!({"choices":[{"index":0,"delta":{"function_call":{"name":TOOL_NAME}}}]})
+            )
+            .is_err()
+    );
+}
+
+#[test]
+fn gemini_partless_finish_and_argumentless_calls_are_tolerated() {
+    let mut calls = Calls::new(Protocol::Gemini);
+    calls
+        .observe(
+            "",
+            &json!({"candidates":[{"index":0,"content":{"role":"model"},"finishReason":"STOP"}]}),
+        )
+        .unwrap();
+    assert!(calls.finish(true).unwrap().is_empty());
+    let mut calls = Calls::new(Protocol::Gemini);
+    gemini(
+        &mut calls,
+        vec![json!({"functionCall":{"name":"eevee_artifact_list"}})],
+        true,
+    )
+    .unwrap();
+    let decoded = calls.finish(true).unwrap();
+    assert_eq!(decoded.len(), 1);
+    assert_eq!(decoded[0].tool.kind().name(), "eevee_artifact_list");
+}

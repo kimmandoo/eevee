@@ -69,7 +69,8 @@ struct ChatCall {
     id: String,
     name: String,
     arguments: String,
-    function_type: bool,
+    // Opaque provider continuation data, for example Gemini thought signatures.
+    extra_content: Option<Value>,
 }
 
 struct Block {
@@ -178,6 +179,8 @@ pub(super) struct Calls {
     output: Option<Vec<Value>>,
     chat: BTreeMap<usize, ChatCall>,
     text: String,
+    // Request-local reasoning some Chat Completions services require in tool continuations.
+    reasoning: String,
     blocks: BTreeMap<usize, Block>,
     parts: Vec<Value>,
     terminal: bool,
@@ -196,6 +199,7 @@ impl Calls {
             output: None,
             chat: BTreeMap::new(),
             text: String::new(),
+            reasoning: String::new(),
             blocks: BTreeMap::new(),
             parts: Vec::new(),
             terminal: false,
@@ -526,7 +530,7 @@ impl Calls {
                 continue;
             }
             if let Some(delta) = choice.get("delta") {
-                if delta.get("function_call").is_some() {
+                if delta.get("function_call").is_some_and(|v| !v.is_null()) {
                     return Err("Legacy function calls are unsupported".into());
                 }
                 if let Some(content) = delta.get("content").filter(|v| !v.is_null()) {
@@ -537,25 +541,40 @@ impl Calls {
                     }
                     append(&mut self.text, text, BODY_LIMIT)?;
                 }
-                if let Some(calls) = delta.get("tool_calls") {
+                if let Some(reasoning) = delta.get("reasoning_content").filter(|v| !v.is_null()) {
+                    let reasoning = reasoning.as_str().ok_or("Invalid assistant reasoning")?;
+                    self.charge(reasoning.len())?;
+                    append(&mut self.reasoning, reasoning, BODY_LIMIT)?;
+                }
+                if let Some(calls) = delta.get("tool_calls").filter(|v| !v.is_null()) {
                     let calls = calls.as_array().ok_or("Invalid chat tool calls")?;
                     for fragment in calls {
                         if self.terminal {
                             return Err("Tool fragment after completion".into());
                         }
-                        let index = index(fragment, "index", CALL_LIMIT)?;
+                        // Compatible services may omit or null optional fragment
+                        // fields, or repeat a complete name on every fragment.
+                        let present = |key: &str| {
+                            fragment
+                                .get(key)
+                                .filter(|v| !v.is_null() && v.as_str() != Some(""))
+                        };
+                        let id = present("id")
+                            .map(|id| id.as_str().ok_or("Invalid tool ID"))
+                            .transpose()?;
+                        let index = if fragment.get("index").is_some_and(|v| !v.is_null()) {
+                            index(fragment, "index", CALL_LIMIT)?
+                        } else {
+                            self.chat_index(id)?
+                        };
                         self.charge(encoded_len(fragment)?)?;
-                        if let Some(kind) = fragment.get("type")
+                        if let Some(kind) = present("type")
                             && kind.as_str() != Some("function")
                         {
                             return Err("Unsupported chat tool type".into());
                         }
                         let call = self.chat.entry(index).or_default();
-                        if fragment.get("type").is_some() {
-                            call.function_type = true;
-                        }
-                        if let Some(id) = fragment.get("id") {
-                            let id = id.as_str().ok_or("Invalid tool ID")?;
+                        if let Some(id) = id {
                             validate_id(id)?;
                             if !call.id.is_empty() && call.id != id {
                                 return Err("Inconsistent chat call ID".into());
@@ -564,18 +583,25 @@ impl Calls {
                                 call.id.push_str(id);
                             }
                         }
-                        if let Some(function) = fragment.get("function") {
+                        if let Some(extra) = present("extra_content") {
+                            if !extra.is_object() {
+                                return Err("Invalid tool extra content".into());
+                            }
+                            call.extra_content = Some(extra.clone());
+                        }
+                        if let Some(function) = present("function") {
                             if !function.is_object() {
                                 return Err("Invalid tool function".into());
                             }
-                            if let Some(name) = function.get("name") {
-                                append(
-                                    &mut call.name,
-                                    name.as_str().ok_or("Invalid tool name")?,
-                                    NAME_LIMIT,
-                                )?;
+                            if let Some(name) = function.get("name").filter(|v| !v.is_null()) {
+                                let name = name.as_str().ok_or("Invalid tool name")?;
+                                if call.name != name {
+                                    append(&mut call.name, name, NAME_LIMIT)?;
+                                }
                             }
-                            if let Some(arguments) = function.get("arguments") {
+                            if let Some(arguments) =
+                                function.get("arguments").filter(|v| !v.is_null())
+                            {
                                 append(
                                     &mut call.arguments,
                                     arguments.as_str().ok_or("Invalid tool arguments")?,
@@ -600,6 +626,25 @@ impl Calls {
             }
         }
         Ok(())
+    }
+
+    /// Unindexed fragments continue the call with their ID, or the latest call.
+    fn chat_index(&self, id: Option<&str>) -> Result<usize, String> {
+        let existing = id.and_then(|id| {
+            self.chat
+                .iter()
+                .find(|(_, call)| call.id == id)
+                .map(|(index, _)| *index)
+        });
+        let index = match (existing, id, self.chat.keys().next_back()) {
+            (Some(index), _, _) => index,
+            (None, None, Some(last)) => *last,
+            _ => self.chat.len(),
+        };
+        if index >= CALL_LIMIT {
+            return Err("Tool fragment index exceeds capacity".into());
+        }
+        Ok(index)
     }
 
     fn messages_event(&mut self, kind: &str, value: &Value) -> Result<(), String> {
@@ -810,10 +855,11 @@ impl Calls {
                 {
                     return Err("Unexpected Gemini content role".into());
                 }
-                let parts = content
-                    .get("parts")
-                    .and_then(Value::as_array)
-                    .ok_or("Invalid Gemini parts")?;
+                // A finishing candidate may carry only its role and no parts.
+                let parts = match content.get("parts") {
+                    None | Some(Value::Null) => &Vec::new(),
+                    Some(parts) => parts.as_array().ok_or("Invalid Gemini parts")?,
+                };
                 if self.terminal && !parts.is_empty() {
                     return Err("Gemini content after completion".into());
                 }
@@ -900,14 +946,11 @@ impl Calls {
             }
             Protocol::ChatCompletions => {
                 contiguous(self.chat.keys().copied())?;
-                for call in self.chat.values() {
-                    if !call.function_type {
-                        return Err("Chat tool call is missing function type".into());
-                    }
+                for (index, call) in &self.chat {
                     push_call(
                         &self.aliases,
                         &mut calls,
-                        Some(&call.id),
+                        Some(&chat_id(*index, call)),
                         &call.name,
                         decode(&call.arguments)?,
                     )?;
@@ -963,7 +1006,8 @@ impl Calls {
                             &mut calls,
                             id,
                             string(call, "name")?,
-                            arguments_value(call.get("args").ok_or("Missing Gemini arguments")?)?,
+                            // Gemini omits args for calls without arguments.
+                            arguments_value(call.get("args").unwrap_or(&json!({})))?,
                         )?;
                     }
                 }
@@ -1013,8 +1057,18 @@ impl Calls {
                 "input"
             }
             Protocol::ChatCompletions => {
-                let tool_calls: Vec<_> = self.chat.values().map(|call| json!({"id":call.id,"type":"function","function":{"name":call.name,"arguments":call.arguments}})).collect();
-                additions.push(json!({"role":"assistant","content":if self.text.is_empty() { Value::Null } else { Value::String(self.text.clone()) },"tool_calls":tool_calls}));
+                let tool_calls: Vec<_> = self.chat.iter().map(|(index, call)| {
+                    let mut value = json!({"id":chat_id(*index, call),"type":"function","function":{"name":call.name,"arguments":call.arguments}});
+                    if let Some(extra) = &call.extra_content {
+                        value["extra_content"] = extra.clone();
+                    }
+                    value
+                }).collect();
+                let mut assistant = json!({"role":"assistant","content":if self.text.is_empty() { Value::Null } else { Value::String(self.text.clone()) },"tool_calls":tool_calls});
+                if !self.reasoning.is_empty() {
+                    assistant["reasoning_content"] = Value::String(self.reasoning.clone());
+                }
+                additions.push(assistant);
                 for (call, result) in calls.iter().zip(results) {
                     additions.push(json!({"role":"tool","tool_call_id":call.id,"content":serde_json::to_string(result).map_err(|_| "Cannot encode tool result")?}));
                 }
@@ -1261,6 +1315,15 @@ fn consistent_item(before: &Value, after: &Value) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+/// Some local servers omit call IDs; a position-derived ID still correlates results.
+fn chat_id(index: usize, call: &ChatCall) -> String {
+    if call.id.is_empty() {
+        format!("call_{index}")
+    } else {
+        call.id.clone()
+    }
 }
 
 fn contiguous(indices: impl Iterator<Item = usize>) -> Result<(), String> {

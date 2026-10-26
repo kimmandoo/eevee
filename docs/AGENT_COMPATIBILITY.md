@@ -26,6 +26,10 @@ Ordinary build/run/test intent selects Implement except explicit Plan/Review/rea
 
 Plan controls: `e` edits/pastes inert JSON (Enter stages locally); `s`/`r` open neutral start/resume review; complete contiguous scope then `y` schedules only, each command still waiting on `/approvals`. `b` reviews read-only serial comparison; `h` and `[`/`]` inspect history only. Local protocol peers with actual binary/compiler/process effects establish local behavior, not live model understanding. Detailed bounds are in [Design rules](DESIGN_RULES.md).
 
+### Native wire variants across compatible services
+
+Chat Completions tool fragments may omit `index` (an ID continues its call; an ID-less fragment continues the latest call), omit or null `type`/`id`/`name`/`arguments`, send empty continuation IDs, or repeat the whole name; calls without any ID receive position-derived `call_<index>` correlation. A present non-`function` type and non-null legacy `function_call` still refuse. Returned `reasoning_content` and per-call `extra_content` are echoed only inside the same request's tool continuation, never stored in canonical history. Gemini finishing candidates without `parts` are empty, and a `functionCall` without `args` is `{}` and then validated by the owned tool schema. Tolerance changes parsing only: approvals, writer ownership and terminal-completion checks are unchanged, and this is not live-provider qualification.
+
 ### v0.1.29 context/tool and continuation boundaries
 
 Schema19 stores dispatched outgoing receipts, local context revision metadata, reviewed trusted catalog setup and immutable tool artifacts through the existing writer. Ranking, Unicode-boundary tokenization, syntax excerpts, identity dedup and evidence-ledger compaction are offline and explicitly reviewed; they neither claim provider token counts nor grant tool authority.

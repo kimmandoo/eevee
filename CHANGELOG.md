@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-10-26
+
+- fix(providers): accepted OpenAI-compatible Chat Completions tool-call variants (omitted `index`/`type`, null or empty optional fields, repeated whole names, missing call IDs) so file creation, edits and build commands assemble the same exact calls across compatible services, while present non-function types and legacy `function_call` still refuse.
+- fix(providers): echoed request-local `reasoning_content` and per-call `extra_content` (for example Gemini thought signatures) in Chat Completions tool continuations, as DeepSeek/Kimi thinking and Gemini OpenAI-compatible endpoints require; neither is retained in conversation history.
+- fix(providers): accepted native Gemini finishing candidates without `parts` and argumentless `functionCall` objects instead of failing the whole response.
+
 ## 2026-10-25
 
 - feat(moves): added MV09 exact semantic old/new review, source-bound party copying and explicit same-name replacement/relearning while preserving immutable usage attribution and independent taught copies.
