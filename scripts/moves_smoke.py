@@ -402,8 +402,22 @@ class Journey:
         self.workspace()
         assert self.effects() == before, "restart replayed work"
 
+    def prepare_connection(self):
+        footer = self.workspace()
+        if footer.startswith("Type Request /"):
+            self.session.send("\r")
+        revision = self.task()["revision"]
+        # Workspace navigation and an earlier task row do not acknowledge the
+        # current editor's committed state. Explicitly save the exact Request
+        # and caret before setup's idle-only gate, without replaying Send.
+        self.session.send("\x13")
+        self.until(lambda: self.task()["revision"] > revision
+                   and "Storage: saved" in self.session.display()
+                   and not self.state()["active_work"],
+                   "current Request and caret committed before connection setup")
+
     def connect(self):
-        self.workspace()
+        self.prepare_connection()
         self.session.command("connect compatible")
         wait_for(self.session, "API key:")
         self.session.send("\t\x15")

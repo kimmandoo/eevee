@@ -105,7 +105,7 @@ impl Popup {
             {
                 return false;
             }
-            // Match original identities and borrowed descriptions from every embedded locale.
+            // Match original identities and borrowed English descriptions.
             // Keep catalogue order stable without allocating search copies.
             query.split_whitespace().all(|term| {
                 let matches = |text: &str| {
@@ -115,13 +115,12 @@ impl Popup {
                 };
                 matches(choice.command)
                     || matches(choice.label.as_str())
-                    || search_terms(choice.command)
-                        .is_some_and(|key| crate::i18n::translations(key).any(matches))
+                    || search_terms(choice.command).is_some_and(|key| matches(key.text()))
                     || FORM_COMMANDS
                         .iter()
                         .any(|(name, alias)| *name == choice.command && matches(alias))
                     || crate::command_help::key(choice.command)
-                        .is_some_and(|key| crate::i18n::translations(key).any(matches))
+                        .is_some_and(|key| matches(key.text()))
             })
         })
     }
@@ -157,8 +156,8 @@ fn canonical_command(command: &str) -> &str {
         .unwrap_or(command)
 }
 
-fn search_terms(command: &str) -> Option<crate::i18n::Message> {
-    use crate::i18n::Message;
+fn search_terms(command: &str) -> Option<crate::messages::Message> {
+    use crate::messages::Message;
     Some(match command {
         "provider" => Message::CmdSearchProvider,
         "files" => Message::CmdSearchFiles,
@@ -890,8 +889,8 @@ impl App {
             )
         {
             return Some(
-                crate::i18n::Language::ENGLISH
-                    .text(crate::i18n::Message::RecipeAuthoringBusy)
+                (crate::messages::Message::RecipeAuthoringBusy)
+                    .text()
                     .into(),
             );
         }
@@ -1428,9 +1427,7 @@ impl App {
         if (self.formation_inspector_active() || self.held_inspection_active())
             && !matches!(name, "cancel" | "cancel-all" | "quit")
         {
-            self.notice = crate::i18n::Language::ENGLISH
-                .text(crate::i18n::Message::FormationReadonly)
-                .into();
+            self.notice = (crate::messages::Message::FormationReadonly).text().into();
             return true;
         }
         if let Some(reason) = self.command_disabled_reason(name) {
@@ -1638,7 +1635,7 @@ impl App {
             if selecting {
                 if *overlay == Overlay::Sources && matches!(*local, "inspect" | "attach" | "range")
                 {
-                    // The localized source footer already offers Enter/r;
+                    // The source footer already offers Enter/r;
                     // these actions do not need a second command invocation.
                     self.notice.clear();
                 } else {

@@ -6,10 +6,7 @@ records-resolve = Review historical resolution link
 records-habits = Repeated authored instructions
 records-pairings = Partner provider pairings
 records-discard = Review unsaved record discard
-records-position = { $count ->
-    [one] Entry { $index } / { $count }
-   *[other] Entries { $index } / { $count }
-    }
+records-position = Entries { $index } / { $count }
 records-local-only = Local metadata only; never added to provider packets or handoffs.
 records-waiting = Waiting for committed storage; exact pending records are retained.
 records-queue-full = Local record capacity reached. Finish storage or review a failed write before continuing.

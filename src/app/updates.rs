@@ -1,6 +1,6 @@
 //! Ephemeral installation reviews; neither navigation nor restoration carries consent.
 use super::*;
-use crate::i18n::Message;
+use crate::messages::Message;
 use crate::platform::distribution::{LifecycleReview, Operation};
 
 #[derive(Default)]

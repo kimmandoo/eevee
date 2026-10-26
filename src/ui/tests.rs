@@ -44,7 +44,6 @@ fn project_header_escapes_controls_without_changing_task_identity() {
 fn all_true_color_forms_keep_readable_text_and_selection() {
     for theme in [Theme::Dark, Theme::Light] {
         let config = Config {
-            language: crate::i18n::Language::ENGLISH,
             ascii: false,
             no_animation: false,
             animation_override: None,
@@ -200,7 +199,6 @@ fn compact_palette_shows_blocker_and_keys_without_mutating_draft() {
     use ratatui::{Terminal, backend::TestBackend};
 
     let config = Config {
-        language: crate::i18n::Language::ENGLISH,
         ascii: true,
         no_animation: false,
         animation_override: None,
@@ -260,7 +258,6 @@ fn compact_palette_shows_blocker_and_keys_without_mutating_draft() {
 
 fn home_config() -> Config {
     Config {
-        language: crate::i18n::Language::ENGLISH,
         ascii: true,
         no_animation: true,
         animation_override: Some(false),
@@ -674,6 +671,70 @@ fn suggestion_wraps_without_replacing_response_or_composer() {
             assert!(!dismissed.contains("Suggested:"));
             assert!(dismissed.contains("Follow-up draft stays editable"));
         }
+    }
+}
+
+#[test]
+fn completed_response_keeps_body_below_manual_transition_and_advisory() {
+    use ratatui::{Terminal, backend::TestBackend};
+    let config = home_config();
+    for (width, height) in [(60, 18), (120, 36)] {
+        let mut app = App::new("/workspace".into(), width, height);
+        app.store_event(crate::store::Event::Loaded(crate::store::Project {
+            tasks: Vec::new(),
+            partners: vec![crate::store::Partner {
+                form: 4,
+                auto_form: false,
+                ..Default::default()
+            }],
+            active_id: None,
+            usage_bytes: 0,
+        }));
+        app.evolution.transition = Some(crate::app::evolution::Transition {
+            from: 4,
+            to: 4,
+            reason: crate::messages::Message::CoreEvolutionImplementation,
+            fresh: true,
+        });
+        app.suggestion = Some(crate::app::suggestions::Suggestion {
+            form: 4,
+            reason: "The task goal has no acceptance criteria.".into(),
+            trigger: "task:7:criteria".into(),
+        });
+        app.planning.submitted_request = "Original request 東京".into();
+        app.planning.items.push(crate::app::planning::Item {
+            thread_id: "thread".into(),
+            turn_id: "turn".into(),
+            item_id: "item".into(),
+            kind: crate::providers::ItemKind::Message,
+            text: "Fixture receipt public response cedar-927.".into(),
+            complete: true,
+            request: app.planning.submitted_request.clone(),
+            owner: None,
+        });
+        app.planning.notice = "Native response completed after 1 HTTP round(s).".into();
+        app.input = "Future draft 界e\u{301}Z-end".into();
+        app.cursor = 7;
+        app.editing = true;
+        app.editor_field = EditorField::Request;
+        let mut artwork = Artwork::load(&config);
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+        terminal
+            .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
+            .unwrap();
+        let rendered = screen_text(&terminal);
+        assert!(
+            rendered.contains("Fixture receipt public response cedar-927."),
+            "{width}x{height}: {rendered}"
+        );
+        assert!(rendered.contains("Original request 東京"));
+        assert!(rendered.contains("Native response completed"));
+        assert!(rendered.contains("Suggested:"));
+        assert!(app.evolution.transition.is_some());
+        assert!(app.visible_suggestion().is_some());
+        assert_eq!(app.input, "Future draft 界e\u{301}Z-end");
+        assert_eq!(app.cursor, 7);
+        assert!(app.planning.pending.is_none());
     }
 }
 
@@ -1402,11 +1463,6 @@ fn nicknames_keep_species_visible_in_header_and_composer_at_both_sizes() {
                         "{width}: {visible}"
                     );
                 }
-                assert!(
-                    screen_text(&terminal).contains(form.element),
-                    "{width}: {}",
-                    form.name
-                );
             }
         }
     }
@@ -2164,53 +2220,48 @@ fn record_discard_uses_visible_summary_not_end_scroll_and_invalidates_tiny_conse
 }
 
 #[test]
-fn evolution_popup_is_one_shot_localized_and_preserves_real_editor_input() {
+fn evolution_popup_is_one_shot_and_preserves_real_editor_input() {
     use ratatui::{Terminal, backend::TestBackend};
     for (width, height) in [(60, 18), (120, 36)] {
-        for language in [
-            crate::i18n::Language::ENGLISH,
-            crate::i18n::Language::parse("ko").unwrap(),
-        ] {
-            let mut config = home_config();
-            config.language = language;
-            let mut app = App::new("/workspace".into(), width, height);
-            app.task_id = 7;
-            app.storage = crate::app::StorageState::Saved;
-            app.input = "future 界draft".into();
-            app.cursor = "future ".len();
-            app.editing = true;
-            app.editor_field = EditorField::Request;
-            app.command("flareon");
-            let mut artwork = Artwork::load(&config);
-            let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
-            terminal
-                .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
-                .unwrap();
-            let screen = screen_text(&terminal);
-            assert!(app.evolution.popup_shown, "{screen}");
-            assert!(screen.contains("Eevee -> Flareon"), "{screen}");
-            assert!(
-                screen.contains(language.text(Message::CoreEvolutionPopupTitle))
-                    && screen.contains(language.text(Message::CoreEvolutionPopupContinue)),
-                "{screen}"
-            );
-            assert_eq!((app.input.as_str(), app.cursor), ("future 界draft", 7));
-            assert!(app.planning.pending.is_none());
-            app.update(Event::Paste("한".into()));
-            assert_eq!((app.input.as_str(), app.cursor), ("future 한界draft", 10));
-            terminal
-                .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
-                .unwrap();
-            assert!(!screen_text(&terminal).contains("Eevee -> Flareon"));
-            app.command("flareon");
-            terminal
-                .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
-                .unwrap();
-            assert!(
-                !screen_text(&terminal).contains("Eevee -> Flareon"),
-                "unchanged form replayed evolution"
-            );
-        }
+        let config = home_config();
+
+        let mut app = App::new("/workspace".into(), width, height);
+        app.task_id = 7;
+        app.storage = crate::app::StorageState::Saved;
+        app.input = "future 界draft".into();
+        app.cursor = "future ".len();
+        app.editing = true;
+        app.editor_field = EditorField::Request;
+        app.command("flareon");
+        let mut artwork = Artwork::load(&config);
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+        terminal
+            .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
+            .unwrap();
+        let screen = screen_text(&terminal);
+        assert!(app.evolution.popup_shown, "{screen}");
+        assert!(screen.contains("Eevee -> Flareon"), "{screen}");
+        assert!(
+            screen.contains(Message::CoreEvolutionPopupTitle.text())
+                && screen.contains(Message::CoreEvolutionPopupContinue.text()),
+            "{screen}"
+        );
+        assert_eq!((app.input.as_str(), app.cursor), ("future 界draft", 7));
+        assert!(app.planning.pending.is_none());
+        app.update(Event::Paste("한".into()));
+        assert_eq!((app.input.as_str(), app.cursor), ("future 한界draft", 10));
+        terminal
+            .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
+            .unwrap();
+        assert!(!screen_text(&terminal).contains("Eevee -> Flareon"));
+        app.command("flareon");
+        terminal
+            .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
+            .unwrap();
+        assert!(
+            !screen_text(&terminal).contains("Eevee -> Flareon"),
+            "unchanged form replayed evolution"
+        );
     }
 }
 
@@ -2328,70 +2379,67 @@ fn evolution_receipt_is_edge_anchored_and_reserves_response_and_composer() {
 }
 
 #[test]
-fn evolution_receipt_keeps_localized_hierarchy_in_ascii_mono_and_color() {
+fn evolution_receipt_keeps_hierarchy_in_ascii_mono_and_color() {
     use ratatui::{Terminal, backend::TestBackend};
     for (width, height) in [(60, 18), (120, 36)] {
-        for language in [Language::ENGLISH, Language::parse("ko").unwrap()] {
-            for (ascii, color) in [
-                (true, ColorMode::Mono),
-                (false, ColorMode::Mono),
-                (false, ColorMode::TrueColor),
-            ] {
-                let mut config = home_config();
-                config.language = language;
-                config.ascii = ascii;
-                config.color = color;
-                let mut app = App::new("/workspace".into(), width, height);
-                app.command("vaporeon");
-                app.command("jolteon");
-                let paint = Paint::new(&config, &FORMS[app.form()], app.form());
-                let area = evolution_popup_area(Rect::new(0, 0, width, height), &app).unwrap();
-                let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
-                terminal
-                    .draw(|frame| {
-                        cooperation::evolution_popup(frame, area, &mut app, &config, &paint)
-                    })
-                    .unwrap();
-                let screen = screen_text(&terminal);
-                assert!(
-                    screen.contains(if ascii {
-                        "Vaporeon -> Jolteon"
-                    } else {
-                        "Vaporeon →  Jolteon"
-                    }),
-                    "{screen}"
-                );
-                assert!(
-                    screen.contains(language.text(Message::CoreEvolutionPopupTitle)),
-                    "{screen}"
-                );
-                assert!(
-                    screen.contains(language.text(Message::CoreEvolutionManual)),
-                    "{screen}"
-                );
-                assert!(
-                    screen.contains(language.text(Message::CoreEvolutionPopupContinue)),
-                    "{screen}"
-                );
-                for word in language
-                    .text(Message::CoreEvolutionPopupManualReason)
-                    .split_whitespace()
-                {
-                    assert!(screen.contains(word), "receipt clipped {word}: {screen}");
-                }
-                let buffer = terminal.backend().buffer();
-                assert_eq!(
-                    buffer[(area.x, area.y)].symbol(),
-                    if ascii { "+" } else { "╭" }
-                );
-                assert!(
-                    buffer.content.iter().any(|cell| {
-                        cell.symbol() == "J" && cell.modifier.contains(Modifier::BOLD)
-                    }),
-                    "destination lost its visual emphasis: {screen}"
-                );
-                assert_eq!(app.evolution_frame(), None);
+        for (ascii, color) in [
+            (true, ColorMode::Mono),
+            (false, ColorMode::Mono),
+            (false, ColorMode::TrueColor),
+        ] {
+            let mut config = home_config();
+
+            config.ascii = ascii;
+            config.color = color;
+            let mut app = App::new("/workspace".into(), width, height);
+            app.command("vaporeon");
+            app.command("jolteon");
+            let paint = Paint::new(&config, &FORMS[app.form()], app.form());
+            let area = evolution_popup_area(Rect::new(0, 0, width, height), &app).unwrap();
+            let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+            terminal
+                .draw(|frame| cooperation::evolution_popup(frame, area, &mut app, &config, &paint))
+                .unwrap();
+            let screen = screen_text(&terminal);
+            assert!(
+                screen.contains(if ascii {
+                    "Vaporeon -> Jolteon"
+                } else {
+                    "Vaporeon →  Jolteon"
+                }),
+                "{screen}"
+            );
+            assert!(
+                screen.contains(Message::CoreEvolutionPopupTitle.text()),
+                "{screen}"
+            );
+            assert!(
+                screen.contains(Message::CoreEvolutionManual.text()),
+                "{screen}"
+            );
+            assert!(
+                screen.contains(Message::CoreEvolutionPopupContinue.text()),
+                "{screen}"
+            );
+            for word in Message::CoreEvolutionPopupManualReason
+                .text()
+                .split_whitespace()
+            {
+                assert!(screen.contains(word), "receipt clipped {word}: {screen}");
             }
+            let buffer = terminal.backend().buffer();
+            assert_eq!(
+                buffer[(area.x, area.y)].symbol(),
+                if ascii { "+" } else { "╭" }
+            );
+            assert!(
+                buffer
+                    .content
+                    .iter()
+                    .any(|cell| { cell.symbol() == "J" && cell.modifier.contains(Modifier::BOLD) }),
+                "destination lost its visual emphasis: {screen}"
+            );
+            assert_eq!(app.evolution_frame(), None);
         }
     }
 }
@@ -2437,76 +2485,74 @@ fn held_sheet_keeps_frozen_scope_and_membership_without_mutating_draft() {
         workspace::held::Target,
     };
     use ratatui::{Terminal, backend::TestBackend};
-    for language in [Language::ENGLISH, Language::parse("ko").unwrap()] {
-        for (width, height) in [(60, 18), (120, 36)] {
-            let mut config = home_config();
-            config.language = language;
-            let mut app = App::new("/workspace".into(), width, height);
-            app.task_id = 92;
-            app.input = "Future draft 한글".into();
-            app.cursor = 7;
-            app.held.target = Some(Target::File {
-                path: "future.rs".into(),
-            });
-            app.held.notice = Some(Notice::Saved);
-            app.held.receipt = Some(Receipt {
-                task: 7,
-                owner: store::Attribution {
-                    partner: 18,
-                    name: "FrozenOwner".into(),
-                    form: 2,
-                },
-                target: Some(Target::Memory {
-                    id: 81,
-                    revision: 4,
-                }),
-                included: false,
-            });
-            app.overlay = Some(Overlay::Held);
-            let mut artwork = Artwork::load(&config);
-            let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
-            for _ in 0..2 {
-                terminal
-                    .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
-                    .unwrap();
-                let rendered = screen_text(&terminal);
-                for value in [
-                    "FrozenOwner",
-                    "future.rs",
-                    "#81 @ 4",
-                    "/held-accept",
-                    "/held-dismiss",
-                    "/held-clear",
-                    "/held-set-file",
-                    "/held-set-memory",
-                ] {
-                    assert!(rendered.contains(value), "{value}: {rendered}");
-                }
-                assert!(
-                    rendered.contains(language.text(Message::HeldReceiptExcluded)),
-                    "{width}×{height}: {rendered}"
-                );
-                assert_eq!(app.input, "Future draft 한글");
-                assert_eq!(app.cursor, 7);
-                assert_eq!(app.held.receipt.as_ref().unwrap().task, 7);
-                assert!(!app.held.receipt.as_ref().unwrap().included);
-            }
-            app.held.receipt.as_mut().unwrap().included = true;
-            app.held.target = Some(Target::File {
-                path: "changed-current.rs".into(),
-            });
-            app.task_id = 93;
+    for (width, height) in [(60, 18), (120, 36)] {
+        let config = home_config();
+
+        let mut app = App::new("/workspace".into(), width, height);
+        app.task_id = 92;
+        app.input = "Future draft 한글".into();
+        app.cursor = 7;
+        app.held.target = Some(Target::File {
+            path: "future.rs".into(),
+        });
+        app.held.notice = Some(Notice::Saved);
+        app.held.receipt = Some(Receipt {
+            task: 7,
+            owner: store::Attribution {
+                partner: 18,
+                name: "FrozenOwner".into(),
+                form: 2,
+            },
+            target: Some(Target::Memory {
+                id: 81,
+                revision: 4,
+            }),
+            included: false,
+        });
+        app.overlay = Some(Overlay::Held);
+        let mut artwork = Artwork::load(&config);
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+        for _ in 0..2 {
             terminal
                 .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
                 .unwrap();
             let rendered = screen_text(&terminal);
+            for value in [
+                "FrozenOwner",
+                "future.rs",
+                "#81 @ 4",
+                "/held-accept",
+                "/held-dismiss",
+                "/held-clear",
+                "/held-set-file",
+                "/held-set-memory",
+            ] {
+                assert!(rendered.contains(value), "{value}: {rendered}");
+            }
             assert!(
-                rendered.contains(language.text(Message::HeldReceiptIncluded)),
+                rendered.contains(Message::HeldReceiptExcluded.text()),
                 "{width}×{height}: {rendered}"
             );
-            assert!(rendered.contains("#81 @ 4"));
+            assert_eq!(app.input, "Future draft 한글");
+            assert_eq!(app.cursor, 7);
             assert_eq!(app.held.receipt.as_ref().unwrap().task, 7);
+            assert!(!app.held.receipt.as_ref().unwrap().included);
         }
+        app.held.receipt.as_mut().unwrap().included = true;
+        app.held.target = Some(Target::File {
+            path: "changed-current.rs".into(),
+        });
+        app.task_id = 93;
+        terminal
+            .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
+            .unwrap();
+        let rendered = screen_text(&terminal);
+        assert!(
+            rendered.contains(Message::HeldReceiptIncluded.text()),
+            "{width}×{height}: {rendered}"
+        );
+        assert!(rendered.contains("#81 @ 4"));
+        assert_eq!(app.held.receipt.as_ref().unwrap().task, 7);
     }
 }
 
@@ -2518,44 +2564,42 @@ fn held_optional_strip_yields_to_real_live_file_output_without_hiding_draft() {
     };
     use ratatui::{Terminal, backend::TestBackend};
     use std::sync::Arc;
-    for language in [Language::ENGLISH, Language::parse("ko").unwrap()] {
-        for (width, height) in [(60, 18), (120, 36)] {
-            let mut config = home_config();
-            config.language = language;
-            let mut app = App::new("/workspace".into(), width, height);
-            app.held.target = Some(Target::File {
-                path: "held.rs".into(),
-            });
-            app.input = "Draft remains".into();
-            app.cursor = 5;
-            app.planning.submitted_request = Arc::from("Write a file");
-            app.planning.items.push(crate::app::planning::Item {
-                thread_id: String::new(),
-                turn_id: "turn".into(),
-                item_id: "file".into(),
-                kind: ItemKind::File(FilePhase::Generating),
-                text: "live.rs\n1  HELD_PRIORITY_LIVE_CODE".into(),
-                complete: false,
-                request: Arc::clone(&app.planning.submitted_request),
-                owner: None,
-            });
-            let mut artwork = Artwork::load(&config);
-            let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
-            for phase in [
-                FilePhase::Generating,
-                FilePhase::Received,
-                FilePhase::AwaitingReview,
-            ] {
-                app.planning.items[0].kind = ItemKind::File(phase);
-                terminal
-                    .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
-                    .unwrap();
-                let rendered = screen_text(&terminal);
-                assert!(rendered.contains("HELD_PRIORITY_LIVE_CODE"), "{rendered}");
-                assert!(!rendered.contains("/held"));
-                assert!(rendered.contains("Draft remains"));
-                assert_eq!(app.cursor, 5);
-            }
+    for (width, height) in [(60, 18), (120, 36)] {
+        let config = home_config();
+
+        let mut app = App::new("/workspace".into(), width, height);
+        app.held.target = Some(Target::File {
+            path: "held.rs".into(),
+        });
+        app.input = "Draft remains".into();
+        app.cursor = 5;
+        app.planning.submitted_request = Arc::from("Write a file");
+        app.planning.items.push(crate::app::planning::Item {
+            thread_id: String::new(),
+            turn_id: "turn".into(),
+            item_id: "file".into(),
+            kind: ItemKind::File(FilePhase::Generating),
+            text: "live.rs\n1  HELD_PRIORITY_LIVE_CODE".into(),
+            complete: false,
+            request: Arc::clone(&app.planning.submitted_request),
+            owner: None,
+        });
+        let mut artwork = Artwork::load(&config);
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+        for phase in [
+            FilePhase::Generating,
+            FilePhase::Received,
+            FilePhase::AwaitingReview,
+        ] {
+            app.planning.items[0].kind = ItemKind::File(phase);
+            terminal
+                .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
+                .unwrap();
+            let rendered = screen_text(&terminal);
+            assert!(rendered.contains("HELD_PRIORITY_LIVE_CODE"), "{rendered}");
+            assert!(!rendered.contains("/held"));
+            assert!(rendered.contains("Draft remains"));
+            assert_eq!(app.cursor, 5);
         }
     }
 }
@@ -2563,88 +2607,84 @@ fn held_optional_strip_yields_to_real_live_file_output_without_hiding_draft() {
 #[test]
 fn held_preference_does_not_occlude_source_approval_at_supported_sizes() {
     use ratatui::{Terminal, backend::TestBackend};
-    for language in [Language::ENGLISH, Language::parse("ko").unwrap()] {
-        for (width, height) in [(60, 18), (120, 36)] {
-            let mut config = home_config();
-            config.language = language;
-            let mut app = App::new("/workspace".into(), width, height);
-            app.task_id = 7;
-            app.input = "Unsent draft".into();
-            app.cursor = 3;
-            app.held.target = Some(crate::workspace::held::Target::File {
-                path: "other.rs".into(),
-            });
-            app.overlay = Some(Overlay::Sources);
-            app.sources.mode = crate::app::sources::Mode::Basket;
-            app.sources.basket.push(crate::workspace::context::Excerpt {
-                origin_run: None,
-                id: 91,
-                task_id: 7,
-                root: "/workspace".into(),
-                path: "APPROVAL_SCOPE.rs".into(),
-                start_line: 1,
-                end_line: 1,
-                source_sha256: [9; 32],
-                text: "retained source".into(),
-                available: true,
-            });
-            app.sources.command("purge", 7, None);
-            let mut artwork = Artwork::load(&config);
-            let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
-            terminal
-                .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
-                .unwrap();
-            let rendered = screen_text(&terminal);
-            assert!(rendered.contains("APPROVAL_SCOPE.rs"), "{rendered}");
-            assert!(!rendered.contains("/held"));
-            assert!(app.sources.confirmation.as_ref().unwrap().reviewed);
-            assert_eq!(app.input, "Unsent draft");
-            assert_eq!(app.cursor, 3);
-        }
+    for (width, height) in [(60, 18), (120, 36)] {
+        let config = home_config();
+
+        let mut app = App::new("/workspace".into(), width, height);
+        app.task_id = 7;
+        app.input = "Unsent draft".into();
+        app.cursor = 3;
+        app.held.target = Some(crate::workspace::held::Target::File {
+            path: "other.rs".into(),
+        });
+        app.overlay = Some(Overlay::Sources);
+        app.sources.mode = crate::app::sources::Mode::Basket;
+        app.sources.basket.push(crate::workspace::context::Excerpt {
+            origin_run: None,
+            id: 91,
+            task_id: 7,
+            root: "/workspace".into(),
+            path: "APPROVAL_SCOPE.rs".into(),
+            start_line: 1,
+            end_line: 1,
+            source_sha256: [9; 32],
+            text: "retained source".into(),
+            available: true,
+        });
+        app.sources.command("purge", 7, None);
+        let mut artwork = Artwork::load(&config);
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+        terminal
+            .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
+            .unwrap();
+        let rendered = screen_text(&terminal);
+        assert!(rendered.contains("APPROVAL_SCOPE.rs"), "{rendered}");
+        assert!(!rendered.contains("/held"));
+        assert!(app.sources.confirmation.as_ref().unwrap().reviewed);
+        assert_eq!(app.input, "Unsent draft");
+        assert_eq!(app.cursor, 3);
     }
 }
 
 #[test]
 fn held_workspace_keeps_item_identity_and_controls_at_minimum_size() {
     use ratatui::{Terminal, backend::TestBackend};
-    for language in [Language::ENGLISH, Language::parse("ko").unwrap()] {
-        for (width, height) in [(60, 18), (120, 36)] {
-            for path in [
-                "資料_한글.rs".to_owned(),
-                format!("資料_{}.rs", "한글".repeat(80)),
-            ] {
-                let mut config = home_config();
-                config.language = language;
-                let mut app = App::new("/workspace".into(), width, height);
-                app.task_id = 7;
-                app.goal = "Keep the saved context visible".into();
-                app.input = "Future draft".into();
-                app.cursor = 7;
-                app.editor_field = store::EditorField::Request;
-                app.held.target = Some(crate::workspace::held::Target::File { path });
-                let mut artwork = Artwork::load(&config);
-                let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+    for (width, height) in [(60, 18), (120, 36)] {
+        for path in [
+            "資料_한글.rs".to_owned(),
+            format!("資料_{}.rs", "한글".repeat(80)),
+        ] {
+            let config = home_config();
+
+            let mut app = App::new("/workspace".into(), width, height);
+            app.task_id = 7;
+            app.goal = "Keep the saved context visible".into();
+            app.input = "Future draft".into();
+            app.cursor = 7;
+            app.editor_field = store::EditorField::Request;
+            app.held.target = Some(crate::workspace::held::Target::File { path });
+            let mut artwork = Artwork::load(&config);
+            let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+            terminal
+                .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
+                .unwrap();
+            let rendered = screen_text(&terminal);
+            assert!(rendered.contains("資料_"), "{width}×{height}: {rendered}");
+            assert!(rendered.contains("/held"), "{width}×{height}: {rendered}");
+            assert!(rendered.contains("Future draft"));
+            assert_eq!(app.cursor, 7);
+            assert!(app.sources.basket.is_empty());
+            app.held.dismissed = true;
+            for _ in 0..2 {
                 terminal
                     .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
                     .unwrap();
                 let rendered = screen_text(&terminal);
-                assert!(rendered.contains("資料_"), "{width}×{height}: {rendered}");
-                assert!(rendered.contains("/held"), "{width}×{height}: {rendered}");
-                assert!(rendered.contains("Future draft"));
+                assert!(!rendered.contains("資料_"), "{rendered}");
+                assert!(!rendered.contains("/held"), "{rendered}");
+                assert!(app.held.target.is_some());
+                assert_eq!(app.input, "Future draft");
                 assert_eq!(app.cursor, 7);
-                assert!(app.sources.basket.is_empty());
-                app.held.dismissed = true;
-                for _ in 0..2 {
-                    terminal
-                        .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
-                        .unwrap();
-                    let rendered = screen_text(&terminal);
-                    assert!(!rendered.contains("資料_"), "{rendered}");
-                    assert!(!rendered.contains("/held"), "{rendered}");
-                    assert!(app.held.target.is_some());
-                    assert_eq!(app.input, "Future draft");
-                    assert_eq!(app.cursor, 7);
-                }
             }
         }
     }
@@ -2680,84 +2720,75 @@ fn ribbon_fixture(
 fn compact_ribbon_inspection_shows_original_evidence_without_paging() {
     use crate::workspace::ribbons::Kind;
     use ratatui::{Terminal, backend::TestBackend};
-    for language in [Language::ENGLISH, Language::parse("ko").unwrap()] {
-        let mut config = home_config();
-        config.language = language;
-        let paint = Paint::new(&config, &FORMS[0], 0);
-        let mut app = App::new("/workspace".into(), 60, 18);
-        app.records.loaded = true;
-        app.records.snapshot.ribbons.push(ribbon_fixture(
-            Kind::AcceptedReview,
-            22,
-            "Original producer",
-            false,
-        ));
-        app.command("ribbons");
-        let mut terminal = Terminal::new(TestBackend::new(60, 18)).unwrap();
-        terminal
-            .draw(|frame| records::render(frame, frame.area(), &mut app, &config, &paint))
-            .unwrap();
-        assert!(screen_text(&terminal).contains("source-22"));
-    }
+    let config = home_config();
+
+    let paint = Paint::new(&config, &FORMS[0], 0);
+    let mut app = App::new("/workspace".into(), 60, 18);
+    app.records.loaded = true;
+    app.records.snapshot.ribbons.push(ribbon_fixture(
+        Kind::AcceptedReview,
+        22,
+        "Original producer",
+        false,
+    ));
+    app.command("ribbons");
+    let mut terminal = Terminal::new(TestBackend::new(60, 18)).unwrap();
+    terminal
+        .draw(|frame| records::render(frame, frame.area(), &mut app, &config, &paint))
+        .unwrap();
+    assert!(screen_text(&terminal).contains("source-22"));
 }
 
 #[test]
-fn ribbon_inspector_pages_every_evidence_row_in_both_locales_and_restores_editor() {
+fn ribbon_inspector_pages_every_evidence_row_and_restores_editor() {
     use crate::workspace::ribbons::Kind;
     use ratatui::{Terminal, backend::TestBackend};
     use std::collections::BTreeSet;
-    for language in [Language::ENGLISH, Language::parse("ko").unwrap()] {
-        for (width, height) in [(60, 18), (120, 36)] {
-            let mut config = home_config();
-            config.language = language;
-            let paint = Paint::new(&config, &FORMS[0], 0);
-            let mut app = App::new("/workspace".into(), width, height);
-            app.task_id = 9;
-            app.input = "draft 한글\nliteral".into();
-            app.cursor = 6;
-            app.editing = true;
-            app.records.loaded = true;
-            let mut view = ribbon_fixture(Kind::AcceptedReview, 22, "Old producer", true);
-            view.explanation = (0..48)
-                .map(|index| format!("source-row-{index:03}"))
-                .collect::<Vec<_>>()
-                .join("\n");
-            app.records.snapshot.ribbons.push(view);
-            app.command("ribbons");
-            let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
-            let mut seen = BTreeSet::new();
-            for _ in 0..100 {
-                terminal
-                    .draw(|frame| records::render(frame, frame.area(), &mut app, &config, &paint))
-                    .unwrap();
-                let rendered = screen_text(&terminal);
-                for index in 0..48 {
-                    if rendered.contains(&format!("source-row-{index:03}")) {
-                        seen.insert(index);
-                    }
-                }
-                let old = app.records.scroll;
-                app.record_key(KeyEvent::new(KeyCode::PageDown, KeyModifiers::NONE));
-                if app.records.scroll == old {
-                    break;
+    for (width, height) in [(60, 18), (120, 36)] {
+        let config = home_config();
+
+        let paint = Paint::new(&config, &FORMS[0], 0);
+        let mut app = App::new("/workspace".into(), width, height);
+        app.task_id = 9;
+        app.input = "draft 한글\nliteral".into();
+        app.cursor = 6;
+        app.editing = true;
+        app.records.loaded = true;
+        let mut view = ribbon_fixture(Kind::AcceptedReview, 22, "Old producer", true);
+        view.explanation = (0..48)
+            .map(|index| format!("source-row-{index:03}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        app.records.snapshot.ribbons.push(view);
+        app.command("ribbons");
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+        let mut seen = BTreeSet::new();
+        for _ in 0..100 {
+            terminal
+                .draw(|frame| records::render(frame, frame.area(), &mut app, &config, &paint))
+                .unwrap();
+            let rendered = screen_text(&terminal);
+            for index in 0..48 {
+                if rendered.contains(&format!("source-row-{index:03}")) {
+                    seen.insert(index);
                 }
             }
-            assert_eq!(
-                seen,
-                (0..48).collect(),
-                "{width}x{height} {}",
-                language.tag()
-            );
-            assert!(app.records.scroll_max > 0);
-            assert_eq!(app.task_id, 9);
-            assert!(!app.execution.busy());
-            assert!(app.planning.pending.is_none());
-            assert!(app.handoff.pending.is_none());
-            app.record_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
-            assert!(app.editing);
-            assert_eq!(app.input, "draft 한글\nliteral");
-            assert_eq!(app.cursor, 6);
+            let old = app.records.scroll;
+            app.record_key(KeyEvent::new(KeyCode::PageDown, KeyModifiers::NONE));
+            if app.records.scroll == old {
+                break;
+            }
         }
+        assert_eq!(seen, (0..48).collect(), "{width}x{height}");
+        assert!(app.records.scroll_max > 0);
+        assert_eq!(app.task_id, 9);
+        assert!(!app.execution.busy());
+        assert!(app.planning.pending.is_none());
+        assert!(app.handoff.pending.is_none());
+        app.record_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        assert!(app.editing);
+        assert_eq!(app.input, "draft 한글\nliteral");
+        assert_eq!(app.cursor, 6);
     }
 }
 
@@ -2765,103 +2796,99 @@ fn ribbon_inspector_pages_every_evidence_row_in_both_locales_and_restores_editor
 fn partner_summary_ribbons_filter_historical_producer_hidden_and_flavor_without_hiding_inspector() {
     use crate::workspace::{records::PartnerSummary, ribbons::Kind};
     use ratatui::{Terminal, backend::TestBackend};
-    for language in [Language::ENGLISH, Language::parse("ko").unwrap()] {
-        for (width, height) in [(60, 18), (120, 36)] {
-            let mut config = home_config();
-            config.language = language;
-            let paint = Paint::new(&config, &FORMS[0], 0);
-            let mut app = App::new("/workspace".into(), width, height);
-            let partner = app.lead().clone();
-            app.records.snapshot.summaries.push(PartnerSummary {
-                partner: partner.clone(),
-                produced_tasks: [0; 9],
-                moves: [0; 9],
-                move_names: Default::default(),
-                shared_bond_memories: 0,
-                unknown_producer_artifacts: 0,
-            });
-            app.records.snapshot.ribbons = vec![
-                ribbon_fixture(Kind::AcceptedReview, partner.id, "frozen-visible", false),
-                ribbon_fixture(Kind::VerifiedHandoff, partner.id, "frozen-hidden", true),
-                ribbon_fixture(Kind::LearnedMove, partner.id + 100, "other-producer", false),
-            ];
-            let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
-            app.open_records(crate::app::records::Mode::Summary);
+    for (width, height) in [(60, 18), (120, 36)] {
+        let config = home_config();
+
+        let paint = Paint::new(&config, &FORMS[0], 0);
+        let mut app = App::new("/workspace".into(), width, height);
+        let partner = app.lead().clone();
+        app.records.snapshot.summaries.push(PartnerSummary {
+            partner: partner.clone(),
+            produced_tasks: [0; 9],
+            moves: [0; 9],
+            move_names: Default::default(),
+            shared_bond_memories: 0,
+            unknown_producer_artifacts: 0,
+        });
+        app.records.snapshot.ribbons = vec![
+            ribbon_fixture(Kind::AcceptedReview, partner.id, "frozen-visible", false),
+            ribbon_fixture(Kind::VerifiedHandoff, partner.id, "frozen-hidden", true),
+            ribbon_fixture(Kind::LearnedMove, partner.id + 100, "other-producer", false),
+        ];
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+        app.open_records(crate::app::records::Mode::Summary);
+        terminal
+            .draw(|frame| records::render(frame, frame.area(), &mut app, &config, &paint))
+            .unwrap();
+        let rendered = screen_text(&terminal);
+        assert!(rendered.contains("frozen-visible"), "{rendered}");
+        assert!(!rendered.contains("frozen-hidden"));
+        assert!(!rendered.contains("other-producer"));
+        app.records.snapshot.flavor_enabled = false;
+        terminal
+            .draw(|frame| records::render(frame, frame.area(), &mut app, &config, &paint))
+            .unwrap();
+        assert!(!screen_text(&terminal).contains("frozen-visible"));
+        app.open_records(crate::app::records::Mode::Ribbons);
+        app.records.selected = 1;
+        let mut history = String::new();
+        loop {
             terminal
                 .draw(|frame| records::render(frame, frame.area(), &mut app, &config, &paint))
                 .unwrap();
-            let rendered = screen_text(&terminal);
-            assert!(rendered.contains("frozen-visible"), "{rendered}");
-            assert!(!rendered.contains("frozen-hidden"));
-            assert!(!rendered.contains("other-producer"));
-            app.records.snapshot.flavor_enabled = false;
-            terminal
-                .draw(|frame| records::render(frame, frame.area(), &mut app, &config, &paint))
-                .unwrap();
-            assert!(!screen_text(&terminal).contains("frozen-visible"));
-            app.open_records(crate::app::records::Mode::Ribbons);
-            app.records.selected = 1;
-            let mut history = String::new();
-            loop {
-                terminal
-                    .draw(|frame| records::render(frame, frame.area(), &mut app, &config, &paint))
-                    .unwrap();
-                history.push_str(&screen_text(&terminal));
-                let old = app.records.scroll;
-                app.record_key(KeyEvent::new(KeyCode::PageDown, KeyModifiers::NONE));
-                if app.records.scroll == old {
-                    break;
-                }
+            history.push_str(&screen_text(&terminal));
+            let old = app.records.scroll;
+            app.record_key(KeyEvent::new(KeyCode::PageDown, KeyModifiers::NONE));
+            if app.records.scroll == old {
+                break;
             }
-            assert!(history.contains("frozen-hidden"));
-            assert!(history.contains("other-producer"));
-            assert!(history.contains("source-"));
         }
+        assert!(history.contains("frozen-hidden"));
+        assert!(history.contains("other-producer"));
+        assert!(history.contains("source-"));
     }
 }
 
 #[test]
 fn both_densities_keep_storage_error_and_focused_cjk_editor_at_supported_sizes() {
     use ratatui::{Terminal, backend::TestBackend};
-    for language in [Language::ENGLISH, Language::parse("ko").unwrap()] {
-        for (width, height) in [(60, 18), (120, 36)] {
-            let mut config = home_config();
-            config.language = language;
-            let mut app = App::new("/workspace".into(), width, height);
-            app.editing = true;
-            app.editor_field = EditorField::Request;
-            app.input = "界e\u{301} 끝".into();
-            app.cursor = "界e\u{301}".len();
-            app.storage = crate::app::StorageState::Failed("disk full".into());
-            app.notice = "Local write refused".into();
-            let before = (app.input.clone(), app.cursor, app.effective_focus());
-            let mut artwork = Artwork::load(&config);
-            let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
-            for density in [store::TextDensity::Compact, store::TextDensity::Comfortable] {
-                app.planning.set_text_density(density);
-                terminal
-                    .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
-                    .unwrap();
-                let cursor = terminal.get_cursor_position().unwrap();
-                let rendered = screen_text(&terminal);
-                assert!(rendered.contains("界e\u{301} 끝"), "{rendered}");
-                assert!(rendered.contains(app.storage_label()), "{rendered}");
-                assert!(rendered.contains("Local write refused"), "{rendered}");
-                let composer = shell(
-                    Rect::new(0, 0, width, height),
-                    app.linear,
-                    app.effective_focus(),
-                )
-                .composer;
-                assert!(cursor.x >= composer.x && cursor.x < composer.right());
-                assert!(cursor.y > composer.y && cursor.y < composer.bottom());
-                assert_eq!(
-                    (app.input.clone(), app.cursor, app.effective_focus()),
-                    before
-                );
-                assert!(app.editing);
-                assert!(app.planning.pending.is_none());
-            }
+    for (width, height) in [(60, 18), (120, 36)] {
+        let config = home_config();
+
+        let mut app = App::new("/workspace".into(), width, height);
+        app.editing = true;
+        app.editor_field = EditorField::Request;
+        app.input = "界e\u{301} 끝".into();
+        app.cursor = "界e\u{301}".len();
+        app.storage = crate::app::StorageState::Failed("disk full".into());
+        app.notice = "Local write refused".into();
+        let before = (app.input.clone(), app.cursor, app.effective_focus());
+        let mut artwork = Artwork::load(&config);
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+        for density in [store::TextDensity::Compact, store::TextDensity::Comfortable] {
+            app.planning.set_text_density(density);
+            terminal
+                .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
+                .unwrap();
+            let cursor = terminal.get_cursor_position().unwrap();
+            let rendered = screen_text(&terminal);
+            assert!(rendered.contains("界e\u{301} 끝"), "{rendered}");
+            assert!(rendered.contains(app.storage_label()), "{rendered}");
+            assert!(rendered.contains("Local write refused"), "{rendered}");
+            let composer = shell(
+                Rect::new(0, 0, width, height),
+                app.linear,
+                app.effective_focus(),
+            )
+            .composer;
+            assert!(cursor.x >= composer.x && cursor.x < composer.right());
+            assert!(cursor.y > composer.y && cursor.y < composer.bottom());
+            assert_eq!(
+                (app.input.clone(), app.cursor, app.effective_focus()),
+                before
+            );
+            assert!(app.editing);
+            assert!(app.planning.pending.is_none());
         }
     }
 }

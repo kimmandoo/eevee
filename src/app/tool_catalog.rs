@@ -1,6 +1,6 @@
 //! Local catalog search/setup owns its own input and never submits a request.
 use crate::{
-    i18n::Message,
+    messages::Message,
     providers::{
         self, Agent,
         catalog::{Document, Selection},

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """PK08 real application/PTY acceptance; isolated homes, read-only SQL observations.
 
-Run each locale/size explicitly, e.g. --language ko --size 60x18. No SQL
+Run each terminal size explicitly, e.g. --size 60x18. No SQL
 history seeding, live accounts, paid models, rename search or automatic dispatch.
 The loopback peer captures an actual ordinary request for frozen-input isolation.
 Writer-CAS exclusion/revocation/owner/configuration races also have focused Rust
@@ -38,7 +38,7 @@ class Journey(held.Journey):
         before, basket = self.held_rows(), self.contexts()
         self.session.command('held-file')
         files.until(self.session, lambda: any(value in self.session.display()
-                    for value in ('eligible files /', '후보 파일')),
+                    for value in ('eligible files /', )),
                     'actual source chooser did not load', timeout=35)
         self.session.command('search')
         self.session.send(held.UP * 64 + held.HOME + held.DELETE * 4096)
@@ -55,7 +55,7 @@ class Journey(held.Journey):
         self.workspace()
         self.session.command('held-file')
         files.until(self.session, lambda: any(value in self.session.display()
-                    for value in ('eligible files /', '후보 파일')),
+                    for value in ('eligible files /', )),
                     'actual source chooser did not load', timeout=35)
         self.session.command('search')
         self.session.send(held.UP * 64 + held.HOME + held.DELETE * 4096)
@@ -70,8 +70,7 @@ class Journey(held.Journey):
 
     def review(self, expect_controls=False):
         files.until(self.session, lambda: any(value in self.session.display()
-                    for value in ('OLD exact reference', '이전 정확한 참조',
-                                  'Read the complete scope', '아래/PgDn')),
+                    for value in ('OLD exact reference', 'Read the complete scope', )),
                     'exact old/new renewal review was not visible')
         self.capture('renewal-old-new-' + str(len(list(self.output.glob('renewal-old-new-*')))))
         # Sequential paging cannot skip unseen scope at the minimum terminal size.
@@ -79,12 +78,12 @@ class Journey(held.Journey):
         for _ in range(128):
             view = self.session.display()
             observed.append(''.join(view.splitlines()))
-            if any(value in view for value in ('y renew exactly', 'y 정확히 갱신')):
+            if any(value in view for value in ('y renew exactly', )):
                 break
             self.session.send(PGDN)
             self.session.pump(.02)
         files.until(self.session, lambda: any(value in self.session.display()
-                    for value in ('y renew exactly', 'y 정확히 갱신')),
+                    for value in ('y renew exactly', )),
                     'complete renewal scope did not expose explicit consent')
         if expect_controls:
             visible = ''.join(observed)
@@ -130,7 +129,7 @@ class Journey(held.Journey):
     def discard_failed_write(self):
         self.session.command('held')
         files.until(self.session, lambda: any(value in self.session.display()
-                    for value in ('Save failed', '저장 실패')),
+                    for value in ('Save failed', )),
                     'source race did not produce truthful retained write failure')
         self.capture('changed-file-writer-refusal')
         self.session.command('records-discard')
@@ -145,7 +144,7 @@ class Journey(held.Journey):
         posts = len(self.peer.snapshot('POST'))
         argv = [str(previous), *self.restart_argv[1:]]
         old = SurfaceSession(argv, self.project, self.restart_environment, self.restart_size,
-                             self.output / 'previous-reader', language=self.language)
+                             self.output / 'previous-reader', )
         outcome = {'binary': str(previous),
                    'sha256': hashlib.sha256(previous.read_bytes()).hexdigest(),
                    'before_database_sha256': hashlib.sha256(before).hexdigest()}
@@ -180,7 +179,7 @@ class Journey(held.Journey):
         assert len(self.peer.snapshot('POST')) == posts, 'previous-reader inspection replayed a request'
         self.session = SurfaceSession(self.restart_argv, self.project, self.restart_environment,
                                       self.restart_size, self.output / 'current-after-previous',
-                                      language=self.language)
+                                      )
         wait_for(self.session, 'Storage: saved', timeout=35)
         self.session.command('held')
         self.session.command('held-accept')
@@ -191,10 +190,10 @@ class Journey(held.Journey):
         return outcome
 
 
-def run(binary, output, root, size, language, previous=None):
+def run(binary, output, root, size, previous=None):
     output.mkdir(parents=True, exist_ok=False)
     root.mkdir(parents=True, exist_ok=False)
-    report = {'status': 'failed', 'language': language, 'size': list(size), 'cases': [],
+    report = {'status': 'failed', 'size': list(size), 'cases': [],
               'binary_sha256': hashlib.sha256(Path(binary).read_bytes()).hexdigest(),
               'previous_reader': {'admission': 'not-run', 'reason':
                   'not reached before failure' if previous else '--previous-binary not supplied'}}
@@ -202,7 +201,7 @@ def run(binary, output, root, size, language, previous=None):
     with files.Peer('responses', 'sk-held-renewal-local-fixture', True, retain_body_bytes=True) as peer:
         try:
             journey = Journey(binary, output, root, size, size[0] == 60, 'compatible',
-                              'responses', True, False, peer, language=language)
+                              'responses', True, False, peer, )
             wait_for(journey.session, 'Storage: saved', timeout=35)
             journey.session.command('goal')
             journey.session.paste('PK08 deliberate renewal actual application acceptance')
@@ -366,14 +365,13 @@ def main():
     parser.add_argument('--binary', required=True)
     parser.add_argument('--output', required=True)
     parser.add_argument('--previous-binary', help='Optional genuine prior executable; observe admission/refusal without forcing either')
-    parser.add_argument('--language', choices=('en', 'ko'), default='en')
     parser.add_argument('--size', choices=('60x18', '120x36'), default='120x36')
     args = parser.parse_args()
     binary, output = Path(args.binary).resolve(), Path(args.output).resolve()
     previous = Path(args.previous_binary).resolve() if args.previous_binary else None
     size = tuple(map(int, args.size.split('x')))
     with tempfile.TemporaryDirectory(prefix='ev-held-renewal-한글-') as temporary:
-        result = run(binary, output, Path(temporary) / 'fixture', size, args.language, previous)
+        result = run(binary, output, Path(temporary) / 'fixture', size, previous)
     print(json.dumps({'status': result['status'], 'output': str(output)}))
     return 0 if result['status'] == 'passed' else 1
 

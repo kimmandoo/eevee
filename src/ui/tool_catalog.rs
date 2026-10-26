@@ -2,7 +2,7 @@
 use super::*;
 use crate::{
     app::tool_catalog::Mode,
-    i18n::{Message, Template},
+    messages::{Message, Template},
     providers::Agent,
 };
 

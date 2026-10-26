@@ -1,5 +1,61 @@
 # Troubleshooting
 
+### [2026-10-26] Context smoke attempted connection setup before committed-input readiness
+
+- **Context / Symptom:** The fixture waited for an API-key editor, but the retained frame explicitly refused setup with “Finish or retry task/context/journal saves and active work before connection setup.”
+- **Root Cause:** The fixture had observed initial task/repository state rather than a fresh committed Request. The precise pending admission flag was not retained; a readiness race is an inference, not a proven internal subtype.
+- **Solution:** Used explicit Ctrl+S and a newer durable-revision barrier before initial/restarted connection setup. Product admission guards, exact wire/provenance assertions and draft/caret checks remained unchanged. The repaired full native profile passed both context sizes.
+- **Prevention / Reference:** Check the actual refusal frame before treating a missing expected editor as a navigation failure. `target/ux-release-native-{final,repaired}/platform-tools-context/` retains failed and passing evidence.
+
+### [2026-10-26] Compact advisory rows hid a completed response
+
+- **Context / Symptom:** The 60×18 receipt journey showed a completed response and its navigation controls, but not the actual answer (`target/ux-release-native-final/platform-tools-receipts/results.json`). The wide journey passed.
+- **Root Cause:** Optional evolution/suggestion rows left five response rows. Request, header, completion notice and two navigation rows consumed all five before the body could render.
+- **Solution:** Reserved six response rows before wrapping optional advisories. The regression combines same-form manual evolution, suggestion, completed response and an unchanged Unicode draft/caret at both supported smoke sizes.
+- **Prevention / Reference:** Verify actual answer visibility, not just a “complete” badge. Integrated Rust verification passed1,679 tests; actual full-profile proof is tracked in the active checkpoint.
+
+### [2026-10-26] Source-observation fixtures still assumed the retired mutation bound
+
+- **Context / Symptom:** The source-read smoke waited for mutation refusal but instead reached an exact Modify approval. Retained HTTP evidence reported `bytes=162000` and `editable=true`.
+- **Root Cause:** The fixture exceeded the old64-KiB bound, not the existing4-MiB bound. Some native preview/prompt/resource disclosures also still advertised the retired bounds.
+- **Solution:** Kept the product's1024-file/4-MiB limits and corrected their disclosures. Made the Unicode/CRLF fixture larger than4MiB but below the16-MiB source-capture bound, retaining exact range/full-digest and no-mutation assertions. Added a separate explicit Plan request proving denial of an otherwise valid small-file write.
+- **Prevention / Reference:** A large-file mutation refusal and a read-only-policy refusal are different boundaries. Preserve both rather than shrinking supported files to satisfy an obsolete fixture.
+
+### [2026-10-26] Compact artifact review needed paging and failure cleanup hid the original assertion
+
+- **Context / Symptom:** At60×18, the frozen purge revision was below the viewport; the driver timed out, then reported `loopback listener/worker cleanup exceeded deadline` instead of its original visibility failure.
+- **Root Cause:** The fixture did not page the required review scope. Its custom peer callback remained blocked on a30-second gate after the12-second UI assertion failed, beyond the shared cleanup deadline.
+- **Solution:** Paged to the actual frozen revision without weakening concurrent-capture isolation. Advertised PgUp/PgDn in artifact review controls. Added script-owned abort/release in `finally` so failed journeys unblock their callback without sending more tool work; shared cleanup bounds were unchanged.
+- **Prevention / Reference:** Original failures remain under `target/ux-release-native-final/platform-tools-artifacts/60x18/`. Required complete-scope approval must remain enforced even when a review needs several pages.
+
+### [2026-10-26] Local command form navigation bypassed its cancellation review
+
+- **Context / Symptom:** The real execution journey started a root/child/grandchild process tree, then changing Jolteon to Vaporeon showed a generic owned-work refusal instead of the existing Stay / cancel-and-wait review (`target/ux-release-execution-after/results.json`).
+- **Root Cause:** The form-navigation guard used aggregate `partner_busy`, which included the front local command itself and returned before `execution::State::request_navigation` could offer its neutral cancellation transition.
+- **Solution:** Kept provider ownership, parked local work, command saves and unknown outcomes blocking, while allowing the front local command to reach its existing review. No command is cancelled or form changed merely by opening the review; affirmative navigation still waits for owned-tree and journal settlement.
+- **Prevention / Reference:** `owned_local_command_form_change_reviews_cancellation_but_provider_work_stays_blocked` checks neutral no-effect and provider refusal. `scripts/execution_smoke.py` checks the actual process tree, explicit cancellation, task-switch retention and clean quit.
+
+### [2026-10-26] Neutral command review stranded the request behind an execution inspector
+
+- **Context / Symptom:** At 60×18, selecting `n` in a pending command review removed the confirmation but left “Approval pending” and “No output yet” instead of returning to the draft. Baseline captures: `target/approval-return-before/{before-neutral-return,after-neutral-return}.txt`.
+- **Root Cause:** Neutral Enter/`n` cleared `confirmation` without clearing `shown`; Escape already used the complete deferral path.
+- **Solution:** Reused `defer_approval` for all neutral return choices. The exact command remains pending, while the previous editor and Unicode draft/caret return without execution or an armed review. Restricted the Shift+A hint to eligible provider-owned command reviews rather than local commands/cancellation/purge.
+- **Prevention / Reference:** `command_stay_returns_to_the_preserved_request_without_answering` covers both explicit and engaged automatic review. `scripts/execution_smoke.py` exercises the real return surface and subsequent command lifecycle.
+
+### [2026-10-26] Empty provider search navigated to a hidden stale route
+
+- **Context / Symptom:** Searching for `no-such-provider` showed “No matching route”, but Right/Left/Tab/Shift+Tab opened actions for a route that was not displayed. Actual 120×36 and 60×18 baseline captures are retained in `target/ux-release-nav-defects-before/`.
+- **Root Cause:** Enter checked membership in the filtered provider rows; the other page-navigation keys trusted the old selected index.
+- **Solution:** Applied the same visible-selection guard to every provider-page navigation key. Preserved the exact unsent draft/caret and required an actually displayed route before opening actions.
+- **Prevention / Reference:** `empty_provider_search_cannot_open_actions_for_a_hidden_route`; actual before/after PTY navigation also checks command-argument guidance and no unexpected provider configuration writes.
+
+### [2026-10-26] WSL release tooling lacked an authenticated GitHub CLI
+
+- **Context / Symptom:** Linux `gh` was absent; the available Windows `gh.exe` reported no logged-in hosts. Configured rust-analyzer also exited with code0 on reference requests.
+- **Root Cause:** This workstation had working repository SSH authentication, but no GitHub CLI API login, and the language-server process could not initialize.
+- **Solution:** Verified the existing SSH identity and public API access. Source/tag pushes use SSH; qualification and public release inspection use the public API, while publication remains inside the existing credentialed GitHub Actions workflow. Reported the LSP tool failure and used scoped caller inspection, with integrated compiler/test verification required before release rather than claiming unavailable reference results.
+- **Prevention / Reference:** Do not inspect credential files, bypass release qualification or confuse successful SSH authentication with an API token.
+
 ### [2026-10-26] Raising the write-target limit made every file operation quadratic
 
 - **Context / Symptom:** After raising `MAX_FILES` from 32 to 1024, `thirty_two_nested_targets_are_admitted_but_excess_batch_has_no_effects` ran for more than five minutes instead of under a second.

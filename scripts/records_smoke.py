@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """Real Wave-6 native TUI acceptance using an already-built binary.
 
-All thirteen task IDs run at 120x36 Unicode and 60x18 ASCII. --language ko
-additionally exercises Korean controls in the same journeys. Detail assertions
+All thirteen task IDs run at 120x36 Unicode and 60x18 ASCII. Detail assertions
 inspect actual paged cells, not incidental first-frame captions. Uses the existing
 Moves/Session and native loopback fixtures; no second executor, SQL writes,
 installed provider, real credential, external request, or application build.
@@ -78,7 +77,7 @@ BAD = GOOD.replace('a + b', 'a - b')
 
 class RecordsSession(Session):
     def command(self, name):
-        # Ctrl+K opens/resets the semantic chooser in either locale. The base
+        # Ctrl+K opens/resets the semantic chooser from any drawer. The base
         # helper guesses from an English footer, including while editing Request.
         self.send('\x0b')
         self.send(name)
@@ -94,8 +93,7 @@ class RecordsSession(Session):
 class Journey(MovesJourney):
     """Extend existing actual UI helpers; persistence is observed read-only."""
 
-    def __init__(self, binary, output, root, size, ascii_mode, results, peer, language):
-        self.language = language
+    def __init__(self, binary, output, root, size, ascii_mode, results, peer, ):
         self.record_task = None
         self.wire_proof = None
         self.failed_runs = []
@@ -153,8 +151,7 @@ class Journey(MovesJourney):
     def launch(self):
         self.serial += 1
         self.session = RecordsSession([str(self.binary), '--data-dir', str(self.data), '--images', 'off',
-                                '--color', 'mono', '--language', self.language,
-                                *(['--ascii'] if self.ascii_mode else [])],
+                                '--color', 'mono', *(['--ascii'] if self.ascii_mode else [])],
                                self.project, self.environment, self.size,
                                self.output / ('terminal-%02d' % self.serial), controlling_tty=True)
         self.sessions.append(self.session)
@@ -182,38 +179,32 @@ class Journey(MovesJourney):
     def records(self, table):
         return [row['record'] for row in self.rows(table)]
 
-    def wait_caption(self, english, korean, timeout=35):
+    def wait_caption(self, english, timeout=35):
         # Navigation only: assertions below still inspect real screen cells,
         # retained facts and wire bytes, never a translated/fabricated display.
-        wait_for(self.session, korean if self.language == 'ko' else english, timeout=timeout)
+        wait_for(self.session, english, timeout=timeout)
 
     def workspace(self, allow_offer=False):
         # Only identified, non-consent drawers may be closed. Each actual
         # permission/memory/resolution review below has its own explicit action.
         prefixes = ('Type Request /', 'Type a request /', 'Enter Send /', 'Draft only /',
-                    '요청 입력 /', 'Enter 전송 /', '초안 편집 /')
+                    )
         known = (SOURCE_TITLE, 'Specialist desk', 'Local command evidence; no command running',
                  'Approved memories', 'Task cards / committed snapshots', 'Repository / read-only evidence',
                  'Partner summary', 'Form routes', 'Failure Dex',
-                 'Ribbons / project history', '리본 / 프로젝트 이력',
-                 'Repeated authored instructions', 'Partner provider pairings',
-                 'Portable task handoff / local-only', 'Party roster', '파트너 요약',
-                 '폼 이동 기록', '실패 도감', '반복해서 보낸 작성 지시',
-                 '파트너별 제공자 연결 설정', 'Espeon /', 'Flareon /',
-                 'Glaceon /', 'Model /', '모델 /', '출처 / 작업 소유 맥락',
-                 '전문가 데스크', '승인된 메모리', '이동 가능한 작업 인계')
+                 'Ribbons / project history', 'Repeated authored instructions', 'Partner provider pairings',
+                 'Portable task handoff / local-only', 'Party roster', 'Espeon /', 'Flareon /',
+                 'Glaceon /', 'Model /', )
         for _ in range(6):
             view = self.session.display()
             footer = view.rstrip().splitlines()[-1].strip()
             if footer.startswith(prefixes):
-                return 'Type Request /' if footer.startswith(('Type Request /', 'Type a request /', '요청 입력 /')) else 'Enter Send /'
+                return 'Type Request /' if footer.startswith(('Type Request /', 'Type a request /', )) else 'Enter Send /'
             assert any(title in view for title in known), 'refusing to dismiss unknown popup\n' + view
-            consent = (RUN_REVIEW, '일회성 실행 권한 검토', 'Confirm local change', 'wants to learn a move!',
+            consent = (RUN_REVIEW, 'Confirm local change', 'wants to learn a move!',
                        'LOCAL PREVIEW / no provider connection authorized',
                        'PROVIDER REQUEST / explicit response required',
-                       '로컬 미리보기 / 제공자 연결 미승인', '제공자 요청 / 명시적 응답 필요',
-                       'Review historical resolution link', '과거 해결 관계 검토',
-                       'APPROVAL PREVIEW', '승인 미리보기')
+                       'Review historical resolution link', 'APPROVAL PREVIEW', )
             assert not any(marker in view for marker in consent), \
                 'an explicit consent decision is required\n' + view
             self.session.send(ESC)
@@ -238,10 +229,10 @@ class Journey(MovesJourney):
     def open_records(self, command):
         self.workspace()
         self.session.command(command)
-        titles = {'dex': ('Failure Dex', '실패 도감'),
-                  'routes': ('Form routes', '폼 이동 기록'),
-                  'partner-summary': ('Partner summary', '파트너 요약'),
-                  'habits': ('Repeated authored instructions', '반복해서 보낸 작성 지시')}
+        titles = {'dex': ('Failure Dex', ),
+                  'routes': ('Form routes', ),
+                  'partner-summary': ('Partner summary', ),
+                  'habits': ('Repeated authored instructions', )}
         self.wait_caption(*titles[command])
         if command in ('routes', 'partner-summary'):
             count = len(self.state()['partners'])
@@ -255,7 +246,7 @@ class Journey(MovesJourney):
                                  and source['record']['task_id'] > 0
                                  and source['record']['request_id']}) >= 3
                         for row in self.records('instruction_candidates'))
-        position = (r'항목 ' if self.language == 'ko' else r'Entr(?:y|ies) ')
+        position = r'Entr(?:y|ies) '
         position += str(min(count, 1)) + r' / ' + str(count) + r'(?!\d)'
         self.until(lambda: re.search(position, self.session.display()) is not None,
                    'records selection count matches actual committed local rows')
@@ -276,13 +267,12 @@ class Journey(MovesJourney):
 
     def detail_rows(self, surface, full=False):
         titles = {
-            'sources': (SOURCE_TITLE, '출처 / 작업 소유 맥락'),
-            'records': ('Partner summary', '파트너 요약', 'Form routes', '폼 이동 기록',
-                        'Failure Dex', '실패 도감', 'Repeated authored instructions',
-                        '반복해서 보낸 작성 지시', 'Partner provider pairings',
-                        '파트너별 제공자 연결 설정', 'Review historical resolution link',
-                        '과거 해결 관계 검토'),
-            'memory': ('Approved memories', '승인된 메모리'),
+            'sources': (SOURCE_TITLE, ),
+            'records': ('Partner summary', 'Form routes', 'Failure Dex', 'Repeated authored instructions',
+                        'Partner provider pairings',
+                        'Review historical resolution link',
+                        ),
+            'memory': ('Approved memories', ),
         }[surface]
         screen = self.session.screen
         top = next(y for y, line in enumerate(self.session.display().splitlines())
@@ -360,7 +350,7 @@ class Journey(MovesJourney):
         assert not remaining, 'actual paged preview omitted stored content\n' + text
 
     def inspect_capture(self, capture, freshness, label):
-        self.wait_caption(SOURCE_TITLE, '출처 / 작업 소유 맥락')
+        self.wait_caption(SOURCE_TITLE, )
         self.until(lambda: freshness in self.session.display(), 'explicit source freshness result')
         text = self.pages_text(label, surface='sources')
         compact = ''.join(text.split())
@@ -389,7 +379,7 @@ class Journey(MovesJourney):
         self.session.command('files')
         wait_for(self.session, 'eligible files /', timeout=35)
         self.session.command('search')
-        self.wait_caption('Filename filter', '파일명 필터')
+        self.wait_caption('Filename filter', )
         self.replace_editor(self.query, filename)
         self.session.send('\r')
         self.query = filename
@@ -398,7 +388,7 @@ class Journey(MovesJourney):
         wait_for(self.session, 'Review local capture /')
         if lines:
             self.session.command('range')
-            self.wait_caption('Source range / inclusive', '출처 범위 / 양 끝 포함')
+            self.wait_caption('Source range / inclusive', )
             self.replace_editor('1:999999', lines)
             self.session.send('\r')
             wait_for(self.session, 'Lines ' + lines + ' inclusive')
@@ -420,7 +410,7 @@ class Journey(MovesJourney):
     def remove_chip(self, capture_id):
         self.focus_chip(capture_id)
         self.session.send(DELETE)
-        self.wait_caption('Review local excerpt removal', '로컬 발췌문 제거 검토')
+        self.wait_caption('Review local excerpt removal', )
         before = self.state()['excerpts']
         self.session.send('\r')
         assert self.state()['excerpts'] == before, 'neutral Enter removed a capture'
@@ -428,7 +418,7 @@ class Journey(MovesJourney):
         self.workspace()
         self.focus_chip(capture_id)
         self.session.send(DELETE)
-        self.wait_caption('Review local excerpt removal', '로컬 발췌문 제거 검토')
+        self.wait_caption('Review local excerpt removal', )
         self.session.send(PAGE * 8 + RIGHT + '\r')
         self.until(lambda: all(row['record']['id'] != capture_id for row in self.state()['excerpts']),
                    'only the reviewed capture was removed')
@@ -438,7 +428,7 @@ class Journey(MovesJourney):
         self.workspace()
         self.session.command('forms')
         self.session.send(HOME + RIGHT * (form + 1))
-        self.until(lambda: ('produced' in self.session.display().lower() or '산출물 있음' in self.session.display())
+        self.until(lambda: 'produced' in self.session.display().lower()
                    and producer in self.session.display(), 'current produced marker with frozen producer')
         self.capture('produced-before-invalidation-' + FORMS[form])
         self.session.send(ESC)
@@ -456,7 +446,7 @@ class Journey(MovesJourney):
         draft = 'Retain this exact draft 漢字 and caret.'
         self.write_request(draft)
         self.focus_chip(self.full_capture['id'])
-        controls = ('Enter 확인', 'Del 제거') if self.language == 'ko' else ('Enter inspect', 'Del remove')
+        controls = ('Enter inspect', 'Del remove')
         for control in controls:
             wait_for(self.session, control)
         self.capture('long-unicode-fixed-chip-controls')
@@ -505,7 +495,7 @@ class Journey(MovesJourney):
             self.session.command('files')
             wait_for(self.session, 'eligible files /', timeout=35)
             self.session.command('search')
-            self.wait_caption('Filename filter', '파일명 필터')
+            self.wait_caption('Filename filter', )
             self.replace_editor(self.query, forbidden)
             self.session.send('\r')
             self.query = forbidden
@@ -603,16 +593,16 @@ class Journey(MovesJourney):
         # Existing Moves connect helper asserts the first connection has no POSTs;
         # reuse its exact keyless setup by checking the immutable POST prefix here.
         before = self.peer.snapshot('POST')
-        self.workspace()
+        self.prepare_connection()
         self.session.command('connect compatible')
-        self.wait_caption('API key:', 'API 키:')
+        self.wait_caption('API key:', )
         self.session.send('\t\x15')
         self.session.paste(self.peer.base)
         self.session.send('\t\x15')
         self.session.paste(MODEL)
         self.session.send('\t\t \t\t\r')
         wait_for(self.session, MODEL, timeout=35)
-        self.wait_caption('1 matches', '검색 결과 1개')
+        self.wait_caption('1 matches', )
         self.session.send(MODEL + '\r')
         self.workspace()
         assert self.peer.snapshot('POST') == before, 'reconnecting sent hidden inference'
@@ -621,7 +611,7 @@ class Journey(MovesJourney):
         self.form('jolteon')
         self.edit_command([self.python, '-B', 'check.py', '--trial=' + str(trial)])
         self.session.command('execute')
-        self.wait_caption(RUN_REVIEW, '일회성 실행 권한 검토')
+        self.wait_caption(RUN_REVIEW, )
         self.capture('explicit-local-check-review-' + str(trial))
         run = self.approve_run(expected)
         self.session.send(ESC)
@@ -680,23 +670,23 @@ class Journey(MovesJourney):
     def workflow_menu(self, index):
         self.session.send(UP * 24 + DOWN * index + '\r')
 
-    def workflow_edit(self, index, label, korean, value):
+    def workflow_edit(self, index, label, value):
         self.workflow_menu(index)
-        self.wait_caption(label, korean)
+        self.wait_caption(label, )
         self.session.paste(value)
         self.session.send('\x13')
 
     def workflow_attach(self, action, choice):
         self.workflow_menu(action)
         self.session.send(DOWN * choice + '\r')
-        self.wait_caption('Specialist desk', '전문가 데스크')
+        self.wait_caption('Specialist desk', )
 
     def resolution(self):
         self.form('umbreon')
         capture = self.pin_range('calc.py', '1:2')
         self.session.command('workflows')
-        self.wait_caption('Specialist desk', '전문가 데스크')
-        self.workflow_edit(0, 'Hypothesis / explanation', '가설 / 설명', 'total subtracts b where the observed contract requires addition.')
+        self.wait_caption('Specialist desk', )
+        self.workflow_edit(0, 'Hypothesis / explanation', 'total subtracts b where the observed contract requires addition.')
         self.workflow_menu(1)
         self.until(lambda: len(self.task()['workflows']['hypotheses']) == 1, 'actual diagnosis committed')
         self.workflow_attach(3, 0)  # source then newest real run, existing workflow order
@@ -711,7 +701,7 @@ class Journey(MovesJourney):
         self.produced_marker(5, self.support['producer']['name'])
         self.source.write_text(GOOD, encoding='utf-8')
         self.session.command('workflows')
-        self.wait_caption('Specialist desk', '전문가 데스크')
+        self.wait_caption('Specialist desk', )
         self.session.command('refresh')
         self.until(lambda: bool(self.rows('diagnosis_transitions')), 'manual source transition observed before passing run')
         self.capture('observed-manual-fix-author-unknown')
@@ -725,8 +715,8 @@ class Journey(MovesJourney):
         assert passed['prepared']['spec'] == supported_failed['spec']
         self.open_records('dex')
         self.session.command('dex-resolve')
-        self.wait_caption('Review historical resolution link', '과거 해결 관계 검토')
-        self.until(lambda: re.search(r'(?:Entr(?:y|ies)|항목) 1 / [1-9]\d*', self.session.display()) is not None,
+        self.wait_caption('Review historical resolution link', )
+        self.until(lambda: re.search(r'Entr(?:y|ies) 1 / [1-9]\d*', self.session.display()) is not None,
                    'supported diagnosis and exact matching pass are actually eligible')
         def scope_visible():
             visible = ''.join(''.join(self.detail_rows('records', full=True)).split())
@@ -746,9 +736,9 @@ class Journey(MovesJourney):
         # Neutral Enter remains in Resolve. Escape returns to Dex, whose
         # semantic chooser actually offers dex-resolve; do not nest a chooser.
         self.session.send(ESC)
-        self.wait_caption('Failure Dex', '실패 도감')
+        self.wait_caption('Failure Dex', )
         self.session.command('dex-resolve')
-        self.wait_caption('Review historical resolution link', '과거 해결 관계 검토')
+        self.wait_caption('Review historical resolution link', )
         first_rows = self.detail_rows('records')
         review = self.pages_text('explicit-supported-resolution-review')
         normalized = ''.join(review.split())
@@ -764,37 +754,36 @@ class Journey(MovesJourney):
         resolution = self.records('failure_resolutions')[0]
         assert resolution['signature'] == self.signature and resolution['support_artifact'] == self.support['id']
         assert resolution['passing_run'] == self.pass_id and 'unknown' in resolution['cause']
-        committed_ack = '로컬메타데이터입니다.' if self.language == 'ko' else 'Localmetadataonly;'
+        committed_ack = 'Localmetadataonly;'
         self.until(lambda: committed_ack in ''.join(self.session.display().split()),
                    'records response rendered after the historical relation committed')
         committed = self.rows('failure_resolutions')
-        self.wait_caption('Failure Dex', '실패 도감')
+        self.wait_caption('Failure Dex', )
         self.session.command('dex-resolve')
-        self.wait_caption('Review historical resolution link', '과거 해결 관계 검토')
+        self.wait_caption('Review historical resolution link', )
         self.until(scope_visible, 'repeated relation has its actual selected scope visible without paging')
         self.session.send('\r')
         assert self.rows('failure_resolutions') == committed, 'neutral repeat changed the historical relation'
         self.session.send(RIGHT)
         self.until(affirmative_visible, 'actual repeated affirmative choice rendered')
         self.session.send('\r')
-        self.wait_caption('Failure Dex', '실패 도감')
+        self.wait_caption('Failure Dex', )
         self.until(lambda: committed_ack in ''.join(self.session.display().split()),
                    'repeated relation request actually acknowledged by committed records view')
         assert self.rows('failure_resolutions') == committed, 'explicit repeated relation was not deduplicated'
         self.capture('resolution-explicit-repeat-deduplicated-no-end-paging')
         historical = self.pages_text('pk07-supported-historical-pass')
-        assert ('Historicalsupportedpass' in ''.join(historical.split())
-                or '근거있는과거통과' in ''.join(historical.split())), historical
+        assert 'Historicalsupportedpass' in ''.join(historical.split()), historical
         self.workspace()
         self.source.write_text(BAD, encoding='utf-8')
         self.execute_check(2, 'Failed')
         self.open_records('dex')
         text = self.pages_text('recurrence-historical-lead-not-current-verification')
         normalized = ''.join(text.split())
-        assert ('historical' in text.lower() and 'NOTacurrent' in normalized) or '현재문제의수정이나검증을뜻하지' in normalized
+        assert ('historical' in text.lower() and 'NOTacurrent' in normalized)
         assert str(self.record_task) in text
         assert self.support['id'] in normalized and self.pass_id in normalized
-        assert ('Unresolvedrecurringfailure' in normalized or '미해결반복실패' in normalized), text
+        assert 'Unresolvedrecurringfailure' in normalized, text
         self.workspace()
 
     def markers(self):
@@ -807,7 +796,7 @@ class Journey(MovesJourney):
         # source/run/diagnosis supports, rather than reviving the old fingerprint.
         self.source.write_text(BAD + '# changed after recurrence\n', encoding='utf-8')
         self.session.command('workflows')
-        self.wait_caption('Specialist desk', '전문가 데스크')
+        self.wait_caption('Specialist desk', )
         self.session.command('refresh')
         latest = self.state()['executions'][-1]['record']['prepared']
         stale_id = 'stale:run:{}:{}'.format(latest['task_id'], latest['run_id'])
@@ -829,12 +818,12 @@ class Journey(MovesJourney):
                 self.capture('form-marker-%s-%s' % (phase, form))
                 assert form in text, 'form picker selection is not inspectable'
                 if index in expected:
-                    assert ('stale' in text.lower() or '오래된 상태' in text), (phase, form, text)
+                    assert 'stale' in text.lower(), (phase, form, text)
                     producers = {row['producer']['name'] for row in artifacts
                                  if row['role_form'] == index and row['producer']}
                     assert any(name in text for name in producers), (phase, form, producers, text)
                 elif index in (0, 3, 4, 6, 7, 8):
-                    assert ('none' in text.lower() or '없음' in text), (phase, form, text)
+                    assert 'none' in text.lower(), (phase, form, text)
             self.session.send(ESC)
 
     def routes(self):
@@ -880,7 +869,7 @@ class Journey(MovesJourney):
                     break
             text = '\n'.join(texts)
             normalized = ''.join(text.split())
-            assert ('NOTevidence' in normalized or '증거가아닙니다' in normalized), text
+            assert 'NOTevidence' in normalized, text
             if partner_index:
                 assert 'Mizu' in text
             self.session.send(HOME)
@@ -935,7 +924,7 @@ class Journey(MovesJourney):
             if self.session.display() == view:
                 break
         text = '\n'.join(screens)
-        disclosure = '로컬 비증거 자료' if self.language == 'ko' else 'local non-evidence'
+        disclosure = 'local non-evidence'
         assert disclosure in text, 'task card omitted route non-evidence label\n' + text
         cells = [(character, bold) for row in collected for data, bold in row
                  for character in data if not character.isspace()]
@@ -1001,9 +990,8 @@ class Journey(MovesJourney):
                 tasks = next((count for owner, kind, count in produced if owner == partner['id'] and kind == form), 0)
                 count = next((count for owner, kind, count in moves if owner == partner['id'] and kind == form), 0)
                 expected = '{}:{}moves·{}distinctproducingtasks'.format(name, count, tasks)
-                korean = '{}:기술{}개·산출물이있는서로다른작업{}개'.format(name, count, tasks)
-                assert expected in normalized or korean in normalized, (partner['id'], form, count, tasks, text)
-            assert ('Bond:{}shared'.format(bond) in normalized or '공유메모리{}개'.format(bond) in normalized)
+                assert expected in normalized, (partner['id'], form, count, tasks, text)
+            assert 'Bond:{}shared'.format(bond) in normalized
         save(self.output / 'summary-sql.json', {'produced_distinct_tasks': produced, 'moves': moves,
                                                'shared_bond_memories': bond})
         self.workspace()
@@ -1026,9 +1014,9 @@ class Journey(MovesJourney):
         self.form('glaceon')
         before = {row['id'] for row in self.records('local_activity')}
         self.session.command('workflows')
-        self.wait_caption('Specialist desk', '전문가 데스크')
-        self.workflow_edit(1, 'Finding detail', '발견 사항 상세', 'The actual local regression failed; behavior remains unverified.')
-        self.workflow_edit(2, 'Actionable recommendation', '실행 가능한 권고', 'Fix the selected source and rerun the same bounded check.')
+        self.wait_caption('Specialist desk', )
+        self.workflow_edit(1, 'Finding detail', 'The actual local regression failed; behavior remains unverified.')
+        self.workflow_edit(2, 'Actionable recommendation', 'Fix the selected source and rerun the same bounded check.')
         self.workflow_menu(4)
         self.workflow_menu(11)
         wait_for(self.session, 'RequestChanges')
@@ -1039,13 +1027,13 @@ class Journey(MovesJourney):
         self.capture('review-verdict-factual-composer-line')
         self.form('sylveon')
         self.session.command('handoff')
-        self.wait_caption('Portable task handoff / local-only', '이동 가능한 작업 인계 / 로컬 전용')
+        self.wait_caption('Portable task handoff / local-only', )
         self.session.command('export-json')
-        self.wait_caption('LITERAL FILE PATH', '리터럴 파일 경로')
+        self.wait_caption('LITERAL FILE PATH', )
         exported = self.root / 'records-handoff.json'
         self.session.paste(str(exported))
         self.session.send('\r')
-        self.wait_caption('SANITIZED EXPORT PREVIEW', '민감 정보 정리 내보내기 미리보기')
+        self.wait_caption('SANITIZED EXPORT PREVIEW', )
         self.session.send(PAGE * 24 + RIGHT + '\r')
         self.until(exported.exists, 'explicit local handoff export')
         self.until(lambda: any(row['id'].startswith('handoff:') for row in self.records('local_activity')), 'committed handoff-ready receipt activity')
@@ -1069,7 +1057,7 @@ class Journey(MovesJourney):
         self.edit_command([self.python, '-B', 'check.py', '--trial=off'])
         count = len(self.state()['executions'])
         self.session.command('execute')
-        self.wait_caption(RUN_REVIEW, '일회성 실행 권한 검토')
+        self.wait_caption(RUN_REVIEW, )
         run = self.approve_run('Failed')
         self.session.send(ESC)
         self.workspace()
@@ -1109,11 +1097,11 @@ class Journey(MovesJourney):
         assert all(source['request_id'] in flattened for source in sources)
         before = self.state()['memories']
         self.session.command('habit-approve')
-        self.wait_caption('APPROVAL PREVIEW', '승인 미리보기')
+        self.wait_caption('APPROVAL PREVIEW', )
         self.session.command('verbose')
         text = self.pages_text('s02-exact-repeat-substitution-disclosure', surface='memory')
         normalized = ''.join(text.split())
-        assert ('substitut' in normalized and 'project' in normalized.lower()) or ('메모리' in normalized and '반복' in normalized)
+        assert ('substitut' in normalized and 'project' in normalized.lower())
         self.session.send('\r')
         assert self.state()['memories'] == before, 'neutral Enter approved an inferred memory'
         self.session.send(PAGE * 24 + RIGHT + '\r')
@@ -1136,7 +1124,7 @@ class Journey(MovesJourney):
         self.write_request(instruction)
         posts_before_preview = len(self.peer.snapshot('POST'))
         self.session.command('session-new')
-        controls = ('y Run', 'y 실행')
+        controls = ('y Run', )
         self.until(lambda: any(control in self.session.display() for control in controls)
                    or 'Alt+A' in self.session.display(),
                    'fresh native request reaches its explicit local scope review')
@@ -1182,7 +1170,7 @@ class Journey(MovesJourney):
             before = self.peer.snapshot()
             self.session.command('model ' + model)
             footer_prefixes = ('Type Request /', 'Type a request /', 'Enter Send /', 'Draft only /',
-                               '요청 입력 /', 'Enter 전송 /', '초안 편집 /')
+                               )
             self.until(lambda: self.session.display().rstrip().splitlines()[-1].strip().startswith(footer_prefixes),
                        'exact model selection acknowledges directly in the actual composer')
             wait_for(self.session, '/save-pairing')
@@ -1206,7 +1194,7 @@ class Journey(MovesJourney):
                        and self.session.display().rstrip().splitlines()[-1].strip().startswith(footer_prefixes),
                        'committed direct save acknowledges in composer without opening the pairings desk')
             assert not any(title in self.session.display()
-                           for title in ('Partner provider pairings', '파트너별 제공자 연결 설정')), \
+                           for title in ('Partner provider pairings', )), \
                 'direct pairing save navigated to an extra records desk'
             assert self.peer.snapshot() == before, 'saving a pairing performed network activity'
         before = self.peer.snapshot()
@@ -1214,8 +1202,7 @@ class Journey(MovesJourney):
         for owner, form, model in ((self.owner, 'flareon', 'fixture-bolt'), (self.other, 'vaporeon', 'fixture-mizu')):
             self.lead(owner)
             self.form(form)
-            self.until(lambda: ('remembered' in self.session.display().lower()
-                                or '기억된' in self.session.display())
+            self.until(lambda: 'remembered' in self.session.display().lower()
                        and model in self.session.display(),
                        'actual restored composer labels its exact selection as remembered')
             self.capture('remembered-composer-' + str(owner))
@@ -1223,7 +1210,7 @@ class Journey(MovesJourney):
             wait_for(self.session, model)
             text = self.pages_text('remembered-unavailable-' + str(owner), surface=None)
             normalized = re.sub(r'[\s│|┆║]', '', text).lower()
-            assert 'unavailable' in normalized or '사용불가' in normalized, text
+            assert 'unavailable' in normalized, text
             assert self.peer.snapshot() == before, 'restore inspected/connected/sent without approval'
             self.session.send(ESC)
             self.workspace()
@@ -1231,7 +1218,7 @@ class Journey(MovesJourney):
         self.form('flareon')
         self.workspace()
         self.session.command('pairings')
-        self.wait_caption('Partner provider pairings', '파트너별 제공자 연결 설정')
+        self.wait_caption('Partner provider pairings', )
         self.session.command('remove-pairing')
         self.until(lambda: all(row['partner'] != self.owner or row['form'] != 3 for row in self.records('partner_pairings')), 'explicit pairing removed')
         self.workspace()
@@ -1287,8 +1274,8 @@ class Journey(MovesJourney):
         assert order['umbreon'][0] == 'calc.py', order
         assert order['flareon'][0] == 'changed.py', order
         assert order['umbreon'][0] != order['flareon'][0]
-        failure = '실패 위치' if self.language == 'ko' else 'failure location'
-        changed = '변경된 파일' if self.language == 'ko' else 'changed file'
+        failure = 'failure location'
+        changed = 'changed file'
         assert failure in screens['umbreon'] and changed in screens['flareon'], 'rank reasons missing in actual @ picker'
         save(self.output / 'form-ranking.json', {'query': 'py', 'orders': order,
              'same_match_set': sorted(set(order['eevee'])), 'source': 'actual retained failing run and observed working diff'})
@@ -1319,7 +1306,7 @@ class Journey(MovesJourney):
         self.launch()
         # A selected approved memory sheet is a known startup surface, not an
         # arbitrary popup; its explicit Escape keeps the selected state unchanged.
-        if any(title in self.session.display() for title in ('Approved memories', '승인된 메모리')):
+        if any(title in self.session.display() for title in ('Approved memories', )):
             self.session.send(ESC)
         self.workspace()
         self.session.command('tasks')
@@ -1343,16 +1330,15 @@ class Journey(MovesJourney):
         self.session.close()
 
 
-def run(binary, output, root, size, ascii_mode, language):
+def run(binary, output, root, size, ascii_mode, ):
     results = {key: {'description': text, 'status': 'not-run', 'evidence': []} for key, text in CASES.items()}
-    result = {'status': 'failed', 'size': list(size), 'ascii': ascii_mode, 'language': language,
-              'cases': results, 'scope': 'Actual native UI/local store/loopback HTTP; NOT live provider or opaque session resume'}
+    result = {'status': 'failed', 'size': list(size), 'ascii': ascii_mode, 'cases': results, 'scope': 'Actual native UI/local store/loopback HTTP; NOT live provider or opaque session resume'}
     journey = None
     try:
         with Peer('chat_completions', 'unused-keyless-public-fixture', True, retain_body_bytes=True) as peer:
             try:
                 journey = Journey.__new__(Journey)
-                journey.__init__(binary, output, root, size, ascii_mode, results, peer, language)
+                journey.__init__(binary, output, root, size, ascii_mode, results, peer, )
                 for key, action in (
                     ('C03A', journey.attachments), ('C03B', journey.chip_validation),
                     ('T01A', journey.usage), ('PK05A', journey.failures), ('PK05B', journey.resolution),
@@ -1392,7 +1378,6 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--binary', required=True, type=Path, help='already-built application; never builds')
     parser.add_argument('--output', required=True, type=Path, help='new retained evidence directory')
-    parser.add_argument('--language', default='en', choices=('en', 'ko'))
     args = parser.parse_args()
     binary = args.binary.resolve()
     if os.name == 'nt' and not binary.exists():
@@ -1402,16 +1387,16 @@ def main():
     output.mkdir(parents=True, exist_ok=False)
     before = digest(binary)
     report = {'status': 'failed', 'host': platform.platform(), 'binary': str(binary),
-              'binary_sha256': before, 'language': args.language, 'journeys': [],
+              'binary_sha256': before, 'journeys': [],
               'limitations': ['Loopback protocol fixtures are not live-provider/model/billing conformance.',
                               'Native follow-up and process restart are not opaque-provider session resume.',
                               'Parent separately owns authorized actual Codex two-turn/resume live proof.',
                               'PTY/ConPTY cell screenshots are not GUI/native-image certification.']}
     try:
         for size, ascii_mode in (((120, 36), False), ((60, 18), True)):
-            label = '{}x{}-{}-{}'.format(*size, 'ascii' if ascii_mode else 'unicode', args.language)
+            label = '{}x{}-{}'.format(*size, 'ascii' if ascii_mode else 'unicode')
             with tempfile.TemporaryDirectory(prefix='ev-records-漢字-') as temporary:
-                result = run(binary, output / label, Path(temporary).resolve(), size, ascii_mode, args.language)
+                result = run(binary, output / label, Path(temporary).resolve(), size, ascii_mode, )
             report['journeys'].append(result)
         assert digest(binary) == before, 'supplied binary changed during qualification'
         report['status'] = 'passed' if all(row['status'] == 'passed' for row in report['journeys']) else 'failed'

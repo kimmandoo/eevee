@@ -39,12 +39,8 @@ pub struct Plan {
 }
 
 impl Plan {
-    pub fn review(&self, korean: bool) -> String {
-        let mut text = if korean {
-            "영향 기반 검사 제안 — 실행·검증·권한 부여 아님\n통과해도 선택한 검사만의 결과이며 전체 검증이 아닙니다.\n".to_owned()
-        } else {
-            "Impact-directed check proposal — no execution, verification or permission\nPassing these checks is TARGETED evidence, not complete verification.\n".to_owned()
-        };
+    pub fn review(&self) -> String {
+        let mut text = "Impact-directed check proposal — no execution, verification or permission\nPassing these checks is TARGETED evidence, not complete verification.\n".to_owned();
         text.push_str(&format!(
             "{} / files={} bytes={}\n{}\n",
             if self.broader {

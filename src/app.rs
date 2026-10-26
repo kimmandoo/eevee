@@ -528,7 +528,7 @@ impl App {
             self.evolution.transition = Some(evolution::Transition {
                 from: self.lead.form,
                 to: form,
-                reason: crate::i18n::Message::CoreEvolutionPopupManualReason,
+                reason: crate::messages::Message::CoreEvolutionPopupManualReason,
                 fresh: false,
             });
             self.evolution.popup_shown = false;

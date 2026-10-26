@@ -1,6 +1,6 @@
 //! Restart-safe outgoing receipt inspector; persistence never resubmits a request.
 use crate::{
-    i18n::{Language, Message, Template},
+    messages::{Message, Template},
     providers, store,
     workspace::receipt::Outgoing,
 };
@@ -50,7 +50,6 @@ pub struct State {
     display: String,
     lines: Vec<(usize, usize)>,
     width: u16,
-    language: Option<Language>,
     dirty: bool,
 }
 
@@ -472,7 +471,7 @@ impl State {
         true
     }
 
-    fn body(&self, l: Language) -> String {
+    fn body(&self) -> String {
         if let Some((_, source)) = &self.source {
             return crate::workspace::handoff::sanitize(source);
         }
@@ -482,33 +481,29 @@ impl State {
             .as_ref()
             .filter(|gap| gap.task_id == self.task && gap.owner.partner == self.partner)
         {
-            lines.push(l.text(Message::ReceiptsGapNotice).into());
+            lines.push((Message::ReceiptsGapNotice).text().into());
             lines.push(
-                l.format(
-                    Template::ReceiptsGap,
-                    &[
+                Template::ReceiptsGap
+                    .format(&[
                         ("count", &self.gap_count.to_string()),
                         ("request", &gap.request_id),
-                    ],
-                )
-                .expect("receipt gap catalog arguments"),
+                    ])
+                    .expect("receipt gap catalog arguments"),
             );
             lines.push(
-                l.format(
-                    Template::ReceiptsTotal,
-                    &[
+                Template::ReceiptsTotal
+                    .format(&[
                         ("bytes", &gap.bytes.to_string()),
                         ("tokens", &gap.tokens.to_string()),
                         ("deduplicated", &gap.deduplicated.to_string()),
-                    ],
-                )
-                .expect("receipt gap count catalog arguments"),
+                    ])
+                    .expect("receipt gap count catalog arguments"),
             );
         }
         if let Some(view) = self.records.get(self.selected) {
             let r = &view.record;
-            let format = |template, args: &[(&str, &str)]| {
-                l.format(template, args).expect("receipt catalog arguments")
+            let format = |template: Template, args: &[(&str, &str)]| {
+                template.format(args).expect("receipt catalog arguments")
             };
             lines.push(format!("{}/{}", self.selected + 1, self.records.len()));
             lines.push(format(
@@ -529,11 +524,12 @@ impl State {
                 ],
             ));
             lines.push(
-                l.text(if view.source_available {
+                (if view.source_available {
                     Message::ReceiptsAvailable
                 } else {
                     Message::ReceiptsUnavailable
                 })
+                .text()
                 .into(),
             );
             lines.push(format(
@@ -556,7 +552,7 @@ impl State {
                 lines.push(format(
                     Template::ReceiptsCounts,
                     &[
-                        ("section", l.text(name)),
+                        ("section", (name).text()),
                         ("bytes", &section.bytes.to_string()),
                         ("tokens", &section.tokens.to_string()),
                     ],
@@ -594,22 +590,22 @@ impl State {
                     &[("kind", &reference.kind), ("id", &reference.id)],
                 ));
             }
-            lines.push(l.text(Message::ReceiptsEstimator).into());
-            lines.push(l.text(Message::ReceiptsBoundary).into());
+            lines.push((Message::ReceiptsEstimator).text().into());
+            lines.push((Message::ReceiptsBoundary).text().into());
         } else {
-            lines.push(l.text(Message::ReceiptsEmpty).into());
+            lines.push((Message::ReceiptsEmpty).text().into());
         }
         if let Some(notice) = self.notice {
-            lines.push(l.text(notice).into());
+            lines.push((notice).text().into());
         }
         if let Some(error) = &self.error {
-            lines.push(l.text(Message::ReceiptsError).into());
+            lines.push((Message::ReceiptsError).text().into());
             lines.push(crate::workspace::handoff::sanitize(error));
         }
         crate::workspace::handoff::sanitize(&lines.join("\n"))
     }
 
-    pub fn render(&mut self, frame: &mut Frame, area: Rect, language: Language) {
+    pub fn render(&mut self, frame: &mut Frame, area: Rect) {
         frame.render_widget(Clear, area);
         if self.confirm.is_some() || self.discard.is_some() {
             let size = (area.width, area.height);
@@ -625,30 +621,27 @@ impl State {
         }
         let block = Block::default()
             .borders(Borders::ALL)
-            .title(language.text(Message::ReceiptsTitle));
+            .title((Message::ReceiptsTitle).text());
         let inner = block.inner(area);
         frame.render_widget(block, area);
         if area.width < 60 || area.height < 18 {
             self.rendered = false;
-            frame.render_widget(Paragraph::new(language.text(Message::ReceiptsSmall)), inner);
+            frame.render_widget(Paragraph::new((Message::ReceiptsSmall).text()), inner);
             return;
         }
         let mut content = inner;
         content.height = content.height.saturating_sub(2);
         if let Some(discard) = &self.discard {
-            let scope = language
-                .format(
-                    Template::ReceiptsScope,
-                    &[
-                        ("task", &discard.record.task_id.to_string()),
-                        ("partner", &discard.record.owner.partner.to_string()),
-                        ("name", &discard.record.owner.name),
-                    ],
-                )
+            let scope = Template::ReceiptsScope
+                .format(&[
+                    ("task", &discard.record.task_id.to_string()),
+                    ("partner", &discard.record.owner.partner.to_string()),
+                    ("name", &discard.record.owner.name),
+                ])
                 .expect("receipt discard scope arguments");
             let text = crate::workspace::handoff::sanitize(&format!(
                 "{}\n{}\n{}\n{}",
-                language.text(Message::ReceiptsDiscardReview),
+                Message::ReceiptsDiscardReview.text(),
                 scope,
                 discard.record.request_id,
                 discard.error
@@ -677,9 +670,9 @@ impl State {
             let choices = format!(
                 "{} {}     {} {}",
                 if self.affirmative { "[ ]" } else { "[x]" },
-                language.text(Message::ReceiptsStay),
+                Message::ReceiptsStay.text(),
                 if self.affirmative { "[x]" } else { "[ ]" },
-                language.text(Message::ReceiptsDiscardAction)
+                Message::ReceiptsDiscardAction.text()
             );
             frame.render_widget(
                 Paragraph::new(choices).wrap(ratatui::widgets::Wrap { trim: false }),
@@ -688,12 +681,12 @@ impl State {
         } else if self.confirm.is_some() {
             let text = format!(
                 "{}\n\n{}\n\n{} {}     {} {}",
-                language.text(Message::ReceiptsConfirm),
+                Message::ReceiptsConfirm.text(),
                 self.confirm.as_deref().unwrap_or_default(),
                 if self.affirmative { "[ ]" } else { "[x]" },
-                language.text(Message::ReceiptsStay),
+                Message::ReceiptsStay.text(),
                 if self.affirmative { "[x]" } else { "[ ]" },
-                language.text(Message::ReceiptsPurge)
+                Message::ReceiptsPurge.text()
             );
             frame.render_widget(
                 Paragraph::new(text).wrap(ratatui::widgets::Wrap { trim: false }),
@@ -701,11 +694,10 @@ impl State {
             );
             self.rendered = true;
         } else {
-            if self.dirty || self.width != content.width || self.language != Some(language) {
-                self.display = self.body(language);
+            if self.dirty || self.width != content.width {
+                self.display = self.body();
                 self.lines = wrap_ranges(&self.display, usize::from(content.width));
                 self.width = content.width;
-                self.language = Some(language);
                 self.dirty = false;
             }
             self.page = usize::from(content.height);
@@ -722,9 +714,9 @@ impl State {
         }
         let footer = Rect::new(inner.x, inner.bottom().saturating_sub(2), inner.width, 2);
         let hint = if self.source.is_some() {
-            language.text(Message::ReceiptsSource)
+            (Message::ReceiptsSource).text()
         } else {
-            language.text(Message::ReceiptsHelp)
+            (Message::ReceiptsHelp).text()
         };
         frame.render_widget(
             Paragraph::new(hint).wrap(ratatui::widgets::Wrap { trim: false }),

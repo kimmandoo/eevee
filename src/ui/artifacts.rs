@@ -4,7 +4,7 @@ use crate::{
     app::artifacts::{Editor, State, View},
     config::Config,
     domain::FORMS,
-    i18n::{Message, Template},
+    messages::{Message, Template},
     workspace::artifacts::{Origin, Slice},
 };
 use ratatui::{
@@ -287,12 +287,11 @@ mod tests {
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use ratatui::{Terminal, backend::TestBackend};
 
-    fn config(language: crate::i18n::Language) -> Config {
+    fn config() -> Config {
         Config {
             ascii: true,
             no_animation: true,
             animation_override: Some(false),
-            language,
             theme: crate::config::Theme::Dark,
             color: crate::config::ColorMode::Mono,
             images: crate::config::ImageMode::Off,
@@ -360,33 +359,28 @@ mod tests {
     }
     #[test]
     fn compact_preview_precedes_full_metadata_and_exact_inspection_preserves_page() {
-        for language in [
-            crate::i18n::Language::ENGLISH,
-            crate::i18n::Language::parse("ko").unwrap(),
-        ] {
-            for (width, height) in [(60, 18), (120, 36)] {
-                let mut state = state();
-                let config = config(language);
-                let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
-                let screen = draw(&mut terminal, &mut state, &config);
-                assert!(screen.contains("PREVIEW_FIRST_LINE"), "{screen}");
-                assert!(!state.busy());
-                let offset = state.offset;
-                let slices = state.slices.clone();
-                state.key(KeyEvent::new(KeyCode::Char('i'), KeyModifiers::NONE));
-                assert!(state.view == View::Details);
-                draw(&mut terminal, &mut state, &config);
-                state.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
-                assert!(state.view == View::Page);
-                assert_eq!(state.offset, offset);
-                assert_eq!(state.slices, slices);
-            }
+        for (width, height) in [(60, 18), (120, 36)] {
+            let mut state = state();
+            let config = config();
+            let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+            let screen = draw(&mut terminal, &mut state, &config);
+            assert!(screen.contains("PREVIEW_FIRST_LINE"), "{screen}");
+            assert!(!state.busy());
+            let offset = state.offset;
+            let slices = state.slices.clone();
+            state.key(KeyEvent::new(KeyCode::Char('i'), KeyModifiers::NONE));
+            assert!(state.view == View::Details);
+            draw(&mut terminal, &mut state, &config);
+            state.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+            assert!(state.view == View::Page);
+            assert_eq!(state.offset, offset);
+            assert_eq!(state.slices, slices);
         }
     }
     #[test]
     fn compact_purge_keeps_full_identity_scope_and_hidden_review_cannot_authorize() {
         let mut state = state();
-        let config = config(crate::i18n::Language::ENGLISH);
+        let config = config();
         state.purge_review = Some(state.records[0].handle.clone());
         let mut small = Terminal::new(TestBackend::new(39, 10)).unwrap();
         draw(&mut small, &mut state, &config);
@@ -410,36 +404,31 @@ mod tests {
     }
     #[test]
     fn purge_review_renders_frozen_handle_not_the_current_list_selection() {
-        for language in [
-            crate::i18n::Language::ENGLISH,
-            crate::i18n::Language::parse("ko").unwrap(),
-        ] {
-            for (width, height) in [(60, 18), (120, 36)] {
-                let mut state = state();
-                state.records[0].handle.id = "reviewed-A".into();
-                state.records[0].handle.revision = "revision-A".into();
-                state.records[0].request_id = "request-A".into();
-                let mut other = state.records[0].clone();
-                other.handle.id = "selected-B".into();
-                other.handle.revision = "revision-B".into();
-                other.request_id = "request-B".into();
-                state.purge_review = Some(state.records[0].handle.clone());
-                state.records.insert(0, other);
-                state.selected = 0;
-                let config = config(language);
-                let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
-                let screen = draw(&mut terminal, &mut state, &config);
-                assert!(screen.contains("reviewed-A"), "{screen}");
-                assert!(!screen.contains("selected-B"), "{screen}");
-                assert!(!screen.contains("request-B"), "{screen}");
+        for (width, height) in [(60, 18), (120, 36)] {
+            let mut state = state();
+            state.records[0].handle.id = "reviewed-A".into();
+            state.records[0].handle.revision = "revision-A".into();
+            state.records[0].request_id = "request-A".into();
+            let mut other = state.records[0].clone();
+            other.handle.id = "selected-B".into();
+            other.handle.revision = "revision-B".into();
+            other.request_id = "request-B".into();
+            state.purge_review = Some(state.records[0].handle.clone());
+            state.records.insert(0, other);
+            state.selected = 0;
+            let config = config();
+            let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+            let screen = draw(&mut terminal, &mut state, &config);
+            assert!(screen.contains("reviewed-A"), "{screen}");
+            assert!(!screen.contains("selected-B"), "{screen}");
+            assert!(!screen.contains("request-B"), "{screen}");
 
-                state.records[1].unavailable = true;
-                draw(&mut terminal, &mut state, &config);
-                assert!(state.purge_review.is_none());
-                assert!(!state.review_visible);
-                state.key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE));
-                assert!(!state.busy());
-            }
+            state.records[1].unavailable = true;
+            draw(&mut terminal, &mut state, &config);
+            assert!(state.purge_review.is_none());
+            assert!(!state.review_visible);
+            state.key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE));
+            assert!(!state.busy());
         }
     }
 }

@@ -1,5 +1,5 @@
 //! Task-correlated artifact inspection. No input here approves or executes a tool.
-use crate::{i18n::Message, store, workspace::artifacts::*};
+use crate::{messages::Message, store, workspace::artifacts::*};
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::mpsc::SyncSender;

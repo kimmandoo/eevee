@@ -1,9 +1,0 @@
-common-stay = 유지
-common-stay-selected = [유지]
-common-back = 뒤로
-common-approve = 승인
-common-approve-selected = [승인]
-common-connect = 연결
-common-check-status = 상태 확인
-common-details = 상세
-common-enlarge-review = 범위를 검토하려면 크기를 늘리세요

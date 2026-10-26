@@ -45,16 +45,16 @@ CONSOLE_MARKER = "EEVEE_CONSOLE_RESTORATION="
 def permission_run_available(session):
     """Match the consent control, never prose such as 'Only Run sends'."""
     return any(control in line for line in session.display().splitlines()
-               for control in ('· y Run / n Cancel', '· y 실행 / n 취소'))
+               for control in ('· y Run / n Cancel', ))
 
 
 def inspect_permission_scope(session):
     """Navigate a required review without granting or answering permission."""
     view = session.display()
-    if any(label in view for label in ('Enter to review (not approve)', 'Enter 검토 (승인 아님)')):
+    if any(label in view for label in ('Enter to review (not approve)', )):
         session.send('\r')
         return True
-    if any(label in view for label in ('Run needs the complete scope', '전체 범위 검토 후 실행 가능')):
+    if any(label in view for label in ('Run needs the complete scope', )):
         session.send(ESC + '[6~')
         return True
     return False
@@ -697,7 +697,7 @@ def confirm_exit(session, choice=RIGHT + "\r", *, owned_work=False):
         if "Confirm exit" in session.display():
             session.send(choice)
             return
-        if owned_work and any(title in session.display() for title in ("Quit / ALL owned work", "종료 / 모든 소유 작업")):
+        if owned_work and any(title in session.display() for title in ("Quit / ALL owned work", )):
             session.send(RIGHT + "\r")
             owned_work = False
             continue

@@ -29,8 +29,7 @@ class ReceiptJourney(Journey):
         quota = getattr(self, 'quota_kib', None)
         self.session = RecordsSession([
             str(self.binary), '--data-dir', str(self.data), '--images', 'off',
-            '--color', 'mono', '--language', self.language,
-            *(['--ascii'] if self.ascii_mode else []),
+            '--color', 'mono', *(['--ascii'] if self.ascii_mode else []),
             *(['--quota-kib', str(quota)] if quota is not None else []),
         ], self.project, self.environment, self.size,
             self.output / ('terminal-%02d' % self.serial), controlling_tty=True)
@@ -55,7 +54,7 @@ class ReceiptJourney(Journey):
 
     def inspector(self):
         self.session.command('receipts')
-        self.wait_caption('Outgoing receipts', '전송 내역 영수증')
+        self.wait_caption('Outgoing receipts', )
         self.until(lambda: '1/1' in self.session.display(), 'restored receipt inspection')
         return self.session.display()
 
@@ -83,29 +82,29 @@ class ReceiptJourney(Journey):
         self.inspector()
         self.capture('restart-restored-receipt-inspector')
         self.session.send('s')
-        self.wait_caption('Exact application envelope.', '정확한 앱 요청 본문입니다.')
+        self.wait_caption('Exact application envelope.', )
         self.until(lambda: 'messages' in self.session.display() or '"model"' in self.session.display(),
                    'actual retained wire envelope visible')
         self.capture('restored-exact-application-envelope')
         self.session.send(ESC)
         self.session.send('p')
-        self.wait_caption('Purge this request', '이 요청의 저장된 원문')
+        self.wait_caption('Purge this request', )
         self.capture('neutral-source-purge-review')
         self.session.send('\r')
         assert self.receipt() == before, 'neutral Enter must leave source untouched'
         self.session.send('p')
-        self.wait_caption('Purge this request', '이 요청의 저장된 원문')
+        self.wait_caption('Purge this request', )
         self.session.send(RIGHT + ESC)
         assert self.receipt() == before, 'cancel after selecting Purge must leave source untouched'
         self.session.send('p')
-        self.wait_caption('Purge this request', '이 요청의 저장된 원문')
+        self.wait_caption('Purge this request', )
         self.session.send(RIGHT + '\r')
         self.until(lambda: self.receipt()['source'] is None, 'committed source bytes purged')
         assert self.receipt()['record'] == record, 'purge must not rewrite identity, sections, references or counts'
-        self.wait_caption('UNAVAILABLE', '사용 불가')
+        self.wait_caption('UNAVAILABLE', )
         self.capture('purged-source-unavailable-counts-retained')
         self.session.send('s')
-        self.wait_caption('UNAVAILABLE', '사용 불가')
+        self.wait_caption('UNAVAILABLE', )
         assert self.receipt()['source'] is None
         self.session.send(ESC)
         self.workspace()
@@ -142,7 +141,7 @@ class ReceiptJourney(Journey):
         self.restart()
         assert self.receipt()['source'] is None and self.receipt()['record'] == record
         self.inspector()
-        self.wait_caption('UNAVAILABLE', '사용 불가')
+        self.wait_caption('UNAVAILABLE', )
         self.capture('second-restart-unavailable-original-counts')
         assert len(self.peer.snapshot('POST')) == 1, 'inspection/restart/purge must never replay a provider call'
         self.session.send(ESC)
@@ -156,7 +155,7 @@ class ReceiptJourney(Journey):
     def recovery_review(self):
         self.session.send('d')
         self.wait_caption('This submitted request has no saved receipt.',
-                          '이미 제출한 요청의 영수증이 저장되지 않았습니다.')
+                          )
         # Each real frame exposes the next contiguous page; no End shortcut or
         # hidden authorization. Controls remain neutral until all rows are seen.
         for _ in range(16):
@@ -199,8 +198,8 @@ class ReceiptJourney(Journey):
         wire = self.peer.snapshot('POST')[0]
         assert len(bytes.fromhex(wire['body_bytes_hex'])) > 110 * 1024
         self.session.command('receipts')
-        self.wait_caption('Outgoing receipts', '전송 내역 영수증')
-        self.wait_caption('Storage/read failed', '저장 또는 읽기에 실패했습니다.')
+        self.wait_caption('Outgoing receipts', )
+        self.wait_caption('Storage/read failed', )
         assert not self.state()['outgoing_receipts'], 'quota failure must not claim a saved receipt'
         assert self.state()['active_work'], 'failed receipt must initially retain ownership'
         self.capture('real-quota-failed-receipt-retains-ownership')
@@ -216,7 +215,7 @@ class ReceiptJourney(Journey):
         self.until(lambda: not self.state()['active_work'],
                    'reviewed unsaved-gap acknowledgement permits exact ownership release')
         assert not self.state()['outgoing_receipts'], 'gap acknowledgement fabricated a durable receipt'
-        self.wait_caption('UNSAVED RECEIPT GAP', '미저장 영수증 누락')
+        self.wait_caption('UNSAVED RECEIPT GAP', )
         self.capture('explicit-memory-only-gap-no-provider-replay')
         assert len(self.peer.snapshot('POST')) == 1
         self.session.send(ESC)
@@ -224,7 +223,7 @@ class ReceiptJourney(Journey):
         self.restart()
         assert not self.state()['outgoing_receipts'] and not self.state()['active_work']
         self.session.command('receipts')
-        self.wait_caption('No retained outgoing receipts', '저장된 전송 영수증이 없습니다.')
+        self.wait_caption('No retained outgoing receipts', )
         self.capture('restart-honest-missing-receipt-no-fabricated-counts')
         assert len(self.peer.snapshot('POST')) == 1
         self.session.send(ESC)
@@ -239,7 +238,6 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--binary', required=True, type=Path)
     parser.add_argument('--output', required=True, type=Path)
-    parser.add_argument('--language', choices=('en', 'ko'), default='en')
     parser.add_argument('--quota-recovery', action='store_true',
                         help='exercise genuine post-submission SQLite quota rollback and reviewed gap recovery')
     args = parser.parse_args()
@@ -248,7 +246,7 @@ def main():
     output.mkdir(parents=True, exist_ok=False)
     original = digest(binary)
     result = {'status': 'failed', 'binary': str(binary), 'binary_sha256': original,
-              'host': platform.platform(), 'language': args.language, 'runs': [],
+              'host': platform.platform(), 'runs': [],
               'scope': 'Actual terminal send/restart/inspect/purge with deterministic loopback HTTP only',
               'live_provider_proof': False, 'sql_writes': False}
     try:
@@ -260,7 +258,7 @@ def main():
                     journey = ReceiptJourney.__new__(ReceiptJourney)
                     try:
                         journey.__init__(binary, output / name, Path(temporary), size,
-                                         ascii_mode, {}, peer, args.language)
+                                         ascii_mode, {}, peer, )
                         proof = journey.run_quota_recovery() if args.quota_recovery else journey.run_receipts()
                         result['runs'].append({'size': list(size), 'status': 'passed', **proof})
                     finally:

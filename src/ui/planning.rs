@@ -16,7 +16,7 @@ use crate::{
         planning::{Picker, State, file_phase_message},
     },
     config::Config,
-    i18n::{Message, Template},
+    messages::{Message, Template},
     providers::{FilePhase, FileReview, FileReviewKind, ItemKind, Operation, PromptKind},
 };
 /// Response-only home surface: reuse the cached layout and follow state.
@@ -1127,7 +1127,6 @@ fn review_controls(frame: &mut Frame, area: Rect, state: &State, paint: &Paint) 
 }
 
 fn response(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
-    state.set_response_language(paint.language);
     // A completed observation is not a completed turn while user input is pending.
     let active = state.activity_label().is_some();
     let (_, previous) = state.response_request();
@@ -2061,7 +2060,6 @@ mod tests {
 
     fn config() -> Config {
         Config {
-            language: crate::i18n::Language::ENGLISH,
             ascii: true,
             no_animation: true,
             animation_override: Some(false),
@@ -2104,12 +2102,7 @@ mod tests {
     }
 
     fn draw(app: &mut App) -> ratatui::buffer::Buffer {
-        draw_language(app, crate::i18n::Language::ENGLISH)
-    }
-
-    fn draw_language(app: &mut App, language: crate::i18n::Language) -> ratatui::buffer::Buffer {
-        let mut config = config();
-        config.language = language;
+        let config = config();
         let paint = Paint::new(&config, &crate::domain::FORMS[0], 0);
         let mut terminal = Terminal::new(TestBackend::new(app.width, app.height)).unwrap();
         terminal
@@ -2274,19 +2267,14 @@ mod tests {
 
     #[test]
     fn growing_file_previews_share_home_without_taking_the_future_draft_or_caret() {
-        for (width, height, tag, ascii, color) in [
-            (60, 18, "en", true, ColorMode::TrueColor),
-            (60, 18, "ko", true, ColorMode::TrueColor),
-            (120, 36, "en", false, ColorMode::TrueColor),
-            (120, 36, "ko", false, ColorMode::TrueColor),
-            (60, 18, "en", true, ColorMode::Mono),
-            (60, 18, "ko", true, ColorMode::Mono),
-            (120, 36, "en", false, ColorMode::Mono),
-            (120, 36, "ko", false, ColorMode::Mono),
+        for (width, height, ascii, color) in [
+            (60, 18, true, ColorMode::TrueColor),
+            (120, 36, false, ColorMode::TrueColor),
+            (60, 18, true, ColorMode::Mono),
+            (120, 36, false, ColorMode::Mono),
         ] {
-            let language = crate::i18n::Language::parse(tag).unwrap();
             let (mut app, task) = preview(width, height);
-            draw_language(&mut app, language);
+            draw(&mut app);
             key(&mut app, &task, KeyCode::Char('y'));
             app.planning.pending.take();
             app.overlay = None;
@@ -2296,7 +2284,7 @@ mod tests {
             app.cursor = "Future draft 東京".len();
             let original = (app.input.clone(), app.cursor, app.focus);
             let mut config = config();
-            config.language = language;
+
             config.ascii = ascii;
             config.color = color;
             let mut artwork = super::super::Artwork::load(&config);
@@ -2340,7 +2328,7 @@ mod tests {
                     .collect::<Vec<_>>()
                     .join("\n");
                 assert!(
-                    screen.contains(language.text(file_phase_message(phase))),
+                    screen.contains(file_phase_message(phase).text()),
                     "{screen}"
                 );
                 assert!(
@@ -2385,73 +2373,71 @@ mod tests {
     fn file_panel_is_typed_not_inferred_from_prose_in_color_and_monochrome() {
         for (width, height) in [(60, 18), (120, 36)] {
             for color in [ColorMode::TrueColor, ColorMode::Mono] {
-                for tag in ["en", "ko"] {
-                    let mut config = config();
-                    config.language = crate::i18n::Language::parse(tag).unwrap();
-                    config.color = color;
-                    let paint = Paint::new(&config, &crate::domain::FORMS[0], 0);
-                    let content =
-                        "src/새.rs\n1 | let 인사 = \"안녕 e\u{301}\";\n2 | ordinary-looking prose";
-                    for phase in [
-                        FilePhase::Generating,
-                        FilePhase::Received,
-                        FilePhase::AwaitingReview,
-                        FilePhase::Applied,
-                        FilePhase::Denied,
-                        FilePhase::Refused,
-                        FilePhase::Interrupted,
-                        FilePhase::Reported,
-                        FilePhase::ReportedFailed,
-                        FilePhase::Unknown,
-                    ] {
-                        let mut state = State::default();
-                        state.items.push(crate::app::planning::Item {
-                            thread_id: "private-thread".into(),
-                            turn_id: "private-turn".into(),
-                            item_id: "private-item".into(),
-                            kind: ItemKind::File(phase),
-                            text: content.into(),
-                            complete: phase != FilePhase::Generating,
-                            request: "".into(),
-                            owner: None,
-                        });
-                        let buffer = draw_response(&mut state, width, height, &paint);
-                        let file = screen(&buffer);
-                        assert!(
-                            file.contains(paint.hint(Message::ProvidersPlanningFileLabel))
-                                && file.contains(paint.hint(file_phase_message(phase)))
-                                && file.contains("| src/새.rs")
-                                && file.contains("| 1 | let 인사")
-                                && file.contains("e\u{301}"),
-                            "{file}"
-                        );
-                        assert!(!file.contains("private-"), "{file}");
-                        let verbose = state
-                            .response_display_rows(width, height, true)
-                            .map(|row| row.text)
-                            .collect::<Vec<_>>()
-                            .join("\n");
-                        assert!(!verbose.contains("private-"), "{verbose}");
+                let mut config = config();
 
-                        let mut plain_state = State::default();
-                        let mut item = state.items.pop().unwrap();
-                        item.kind = ItemKind::Message;
-                        plain_state.items.push(item);
-                        let plain = screen(&draw_response(&mut plain_state, width, height, &paint));
-                        assert!(
-                            plain.contains("1 | let 인사")
-                                && !plain.contains("| 1 | let 인사")
-                                && !plain.contains(paint.hint(Message::ProvidersPlanningFileLabel)),
-                            "{plain}"
-                        );
-                        assert_eq!(
-                            plain_state
-                                .response_rows(width, height, false)
-                                .collect::<Vec<_>>(),
-                            content.lines().collect::<Vec<_>>(),
-                            "ordinary prose retains its original rows"
-                        );
-                    }
+                config.color = color;
+                let paint = Paint::new(&config, &crate::domain::FORMS[0], 0);
+                let content =
+                    "src/새.rs\n1 | let 인사 = \"안녕 e\u{301}\";\n2 | ordinary-looking prose";
+                for phase in [
+                    FilePhase::Generating,
+                    FilePhase::Received,
+                    FilePhase::AwaitingReview,
+                    FilePhase::Applied,
+                    FilePhase::Denied,
+                    FilePhase::Refused,
+                    FilePhase::Interrupted,
+                    FilePhase::Reported,
+                    FilePhase::ReportedFailed,
+                    FilePhase::Unknown,
+                ] {
+                    let mut state = State::default();
+                    state.items.push(crate::app::planning::Item {
+                        thread_id: "private-thread".into(),
+                        turn_id: "private-turn".into(),
+                        item_id: "private-item".into(),
+                        kind: ItemKind::File(phase),
+                        text: content.into(),
+                        complete: phase != FilePhase::Generating,
+                        request: "".into(),
+                        owner: None,
+                    });
+                    let buffer = draw_response(&mut state, width, height, &paint);
+                    let file = screen(&buffer);
+                    assert!(
+                        file.contains(paint.hint(Message::ProvidersPlanningFileLabel))
+                            && file.contains(paint.hint(file_phase_message(phase)))
+                            && file.contains("| src/새.rs")
+                            && file.contains("| 1 | let 인사")
+                            && file.contains("e\u{301}"),
+                        "{file}"
+                    );
+                    assert!(!file.contains("private-"), "{file}");
+                    let verbose = state
+                        .response_display_rows(width, height, true)
+                        .map(|row| row.text)
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    assert!(!verbose.contains("private-"), "{verbose}");
+
+                    let mut plain_state = State::default();
+                    let mut item = state.items.pop().unwrap();
+                    item.kind = ItemKind::Message;
+                    plain_state.items.push(item);
+                    let plain = screen(&draw_response(&mut plain_state, width, height, &paint));
+                    assert!(
+                        plain.contains("1 | let 인사")
+                            && !plain.contains("| 1 | let 인사")
+                            && !plain.contains(paint.hint(Message::ProvidersPlanningFileLabel)),
+                        "{plain}"
+                    );
+                    assert_eq!(
+                        plain_state
+                            .response_rows(width, height, false)
+                            .collect::<Vec<_>>(),
+                        content.lines().collect::<Vec<_>>(),
+                        "ordinary prose retains its original rows"
+                    );
                 }
             }
         }
@@ -2658,47 +2644,44 @@ mod tests {
     }
 
     #[test]
-    fn blocked_preview_reason_scrolls_without_arming_run_in_both_languages() {
-        for tag in ["en", "ko"] {
-            let language = crate::i18n::Language::parse(tag).unwrap();
-            for (width, height) in [(60, 18), (120, 36)] {
-                let (mut app, task) = preview(width, height);
-                app.planning.agent = crate::providers::Agent::ChatGPT;
-                let prepared = app.planning.preview.as_mut().unwrap();
-                prepared.blockers = vec![
-                    format!(
-                        "Cannot read user provider config safely: {}REMEDY_END",
-                        "actual reason ".repeat(60)
-                    ),
-                    "SECOND_BLOCKER_END".into(),
-                ];
-                let shown = screen(&draw_language(&mut app, language));
-                let setup = language.text(Message::ProvidersPlanningRunBlockedNCancelEscCancelD);
-                assert!(shown.contains(setup.lines().next().unwrap()), "{shown}");
-                assert!(shown.contains("Cannot read user provider"), "{shown}");
-                assert!(!shown.contains("preparing changes"), "{shown}");
-                assert!(app.planning.scroll_max > 0, "{shown}");
-                let mut inspected = shown;
-                while app.planning.scroll < app.planning.scroll_max {
-                    key(&mut app, &task, KeyCode::PageDown);
-                    inspected.push_str(&screen(&draw_language(&mut app, language)));
-                }
-                assert!(inspected.contains("REMEDY_END"), "{inspected}");
-                assert!(inspected.contains("SECOND_BLOCKER_END"), "{inspected}");
-                for code in [KeyCode::Char('y'), KeyCode::Tab, KeyCode::Char('a')] {
-                    key(&mut app, &task, code);
-                    assert!(app.planning.pending.is_none() && !app.planning.affirmative);
-                }
-                key(&mut app, &task, KeyCode::Char('d'));
-                let details = screen(&draw_language(&mut app, language));
-                assert!(details.contains("Cannot read user provider"), "{details}");
-                assert!(details.contains(setup.lines().next().unwrap()), "{details}");
-                key(&mut app, &task, KeyCode::Char('n'));
-                assert!(matches!(
-                    app.planning.pending.take(),
-                    Some(Request::Cancel { generation: 11 })
-                ));
+    fn blocked_preview_reason_scrolls_without_arming_run() {
+        for (width, height) in [(60, 18), (120, 36)] {
+            let (mut app, task) = preview(width, height);
+            app.planning.agent = crate::providers::Agent::ChatGPT;
+            let prepared = app.planning.preview.as_mut().unwrap();
+            prepared.blockers = vec![
+                format!(
+                    "Cannot read user provider config safely: {}REMEDY_END",
+                    "actual reason ".repeat(60)
+                ),
+                "SECOND_BLOCKER_END".into(),
+            ];
+            let shown = screen(&draw(&mut app));
+            let setup = Message::ProvidersPlanningRunBlockedNCancelEscCancelD.text();
+            assert!(shown.contains(setup.lines().next().unwrap()), "{shown}");
+            assert!(shown.contains("Cannot read user provider"), "{shown}");
+            assert!(!shown.contains("preparing changes"), "{shown}");
+            assert!(app.planning.scroll_max > 0, "{shown}");
+            let mut inspected = shown;
+            while app.planning.scroll < app.planning.scroll_max {
+                key(&mut app, &task, KeyCode::PageDown);
+                inspected.push_str(&screen(&draw(&mut app)));
             }
+            assert!(inspected.contains("REMEDY_END"), "{inspected}");
+            assert!(inspected.contains("SECOND_BLOCKER_END"), "{inspected}");
+            for code in [KeyCode::Char('y'), KeyCode::Tab, KeyCode::Char('a')] {
+                key(&mut app, &task, code);
+                assert!(app.planning.pending.is_none() && !app.planning.affirmative);
+            }
+            key(&mut app, &task, KeyCode::Char('d'));
+            let details = screen(&draw(&mut app));
+            assert!(details.contains("Cannot read user provider"), "{details}");
+            assert!(details.contains(setup.lines().next().unwrap()), "{details}");
+            key(&mut app, &task, KeyCode::Char('n'));
+            assert!(matches!(
+                app.planning.pending.take(),
+                Some(Request::Cancel { generation: 11 })
+            ));
         }
     }
 
@@ -2907,52 +2890,47 @@ mod tests {
     }
 
     #[test]
-    fn compact_generation_scope_contrasts_read_only_roles_and_metadata_in_both_languages() {
-        for tag in ["en", "ko"] {
-            let language = crate::i18n::Language::parse(tag).unwrap();
-            let mut config = config();
-            config.language = language;
-            let paint = Paint::new(&config, &crate::domain::FORMS[0], 0);
-            for agent in [
-                crate::providers::Agent::Compatible,
-                crate::providers::Agent::Codex,
-                crate::providers::Agent::Claude,
-            ] {
-                for operation in [Operation::Plan, Operation::Implement, Operation::Review] {
-                    let (mut app, _) = preview(60, 18);
-                    app.planning.agent = agent;
-                    app.planning.operation = operation;
-                    let scope = if operation == Operation::Implement {
-                        paint.hint(Message::ProvidersPlanningWorkspacePathProposals)
-                    } else if agent.is_direct() || agent == crate::providers::Agent::Codex {
-                        paint
-                            .hint(Message::ProvidersPlanningReadListOnlyNoMutationToolsOrPermission)
-                    } else {
-                        paint.hint(Message::ProvidersPlanningNoSourceWriteGrantAgentPolicyNot)
-                    };
-                    assert!(
-                        review_summary(&app.planning, &paint)
-                            .iter()
-                            .any(|line| line == scope)
-                    );
-                    let buffer = draw_language(&mut app, language);
-                    let rendered = (0..buffer.area.height)
-                        .map(|y| rendered_row(&buffer, buffer.area, y))
-                        .collect::<Vec<_>>()
-                        .join("\n");
-                    if operation == Operation::Implement {
-                        assert!(rendered.contains(scope), "{rendered}");
-                    }
-                    assert!(app.planning.reviewed && !app.planning.affirmative);
-                    assert!(app.planning.pending.is_none());
-                    app.planning.inspect_models = true;
-                    let lines = review_summary(&app.planning, &paint);
-                    assert!(
-                        !lines.iter().any(|line| line
-                            == paint.hint(Message::ProvidersPlanningWorkspacePathProposals))
-                    );
-                    assert!(app.planning.pending.is_none());
+    fn compact_generation_scope_contrasts_read_only_roles_and_metadata() {
+        let config = config();
+
+        let paint = Paint::new(&config, &crate::domain::FORMS[0], 0);
+        for agent in [
+            crate::providers::Agent::Compatible,
+            crate::providers::Agent::Codex,
+            crate::providers::Agent::Claude,
+        ] {
+            for operation in [Operation::Plan, Operation::Implement, Operation::Review] {
+                let (mut app, _) = preview(60, 18);
+                app.planning.agent = agent;
+                app.planning.operation = operation;
+                let scope = if operation == Operation::Implement {
+                    paint.hint(Message::ProvidersPlanningWorkspacePathProposals)
+                } else if agent.is_direct() || agent == crate::providers::Agent::Codex {
+                    paint.hint(Message::ProvidersPlanningReadListOnlyNoMutationToolsOrPermission)
+                } else {
+                    paint.hint(Message::ProvidersPlanningNoSourceWriteGrantAgentPolicyNot)
+                };
+                assert!(
+                    review_summary(&app.planning, &paint)
+                        .iter()
+                        .any(|line| line == scope)
+                );
+                let buffer = draw(&mut app);
+                let rendered = (0..buffer.area.height)
+                    .map(|y| rendered_row(&buffer, buffer.area, y))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                if operation == Operation::Implement {
+                    assert!(rendered.contains(scope), "{rendered}");
                 }
+                assert!(app.planning.reviewed && !app.planning.affirmative);
+                assert!(app.planning.pending.is_none());
+                app.planning.inspect_models = true;
+                let lines = review_summary(&app.planning, &paint);
+                assert!(!lines.iter().any(
+                    |line| line == paint.hint(Message::ProvidersPlanningWorkspacePathProposals)
+                ));
+                assert!(app.planning.pending.is_none());
             }
         }
     }
@@ -2960,20 +2938,15 @@ mod tests {
     #[test]
     fn complete_creation_scope_is_visible_and_permission_is_one_shot() {
         use crate::store::TextDensity::{Comfortable, Compact};
-        for (width, height, tag, density) in [
-            (60, 18, "en", Compact),
-            (120, 36, "en", Compact),
-            (60, 18, "ko", Compact),
-            (120, 36, "ko", Compact),
-            (60, 18, "en", Comfortable),
-            (120, 36, "en", Comfortable),
-            (60, 18, "ko", Comfortable),
-            (120, 36, "ko", Comfortable),
+        for (width, height, density) in [
+            (60, 18, Compact),
+            (120, 36, Compact),
+            (60, 18, Comfortable),
+            (120, 36, Comfortable),
         ] {
-            let language = crate::i18n::Language::parse(tag).unwrap();
             let (mut app, task) = preview(width, height);
             app.planning.set_text_density(density);
-            draw_language(&mut app, language);
+            draw(&mut app);
             key(&mut app, &task, KeyCode::Char('y'));
             assert!(matches!(
                 app.planning.pending.take(),
@@ -3016,7 +2989,7 @@ mod tests {
                     },
                 },
             });
-            let buffer = draw_language(&mut app, language);
+            let buffer = draw(&mut app);
             let screen = (0..buffer.area.height)
                 .map(|y| rendered_row(&buffer, buffer.area, y))
                 .collect::<Vec<_>>()
@@ -3026,9 +2999,9 @@ mod tests {
             }
             assert!(app.planning.reviewed);
             key(&mut app, &task, KeyCode::Char('d'));
-            draw_language(&mut app, language);
+            draw(&mut app);
             key(&mut app, &task, KeyCode::PageDown);
-            let buffer = draw_language(&mut app, language);
+            let buffer = draw(&mut app);
             let screen = (0..buffer.area.height)
                 .map(|y| rendered_row(&buffer, buffer.area, y))
                 .collect::<Vec<_>>()
@@ -3038,14 +3011,14 @@ mod tests {
             key(&mut app, &task, KeyCode::Char('a'));
             assert!(app.planning.pending.is_none());
             key(&mut app, &task, KeyCode::Char('d'));
-            draw_language(&mut app, language);
+            draw(&mut app);
             let saved_scope = match &mut app.planning.request.as_mut().unwrap().kind {
                 PromptKind::Permission {
                     file: Some(file), ..
                 } => std::mem::replace(&mut file.path, format!("{}file.rs", "nested/".repeat(200))),
                 _ => unreachable!(),
             };
-            draw_language(&mut app, language);
+            draw(&mut app);
             assert!(
                 !app.planning.reviewed,
                 "clipped scope must never arm permission"
@@ -3059,11 +3032,11 @@ mod tests {
                 file.path = saved_scope;
             }
             app.width = 59;
-            draw_language(&mut app, language);
+            draw(&mut app);
             key(&mut app, &task, KeyCode::Char('a'));
             assert!(!app.planning.reviewed && app.planning.pending.is_none());
             app.width = width;
-            draw_language(&mut app, language);
+            draw(&mut app);
             assert!(!app.planning.paste("a"));
             app.planning.key(
                 KeyEvent::new_with_kind(
@@ -3292,100 +3265,97 @@ mod tests {
     }
 
     #[test]
-    fn required_permission_and_connection_scope_scroll_with_explicit_controls_in_both_languages() {
-        for tag in ["en", "ko"] {
-            let language = crate::i18n::Language::parse(tag).unwrap();
-            for (width, height) in [(60, 18), (120, 36)] {
-                for connection in [false, true] {
-                    let (mut app, task) = if connection {
-                        let (mut app, task) = preview(width, height);
-                        app.planning
-                            .preview
-                            .as_mut()
-                            .unwrap()
-                            .requires_connection_review = true;
-                        (app, task)
-                    } else {
-                        let (mut app, task) = bolt_prompt(PromptKind::Permission {
-                            description: format!("{}final-exact-scope", "scope row\n".repeat(50)),
-                            file: None,
-                            options: vec![
-                                PermissionOption {
-                                    label: "Deny".into(),
-                                    description: "No effects".into(),
-                                    answer: serde_json::json!("deny"),
-                                },
-                                PermissionOption {
-                                    label: "Allow once".into(),
-                                    description: "This call only".into(),
-                                    answer: serde_json::json!("once"),
-                                },
-                            ],
-                        });
-                        app.width = width;
-                        app.height = height;
-                        (app, task)
-                    };
-                    app.planning.auto_permission_review = true;
-                    let shown = screen(&draw_language(&mut app, language));
-                    assert!(shown.contains("Enter"), "{shown}");
-                    for code in [KeyCode::Char('a'), KeyCode::Char('y'), KeyCode::Char('n')] {
-                        key(&mut app, &task, code);
-                    }
-                    app.planning.paste("y\na\n");
-                    assert!(app.planning.pending.is_none());
-                    key(&mut app, &task, KeyCode::Enter);
-                    assert!(!app.planning.auto_permission_review);
-                    draw_language(&mut app, language);
-                    assert!(!app.planning.reviewed);
-                    key(
-                        &mut app,
+    fn required_permission_and_connection_scope_scroll_with_explicit_controls() {
+        for (width, height) in [(60, 18), (120, 36)] {
+            for connection in [false, true] {
+                let (mut app, task) = if connection {
+                    let (mut app, task) = preview(width, height);
+                    app.planning
+                        .preview
+                        .as_mut()
+                        .unwrap()
+                        .requires_connection_review = true;
+                    (app, task)
+                } else {
+                    let (mut app, task) = bolt_prompt(PromptKind::Permission {
+                        description: format!("{}final-exact-scope", "scope row\n".repeat(50)),
+                        file: None,
+                        options: vec![
+                            PermissionOption {
+                                label: "Deny".into(),
+                                description: "No effects".into(),
+                                answer: serde_json::json!("deny"),
+                            },
+                            PermissionOption {
+                                label: "Allow once".into(),
+                                description: "This call only".into(),
+                                answer: serde_json::json!("once"),
+                            },
+                        ],
+                    });
+                    app.width = width;
+                    app.height = height;
+                    (app, task)
+                };
+                app.planning.auto_permission_review = true;
+                let shown = screen(&draw(&mut app));
+                assert!(shown.contains("Enter"), "{shown}");
+                for code in [KeyCode::Char('a'), KeyCode::Char('y'), KeyCode::Char('n')] {
+                    key(&mut app, &task, code);
+                }
+                app.planning.paste("y\na\n");
+                assert!(app.planning.pending.is_none());
+                key(&mut app, &task, KeyCode::Enter);
+                assert!(!app.planning.auto_permission_review);
+                draw(&mut app);
+                assert!(!app.planning.reviewed);
+                key(
+                    &mut app,
+                    &task,
+                    KeyCode::Char(if connection { 'y' } else { 'a' }),
+                );
+                assert!(app.planning.pending.is_none());
+                let mut shown = String::new();
+                while app.planning.scroll < app.planning.scroll_max {
+                    key(&mut app, &task, KeyCode::PageDown);
+                    shown = screen(&draw(&mut app));
+                }
+                assert!(app.planning.reviewed, "{shown}");
+                if connection {
+                    assert!(shown.contains("executable/configuration"), "{shown}");
+                } else {
+                    assert!(shown.contains("final-exact-scope"), "{shown}");
+                    assert!(shown.contains("Deny"), "{shown}");
+                }
+                for (modifiers, kind) in [
+                    (KeyModifiers::NONE, KeyEventKind::Repeat),
+                    (KeyModifiers::CONTROL, KeyEventKind::Press),
+                ] {
+                    app.planning.key(
+                        KeyEvent::new_with_kind(KeyCode::Char('y'), modifiers, kind),
+                        true,
                         &task,
-                        KeyCode::Char(if connection { 'y' } else { 'a' }),
+                        &[],
+                        None,
                     );
-                    assert!(app.planning.pending.is_none());
-                    let mut shown = String::new();
-                    while app.planning.scroll < app.planning.scroll_max {
-                        key(&mut app, &task, KeyCode::PageDown);
-                        shown = screen(&draw_language(&mut app, language));
-                    }
-                    assert!(app.planning.reviewed, "{shown}");
-                    if connection {
-                        assert!(shown.contains("executable/configuration"), "{shown}");
-                    } else {
-                        assert!(shown.contains("final-exact-scope"), "{shown}");
-                        assert!(shown.contains("Deny"), "{shown}");
-                    }
-                    for (modifiers, kind) in [
-                        (KeyModifiers::NONE, KeyEventKind::Repeat),
-                        (KeyModifiers::CONTROL, KeyEventKind::Press),
-                    ] {
-                        app.planning.key(
-                            KeyEvent::new_with_kind(KeyCode::Char('y'), modifiers, kind),
-                            true,
-                            &task,
-                            &[],
-                            None,
-                        );
-                    }
-                    assert!(app.planning.pending.is_none());
-                    key(
-                        &mut app,
-                        &task,
-                        KeyCode::Char(if connection { 'y' } else { 'a' }),
-                    );
-                    if connection {
-                        assert!(matches!(
-                            app.planning.pending,
-                            Some(Request::Run { generation: 11 })
-                        ));
-                    } else {
-                        assert!(matches!(
-                            app.planning.pending.as_ref(),
-                            Some(Request::Answer { generation: 11, answer, .. })
-                                if answer == &serde_json::json!("once")
-                        ));
-                    }
+                }
+                assert!(app.planning.pending.is_none());
+                key(
+                    &mut app,
+                    &task,
+                    KeyCode::Char(if connection { 'y' } else { 'a' }),
+                );
+                if connection {
+                    assert!(matches!(
+                        app.planning.pending,
+                        Some(Request::Run { generation: 11 })
+                    ));
+                } else {
+                    assert!(matches!(
+                        app.planning.pending.as_ref(),
+                        Some(Request::Answer { generation: 11, answer, .. })
+                            if answer == &serde_json::json!("once")
+                    ));
                 }
             }
         }
@@ -3393,200 +3363,185 @@ mod tests {
 
     #[test]
     fn long_file_scope_scrolls_without_skipping_consent_or_hiding_buttons() {
-        for tag in ["en", "ko"] {
-            let language = crate::i18n::Language::parse(tag).unwrap();
-            let directories: Vec<String> = (1..=8)
-                .map(|count| {
-                    "long_component/"
-                        .repeat(count)
-                        .trim_end_matches('/')
-                        .to_owned()
-                })
-                .collect();
-            let path = format!("{}/new.rs", directories.last().unwrap());
-            let (mut app, task) = bolt_prompt(PromptKind::Permission {
-                description: format!("Create {path} with exact content"),
-                file: Some(FileReview {
-                    path,
-                    destination: None,
-                    syntax: None,
-                    directories,
-                    kind: FileReviewKind::Create,
-                    bytes: 12,
-                    excerpt: "exact content".into(),
-                    edit: false,
-                    external: false,
-                }),
-                options: vec![
-                    PermissionOption {
-                        label: "Deny".into(),
-                        description: String::new(),
-                        answer: serde_json::json!("deny"),
-                    },
-                    PermissionOption {
-                        label: "Allow once".into(),
-                        description: String::new(),
-                        answer: serde_json::json!("once"),
-                    },
-                ],
-            });
-            app.planning.auto_permission_review = true;
-            draw_language(&mut app, language);
-            key(&mut app, &task, KeyCode::Right);
-            draw_language(&mut app, language);
-            assert!(!app.planning.reviewed);
-            key(&mut app, &task, KeyCode::End);
-            draw_language(&mut app, language);
-            key(&mut app, &task, KeyCode::Enter);
-            assert!(
-                app.planning.pending.is_none(),
-                "jumping past unseen scope cannot grant"
-            );
-            key(&mut app, &task, KeyCode::Home);
-            draw_language(&mut app, language);
-            for _ in 0..100 {
-                if app.planning.scroll == app.planning.scroll_max {
-                    break;
-                }
-                key(&mut app, &task, KeyCode::PageDown);
-                let visible = screen(&draw_language(&mut app, language));
-                assert!(visible.contains(if tag == "en" {
-                    "[ Allow once ]"
-                } else {
-                    "[ 한 번 허용 ]"
-                }));
-                assert!(app.planning.pending.is_none());
+        let directories: Vec<String> = (1..=8)
+            .map(|count| {
+                "long_component/"
+                    .repeat(count)
+                    .trim_end_matches('/')
+                    .to_owned()
+            })
+            .collect();
+        let path = format!("{}/new.rs", directories.last().unwrap());
+        let (mut app, task) = bolt_prompt(PromptKind::Permission {
+            description: format!("Create {path} with exact content"),
+            file: Some(FileReview {
+                path,
+                destination: None,
+                syntax: None,
+                directories,
+                kind: FileReviewKind::Create,
+                bytes: 12,
+                excerpt: "exact content".into(),
+                edit: false,
+                external: false,
+            }),
+            options: vec![
+                PermissionOption {
+                    label: "Deny".into(),
+                    description: String::new(),
+                    answer: serde_json::json!("deny"),
+                },
+                PermissionOption {
+                    label: "Allow once".into(),
+                    description: String::new(),
+                    answer: serde_json::json!("once"),
+                },
+            ],
+        });
+        app.planning.auto_permission_review = true;
+        draw(&mut app);
+        key(&mut app, &task, KeyCode::Right);
+        draw(&mut app);
+        assert!(!app.planning.reviewed);
+        key(&mut app, &task, KeyCode::End);
+        draw(&mut app);
+        key(&mut app, &task, KeyCode::Enter);
+        assert!(
+            app.planning.pending.is_none(),
+            "jumping past unseen scope cannot grant"
+        );
+        key(&mut app, &task, KeyCode::Home);
+        draw(&mut app);
+        for _ in 0..100 {
+            if app.planning.scroll == app.planning.scroll_max {
+                break;
             }
-            assert!(app.planning.reviewed);
-            key(&mut app, &task, KeyCode::Enter);
-            assert!(matches!(
-                app.planning.pending.as_ref(),
-                Some(Request::Answer { request_id, answer, .. })
-                    if request_id == &serde_json::json!(44) && answer == &serde_json::json!("once")
-            ));
+            key(&mut app, &task, KeyCode::PageDown);
+            let visible = screen(&draw(&mut app));
+            assert!(visible.contains("[ Allow once ]"));
+            assert!(app.planning.pending.is_none());
         }
+        assert!(app.planning.reviewed);
+        key(&mut app, &task, KeyCode::Enter);
+        assert!(matches!(
+            app.planning.pending.as_ref(),
+            Some(Request::Answer { request_id, answer, .. })
+                if request_id == &serde_json::json!(44) && answer == &serde_json::json!("once")
+        ));
     }
 
     #[test]
     fn rename_destination_and_syntax_warning_are_part_of_required_consent_scope() {
-        for tag in ["en", "ko"] {
-            let language = crate::i18n::Language::parse(tag).unwrap();
-            let destination = format!("{}new.rs", "long_destination/".repeat(12));
-            let (mut app, task) = bolt_prompt(PromptKind::Permission {
-                description: "Rename exact source".into(),
-                file: Some(FileReview {
-                    path: "old.rs".into(),
-                    destination: Some(destination.clone()),
-                    syntax: Some(crate::providers::RustSyntaxReview::NewlyInvalid),
-                    kind: FileReviewKind::Rename,
-                    directories: Vec::new(),
-                    bytes: 8,
-                    excerpt: "fn main(".into(),
-                    edit: false,
-                    external: false,
-                }),
-                options: vec![
-                    PermissionOption {
-                        label: "Deny".into(),
-                        description: String::new(),
-                        answer: serde_json::json!("deny"),
-                    },
-                    PermissionOption {
-                        label: "Allow once".into(),
-                        description: String::new(),
-                        answer: serde_json::json!("once"),
-                    },
-                ],
-            });
-            app.planning.auto_permission_review = true;
-            let mut observed = screen(&draw_language(&mut app, language));
-            key(&mut app, &task, KeyCode::Char('y'));
-            assert!(
-                app.planning.pending.is_none(),
-                "unseen destination must block permission"
-            );
-            key(&mut app, &task, KeyCode::Right);
-            observed.push_str(&screen(&draw_language(&mut app, language)));
-            for _ in 0..100 {
-                if app.planning.scroll == app.planning.scroll_max {
-                    break;
-                }
-                key(&mut app, &task, KeyCode::PageDown);
-                observed.push_str(&screen(&draw_language(&mut app, language)));
+        let destination = format!("{}new.rs", "long_destination/".repeat(12));
+        let (mut app, task) = bolt_prompt(PromptKind::Permission {
+            description: "Rename exact source".into(),
+            file: Some(FileReview {
+                path: "old.rs".into(),
+                destination: Some(destination.clone()),
+                syntax: Some(crate::providers::RustSyntaxReview::NewlyInvalid),
+                kind: FileReviewKind::Rename,
+                directories: Vec::new(),
+                bytes: 8,
+                excerpt: "fn main(".into(),
+                edit: false,
+                external: false,
+            }),
+            options: vec![
+                PermissionOption {
+                    label: "Deny".into(),
+                    description: String::new(),
+                    answer: serde_json::json!("deny"),
+                },
+                PermissionOption {
+                    label: "Allow once".into(),
+                    description: String::new(),
+                    answer: serde_json::json!("once"),
+                },
+            ],
+        });
+        app.planning.auto_permission_review = true;
+        let mut observed = screen(&draw(&mut app));
+        key(&mut app, &task, KeyCode::Char('y'));
+        assert!(
+            app.planning.pending.is_none(),
+            "unseen destination must block permission"
+        );
+        key(&mut app, &task, KeyCode::Right);
+        observed.push_str(&screen(&draw(&mut app)));
+        for _ in 0..100 {
+            if app.planning.scroll == app.planning.scroll_max {
+                break;
             }
-            assert!(app.planning.reviewed, "{observed}");
-            assert!(observed.contains("new.rs"), "{observed}");
-            assert!(
-                observed.contains(language.text(Message::ProvidersPlanningFileSyntaxNewlyInvalid)),
-                "{observed}"
-            );
-            key(&mut app, &task, KeyCode::Char('y'));
-            assert!(matches!(app.planning.pending, Some(Request::Answer { .. })));
+            key(&mut app, &task, KeyCode::PageDown);
+            observed.push_str(&screen(&draw(&mut app)));
         }
+        assert!(app.planning.reviewed, "{observed}");
+        assert!(observed.contains("new.rs"), "{observed}");
+        assert!(
+            observed.contains(Message::ProvidersPlanningFileSyntaxNewlyInvalid.text()),
+            "{observed}"
+        );
+        key(&mut app, &task, KeyCode::Char('y'));
+        assert!(matches!(app.planning.pending, Some(Request::Answer { .. })));
     }
 
     #[test]
-    fn typed_file_summary_shows_localized_operation_empty_and_unicode_source_at_minimum_size() {
-        for tag in ["en", "ko"] {
-            let language = crate::i18n::Language::parse(tag).unwrap();
-            let mut config = config();
-            config.language = language;
-            let paint = Paint::new(&config, &crate::domain::FORMS[0], 0);
-            for kind in [FileReviewKind::Create, FileReviewKind::Modify] {
-                for content in ["", "let 인사 = \"안녕\";\n"] {
-                    for external in [false, true] {
-                        let (mut app, _) = bolt_prompt(PromptKind::Permission {
-                            description: "Untrusted generic description is not file metadata"
-                                .into(),
-                            file: Some(FileReview {
-                                path: "src/새.rs".into(),
-                                destination: None,
-                                syntax: None,
-                                kind,
-                                directories: Vec::new(),
-                                bytes: content.len(),
-                                excerpt: FileReview::excerpt(content),
-                                edit: false,
-                                external,
-                            }),
-                            options: vec![
-                                PermissionOption {
-                                    label: "provider denial".into(),
-                                    description: "provider text".into(),
-                                    answer: serde_json::json!({"permission":"deny"}),
-                                },
-                                PermissionOption {
-                                    label: "provider permission".into(),
-                                    description: "provider text".into(),
-                                    answer: serde_json::json!({"permission":"once"}),
-                                },
-                            ],
-                        });
-                        let text = screen(&draw_language(&mut app, language));
-                        assert!(app.planning.reviewed, "{text}");
-                        assert!(text.contains(paint.hint(file_kind_message(kind))), "{text}");
-                        assert!(text.contains("src/새.rs") && text.contains("a/y"), "{text}");
+    fn typed_file_summary_shows_operation_empty_and_unicode_source_at_minimum_size() {
+        let config = config();
+
+        let paint = Paint::new(&config, &crate::domain::FORMS[0], 0);
+        for kind in [FileReviewKind::Create, FileReviewKind::Modify] {
+            for content in ["", "let 인사 = \"안녕\";\n"] {
+                for external in [false, true] {
+                    let (mut app, _) = bolt_prompt(PromptKind::Permission {
+                        description: "Untrusted generic description is not file metadata".into(),
+                        file: Some(FileReview {
+                            path: "src/새.rs".into(),
+                            destination: None,
+                            syntax: None,
+                            kind,
+                            directories: Vec::new(),
+                            bytes: content.len(),
+                            excerpt: FileReview::excerpt(content),
+                            edit: false,
+                            external,
+                        }),
+                        options: vec![
+                            PermissionOption {
+                                label: "provider denial".into(),
+                                description: "provider text".into(),
+                                answer: serde_json::json!({"permission":"deny"}),
+                            },
+                            PermissionOption {
+                                label: "provider permission".into(),
+                                description: "provider text".into(),
+                                answer: serde_json::json!({"permission":"once"}),
+                            },
+                        ],
+                    });
+                    let text = screen(&draw(&mut app));
+                    assert!(app.planning.reviewed, "{text}");
+                    assert!(text.contains(paint.hint(file_kind_message(kind))), "{text}");
+                    assert!(text.contains("src/새.rs") && text.contains("a/y"), "{text}");
+                    assert!(
+                        !text.contains("Untrusted generic") && !text.contains("provider denial"),
+                        "{text}"
+                    );
+                    if content.is_empty() {
                         assert!(
-                            !text.contains("Untrusted generic")
-                                && !text.contains("provider denial"),
+                            text.contains(paint.hint(Message::ProvidersPlanningFileEmpty)),
                             "{text}"
                         );
-                        if content.is_empty() {
-                            assert!(
-                                text.contains(paint.hint(Message::ProvidersPlanningFileEmpty)),
-                                "{text}"
-                            );
-                        } else {
-                            assert!(text.contains("안녕"), "{text}");
-                        }
-                        if external {
-                            assert!(
-                                text.contains(paint.hint(Message::ProvidersPlanningFileExternal)),
-                                "{text}"
-                            );
-                        }
-                        assert!(app.planning.pending.is_none());
+                    } else {
+                        assert!(text.contains("안녕"), "{text}");
                     }
+                    if external {
+                        assert!(
+                            text.contains(paint.hint(Message::ProvidersPlanningFileExternal)),
+                            "{text}"
+                        );
+                    }
+                    assert!(app.planning.pending.is_none());
                 }
             }
         }

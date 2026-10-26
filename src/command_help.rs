@@ -1,6 +1,6 @@
 //! Stable action identities for embedded command descriptions; provider-native names stay untouched.
 
-use crate::i18n::Message;
+use crate::messages::Message;
 
 pub fn key(command: &str) -> Option<Message> {
     if let Some(message) = crate::app::records::command_help(command) {

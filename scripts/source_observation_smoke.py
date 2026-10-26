@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Actual ev PTY source observations through native HTTP, controlled Codex and ACP.
 
-Disposable projects contain >64 KiB Unicode/CRLF source and an exhausted filename
+Disposable projects contain >4 MiB Unicode/CRLF source and an exhausted filename
 inventory. Synthetic peers request tools but never read or write project files.
 No private credential, paid model or live-provider conformance claim is involved.
 """
@@ -20,8 +20,9 @@ import tempfile
 import traceback
 
 SOURCE_PATH = 'src/central-cafe\u0301.rs'
+SOURCE_LINES = 100_000
 SOURCE = ''.join(f'// actual central source {line:04}: café 界 dirty bytes\r\n'
-                 for line in range(1, 3001))
+                 for line in range(1, SOURCE_LINES + 1))
 SLICE = ''.join(SOURCE.splitlines(keepends=True)[2499:2502])
 ANSWER = 'SOURCE_OBSERVATION_COMPLETE'
 
@@ -73,7 +74,7 @@ def acp_peer():
 
     ranged = call('ranged', 'fs/read_text_file', path=str(root / SOURCE_PATH), line=2500, limit=3)
     assert ranged['result']['content'] == SLICE, ranged
-    tail = call('tail', 'fs/read_text_file', path=str(root / SOURCE_PATH), line=3000, limit=50)
+    tail = call('tail', 'fs/read_text_file', path=str(root / SOURCE_PATH), line=SOURCE_LINES, limit=50)
     assert tail['result']['content'] == SOURCE.splitlines(keepends=True)[-1], tail
     unbounded = call('unbounded', 'fs/read_text_file', path=str(root / SOURCE_PATH))
     assert 'error' in unbounded and 'narrower line/limit' in json.dumps(unbounded), unbounded
@@ -93,7 +94,7 @@ if '--acp-peer' in sys.argv:
         acp_peer()
     raise SystemExit(0)
 
-from file_creation_smoke import (CodexCreationJourney, CreationJourney, Peer,
+from file_creation_smoke import (CodexCreationJourney, CreationJourney, Gate, Peer,
                                  response_plan, save, tool_results)
 from native_connection_smoke import until
 from response_smoke import SurfaceSession, SURFACE
@@ -107,7 +108,7 @@ def fixture(project, *, large_tree):
     target = project / SOURCE_PATH
     target.parent.mkdir(exist_ok=True)
     target.write_bytes(SOURCE.encode())
-    assert target.stat().st_size > 64 * 1024
+    assert 4 * 1024 * 1024 < target.stat().st_size <= 16 * 1024 * 1024
     if large_tree:
         inventory = project / 'inventory'
         inventory.mkdir()
@@ -128,27 +129,27 @@ def assert_observations(root, scoped, read):
     assert root['status'] == 'refused' and 'narrower directory scope' in root['message'], root
     assert scoped['paths'] == [SOURCE_PATH] and scoped['total'] == 1 and scoped['complete'], scoped
     assert read['content'] == SLICE and read['bytes'] == len(SOURCE.encode()), read
-    assert read['total_lines'] == 3000 and read['start_line'] == 2500 and read['end_line'] == 2502, read
+    assert read['total_lines'] == SOURCE_LINES and read['start_line'] == 2500 and read['end_line'] == 2502, read
     assert read['truncated'] and not read['editable'] and read['digest_scope'] == 'full_file', read
     assert read['sha256'] == hashlib.sha256(SOURCE.encode()).hexdigest(), read
 
 
-def native(binary, output, size, language):
+def native(binary, output, size, ):
     output.mkdir(parents=True)
     journey = None
-    result = dict(status='failed', route='native-responses', size=list(size), language=language)
+    readonly_gate = Gate()
+    result = dict(status='failed', route='native-responses', size=list(size), )
     with tempfile.TemporaryDirectory(prefix='ev-source-native-') as temporary, \
             Peer('responses', 'sk-source-fixture-only', True, retain_body_bytes=True) as peer:
         try:
             journey = CreationJourney(binary, output, Path(temporary).resolve(), size, size[0] == 60,
-                                      'compatible', 'responses', True, False, peer, language=language)
+                                      'compatible', 'responses', True, False, peer, )
             wait_for(journey.session, 'Storage: saved')
             journey.setup_route()
             fixture(journey.project, large_tree=True)
             journey.session.command('role-implement')
             journey.workspace()
-            journey.write_request('Implement the source change after reading the central range, but refuse an oversized replacement.'
-                                  if language == 'en' else '중앙 소스 범위를 읽고 수정해줘. 단 편집 한도를 넘는 큰 파일 교체는 거절해줘.')
+            journey.write_request('Implement the source change after reading the central range, but refuse an oversized replacement.')
             before = len(peer.snapshot('POST'))
             for index, call in enumerate(calls()):
                 peer.plans.put(response_plan(peer, calls=[call], number=index))
@@ -176,6 +177,28 @@ def native(binary, output, size, language):
             assert (journey.project / SOURCE_PATH).read_bytes() == SOURCE.encode()
             assert not journey.snapshot()['claims'] and journey.snapshot()['executions'] == 0
             journey.capture('oversized-source-scoped-observation-and-mutation-refusal')
+            # A separate valid small target proves read-only refusal independently
+            # of the oversized source's mutation bound.
+            journey.session.command('role-plan')
+            journey.workspace()
+            readonly_path = 'readonly-refused.txt'
+            readonly_answer = 'SOURCE_READONLY_REFUSAL_COMPLETE'
+            before = journey.begin('Inspect the source read-only; do not change any files.', [
+                response_plan(peer, calls=[dict(id='readonly', name='eevee_write_file',
+                    arguments=dict(path=readonly_path, content='must not create\n'))],
+                    gate=readonly_gate, number=5),
+                response_plan(peer, text=readonly_answer, number=6),
+            ], writing=False)
+            until(journey.session, readonly_gate.ready.is_set,
+                  'read-only refusal request did not reach its terminal gate')
+            readonly_gate.release.set()
+            journey.settled(readonly_answer, before + 2)
+            denied = json.loads(tool_results('responses', peer.snapshot('POST')[before + 1]['body'])['readonly'])
+            assert denied['status'] == 'refused' and 'read-only' in denied['message'].lower(), denied
+            assert not (journey.project / readonly_path).exists()
+            assert (journey.project / SOURCE_PATH).read_bytes() == SOURCE.encode()
+            assert not journey.snapshot()['claims'] and journey.snapshot()['executions'] == 0
+            journey.capture('read-only-scope-refuses-valid-small-mutation')
             journey.session.command('quit')
             confirm_exit(journey.session)
             assert journey.session.wait_exit() == 0
@@ -184,6 +207,7 @@ def native(binary, output, size, language):
         except Exception as error:
             result.update(error=str(error), traceback=traceback.format_exc())
         finally:
+            readonly_gate.release.set()
             save(output / 'http.json', peer.snapshot())
             if journey:
                 journey.session.close()
@@ -191,12 +215,12 @@ def native(binary, output, size, language):
     return result
 
 
-def codex(binary, output, size, language):
+def codex(binary, output, size, ):
     output.mkdir(parents=True)
     journey = None
-    result = dict(status='failed', route='codex', size=list(size), language=language)
+    result = dict(status='failed', route='codex', size=list(size), )
     try:
-        journey = CodexCreationJourney(binary, output, size, language)
+        journey = CodexCreationJourney(binary, output, size, )
         journey.setup(count=1)
         journey.session.command('eevee')
         journey.session.command('role-implement')
@@ -231,9 +255,9 @@ def codex(binary, output, size, language):
     return result
 
 
-def acp(binary, output, size, language):
+def acp(binary, output, size, ):
     output.mkdir(parents=True)
-    result = dict(status='failed', route='acp-opencode', size=list(size), language=language)
+    result = dict(status='failed', route='acp-opencode', size=list(size), )
     session = None
     with tempfile.TemporaryDirectory(prefix='ev-source-acp-') as temporary:
         root = Path(temporary).resolve()
@@ -265,32 +289,29 @@ def acp(binary, output, size, language):
             argv = [str(binary), '--data-dir', str(data), '--images', 'off', '--color', 'mono']
             if size[0] == 60:
                 argv.append('--ascii')
-            session = SurfaceSession(argv, project, environment, size, output, language=language)
+            session = SurfaceSession(argv, project, environment, size, output, )
             wait_for(session, 'Storage: saved', timeout=40)
             session.command('role-implement')
             for _ in range(12):
                 footer = session.display().rstrip().splitlines()[-1].strip()
-                if 'Alt+A' in footer or footer.startswith(tuple(SURFACE[language][key] for key in ('home', 'edit', 'draft'))):
+                if 'Alt+A' in footer or footer.startswith(tuple(SURFACE[key] for key in ('home', 'edit', 'draft'))):
                     break
                 session.send(ESC)
-            if footer.startswith(SURFACE[language]['home']):
+            if footer.startswith(SURFACE['home']):
                 session.send('\r')
-            session.paste('Read the exact central source range and refuse an oversized replacement.'
-                          if language == 'en' else '중앙 소스의 정확한 범위를 읽고 너무 큰 파일 교체는 거절해줘.')
+            session.paste('Read the exact central source range and refuse an oversized replacement.')
             session.send('\x13')
             session.send('\r', settle=False)
-            neutral = ('Enter to review (not approve)', 'Enter 검토 (승인 아님)')
-            until(session, lambda: any(label in session.display() for label in neutral),
-                  'ACP external-policy neutral review was not presented', timeout=40)
-            session.send('\r')
 
             def review():
                 if permission_run_available(session):
                     return True
-                session.send('\x1b[6~')
+                if not inspect_permission_scope(session) and 'Alt+A' in session.display():
+                    session.send(ESC + 'a')
                 return False
 
             until(session, review, 'ACP external-policy Run decision missing', timeout=40)
+            session.capture('acp-external-policy-complete-scope-before-run')
             session.send('y', settle=False)
             until(session, lambda: ANSWER in session.display() and state() == 0,
                   'ACP ranged source callback did not settle', timeout=40)
@@ -319,7 +340,6 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--binary', required=True, type=Path)
     parser.add_argument('--output', required=True, type=Path)
-    parser.add_argument('--language', choices=('en', 'ko'), default='en')
     parser.add_argument('--mode', choices=('native', 'all'), default='all')
     args = parser.parse_args()
     binary, output = args.binary.resolve(), args.output.resolve()
@@ -329,7 +349,7 @@ def main():
     routes = (('native', native),) if args.mode == 'native' else (('native', native), ('codex', codex), ('acp', acp))
     for size in ((120, 36), (60, 18)):
         for route, run in routes:
-            report['journeys'].append(run(binary, output / f'{route}-{size[0]}-{args.language}', size, args.language))
+            report['journeys'].append(run(binary, output / f'{route}-{size[0]}', size, ))
     assert hashlib.sha256(binary.read_bytes()).hexdigest() == digest
     report['status'] = 'passed' if all(row['status'] == 'passed' for row in report['journeys']) else 'failed'
     save(output / 'results.json', report)

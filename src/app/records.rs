@@ -1,7 +1,7 @@
 //! Factual, project-local records. Rendering and input never perform repository IO.
 use super::{App, Overlay};
 use crate::{
-    i18n::Message,
+    messages::Message,
     store::{
         self,
         records::{Operation, Request, Response},

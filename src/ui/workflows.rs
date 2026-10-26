@@ -23,9 +23,9 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             frame,
             area,
             paint.hint(if app.workflow.authoring.active {
-                crate::i18n::Message::RecipeAuthoringResize
+                crate::messages::Message::RecipeAuthoringResize
             } else {
-                crate::i18n::Message::DesksWorkflowsSpecialistDeskNeedXDraftRetainedResize
+                crate::messages::Message::DesksWorkflowsSpecialistDeskNeedXDraftRetainedResize
             }),
             paint.accent,
         );
@@ -53,7 +53,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
     let area = centered(area, 116, height);
     frame.render_widget(Clear, area);
     let block = panel(
-        paint.hint(crate::i18n::Message::DesksWorkflowsPanel),
+        paint.hint(crate::messages::Message::DesksWorkflowsPanel),
         config,
         paint,
         true,
@@ -61,14 +61,14 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
     let content = block.inner(area);
     frame.render_widget(block, area);
     let tabs = match app.workflow.tab {
-        Tab::Diagnosis => paint.hint(crate::i18n::Message::DesksWorkflowsDiagnosisTab),
-        Tab::Refactor => paint.hint(crate::i18n::Message::DesksWorkflowsRefactorTab),
-        Tab::Review => paint.hint(crate::i18n::Message::DesksWorkflowsReviewTab),
-        Tab::Recipe => paint.hint(crate::i18n::Message::DesksWorkflowsRecipeTab),
+        Tab::Diagnosis => paint.hint(crate::messages::Message::DesksWorkflowsDiagnosisTab),
+        Tab::Refactor => paint.hint(crate::messages::Message::DesksWorkflowsRefactorTab),
+        Tab::Review => paint.hint(crate::messages::Message::DesksWorkflowsReviewTab),
+        Tab::Recipe => paint.hint(crate::messages::Message::DesksWorkflowsRecipeTab),
     };
     text(frame, row(content, 0, 1), tabs, paint.accent);
     let notice = if app.workflow.notice.is_empty() {
-        paint.hint(crate::i18n::Message::DesksWorkflowsLocalNotesRealEvidenceNoAutomaticCommand)
+        paint.hint(crate::messages::Message::DesksWorkflowsLocalNotesRealEvidenceNoAutomaticCommand)
     } else {
         &app.workflow.notice
     };
@@ -87,15 +87,15 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         let selected = pending.selected.min(targets.len().saturating_sub(1));
         let confirm = pending.confirm;
         let details = if confirm {
-            paint.format(crate::i18n::Template::DesksWorkflowsRelayPreview, &[
+            paint.format(crate::messages::Template::DesksWorkflowsRelayPreview, &[
     ("target", (targets
                 .iter()
                 .find(|t| Some(t.0) == pending.target)
-                .map_or(paint.hint(crate::i18n::Message::DesksWorkflowsChosenTargetNoLongerIdle), |t| t.1.as_str()))),
+                .map_or(paint.hint(crate::messages::Message::DesksWorkflowsChosenTargetNoLongerIdle), |t| t.1.as_str()))),
     ("paths", &format!("{:?}", pending.request.paths)),
     ("source", &format!("{:?}", pending.request.source)),
     ("replacement", (if pending.request.command.is_some() {
-                paint.hint(crate::i18n::Message::DesksWorkflowsCommandDraftReplacementIsIncludedInThis)
+                paint.hint(crate::messages::Message::DesksWorkflowsCommandDraftReplacementIsIncludedInThis)
             } else {
                 ""
             })),
@@ -126,9 +126,9 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             frame,
             footer,
             if confirm {
-                paint.hint(crate::i18n::Message::DesksWorkflowsStayYStageEscCancelPgupPgdn)
+                paint.hint(crate::messages::Message::DesksWorkflowsStayYStageEscCancelPgupPgdn)
             } else {
-                paint.hint(crate::i18n::Message::DesksWorkflowsUpDownTargetEnterReviewEscCancel)
+                paint.hint(crate::messages::Message::DesksWorkflowsUpDownTargetEnterReviewEscCancel)
             },
             paint.accent,
         );
@@ -140,22 +140,22 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             row(body, 0, 1),
             paint.hint(match field {
                 crate::app::workflows::Field::Hypothesis => {
-                    crate::i18n::Message::DesksWorkflowsFieldHypothesis
+                    crate::messages::Message::DesksWorkflowsFieldHypothesis
                 }
                 crate::app::workflows::Field::Contract => {
-                    crate::i18n::Message::DesksWorkflowsFieldContract
+                    crate::messages::Message::DesksWorkflowsFieldContract
                 }
                 crate::app::workflows::Field::Finding => {
-                    crate::i18n::Message::DesksWorkflowsFieldFinding
+                    crate::messages::Message::DesksWorkflowsFieldFinding
                 }
                 crate::app::workflows::Field::Action => {
-                    crate::i18n::Message::DesksWorkflowsFieldAction
+                    crate::messages::Message::DesksWorkflowsFieldAction
                 }
                 crate::app::workflows::Field::RecipePath => {
-                    crate::i18n::Message::DesksWorkflowsFieldRecipePath
+                    crate::messages::Message::DesksWorkflowsFieldRecipePath
                 }
                 crate::app::workflows::Field::Criteria => {
-                    crate::i18n::Message::DesksWorkflowsFieldCriteria
+                    crate::messages::Message::DesksWorkflowsFieldCriteria
                 }
             }),
             paint.accent,
@@ -187,9 +187,9 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             frame,
             row(body, body.height.saturating_sub(1), 1),
             if app.workflow.editor_done {
-                paint.hint(crate::i18n::Message::DesksWorkflowsDoneEditingSelected)
+                paint.hint(crate::messages::Message::DesksWorkflowsDoneEditingSelected)
             } else {
-                paint.hint(crate::i18n::Message::DesksWorkflowsDoneEditing)
+                paint.hint(crate::messages::Message::DesksWorkflowsDoneEditing)
             },
             if app.workflow.editor_done {
                 paint.accent
@@ -200,17 +200,18 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         text(
             frame,
             footer,
-            paint.hint(crate::i18n::Message::DesksWorkflowsCtrlSDoneTabControlEnterNewline),
+            paint.hint(crate::messages::Message::DesksWorkflowsCtrlSDoneTabControlEnterNewline),
             paint.accent,
         );
         return;
     }
     if app.workflow.preview {
         let effect = if app.workflow.criteria_preview {
-            paint
-                .hint(crate::i18n::Message::DesksWorkflowsConfirmDecisionLinkedCriteriaOnlyNewItems)
+            paint.hint(
+                crate::messages::Message::DesksWorkflowsConfirmDecisionLinkedCriteriaOnlyNewItems,
+            )
         } else {
-            paint.hint(crate::i18n::Message::DesksWorkflowsStagePlanCriteriaAndNextActionOnly)
+            paint.hint(crate::messages::Message::DesksWorkflowsStagePlanCriteriaAndNextActionOnly)
         };
         let preview = if app.workflow.criteria_preview {
             app.workflow_criteria_preview()
@@ -220,12 +221,12 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             app.workflow.recipe.as_ref().map_or_else(
                 || {
                     paint
-                        .hint(crate::i18n::Message::DesksWorkflowsNoRecipeLoaded)
+                        .hint(crate::messages::Message::DesksWorkflowsNoRecipeLoaded)
                         .into()
                 },
                 |recipe| {
                     paint.format(
-                        crate::i18n::Template::DesksWorkflowsRecipeSummary,
+                        crate::messages::Template::DesksWorkflowsRecipeSummary,
                         &[
                             ("effect", (effect)),
                             ("name", &(clipped(&recipe.name, 80))),
@@ -253,30 +254,30 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                 body.height >= 3 && (app.workflow.criteria_preview || !compact || max == 0);
         }
         let footer_text = paint.format(
-            crate::i18n::Template::DesksWorkflowsApplyControls,
+            crate::messages::Template::DesksWorkflowsApplyControls,
             &[
                 (
                     "stay",
                     (if app.workflow.affirmative {
-                        paint.hint(crate::i18n::Message::CommonStay)
+                        paint.hint(crate::messages::Message::CommonStay)
                     } else {
-                        paint.hint(crate::i18n::Message::CommonStaySelected)
+                        paint.hint(crate::messages::Message::CommonStaySelected)
                     }),
                 ),
                 (
                     "apply",
                     (if app.workflow.affirmative {
-                        paint.hint(crate::i18n::Message::DesksWorkflowsApplyPlanOnlySelected)
+                        paint.hint(crate::messages::Message::DesksWorkflowsApplyPlanOnlySelected)
                     } else {
-                        paint.hint(crate::i18n::Message::DesksWorkflowsApplyPlanOnly)
+                        paint.hint(crate::messages::Message::DesksWorkflowsApplyPlanOnly)
                     }),
                 ),
                 (
                     "details",
                     (if app.workflow.reviewed {
-                        paint.hint(crate::i18n::Message::DesksHandoffVerboseDetails)
+                        paint.hint(crate::messages::Message::DesksHandoffVerboseDetails)
                     } else {
-                        paint.hint(crate::i18n::Message::CommonEnlargeReview)
+                        paint.hint(crate::messages::Message::CommonEnlargeReview)
                     }),
                 ),
             ],
@@ -284,7 +285,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         text(frame, footer, &footer_text, paint.accent);
         return;
     }
-    let rows = app.workflow_rows(paint.language);
+    let rows = app.workflow_rows();
     let selected = if app.workflow.chooser.is_some() {
         app.workflow.evidence
     } else {
@@ -341,11 +342,12 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                 crate::workspace::workflows::EvidenceRef::Run { .. }
             ) && *status == crate::workspace::workflows::EvidenceStatus::Stale
         }) {
-            paint.hint(crate::i18n::Message::DesksWorkflowsRerunRerunWithJolteonCommandsUpDown)
+            paint.hint(crate::messages::Message::DesksWorkflowsRerunRerunWithJolteonCommandsUpDown)
         } else if app.workflow.chooser.is_some() {
-            paint.hint(crate::i18n::Message::DesksWorkflowsUpDownEvidenceEnterAttachOpenEvidence)
+            paint
+                .hint(crate::messages::Message::DesksWorkflowsUpDownEvidenceEnterAttachOpenEvidence)
         } else {
-            paint.hint(crate::i18n::Message::DesksWorkflowsCommandsLeftRightTabsUpDownActions)
+            paint.hint(crate::messages::Message::DesksWorkflowsCommandsLeftRightTabsUpDownActions)
         },
         paint.accent,
     );
@@ -353,7 +355,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
 
 fn render_authoring(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &Paint) {
     use crate::app::workflows::authoring::{Field, Mode};
-    use crate::i18n::Message;
+    use crate::messages::Message;
     let review_visible = app.command_popup.is_none()
         && app.confirmation.is_none()
         && app.nickname_editor.is_none()
@@ -603,7 +605,7 @@ fn render_authoring(frame: &mut Frame, area: Rect, app: &mut App, config: &Confi
 }
 
 fn render_impact(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &Paint) {
-    use crate::i18n::Message;
+    use crate::messages::Message;
     let area = centered(
         row(area, 2, area.height.saturating_sub(4)),
         116,
@@ -618,7 +620,7 @@ fn render_impact(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, 
     let detail = if !state.error.is_empty() {
         state.error.clone()
     } else if let Some(plan) = &state.plan {
-        plan.review(paint.language.tag().starts_with("ko"))
+        plan.review()
     } else {
         paint.hint(Message::ImpactChecksPending).to_owned()
     };

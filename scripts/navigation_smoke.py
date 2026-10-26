@@ -62,11 +62,11 @@ class NavigationJourney(SurfaceJourney):
 
     @property
     def reasoning(self):
-        return "Reasoning ·" if self.language == "en" else "추론 수준 ·"
+        return "Reasoning ·"
 
     @property
     def files_hint(self):
-        return "Enter Review/attach" if self.language == "en" else "Enter 검토/첨부"
+        return "Enter Review/attach"
 
     def review_source(self):
         wait_for(self.session, "Review local capture")
@@ -91,13 +91,13 @@ class NavigationJourney(SurfaceJourney):
             return db.execute("SELECT * FROM excerpts ORDER BY id").fetchall()
 
 
-def run(binary, output, root, size, language, baseline):
+def run(binary, output, root, size, baseline):
     root.mkdir()
     output.mkdir(parents=True)
     cases, detours = [], []
     with NavigationPeer() as peer:
         j = NavigationJourney(binary, output, root, size, size[0] == 60, "compatible",
-                              "chat_completions", True, False, peer, language=language)
+                              "chat_completions", True, False, peer, )
         s = j.session
         try:
             wait_for(s, "Storage: saved")
@@ -118,7 +118,7 @@ def run(binary, output, root, size, language, baseline):
                 if "/session-new " in view:
                     assert view.index("/tasks ") < view.index("/session-new "), view
             s.send(ESC)
-            for query, command in (("conn", "provider"), ("첨부", "files"),
+            for query, command in (("conn", "provider"), ("attachment", "files"),
                                    ("stop", "cancel-all"), ("evidence", "history")):
                 s.send("\x0b")
                 s.send(query)
@@ -135,7 +135,7 @@ def run(binary, output, root, size, language, baseline):
                 s.send(ESC)
             assert saved_request(j, DRAFT, cursor)
             assert not peer.snapshot()
-            cases.append("everyday and bilingual semantic actions preserve draft; empty/disabled search has no effect")
+            cases.append("everyday semantic actions preserve draft; empty/disabled search has no effect")
 
             (j.project / "navigation.txt").write_text("public navigation source\nsecond line\n", encoding="utf-8")
             s.command("refresh")
@@ -237,7 +237,7 @@ def run(binary, output, root, size, language, baseline):
             assert s.wait_exit() == 0
             peer.assert_clean()
             result = {"status": "baseline-observed" if baseline else "passed", "size": size,
-                      "language": language, "cases": cases, "detours": detours,
+                      "cases": cases, "detours": detours,
                       "actual_posts": len(peer.snapshot("POST"))}
             (output / "results.json").write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n")
             return result
@@ -251,14 +251,13 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--binary", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--language", choices=("en", "ko"), default="en")
     parser.add_argument("--baseline", action="store_true")
     args = parser.parse_args()
     binary, output = args.binary.resolve(), args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="eevee-navigation-") as temporary:
         journeys = [run(binary, output / str(size[0]), Path(temporary) / str(size[0]),
-                        size, args.language, args.baseline) for size in ((120, 36), (60, 18))]
+                        size, args.baseline) for size in ((120, 36), (60, 18))]
     result = {"status": "baseline-observed" if args.baseline else "passed",
               "sha256": hashlib.sha256(binary.read_bytes()).hexdigest(), "journeys": journeys}
     (output / "results.json").write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n")

@@ -4,7 +4,7 @@
 No builds, SQL writes, installed ev, real credentials or model submissions.
 All projects/HOME/data and a keyless loopback model-catalogue fixture are disposable.
 Requires terminal_smoke.py's pyte/wcwidth dependencies. Retains screens, terminal
-bytes, read-only SQLite observations and a machine-readable result for en/ko at
+bytes, read-only SQLite observations and a machine-readable result at
 120x36 and 60x18. A failure is a failure, not an inferred pass.
 """
 import argparse
@@ -30,11 +30,11 @@ UP, DOWN, RIGHT, PAGE = ESC + "[A", ESC + "[B", ESC + "[C", ESC + "[6~"
 FORMS = ("Eevee", "Vaporeon", "Jolteon", "Flareon", "Espeon", "Umbreon", "Leafeon", "Glaceon", "Sylveon")
 
 
-def expose_review(session, language, capture):
+def expose_review(session, capture):
     """Visit every wrapped row before the existing neutral confirmation."""
     session.send(HOME)
     observed = []
-    neutral = "[Stay]" if language == "en" else "[유지]"
+    neutral = "[Stay]"
     for index in range(256):
         view = session.display()
         observed.append(view)
@@ -44,18 +44,11 @@ def expose_review(session, language, capture):
         session.send(PAGE)
     raise AssertionError("complete semantic scope did not become confirmable")
 
-LABELS = {
-    "en": {"import": "Import TM: literal", "target": "Import TM / choose", "name": "Move name",
+LABELS = {"import": "Import TM: literal", "target": "Import TM / choose", "name": "Move name",
            "review": "Confirm local change", "export": "Export TM: NEW", "export_review": "Create-only TM export",
            "menu": "i Import TM", "replace": "Give up learning", "run": "Review one-shot execution permission",
            "request": "Run once", "apply": "Apply template", "api": "API key", "exit": "Confirm exit",
-           "source": "Review local capture"},
-    "ko": {"import": "TM 가져오기: 파일", "target": "TM 가져오기 · 배울", "name": "기술 이름",
-           "review": "로컬 변경 확인", "export": "TM 내보내기: 새", "export_review": "새 TM 파일만 만들기",
-           "menu": "i TM 가져오기", "replace": "배우기 포기", "run": "일회성 실행 권한 검토",
-           "request": "한 번 실행", "apply": "템플릿 적용", "api": "API 키", "exit": "종료 확인",
-           "source": "로컬 캡처 검토"},
-}
+           "source": "Review local capture"}
 TABLES = ("tasks", "partners", "selections", "moves", "excerpts", "executions", "provider_journal",
           "move_usages", "move_sources", "move_dispatches", "move_candidates", "ribbons", "active_work")
 
@@ -80,9 +73,9 @@ def definition(form, name=None):
 
 
 class Driver:
-    def __init__(self, binary, output, root, language, size, peer):
-        self.binary, self.output, self.root, self.language, self.size, self.peer = binary, output, root, language, size, peer
-        self.labels, self.sessions, self.serial = LABELS[language], [], 0
+    def __init__(self, binary, output, root, size, peer):
+        self.binary, self.output, self.root, self.size, self.peer = binary, output, root, size, peer
+        self.labels, self.sessions, self.serial = LABELS, [], 0
         self.project = root / "project-one"
         self.home, self.data = root / "home", root / "data"
         self.database = self.data / "workbench.sqlite3"
@@ -119,7 +112,7 @@ class Driver:
 
     def launch(self):
         self.serial += 1
-        self.session = Session([str(self.binary), "--data-dir", str(self.data), "--images", "off", "--color", "mono", "--language", self.language],
+        self.session = Session([str(self.binary), "--data-dir", str(self.data), "--images", "off", "--color", "mono", ],
                                self.project, self.environment, self.size, self.output / ("terminal-%02d" % self.serial))
         self.sessions.append(self.session)
         # Existing SQLite rows predate this process; wait for its first ready
@@ -159,7 +152,7 @@ class Driver:
     def wait(self, key):
         self.until(lambda: self.labels[key] in self.session.display()
                    and (key != "menu" or not any(text in self.session.display() for text in
-                        ("Loading/saving local move facts", "Saving the reviewed move change", "로컬 기술 정보 불러오기/저장 중"))), key)
+                        ("Loading/saving local move facts", "Saving the reviewed move change", ))), key)
 
     def capture(self, name):
         self.serial += 1
@@ -169,7 +162,7 @@ class Driver:
     def workspace(self):
         for _ in range(12):
             footer = self.session.display().rstrip().splitlines()[-1].strip()
-            if footer.startswith(("Type Request /", "Enter Send /", "Draft only /", "요청 입력 /", "Enter 전송 /", "초안만")):
+            if footer.startswith(("Type Request /", "Enter Send /", "Draft only /", )):
                 return
             self.session.send(ESC)
         raise AssertionError("workspace not restored\n" + self.session.display())
@@ -183,7 +176,7 @@ class Driver:
         self.session.paste(MODEL)
         self.session.send("\t\t \t\t\r")
         self.until(lambda: MODEL in self.session.display()
-                   and ("matches" in self.session.display() or "모델 · 검색 결과" in self.session.display()), "local catalogue chooser")
+                   and "matches" in self.session.display(), "local catalogue chooser")
         self.session.send(MODEL + "\r")
         self.workspace()
         assert not self.peer.snapshot("POST"), "setup submitted a model request"
@@ -213,7 +206,7 @@ class Driver:
         self.session.send("\r")
         self.wait("name")
     def expose_review(self):
-        return expose_review(self.session, self.language, self.capture)
+        return expose_review(self.session, self.capture)
 
 
     def learn(self, path, form, name=None, personal=False, replacement=None):
@@ -270,8 +263,8 @@ class Driver:
         self.workspace()
 
     def discard_failure(self):
-        self.until(lambda: "Move storage failed" in self.session.display() or "이동 저장" in self.session.display()
-                   or "Retry" in self.session.display() or "재시도" in self.session.display(), "retained failed operation")
+        self.until(lambda: "Move storage failed" in self.session.display()
+                   or "Retry" in self.session.display(), "retained failed operation")
         self.capture("refusal-retained-for-explicit-retry")
         self.session.send("d")
         self.session.send("y")
@@ -288,7 +281,7 @@ class Driver:
     def clear_request(self):
         self.workspace()
         footer = self.session.display().rstrip().splitlines()[-1].strip()
-        if footer.startswith(("Type Request /", "요청 입력 /")):
+        if footer.startswith(("Type Request /", )):
             self.session.send("\r")
         self.session.send(UP * 20 + HOME + DELETE * 200 + "\x13")
         def cleared():
@@ -469,33 +462,32 @@ def main():
     result = {"status": "failed", "binary": str(binary), "sha256": digest,
               "scope": "MV08B actual PTY, local files/read-only SQL, no inference or real accounts", "cases": []}
     try:
-        for language in ("en", "ko"):
-            for size in ((120, 36), (60, 18)):
-                case = {"language": language, "size": list(size), "status": "failed"}
-                result["cases"].append(case)
-                directory = output / ("%s-%dx%d" % (language, *size))
-                directory.mkdir()
-                driver = None
-                with tempfile.TemporaryDirectory(prefix="ev-tm-") as temporary:
-                    with Peer("chat_completions", "unused-keyless-fixture", True) as peer:
-                        try:
-                            driver = Driver.__new__(Driver)
-                            driver.__init__(binary, directory, Path(temporary).resolve(), language, size, peer)
-                            driver.run()
-                            case["status"] = "passed"
-                        except Exception as error:
-                            case.update(error=str(error), traceback=traceback.format_exc())
-                            if driver and hasattr(driver, "session"):
-                                try:
-                                    driver.capture("failed")
-                                except Exception as capture_error:
-                                    case["capture_error"] = str(capture_error)
-                        finally:
-                            if driver:
-                                driver.close()
-                            save(directory / "loopback-requests.json", peer.snapshot())
-                assert sha(binary) == digest, "binary changed during acceptance"
-                save(output / "results.json", result)
+        for size in ((120, 36), (60, 18)):
+            case = {"size": list(size), "status": "failed"}
+            result["cases"].append(case)
+            directory = output / ("%dx%d" % size)
+            directory.mkdir()
+            driver = None
+            with tempfile.TemporaryDirectory(prefix="ev-tm-") as temporary:
+                with Peer("chat_completions", "unused-keyless-fixture", True) as peer:
+                    try:
+                        driver = Driver.__new__(Driver)
+                        driver.__init__(binary, directory, Path(temporary).resolve(), size, peer)
+                        driver.run()
+                        case["status"] = "passed"
+                    except Exception as error:
+                        case.update(error=str(error), traceback=traceback.format_exc())
+                        if driver and hasattr(driver, "session"):
+                            try:
+                                driver.capture("failed")
+                            except Exception as capture_error:
+                                case["capture_error"] = str(capture_error)
+                    finally:
+                        if driver:
+                            driver.close()
+                        save(directory / "loopback-requests.json", peer.snapshot())
+            assert sha(binary) == digest, "binary changed during acceptance"
+            save(output / "results.json", result)
         result["status"] = "passed" if all(case["status"] == "passed" for case in result["cases"]) else "failed"
     finally:
         save(output / "results.json", result)

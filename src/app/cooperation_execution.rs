@@ -36,7 +36,7 @@ impl App {
     }
 
     /// Denial may resolve this lead's exact callback, never borrow another writer.
-    pub(super) fn current_callback_command_deniable(&self) -> bool {
+    pub(crate) fn current_callback_command_deniable(&self) -> bool {
         if !matches!(
             self.execution.confirmation,
             Some(execution::Confirmation::Approval)

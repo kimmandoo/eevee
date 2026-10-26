@@ -26,12 +26,12 @@ fn preview() -> providers::Preview {
 fn press(code: KeyCode) -> KeyEvent {
     KeyEvent::new(code, KeyModifiers::NONE)
 }
-fn draw(state: &mut State, language: Language, width: u16, height: u16) -> String {
+fn draw(state: &mut State, width: u16, height: u16) -> String {
     let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
     terminal
         .draw(|frame| {
             let area = frame.area();
-            state.render(frame, area, language)
+            state.render(frame, area)
         })
         .unwrap();
     let buffer = terminal.backend().buffer();
@@ -97,41 +97,36 @@ fn preview_and_wrong_dispatch_never_create_durable_work_but_actual_submission_do
 #[test]
 fn purge_is_neutral_and_requires_visible_review_then_exact_owner_operation() {
     for (width, height) in [(60, 18), (120, 36)] {
-        for language in [Language::ENGLISH, Language::parse("ko").unwrap()] {
-            let mut state = saved();
-            draw(&mut state, language, width, height);
-            state.key(press(KeyCode::Char('p')));
-            state.key(press(KeyCode::Right));
-            state.key(press(KeyCode::Enter));
-            assert!(state.queue.is_empty(), "unrendered review must not purge");
-            let screen = draw(&mut state, language, width, height);
-            // TestBackend retains a blank cell after each wide Korean glyph,
-            // so concatenating cells is not a Unicode text reconstruction.
-            // Assert the visible neutral selector and its actual state instead.
-            assert!(screen.contains("[x]"));
-            assert!(state.rendered && !state.affirmative);
-            state.key(press(KeyCode::Enter));
-            assert!(state.queue.is_empty(), "neutral Enter stays");
-            state.key(press(KeyCode::Char('p')));
-            draw(&mut state, language, width, height);
-            state.key(press(KeyCode::Right));
-            state.key(press(KeyCode::Esc));
-            assert!(state.queue.is_empty(), "cancel has no effects");
-            state.key(press(KeyCode::Char('p')));
-            draw(&mut state, language, width, height);
-            state.key(press(KeyCode::Right));
-            state.key(press(KeyCode::Enter));
-            assert_eq!(
-                state.queue.front(),
-                Some(&Request {
-                    task_id: 7,
-                    partner: 1,
-                    operation: Operation::PurgeSources {
-                        request_id: Some("actual-ui-request".into())
-                    }
-                })
-            );
-        }
+        let mut state = saved();
+        draw(&mut state, width, height);
+        state.key(press(KeyCode::Char('p')));
+        state.key(press(KeyCode::Right));
+        state.key(press(KeyCode::Enter));
+        assert!(state.queue.is_empty(), "unrendered review must not purge");
+        let screen = draw(&mut state, width, height);
+        assert!(screen.contains("[x]"));
+        assert!(state.rendered && !state.affirmative);
+        state.key(press(KeyCode::Enter));
+        assert!(state.queue.is_empty(), "neutral Enter stays");
+        state.key(press(KeyCode::Char('p')));
+        draw(&mut state, width, height);
+        state.key(press(KeyCode::Right));
+        state.key(press(KeyCode::Esc));
+        assert!(state.queue.is_empty(), "cancel has no effects");
+        state.key(press(KeyCode::Char('p')));
+        draw(&mut state, width, height);
+        state.key(press(KeyCode::Right));
+        state.key(press(KeyCode::Enter));
+        assert_eq!(
+            state.queue.front(),
+            Some(&Request {
+                task_id: 7,
+                partner: 1,
+                operation: Operation::PurgeSources {
+                    request_id: Some("actual-ui-request".into())
+                }
+            })
+        );
     }
 }
 
@@ -143,12 +138,12 @@ fn source_purge_removes_inspected_copy_and_keeps_count_identity_visible() {
         "actual-ui-request".into(),
         "SOURCE_COPY_MUST_DISAPPEAR".into(),
     ));
-    draw(&mut state, Language::ENGLISH, 60, 18);
+    draw(&mut state, 60, 18);
     state.source_purged(7);
     assert!(state.source.is_none());
     assert!(!state.records[0].source_available);
     assert_eq!(state.records[0].record, original);
-    let screen = draw(&mut state, Language::ENGLISH, 60, 18);
+    let screen = draw(&mut state, 60, 18);
     assert!(!screen.contains("SOURCE_COPY_MUST_DISAPPEAR"));
     assert!(screen.contains("actual-ui-request"));
     assert!(screen.contains("UNAVAILABLE"));
@@ -185,120 +180,118 @@ fn committed_artifact_purge_invalidates_active_and_parked_receipt_views_before_r
         },
     };
     for (width, height) in [(60, 18), (120, 36)] {
-        for language in [Language::ENGLISH, Language::parse("ko").unwrap()] {
-            let mut app = App::new("/workspace".into(), width, height);
-            let partner_two = store::Partner {
-                id: 2,
-                ..store::Partner::default()
-            };
-            let partner_three = store::Partner {
-                id: 3,
-                ..store::Partner::default()
-            };
-            let mut task = store::Snapshot::empty("/workspace".into());
-            task.id = 7;
-            task.goal = "Inspect retained artifact source receipts".into();
-            task.revision = 1;
-            let mut other_task = task.clone();
-            other_task.id = 8;
-            app.store_event(store::Event::Loaded(store::Project {
-                active_id: Some(task.id),
-                tasks: vec![task, other_task],
-                partners: vec![
-                    store::Partner::default(),
-                    partner_two.clone(),
-                    partner_three.clone(),
-                ],
-                usage_bytes: 0,
-            }));
+        let mut app = App::new("/workspace".into(), width, height);
+        let partner_two = store::Partner {
+            id: 2,
+            ..store::Partner::default()
+        };
+        let partner_three = store::Partner {
+            id: 3,
+            ..store::Partner::default()
+        };
+        let mut task = store::Snapshot::empty("/workspace".into());
+        task.id = 7;
+        task.goal = "Inspect retained artifact source receipts".into();
+        task.revision = 1;
+        let mut other_task = task.clone();
+        other_task.id = 8;
+        app.store_event(store::Event::Loaded(store::Project {
+            active_id: Some(task.id),
+            tasks: vec![task, other_task],
+            partners: vec![
+                store::Partner::default(),
+                partner_two.clone(),
+                partner_three.clone(),
+            ],
+            usage_bytes: 0,
+        }));
 
-            // A previously inspected exact public envelope is cached both as
-            // source text and as wrapped display rows, not merely a count view.
-            let source = preview().payload;
-            app.planning.receipts = saved();
-            app.planning.receipts.source = Some(("actual-ui-request".into(), source.clone()));
-            draw(&mut app.planning.receipts, language, width, height);
-            assert_eq!(app.planning.receipts.display, source);
-            let active_identity = app.planning.receipts.records[0].record.clone();
+        // A previously inspected exact public envelope is cached both as
+        // source text and as wrapped display rows, not merely a count view.
+        let source = preview().payload;
+        app.planning.receipts = saved();
+        app.planning.receipts.source = Some(("actual-ui-request".into(), source.clone()));
+        draw(&mut app.planning.receipts, width, height);
+        assert_eq!(app.planning.receipts.display, source);
+        let active_identity = app.planning.receipts.records[0].record.clone();
 
-            let mut parked = app
-                .planning
-                .new_partner(store::Attribution::of(&partner_two), 7);
-            parked.receipts = saved();
-            parked.receipts.partner = 2;
-            parked.receipts.records[0].record.owner = store::Attribution::of(&partner_two);
-            parked.receipts.records[0].record.request_id = "parked-artifact-request".into();
-            parked.receipts.source = Some(("parked-artifact-request".into(), source.clone()));
-            draw(&mut parked.receipts, language, width, height);
-            let parked_identity = parked.receipts.records[0].record.clone();
-            app.cooperation.parked.insert(2, parked);
+        let mut parked = app
+            .planning
+            .new_partner(store::Attribution::of(&partner_two), 7);
+        parked.receipts = saved();
+        parked.receipts.partner = 2;
+        parked.receipts.records[0].record.owner = store::Attribution::of(&partner_two);
+        parked.receipts.records[0].record.request_id = "parked-artifact-request".into();
+        parked.receipts.source = Some(("parked-artifact-request".into(), source.clone()));
+        draw(&mut parked.receipts, width, height);
+        let parked_identity = parked.receipts.records[0].record.clone();
+        app.cooperation.parked.insert(2, parked);
 
-            let mut unrelated = planning::State::new();
-            unrelated.receipts = saved();
-            unrelated.receipts.task = 8;
-            unrelated.receipts.partner = 3;
-            unrelated.receipts.records[0].record.task_id = 8;
-            unrelated.receipts.records[0].record.owner = store::Attribution::of(&partner_three);
-            unrelated.receipts.source = Some(("other-task-request".into(), source.clone()));
-            draw(&mut unrelated.receipts, language, width, height);
-            app.cooperation.parked.insert(3, unrelated);
+        let mut unrelated = planning::State::new();
+        unrelated.receipts = saved();
+        unrelated.receipts.task = 8;
+        unrelated.receipts.partner = 3;
+        unrelated.receipts.records[0].record.task_id = 8;
+        unrelated.receipts.records[0].record.owner = store::Attribution::of(&partner_three);
+        unrelated.receipts.source = Some(("other-task-request".into(), source.clone()));
+        draw(&mut unrelated.receipts, width, height);
+        app.cooperation.parked.insert(3, unrelated);
 
-            app.open_overlay(Overlay::Receipts);
-            app.open_overlay(Overlay::Artifacts);
-            let handle = Handle {
-                id: "a".repeat(64),
-                revision: "b".repeat(64),
-            };
-            let request = ArtifactRequest {
-                request_id: 19,
-                task_id: 7,
-                operation: ArtifactOperation::Purge {
-                    handle: handle.clone(),
-                },
-            };
-            app.store_event(store::Event::Artifact {
-                request: request.clone(),
-                result: Err("purge refused before commit".into()),
-            });
-            assert!(app.planning.receipts.source.is_some());
-            assert!(app.cooperation.parked[&2].receipts.source.is_some());
+        app.open_overlay(Overlay::Receipts);
+        app.open_overlay(Overlay::Artifacts);
+        let handle = Handle {
+            id: "a".repeat(64),
+            revision: "b".repeat(64),
+        };
+        let request = ArtifactRequest {
+            request_id: 19,
+            task_id: 7,
+            operation: ArtifactOperation::Purge {
+                handle: handle.clone(),
+            },
+        };
+        app.store_event(store::Event::Artifact {
+            request: request.clone(),
+            result: Err("purge refused before commit".into()),
+        });
+        assert!(app.planning.receipts.source.is_some());
+        assert!(app.cooperation.parked[&2].receipts.source.is_some());
 
-            // A committed unavailable record stays purged even when physical
-            // artifact cleanup reports a warning.
-            app.store_event(store::Event::Artifact {
-                request,
-                result: Ok(ArtifactResponse::Purged {
-                    handle,
-                    warning: Some("committed purge; physical cleanup unavailable".into()),
-                }),
-            });
-            for receipts in [&app.planning.receipts, &app.cooperation.parked[&2].receipts] {
-                assert!(receipts.source.is_none());
-                assert!(receipts.display.is_empty());
-                assert!(receipts.lines.is_empty());
-                assert!(!receipts.records[0].source_available);
-            }
-            assert_eq!(app.planning.receipts.records[0].record, active_identity);
-            assert_eq!(
-                app.cooperation.parked[&2].receipts.records[0].record,
-                parked_identity
-            );
-            assert!(app.cooperation.parked[&3].receipts.source.is_some());
-            assert_eq!(app.cooperation.parked[&3].receipts.display, source);
-            assert!(app.cooperation.parked[&3].receipts.records[0].source_available);
-
-            app.close_overlay();
-            assert_eq!(app.overlay, Some(Overlay::Receipts));
-            let restored = draw(&mut app.planning.receipts, language, width, height);
-            assert!(!restored.contains("keep exact"));
-            assert!(app.planning.receipts.source.is_none());
-            app.front_planning(&partner_two);
-            app.lead = partner_two;
-            let restored_parked = draw(&mut app.planning.receipts, language, width, height);
-            assert!(!restored_parked.contains("keep exact"));
-            assert!(app.planning.receipts.source.is_none());
-            assert_eq!(app.planning.receipts.records[0].record, parked_identity);
+        // A committed unavailable record stays purged even when physical
+        // artifact cleanup reports a warning.
+        app.store_event(store::Event::Artifact {
+            request,
+            result: Ok(ArtifactResponse::Purged {
+                handle,
+                warning: Some("committed purge; physical cleanup unavailable".into()),
+            }),
+        });
+        for receipts in [&app.planning.receipts, &app.cooperation.parked[&2].receipts] {
+            assert!(receipts.source.is_none());
+            assert!(receipts.display.is_empty());
+            assert!(receipts.lines.is_empty());
+            assert!(!receipts.records[0].source_available);
         }
+        assert_eq!(app.planning.receipts.records[0].record, active_identity);
+        assert_eq!(
+            app.cooperation.parked[&2].receipts.records[0].record,
+            parked_identity
+        );
+        assert!(app.cooperation.parked[&3].receipts.source.is_some());
+        assert_eq!(app.cooperation.parked[&3].receipts.display, source);
+        assert!(app.cooperation.parked[&3].receipts.records[0].source_available);
+
+        app.close_overlay();
+        assert_eq!(app.overlay, Some(Overlay::Receipts));
+        let restored = draw(&mut app.planning.receipts, width, height);
+        assert!(!restored.contains("keep exact"));
+        assert!(app.planning.receipts.source.is_none());
+        app.front_planning(&partner_two);
+        app.lead = partner_two;
+        let restored_parked = draw(&mut app.planning.receipts, width, height);
+        assert!(!restored_parked.contains("keep exact"));
+        assert!(app.planning.receipts.source.is_none());
+        assert_eq!(app.planning.receipts.records[0].record, parked_identity);
     }
 }
 
@@ -325,14 +318,14 @@ fn failed_receipt(error: &str) -> State {
     state
 }
 
-fn read_discard_review(state: &mut State, language: Language, width: u16, height: u16) {
-    draw(state, language, width, height);
+fn read_discard_review(state: &mut State, width: u16, height: u16) {
+    draw(state, width, height);
     for _ in 0..32 {
         if state.rendered {
             return;
         }
         state.key(press(KeyCode::PageDown));
-        draw(state, language, width, height);
+        draw(state, width, height);
     }
     panic!("bounded receipt recovery review never exposed all scope rows");
 }
@@ -354,7 +347,7 @@ fn receipt_discard_refuses_running_wrong_owner_generation_and_ambiguous_commits(
     state.key(press(KeyCode::Char('d')));
     assert!(state.discard.is_some());
     state.finished(None);
-    read_discard_review(&mut state, Language::ENGLISH, 60, 18);
+    read_discard_review(&mut state, 60, 18);
     state.key(press(KeyCode::Right));
     state.key(press(KeyCode::Enter));
     assert!(state.pending(), "lost terminal proof must not discard");
@@ -372,58 +365,56 @@ fn receipt_discard_refuses_running_wrong_owner_generation_and_ambiguous_commits(
 #[test]
 fn reviewed_quota_gap_recovers_only_unsaved_exact_attempt_and_allows_work_settlement() {
     for (width, height) in [(60, 18), (120, 36)] {
-        for language in [Language::ENGLISH, Language::parse("ko").unwrap()] {
-            let mut state = failed_receipt(QUOTA_ROLLBACK);
-            state.finished(Some(&(claim(), 11)));
-            state.key(press(KeyCode::Char('d')));
-            state.key(press(KeyCode::Right));
-            state.key(press(KeyCode::Enter));
-            assert!(state.pending(), "unrendered recovery cannot discard");
-            read_discard_review(&mut state, language, width, height);
-            state.key(press(KeyCode::Enter));
-            assert!(state.pending(), "neutral Enter keeps failed bytes");
-            state.key(press(KeyCode::Char('d')));
-            read_discard_review(&mut state, language, width, height);
-            state.key(press(KeyCode::Right));
-            state.key(press(KeyCode::Esc));
-            assert!(state.pending(), "cancel keeps failed bytes");
-            state.key(press(KeyCode::Char('d')));
-            read_discard_review(&mut state, language, width, height);
-            state.key(press(KeyCode::Right));
-            state.rollback.insert(
-                "actual-ui-request".into(),
-                format!("{QUOTA_ROLLBACK}; changed sample"),
-            );
-            state.key(press(KeyCode::Enter));
-            assert!(
-                state.pending(),
-                "changed exact error invalidates the review"
-            );
-            state.key(press(KeyCode::Char('d')));
-            read_discard_review(&mut state, language, width, height);
-            state.key(press(KeyCode::Right));
-            state.key(press(KeyCode::Enter));
-            assert!(!state.pending());
-            assert!(state.failed.is_empty());
-            assert!(state.records.is_empty(), "never fabricate a saved receipt");
-            assert!(state.source.is_none());
-            let gap = state.gap.as_ref().unwrap();
-            assert_eq!(gap.request_id, "actual-ui-request");
-            assert_eq!(gap.bytes, preview().payload.len());
-            let body = state.body(language);
-            assert!(body.contains(language.text(Message::ReceiptsGapNotice)));
-            let mut planning = super::super::State {
-                work: Some(claim()),
-                work_acquired: true,
-                receipts: state,
-                ..super::super::State::new()
-            };
-            planning.settle_work();
-            assert_eq!(
-                planning.work_pending,
-                Some(store::WorkRequest::Release(claim()))
-            );
-        }
+        let mut state = failed_receipt(QUOTA_ROLLBACK);
+        state.finished(Some(&(claim(), 11)));
+        state.key(press(KeyCode::Char('d')));
+        state.key(press(KeyCode::Right));
+        state.key(press(KeyCode::Enter));
+        assert!(state.pending(), "unrendered recovery cannot discard");
+        read_discard_review(&mut state, width, height);
+        state.key(press(KeyCode::Enter));
+        assert!(state.pending(), "neutral Enter keeps failed bytes");
+        state.key(press(KeyCode::Char('d')));
+        read_discard_review(&mut state, width, height);
+        state.key(press(KeyCode::Right));
+        state.key(press(KeyCode::Esc));
+        assert!(state.pending(), "cancel keeps failed bytes");
+        state.key(press(KeyCode::Char('d')));
+        read_discard_review(&mut state, width, height);
+        state.key(press(KeyCode::Right));
+        state.rollback.insert(
+            "actual-ui-request".into(),
+            format!("{QUOTA_ROLLBACK}; changed sample"),
+        );
+        state.key(press(KeyCode::Enter));
+        assert!(
+            state.pending(),
+            "changed exact error invalidates the review"
+        );
+        state.key(press(KeyCode::Char('d')));
+        read_discard_review(&mut state, width, height);
+        state.key(press(KeyCode::Right));
+        state.key(press(KeyCode::Enter));
+        assert!(!state.pending());
+        assert!(state.failed.is_empty());
+        assert!(state.records.is_empty(), "never fabricate a saved receipt");
+        assert!(state.source.is_none());
+        let gap = state.gap.as_ref().unwrap();
+        assert_eq!(gap.request_id, "actual-ui-request");
+        assert_eq!(gap.bytes, preview().payload.len());
+        let body = state.body();
+        assert!(body.contains(Message::ReceiptsGapNotice.text()));
+        let mut planning = super::super::State {
+            work: Some(claim()),
+            work_acquired: true,
+            receipts: state,
+            ..super::super::State::new()
+        };
+        planning.settle_work();
+        assert_eq!(
+            planning.work_pending,
+            Some(store::WorkRequest::Release(claim()))
+        );
     }
 }
 

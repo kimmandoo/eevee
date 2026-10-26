@@ -1,7 +1,7 @@
 use ratatui::{Frame, layout::Rect};
 
 use super::{Paint, clipped, row, text};
-use crate::{app::App, i18n::Message, workspace::context};
+use crate::{app::App, messages::Message, workspace::context};
 
 /// A one-row viewport over durable exact-ID captures. Identity/range and action
 /// columns have fixed space; a long grapheme path can consume only its own column.

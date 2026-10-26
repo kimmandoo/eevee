@@ -319,6 +319,9 @@ def main():
             first.send("\r")
             first.pump(0.4)
             assert not denied.exists() and not rows()["runs"], "neutral Enter executed a command"
+            assert "Approval pending (/execute reviews" not in first.display(), \
+                "Stay / return opened the execution inspector instead of returning"
+            first.capture("neutral-approval-returned")
             first.command("approvals")
             first.send(ESC)
             assert not denied.exists() and not rows()["runs"], "Esc executed a command"

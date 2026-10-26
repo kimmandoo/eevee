@@ -34,7 +34,7 @@ use crate::{
     app::{App, ConfirmationKind, Overlay, Pane, ScrollSurface},
     config::{ColorMode, Config, Theme},
     domain::{FORMS, Form},
-    i18n::{Language, Message, Template},
+    messages::{Message, Template},
     store,
     store::EditorField,
     ui::artwork::Artwork,
@@ -120,7 +120,6 @@ fn brief(value: &str) -> Cow<'_, str> {
 }
 
 struct Paint {
-    language: Language,
     base: Style,
     surface: Style,
     muted: Style,
@@ -134,7 +133,6 @@ impl Paint {
         if config.color == ColorMode::Mono {
             let base = Style::default();
             return Self {
-                language: config.language,
                 base,
                 surface: base,
                 muted: base,
@@ -185,7 +183,6 @@ impl Paint {
         let base = Style::default().fg(foreground).bg(canvas);
         let surface_style = base.bg(image_background(config));
         Self {
-            language: config.language,
             base,
             surface: surface_style,
             muted: surface_style.fg(muted),
@@ -199,23 +196,23 @@ impl Paint {
     }
 
     fn hint(&self, message: Message) -> &'static str {
-        self.language.text(message)
+        message.text()
     }
 
     fn format(&self, template: Template, args: &[(&str, &str)]) -> String {
-        self.language
-            .format(template, args)
-            .unwrap_or_else(|error| format!("Localization error: {error}"))
+        template
+            .format(args)
+            .unwrap_or_else(|error| format!("Message error: {error}"))
     }
 
     fn format_values(
         &self,
         template: Template,
-        args: &[(&str, crate::i18n::Argument<'_>)],
+        args: &[(&str, crate::messages::Argument<'_>)],
     ) -> String {
-        self.language
-            .format_values(template, args)
-            .unwrap_or_else(|error| format!("Localization error: {error}"))
+        template
+            .format_values(args)
+            .unwrap_or_else(|error| format!("Message error: {error}"))
     }
 }
 
@@ -676,6 +673,7 @@ pub fn render(
                         &[("owner", &store::Attribution::label(Some(&claim.owner)))],
                     )
                 });
+                let allow_all = app.current_callback_command_deniable();
                 execution::render(
                     frame,
                     area,
@@ -683,6 +681,7 @@ pub fn render(
                     config,
                     queue.as_deref(),
                     editing.as_deref(),
+                    allow_all,
                 );
             }
             Overlay::Agents => agents::render(frame, area, app, config, &paint),
@@ -698,7 +697,7 @@ pub fn render(
             Overlay::Artifacts => artifacts::render(frame, area, &mut app.artifacts, config),
             Overlay::ToolCatalog => tool_catalog::render(frame, area, app, config, &paint),
             Overlay::ToolPlans => tool_plans::render(frame, area, app, config, &paint),
-            Overlay::Receipts => app.planning.receipts.render(frame, area, config.language),
+            Overlay::Receipts => app.planning.receipts.render(frame, area),
             Overlay::Party => party(frame, area, app, config, &paint),
             Overlay::PartyBoard => cooperation::board(frame, area, app, config, &paint),
             Overlay::Images => images(frame, area, app, config, &paint, artwork, graphics_status),
@@ -973,16 +972,18 @@ fn suggestion_strip(frame: &mut Frame, area: Rect, app: &App, paint: &Paint) -> 
         return area;
     };
     let paragraph = Paragraph::new(line).wrap(Wrap { trim: false });
+    // A completed response needs Request, metadata, notice, two navigation
+    // rows and at least one body row. Advisory wrapping must not consume it.
     let height = paragraph
         .line_count(area.width.max(1))
-        .min(usize::from(area.height.saturating_sub(5))) as u16;
+        .min(usize::from(area.height.saturating_sub(6))) as u16;
     frame.render_widget(paragraph, row(area, 0, height));
     row(area, height, area.height.saturating_sub(height))
 }
 
 fn workspace(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &Paint) {
     let block = panel(
-        " RESPONSE ",
+        paint.hint(Message::CoreResponseTitle),
         config,
         paint,
         app.effective_focus() == Pane::Workspace && !app.editing && app.overlay.is_none(),
@@ -990,10 +991,10 @@ fn workspace(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &
     let content = block.inner(area);
     frame.render_widget(block, area);
     let heading = if app.goal.trim().is_empty() {
-        Line::styled("What would you like to do?", paint.accent)
+        Line::styled(paint.hint(Message::CoreRequestInvitation), paint.accent)
     } else {
         Line::from(vec![
-            Span::styled("Task: ", paint.accent),
+            Span::styled(paint.hint(Message::CoreTaskPrefix), paint.accent),
             Span::styled(
                 clipped(
                     app.goal.lines().next().unwrap_or(""),
@@ -1003,28 +1004,38 @@ fn workspace(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &
             ),
         ])
     };
-    let (signature, action, label) = crate::domain::FIRST_ACTIONS[app.form().min(8)];
+    let form = app.form().min(8);
     let mut lines = Vec::with_capacity(8);
     lines.push(heading);
     if app.text_density() == store::TextDensity::Comfortable && content.height >= 9 {
         lines.push(Line::from(""));
     }
+    if form == 0 {
+        lines.extend([
+            Line::from(paint.hint(Message::CoreRequestStart)),
+            Line::styled(paint.hint(Message::CoreRequestSave), paint.muted),
+        ]);
+    } else {
+        let (signature, action, label) = crate::domain::FIRST_ACTIONS[form];
+        lines.extend([
+            Line::from(format!(
+                "{} / {}: {signature}",
+                crate::domain::FORMS[form].name,
+                crate::domain::FORMS[form].element
+            )),
+            Line::styled(
+                match action {
+                    Some(command) => format!("/{command} {label}"),
+                    None => label.to_owned(),
+                },
+                paint.accent,
+            ),
+        ]);
+    }
     lines.extend([
-        Line::from(format!(
-            "{} / {}: {signature}",
-            crate::domain::FORMS[app.form().min(8)].name,
-            crate::domain::FORMS[app.form().min(8)].element
-        )),
-        Line::styled(
-            match action {
-                Some(command) => format!("/{command} {label}"),
-                None => label.to_owned(),
-            },
-            paint.accent,
-        ),
         Line::from(""),
-        Line::styled("@ Attach context / /connect Choose provider", paint.muted),
-        Line::styled("/tasks Resume / /goal Optional task facts", paint.muted),
+        Line::styled(paint.hint(Message::CoreRequestContext), paint.muted),
+        Line::styled(paint.hint(Message::CoreRequestTasks), paint.muted),
     ]);
     if app
         .drafts
@@ -2066,6 +2077,17 @@ fn footer(frame: &mut Frame, area: Rect, app: &App, paint: &Paint) {
             app.motion_notice()
                 .or_else(|| app.density_notice())
                 .or_else(|| app.formation_notice())
+                .or_else(|| {
+                    [
+                        (
+                            Message::AutoApproveEnabled,
+                            Message::AutoApproveEnabledNotice,
+                        ),
+                        (Message::AutoApproveDisabled, Message::AutoApproveDisabled),
+                    ]
+                    .into_iter()
+                    .find_map(|(source, display)| (app.notice == source.text()).then_some(display))
+                })
                 .map_or_else(
                     || brief(&app.notice),
                     |message| Cow::Borrowed(paint.hint(message)),

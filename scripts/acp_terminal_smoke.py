@@ -29,13 +29,13 @@ REQUEST = 'Create main.rs, read the actual source, build it, inspect the real co
 
 
 class Journey:
-    def __init__(self, session, project, data, language):
-        self.session, self.project, self.data, self.language = session, project, data, language
+    def __init__(self, session, project, data, ):
+        self.session, self.project, self.data,  = session, project, data, 
 
     def workspace(self):
         for _ in range(16):
             footer = self.session.display().rstrip().splitlines()[-1].strip()
-            if 'Alt+A' in footer or footer.startswith(tuple(SURFACE[self.language][key] for key in ('home', 'edit', 'draft'))):
+            if 'Alt+A' in footer or footer.startswith(tuple(SURFACE[key] for key in ('home', 'edit', 'draft'))):
                 return footer
             self.session.send(ESC)
         raise AssertionError('Workspace unavailable\n' + self.session.display())
@@ -50,8 +50,8 @@ class Journey:
                         journals=[json.loads(row[0]) for row in db.execute('SELECT record FROM provider_journal')])
 
 
-def journey(binary, compiler, output, route, language, size, mode):
-    result = dict(status='failed', route=route, language=language, size=list(size), mode=mode, cases=[])
+def journey(binary, compiler, output, route, size, mode):
+    result = dict(status='failed', route=route, size=list(size), mode=mode, cases=[])
     session = None
     output.mkdir(parents=True)
     with tempfile.TemporaryDirectory(prefix='eevee-acp-terminal-界-') as temporary:
@@ -82,20 +82,20 @@ def journey(binary, compiler, output, route, language, size, mode):
             return [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
 
         try:
-            session = SurfaceSession(argv, project, environment, size, output, language=language)
-            app = Journey(session, project, data, language)
+            session = SurfaceSession(argv, project, environment, size, output, )
+            app = Journey(session, project, data, )
             wait_for(session, 'Storage: saved', timeout=40)
             if mode == 'readonly':
                 app.workspace()
                 session.command('role-plan')
-            if app.workspace().startswith(SURFACE[language]['home']):
+            if app.workspace().startswith(SURFACE['home']):
                 session.send('\r')
             session.paste(REQUEST)
             session.send('\x13')
             until(session, lambda: any(REQUEST == draft['text'] for task in app.snapshot()['tasks']
                   for state in json.loads(task['partner_drafts']).values() for draft in state.get('drafts', [])), 'request did not save')
             session.send('\r')
-            neutral = ('Enter to review (not approve)', 'Enter 검토 (승인 아님)')
+            neutral = ('Enter to review (not approve)', )
             until(session, lambda: any(label in session.display() for label in neutral),
                   'external-policy preview missing', timeout=45)
             session.send('y')
@@ -194,7 +194,6 @@ def main():
     parser.add_argument('--compiler', required=True, type=Path, help='genuine installed rustc, not rustup or a fixture')
     parser.add_argument('--output', required=True, type=Path)
     parser.add_argument('--route', choices=('opencode', 'gemini', 'devin'), default='opencode')
-    parser.add_argument('--language', choices=('en', 'ko'), default='en')
     parser.add_argument('--size', choices=('120x36', '60x18'), default='120x36')
     parser.add_argument('--modes', nargs='+', choices=('happy', 'deny', 'cancel', 'kill', 'release', 'readonly'),
                         default=['happy', 'deny', 'cancel', 'kill', 'release', 'readonly'])
@@ -212,7 +211,7 @@ def main():
                           'No private credentials, paid calls, SQL seeding, private executor or default CI expansion.'])
     size = tuple(map(int, args.size.split('x')))
     for mode in args.modes:
-        report['journeys'].append(journey(binary, compiler, output / mode, args.route, args.language, size, mode))
+        report['journeys'].append(journey(binary, compiler, output / mode, args.route, size, mode))
     assert hashlib.sha256(binary.read_bytes()).hexdigest() == digest, 'supplied binary changed'
     report['status'] = 'passed' if all(row['status'] == 'passed' for row in report['journeys']) else 'failed'
     save(output / 'results.json', report)

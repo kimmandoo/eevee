@@ -84,9 +84,9 @@ def no_preview_journal(journey):
     assert 'STREAM_STAGE_' not in encoded and SECRET not in encoded, 'generation preview entered the durable provider journal'
 
 
-def run(binary, output, root, size, ascii_mode, protocol, language):
+def run(binary, output, root, size, ascii_mode, protocol, ):
     output.mkdir(parents=True, exist_ok=False)
-    result = {'status': 'failed', 'protocol': protocol, 'language': language, 'size': list(size), 'cases': []}
+    result = {'status': 'failed', 'protocol': protocol, 'size': list(size), 'cases': []}
     journey = None
     gates = []
     route = {'messages': 'anthropic', 'gemini': 'google'}.get(protocol, 'compatible')
@@ -94,7 +94,7 @@ def run(binary, output, root, size, ascii_mode, protocol, language):
     with files.Peer(protocol, 'sk-progress-fixture-only', keyless, retain_body_bytes=True) as peer:
         try:
             journey = files.CreationJourney(binary, output, root, size, ascii_mode,
-                                             route, protocol, keyless, False, peer, language=language)
+                                             route, protocol, keyless, False, peer, )
             wait_for(journey.session, 'Storage: saved')
             journey.setup_route()
             seed_gate = files.Gate()
@@ -119,7 +119,7 @@ def run(binary, output, root, size, ascii_mode, protocol, language):
                 files.until(journey.session, first.ready.is_set, 'partial arguments did not reach the gate')
             visible(journey, 'STREAM_STAGE_ONE' if protocol != 'gemini' else 'STREAM_STAGE_TWO')
             preview_rows = journey.session.display().splitlines()
-            assert any(label in '\n'.join(preview_rows) for label in ('[FILE]', '[파일]')), 'file preview lacked explicit file identity'
+            assert any(label in '\n'.join(preview_rows) for label in ('[FILE]', )), 'file preview lacked explicit file identity'
             marker = 'STREAM_STAGE_ONE' if protocol != 'gemini' else 'STREAM_STAGE_TWO'
             code_rows = [line.lstrip() for line in preview_rows if marker in line]
             assert any(line.startswith(('| ', '> ')) for line in code_rows), 'generated source looked like ordinary prose'
@@ -192,7 +192,7 @@ def run(binary, output, root, size, ascii_mode, protocol, language):
             result['cases'].append('cumulative credential/private-ID filtering and cancellation retained zero effects, no retry and no durable preview')
             journey.workspace()
             journey.session.command('quit')
-            owned_titles = ('ALL owned work', '모든 소유 작업')
+            owned_titles = ('ALL owned work', )
             files.until(journey.session, lambda: not journey.session.alive()
                         or any(title in journey.session.display() for title in owned_titles)
                         or 'Confirm exit' in journey.session.display(), 'quit review missing')
@@ -218,12 +218,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--binary', required=True)
     parser.add_argument('--output', required=True)
-    parser.add_argument('--language', choices=('en', 'ko'), default='en')
     args = parser.parse_args()
     binary, output = Path(args.binary).resolve(), Path(args.output).resolve()
     output.mkdir(parents=True, exist_ok=False)
     sha = hashlib.sha256(binary.read_bytes()).hexdigest()
-    result = {'status': 'failed', 'binary': str(binary), 'sha256': sha, 'language': args.language, 'journeys': [],
+    result = {'status': 'failed', 'binary': str(binary), 'sha256': sha, 'journeys': [],
               'limits': ['Deterministic loopback actual UI/files, not authenticated model or physical GUI conformance.',
                          'Gemini exposes a received whole proposal, not fabricated argument streaming.']}
     try:
@@ -231,7 +230,7 @@ def main():
             for protocol in ('responses', 'chat_completions', 'messages', 'gemini'):
                 name = protocol + '-' + str(size[0])
                 with tempfile.TemporaryDirectory(prefix='ev-file-progress-') as temporary:
-                    result['journeys'].append(run(binary, output / name, Path(temporary), size, ascii_mode, protocol, args.language))
+                    result['journeys'].append(run(binary, output / name, Path(temporary), size, ascii_mode, protocol, ))
         assert hashlib.sha256(binary.read_bytes()).hexdigest() == sha
         result['status'] = 'passed' if all(row['status'] == 'passed' for row in result['journeys']) else 'failed'
     finally:

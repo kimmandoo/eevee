@@ -305,8 +305,8 @@ impl App {
             if matches!(action, execution::Action::Quit) {
                 self.finish_request_quit();
             } else {
-                self.notice = crate::i18n::Language::ENGLISH
-                    .text(crate::i18n::Message::RecipeAuthoringBusy)
+                self.notice = (crate::messages::Message::RecipeAuthoringBusy)
+                    .text()
                     .into();
             }
             return;
@@ -336,9 +336,27 @@ impl App {
         let blocked = if matches!(action, execution::Action::Quit) {
             self.quit_requires_work_review()
         } else if form_only {
-            self.planning.busy()
+            // The front local command has its own neutral cancel-and-wait
+            // review below. Provider work and other unsettled owners do not.
+            self.planning.owns_work()
                 || self.pending_request.is_some()
-                || self.partner_busy(self.lead.id)
+                || self
+                    .cooperation
+                    .parked
+                    .get(&self.lead.id)
+                    .is_some_and(planning::State::owns_work)
+                || self
+                    .cooperation
+                    .executions
+                    .get(&self.lead.id)
+                    .is_some_and(|state| state.busy() || state.outcome_unknown())
+                || self.cooperation.command_saves.contains_key(&self.lead.id)
+                || (self.execution.outcome_unknown()
+                    && self
+                        .execution
+                        .owner
+                        .as_ref()
+                        .is_some_and(|owner| owner.partner == self.lead.id))
                 || self.partner_approval_pending(self.lead.id)
         } else {
             self.planning_any_busy()

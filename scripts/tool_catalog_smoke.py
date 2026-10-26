@@ -36,10 +36,7 @@ READ_PARAMETERS = {
     },
     'required': ['path', 'start_line', 'end_line'], 'additionalProperties': False,
 }
-LABELS = {
-    'en': {'title': 'Trusted local tool catalog', 'review': 'y trust setup', 'saved': 'Reviewed catalog saved', 'selected': '1 selected', 'query': 'Search:', 'details': 'd return', 'disconnected': 'Connection disconnected'},
-    'ko': {'title': '신뢰한 로컬 도구 목록', 'review': 'y 설정 신뢰', 'saved': '검토한 목록을 저장', 'selected': '선택 1개', 'query': '검색:', 'details': 'd 돌아가기', 'disconnected': '연결이 끊겨'},
-}
+LABELS = {'title': 'Trusted local tool catalog', 'review': 'y trust setup', 'saved': 'Reviewed catalog saved', 'selected': '1 selected', 'query': 'Search:', 'details': 'd return', 'disconnected': 'Connection disconnected'}
 
 
 def fixture_manifest():
@@ -63,10 +60,10 @@ class Journey(files.CreationJourney):
             return original(argv, cwd, environment, size, output, **options)
         with patch.object(response_smoke, 'SurfaceSession', remember):
             super().__init__(*args, **kwargs)
-        self.labels = LABELS[self.language]
+        self.labels = LABELS
 
     def workspace(self):
-        if any(value in self.session.display() for value in ('Evolution!', '진화했어요!')):
+        if any(value in self.session.display() for value in ('Evolution!', )):
             self.session.send(ESC + '[24~')
         return super().workspace()
 
@@ -176,14 +173,14 @@ class Journey(files.CreationJourney):
         self.session.close()
 
 
-def run(binary, output, root, size, language):
+def run(binary, output, root, size, ):
     output.mkdir(parents=True, exist_ok=False)
     root.mkdir(parents=True, exist_ok=False)
-    result = {'status': 'failed', 'language': language, 'size': list(size), 'cases': []}
+    result = {'status': 'failed', 'size': list(size), 'cases': []}
     journey = None
     with files.Peer('chat_completions', 'synthetic-catalog-key-unused', True, retain_body_bytes=True) as peer:
         try:
-            journey = Journey(binary, output, root, size, True, 'compatible', 'chat_completions', True, False, peer, language=language)
+            journey = Journey(binary, output, root, size, True, 'compatible', 'chat_completions', True, False, peer, )
             wait_for(journey.session, 'Storage: saved', timeout=35)
             journey.session.command('goal')
             journey.session.paste('TC01 actual trusted metadata fixture')
@@ -250,7 +247,7 @@ def run(binary, output, root, size, language):
             retained = journey.catalog()
             journey.finish()
             journey.session = SurfaceSession(journey.restart_argv, journey.project, journey.restart_environment,
-                                             journey.restart_size, output / 'restart', language=language)
+                                             journey.restart_size, output / 'restart', )
             wait_for(journey.session, 'Storage: saved', timeout=35)
             journey.session.command('tools inspect_bug')
             wait_for(journey.session, journey.labels['title'], timeout=35)
@@ -277,7 +274,6 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--binary', required=True, type=Path)
     parser.add_argument('--output', required=True, type=Path)
-    parser.add_argument('--language', choices=('en', 'ko'), default='en')
     parser.add_argument('--width', type=int)
     parser.add_argument('--height', type=int)
     args = parser.parse_args()
@@ -286,7 +282,7 @@ def main():
     sizes = [(args.width, args.height)] if args.width and args.height else [(60, 18), (120, 36)]
     with tempfile.TemporaryDirectory(prefix='ev-tool-catalog-') as temporary:
         for width, height in sizes:
-            run(binary, output / f'{args.language}-{width}x{height}', Path(temporary) / f'{width}x{height}', (width, height), args.language)
+            run(binary, output / f'{width}x{height}', Path(temporary) / f'{width}x{height}', (width, height), )
 
 
 if __name__ == '__main__':

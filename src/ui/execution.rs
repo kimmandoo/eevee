@@ -11,7 +11,7 @@ use crate::{
     app::execution::{self, Confirmation, State, View},
     config::Config,
     domain::FORMS,
-    i18n::{Message, Template},
+    messages::{Message, Template},
 };
 
 pub(super) fn render_small_confirmation(
@@ -34,7 +34,7 @@ pub(super) fn render_small_confirmation(
     }
     let body = row(area, 0, area.height.saturating_sub(2));
     state.set_viewport(body.height.saturating_sub(3) as usize);
-    confirmation(frame, body, state, &paint, None);
+    confirmation(frame, body, state, &paint, None, false);
     text(
         frame,
         row(area, area.height.saturating_sub(2), 2),
@@ -50,6 +50,7 @@ pub(super) fn render(
     config: &Config,
     queue: Option<&str>,
     editing: Option<&str>,
+    allow_all: bool,
 ) {
     if !state.visible() {
         return;
@@ -66,7 +67,7 @@ pub(super) fn render(
     let content = block.inner(area);
     frame.render_widget(block, area);
     if state.confirmation.is_some() {
-        confirmation(frame, content, state, &paint, editing);
+        confirmation(frame, content, state, &paint, editing, allow_all);
         return;
     }
     if content.height < 4 || content.width < 12 {
@@ -178,6 +179,7 @@ fn confirmation(
     state: &mut State,
     paint: &Paint,
     editing: Option<&str>,
+    allow_all: bool,
 ) {
     let Some(confirm) = state.confirmation.as_ref() else {
         return;
@@ -444,6 +446,8 @@ fn confirmation(
         paint.hint(
             if state.auto_presented && matches!(confirm, Confirmation::Approval) {
                 Message::ProvidersExecutionAutoReviewActions
+            } else if allow_all && matches!(confirm, Confirmation::Approval) {
+                Message::ProvidersExecutionAllowAllReviewActions
             } else {
                 Message::ProvidersExecutionYConfirmNStayTabChooseEnter
             },
@@ -698,7 +702,6 @@ mod tests {
 
     fn paint() -> Paint {
         Paint {
-            language: crate::i18n::Language::ENGLISH,
             base: Style::default(),
             surface: Style::default(),
             muted: Style::default(),
@@ -786,7 +789,7 @@ mod tests {
     }
 
     fn confirmation_frame(frame: &mut ratatui::Frame, area: Rect, state: &mut State) {
-        confirmation(frame, area, state, &paint(), None);
+        confirmation(frame, area, state, &paint(), None, false);
     }
 
     #[test]
@@ -798,7 +801,7 @@ mod tests {
         terminal
             .draw(|frame| {
                 let area = frame.area();
-                confirmation(frame, area, &mut state, &paint(), None);
+                confirmation(frame, area, &mut state, &paint(), None, false);
             })
             .unwrap();
         assert!(!state.affirmative);
@@ -816,7 +819,7 @@ mod tests {
         terminal
             .draw(|frame| {
                 let area = frame.area();
-                confirmation(frame, area, &mut state, &paint(), None);
+                confirmation(frame, area, &mut state, &paint(), None, false);
             })
             .unwrap();
         let rendered: String = terminal
@@ -845,7 +848,7 @@ mod tests {
             terminal
                 .draw(|frame| {
                     let area = frame.area();
-                    confirmation(frame, area, state, &paint(), Some("Bolt is editing"));
+                    confirmation(frame, area, state, &paint(), Some("Bolt is editing"), false);
                 })
                 .unwrap();
             let buffer = terminal.backend().buffer().clone();

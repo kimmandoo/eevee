@@ -1,6 +1,6 @@
 //! Reviewed local formation files. Navigation never starts a partner's work.
 use super::*;
-use crate::i18n::Message;
+use crate::messages::Message;
 use crate::workspace::workflows::{FormationSlot, Recipe, RecipeStep};
 use std::{cell::Cell, path::PathBuf};
 
@@ -341,7 +341,7 @@ impl App {
     pub fn formation_notice(&self) -> Option<Message> {
         [Message::FormationSaved, Message::FormationApplied]
             .into_iter()
-            .find(|message| self.notice == crate::i18n::Language::ENGLISH.text(*message))
+            .find(|message| self.notice == (*message).text())
     }
     pub(super) fn formation_command(&mut self, name: &str, argument: &str) -> bool {
         if !matches!(name, "formation" | "formation-save") {
@@ -711,9 +711,7 @@ impl App {
             }
             Ok(store::formations::Response::Exported) => {
                 self.close_overlay();
-                self.notice = crate::i18n::Language::ENGLISH
-                    .text(Message::FormationSaved)
-                    .into();
+                self.notice = (Message::FormationSaved).text().into();
             }
             Ok(store::formations::Response::Applied { task, roster }) => {
                 for partner in &roster {
@@ -747,9 +745,7 @@ impl App {
                 self.records_invalidate();
                 self.close_overlay();
                 self.refresh_save_state();
-                self.notice = crate::i18n::Language::ENGLISH
-                    .text(Message::FormationApplied)
-                    .into();
+                self.notice = (Message::FormationApplied).text().into();
             }
         }
     }

@@ -20,7 +20,7 @@ pub(super) fn render_small(frame: &mut Frame, area: Rect, state: &mut State, pai
     text(
         frame,
         area,
-        paint.hint(crate::i18n::Message::DesksHandoffLocalHandoffTerminalTooSmallNeedColumns),
+        paint.hint(crate::messages::Message::DesksHandoffLocalHandoffTerminalTooSmallNeedColumns),
         paint.accent,
     );
 }
@@ -42,7 +42,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
     let area = super::sheet(area, 110, height);
     frame.render_widget(Clear, area);
     let block = panel(
-        paint.hint(crate::i18n::Message::DesksHandoffPanel),
+        paint.hint(crate::messages::Message::DesksHandoffPanel),
         config,
         paint,
         true,
@@ -50,20 +50,19 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
     let content = block.inner(area);
     frame.render_widget(block, area);
     let state = &mut app.handoff;
-    let header =
-        if state.editing {
-            paint.hint(crate::i18n::Message::DesksHandoffLiteralFilePathNoActionUntilReview)
-        } else {
-            match state.mode {
-                Mode::Export(_) => paint
-                    .hint(crate::i18n::Message::DesksHandoffSanitizedExportPreviewNoFileWrittenYet),
-                Mode::Import => paint
-                    .hint(crate::i18n::Message::DesksHandoffUserSuppliedImportReviewNotAppliedOr),
-                Mode::Idle => {
-                    paint.hint(crate::i18n::Message::DesksHandoffLocalOnlyNoProviderOrModelLaunched)
-                }
+    let header = if state.editing {
+        paint.hint(crate::messages::Message::DesksHandoffLiteralFilePathNoActionUntilReview)
+    } else {
+        match state.mode {
+            Mode::Export(_) => paint
+                .hint(crate::messages::Message::DesksHandoffSanitizedExportPreviewNoFileWrittenYet),
+            Mode::Import => paint
+                .hint(crate::messages::Message::DesksHandoffUserSuppliedImportReviewNotAppliedOr),
+            Mode::Idle => {
+                paint.hint(crate::messages::Message::DesksHandoffLocalOnlyNoProviderOrModelLaunched)
             }
-        };
+        }
+    };
     text(frame, row(content, 0, 1), header, paint.accent);
     text(
         frame,
@@ -99,14 +98,14 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         text(
             frame,
             row(content, content.height.saturating_sub(2), 2),
-            paint.hint(crate::i18n::Message::DesksHandoffEnterReadPreviewEscBackNewExport),
+            paint.hint(crate::messages::Message::DesksHandoffEnterReadPreviewEscBackNewExport),
             paint.accent,
         );
         return;
     }
     let path = if state.path.is_empty() {
         paint
-            .hint(crate::i18n::Message::DesksHandoffNoPathChosen)
+            .hint(crate::messages::Message::DesksHandoffNoPathChosen)
             .to_string()
     } else {
         format!("Chosen path: {}", state.path)
@@ -125,23 +124,22 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         content.height.saturating_sub(body_start + footer_rows),
     );
     let empty =
-        paint.hint(crate::i18n::Message::DesksHandoffExportJsonExportMarkdownImportHandoffOnly);
+        paint.hint(crate::messages::Message::DesksHandoffExportJsonExportMarkdownImportHandoffOnly);
     let empty = super::brief(empty);
     let value = if state.mode != Mode::Idle && state.candidate.is_some() {
         let effect = match state.mode {
             Mode::Export(_) => {
-                paint.hint(crate::i18n::Message::DesksHandoffWriteANewFileOnlyNoOverwrite)
+                paint.hint(crate::messages::Message::DesksHandoffWriteANewFileOnlyNoOverwrite)
             }
-            _ => {
-                paint.hint(crate::i18n::Message::DesksHandoffAcceptUnverifiedContextOnlyNoTaskFacts)
-            }
+            _ => paint
+                .hint(crate::messages::Message::DesksHandoffAcceptUnverifiedContextOnlyNoTaskFacts),
         };
         if super::VERBOSE.get() {
             format!("{effect}\nPath: {}\n\n{}", state.path, state.preview)
         } else {
             let document = state.candidate.as_ref().expect("handoff preview");
             paint.format(
-                crate::i18n::Template::DesksHandoffPayloadSummary,
+                crate::messages::Template::DesksHandoffPayloadSummary,
                 &[
                     ("effect", (effect)),
                     ("sources", &(document.sources.len()).to_string()),
@@ -152,7 +150,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         }
     } else if let Some(decision) = state.selected_import_decision() {
         paint.format(
-            crate::i18n::Template::DesksHandoffDecisionPreview,
+            crate::messages::Template::DesksHandoffDecisionPreview,
             &[
                 ("index", &(state.selected_decision + 1).to_string()),
                 ("decision", (decision)),
@@ -185,18 +183,18 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
     }
     let footer = if state.mode != Mode::Idle {
         let action = match state.mode {
-            Mode::Export(_) => paint.hint(crate::i18n::Message::DesksHandoffWriteNewFile),
-            _ => paint.hint(crate::i18n::Message::DesksHandoffAcceptUnverifiedContext),
+            Mode::Export(_) => paint.hint(crate::messages::Message::DesksHandoffWriteNewFile),
+            _ => paint.hint(crate::messages::Message::DesksHandoffAcceptUnverifiedContext),
         };
         paint.format(
-            crate::i18n::Template::DesksHandoffConfirmControls,
+            crate::messages::Template::DesksHandoffConfirmControls,
             &[
                 (
                     "stay",
                     (if state.affirmative {
-                        paint.hint(crate::i18n::Message::CommonStay)
+                        paint.hint(crate::messages::Message::CommonStay)
                     } else {
-                        paint.hint(crate::i18n::Message::CommonStaySelected)
+                        paint.hint(crate::messages::Message::CommonStaySelected)
                     }),
                 ),
                 ("open", (if state.affirmative { "[" } else { "" })),
@@ -205,9 +203,9 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                 (
                     "details",
                     (if state.reviewed {
-                        paint.hint(crate::i18n::Message::DesksHandoffVerboseDetails)
+                        paint.hint(crate::messages::Message::DesksHandoffVerboseDetails)
                     } else {
-                        paint.hint(crate::i18n::Message::CommonEnlargeReview)
+                        paint.hint(crate::messages::Message::CommonEnlargeReview)
                     }),
                 ),
             ],
@@ -218,7 +216,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             .as_ref()
             .map_or(0, |document| document.decisions.len());
         paint.format(
-            crate::i18n::Template::DesksHandoffDecisionControls,
+            crate::messages::Template::DesksHandoffDecisionControls,
             &[
                 (
                     "index",
@@ -234,7 +232,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         )
     } else {
         paint
-            .hint(crate::i18n::Message::DesksHandoffExportJsonExportMarkdownImportHandoffPgup)
+            .hint(crate::messages::Message::DesksHandoffExportJsonExportMarkdownImportHandoffPgup)
             .into()
     };
     text(

@@ -28,17 +28,16 @@ def save(path, value):
     path.write_text(json.dumps(value, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
 
 
-def native_case(binary, output, size, language):
+def native_case(binary, output, size, ):
     output.mkdir(parents=True, exist_ok=True)
-    result = {'status': 'failed', 'route': 'native-compatible', 'language': language,
-              'size': list(size), 'cases': [], 'payload_assertions': []}
+    result = {'status': 'failed', 'route': 'native-compatible', 'size': list(size), 'cases': [], 'payload_assertions': []}
     journey = None
     with tempfile.TemporaryDirectory(prefix='ev-conversation-native-') as temporary:
         with Peer('chat_completions', 'unused-public-keyless-fixture', True) as peer:
             try:
                 journey = SurfaceJourney(binary, output, Path(temporary), size, size[0] == 60,
                                          'compatible', 'chat_completions', True, False, peer,
-                                         language=language)
+                                         )
                 session = journey.session
                 wait_for(session, 'Storage: saved')
                 session.command('goal')
@@ -86,8 +85,7 @@ def native_case(binary, output, size, language):
                 def prepared_review():
                     view = session.display()
                     if any(label in view for label in (
-                            'Enter to review (not approve)', 'Enter 검토 (승인 아님)',
-                            '· y Run / n Cancel', '· y 실행 / n 취소')):
+                            'Enter to review (not approve)', '· y Run / n Cancel', )):
                         return True
                     if 'Alt+A' in view:
                         session.send(ESC + 'a')
@@ -134,7 +132,6 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--binary', required=True)
     parser.add_argument('--output', required=True)
-    parser.add_argument('--language', choices=('en', 'ko', 'both'), default='both')
     parser.add_argument('--mode', choices=('native', 'codex', 'all'), default='all')
     args = parser.parse_args()
     binary, output = Path(args.binary).resolve(), Path(args.output).resolve()
@@ -144,15 +141,14 @@ def main():
               'scope': 'Credential-free actual PTY and serialized protocol paths; not live-provider qualification',
               'cases': []}
     try:
-        for language in (('en', 'ko') if args.language == 'both' else (args.language,)):
-            for size in ((60, 18), (120, 36)):
-                stem = language + '-' + str(size[0])
-                if args.mode in ('native', 'all'):
-                    result['cases'].append(native_case(binary, output / ('native-' + stem), size, language))
-                if args.mode in ('codex', 'all'):
-                    controlled_output = output / ('codex-' + stem)
-                    controlled_output.mkdir(parents=True, exist_ok=True)
-                    result['cases'].append(codex_case(binary, controlled_output, size, language))
+        for size in ((60, 18), (120, 36)):
+            stem = str(size[0])
+            if args.mode in ('native', 'all'):
+                result['cases'].append(native_case(binary, output / ('native-' + stem), size, ))
+            if args.mode in ('codex', 'all'):
+                controlled_output = output / ('codex-' + stem)
+                controlled_output.mkdir(parents=True, exist_ok=True)
+                result['cases'].append(codex_case(binary, controlled_output, size, ))
         assert all(case['status'] == 'passed' for case in result['cases']), 'conversation runtime cases failed; inspect retained results'
         result['status'] = 'passed'
     finally:

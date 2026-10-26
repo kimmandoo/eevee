@@ -87,19 +87,19 @@ def main(argv=None):
         def workspace():
             for _ in range(16):
                 footer = session.display().rstrip().splitlines()[-1].strip()
-                if 'Alt+A' in footer or footer.startswith(tuple(SURFACE['en'][key] for key in ('home', 'edit', 'draft'))):
+                if 'Alt+A' in footer or footer.startswith(tuple(SURFACE[key] for key in ('home', 'edit', 'draft'))):
                     return footer
                 session.send(ESC)
             raise AssertionError('workspace unavailable\n' + session.display())
 
         try:
             session = SurfaceSession([str(binary), '--data-dir', str(data), '--images', 'off', '--color', 'mono'],
-                                     project, environment, (120, 36), output, language='en')
+                                     project, environment, (120, 36), output, )
             wait_for(session, 'Storage: saved', timeout=40)
             session.command('provider-claude')
             workspace()
-            journey = SimpleNamespace(session=session, project=project, data=data, surface=SURFACE['en'], workspace=workspace)
-            if workspace().startswith(SURFACE['en']['home']):
+            journey = SimpleNamespace(session=session, project=project, data=data, surface=SURFACE, workspace=workspace)
+            if workspace().startswith(SURFACE['home']):
                 session.send('\r')
             session.paste('Create main.rs, build it, read and fix the actual compiler error, rebuild and run the program.')
             session.send('\x13')

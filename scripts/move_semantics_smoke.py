@@ -2,8 +2,8 @@
 """MV09 real PTY journey against an immutable, already-built executable.
 
 Example: python3 scripts/move_semantics_smoke.py --binary /absolute/ev \
-  --output /new/evidence --language en --size 120x36 --size 60x18
-Repeat with --language ko. Uses terminal_smoke.Session and tm_smoke.Driver's
+  --output /new/evidence --size 120x36 --size 60x18
+Uses terminal_smoke.Session and tm_smoke.Driver's
 isolated HOME/project/store and read-only observations. No builds, SQL writes,
 provider setup, discovery, accounts, inference or external network. All move
 history comes from real app import/teach/use/rename actions and real processes.
@@ -43,7 +43,7 @@ class SemanticsDriver(Driver):
         # Local commands and TMs require no selected provider or catalogue peer.
         self.serial += 1
         self.session = Session([str(self.binary), "--data-dir", str(self.data),
-            "--images", "off", "--color", "mono", "--language", self.language],
+            "--images", "off", "--color", "mono", ],
             self.project, self.environment, self.size,
             self.output / ("terminal-%02d" % self.serial))
         self.sessions.append(self.session)
@@ -108,7 +108,7 @@ class SemanticsDriver(Driver):
         self.workspace()
         command = json.dumps(["python3", "fixture.py", ""])
         self.session.command("command-edit")
-        self.until(lambda: "Command /" in self.session.display() or "명령 /" in self.session.display(), "command editor")
+        self.until(lambda: "Command /" in self.session.display(), "command editor")
         self.session.send(HOME + DELETE * 256)
         self.session.paste(command)
         self.session.send("\r")
@@ -135,7 +135,7 @@ class SemanticsDriver(Driver):
     def draft(self):
         self.workspace()
         footer = self.session.display().rstrip().splitlines()[-1].strip()
-        if footer.startswith(("Type Request /", "요청 입력 /")):
+        if footer.startswith(("Type Request /", )):
             self.session.send("\r")
         text = "Keep 水の exact draft"
         self.session.send(UP * 16 + HOME + DELETE * 256)
@@ -158,14 +158,14 @@ class SemanticsDriver(Driver):
         self.session.command("move")
         self.wait("menu")
         self.session.send("dr")
-        label = "Rename (label only)" if self.language == "en" else "이름 변경 (표시만)"
+        label = "Rename (label only)"
         self.until(lambda: label in self.session.display(), "rename editor")
         self.session.send(HOME + DELETE * 64)
         self.session.paste(name)
         self.session.send("\r")
         self.wait("review")
         seen = self.expose_review()
-        expected = "Name-only edit" if self.language == "en" else "이름만 수정"
+        expected = "Name-only edit"
         assert expected in seen, "rename failed to disclose name-only semantics"
         self.session.send("y")
         self.until(lambda: self.active_move()["proposal"]["name"] == name, "actual concurrent-to-old-review rename committed")
@@ -185,7 +185,7 @@ class SemanticsDriver(Driver):
         before = self.database_bytes()
         baseline_hash = sha(self.previous_binary)
         previous = Session([str(self.previous_binary), "--data-dir", str(self.data),
-            "--images", "off", "--color", "mono", "--language", self.language],
+            "--images", "off", "--color", "mono", ],
             self.project, self.environment, self.size, self.output / "previous-binary")
         self.sessions.append(previous)
         observation = {"binary": str(self.previous_binary), "sha256": baseline_hash,
@@ -359,7 +359,6 @@ def main():
     parser.add_argument("--binary", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path, help="New evidence directory; never overwrite")
     parser.add_argument("--previous-binary", type=Path, help="Optional preserved genuine prior release; observe admission/refusal without forcing either result")
-    parser.add_argument("--language", choices=("en", "ko"), default="en")
     parser.add_argument("--size", action="append", type=terminal_size, help="Repeatable WIDTHxHEIGHT; defaults to 120x36 and 60x18")
     args = parser.parse_args()
     binary, output = args.binary.resolve(), args.output.resolve()
@@ -370,7 +369,7 @@ def main():
     output.mkdir(parents=True, exist_ok=False)
     digest = sha(binary)
     result = {"status": "failed", "binary": str(binary), "sha256": digest,
-        "host": platform.platform(), "language": args.language, "sql_writes": False,
+        "host": platform.platform(), "sql_writes": False,
         "scope": "MV09 real PTY/local commands, changed argv, same-name import, cancel, restart, stale UI consent and fresh explicit use; no accounts/network/models",
         "cases": []}
     if previous:
@@ -385,7 +384,7 @@ def main():
             with tempfile.TemporaryDirectory(prefix="ev-move-semantics-") as temporary:
                 try:
                     driver = SemanticsDriver.__new__(SemanticsDriver)
-                    driver.__init__(binary, directory, Path(temporary).resolve(), args.language, size, None)
+                    driver.__init__(binary, directory, Path(temporary).resolve(), size, None)
                     driver.previous_binary = previous
                     driver.previous_observation = None
                     driver.run()

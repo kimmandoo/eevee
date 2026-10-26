@@ -94,6 +94,57 @@ class NativeRunnerTests(unittest.TestCase):
                 'profile': 'behavior-test', 'jobs': jobs,
                 'counts': {'commands': len(commands)}, 'commands': commands}
 
+    def test_profiles_select_distinct_scenarios_at_both_terminal_sizes(self):
+        expected_tools = {suite for suite, _script, _extra in runner.TOOLS}
+        for profile in runner.PROFILES:
+            with self.subTest(profile=profile):
+                plan = runner.make_plan(self.binary, self.output, profile)
+                commands = plan['commands']
+                suites = [command['coverage']['suite'] for command in commands]
+                self.assertEqual(len(suites), len(set(suites)), 'each suite must run once')
+                self.assertEqual(set(suites), {'files'} | (
+                    set() if profile == 'architecture' else expected_tools))
+                destinations = [command['output'] for command in commands]
+                self.assertEqual(len(destinations), len(set(destinations)))
+                for command in commands:
+                    self.assertEqual(
+                        {(size['width'], size['height'], size['ascii'])
+                         for size in command['coverage']['sizes']},
+                        {(120, 36, False), (60, 18, True)})
+                    self.assertEqual(command['timeout_seconds'], runner.DRIVER_TIMEOUT)
+                    self.assertEqual(command['argv'][command['argv'].index('--binary') + 1],
+                                     str(self.binary))
+                    self.assertEqual(command['argv'][command['argv'].index('--output') + 1],
+                                     command['output'])
+                self.assertFalse(self.output.exists(), 'planning must not create evidence')
+
+    def test_full_profile_preserves_protocols_and_controlled_route_boundaries(self):
+        for profile in runner.PROFILES:
+            with self.subTest(profile=profile):
+                plan = runner.make_plan(self.binary, self.output, profile)
+                files = next(command for command in plan['commands']
+                             if command['coverage']['suite'] == 'files')
+                coverage = files['coverage']
+                routes = {(route['provider'], route['protocol'])
+                          for route in coverage['routes']}
+                expected = {
+                    ('openai', 'responses'), ('anthropic', 'messages'),
+                    ('google', 'gemini'), ('compatible', 'chat_completions'),
+                    ('compatible', 'responses'),
+                } if profile == 'full' else {('compatible', 'chat_completions')}
+                self.assertEqual(routes, expected)
+                self.assertEqual(len(routes), len(coverage['routes']))
+                self.assertEqual(coverage['controlled_codex'],
+                                 profile == 'full' and os.name == 'posix')
+                sizes = len(coverage['sizes'])
+                self.assertEqual(plan['counts']['native_file_journeys'], sizes * len(routes))
+                self.assertEqual(plan['counts']['controlled_codex_journeys'],
+                                 sizes if coverage['controlled_codex'] else 0)
+                self.assertEqual(plan['counts']['tool_journeys'],
+                                 sum(len(command['coverage']['sizes'])
+                                     for command in plan['commands']
+                                     if command['coverage']['suite'] != 'files'))
+
     def test_failed_child_is_nonzero_without_suppressing_other_selected_children(self):
         plan = self.plan(('fail', 'pass', 'pass', 'pass'), barrier=True)
         stdout = io.StringIO()

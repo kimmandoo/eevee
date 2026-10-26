@@ -18,7 +18,8 @@ pub(super) fn render_small(frame: &mut Frame, area: Rect, state: &mut State, pai
     text(
         frame,
         area,
-        paint.hint(crate::i18n::Message::DesksMemoryApprovedMemoriesTerminalTooSmallNeedColumns),
+        paint
+            .hint(crate::messages::Message::DesksMemoryApprovedMemoriesTerminalTooSmallNeedColumns),
         paint.accent,
     );
 }
@@ -55,7 +56,7 @@ pub(super) fn render(
     let area = super::sheet(area, 110, height);
     frame.render_widget(Clear, area);
     let block = panel(
-        paint.hint(crate::i18n::Message::DesksMemoryPanel),
+        paint.hint(crate::messages::Message::DesksMemoryPanel),
         config,
         paint,
         true,
@@ -63,23 +64,23 @@ pub(super) fn render(
     let content = block.inner(area);
     frame.render_widget(block, area);
     let heading = if state.saving {
-        paint.hint(crate::i18n::Message::DesksMemorySavingAwaitingCommittedAcknowledgement)
+        paint.hint(crate::messages::Message::DesksMemorySavingAwaitingCommittedAcknowledgement)
     } else {
         match state.mode {
             Mode::Browse => paint.hint(
-                crate::i18n::Message::DesksMemoryInspectOnlySelectedApprovedNotesEnterContext,
+                crate::messages::Message::DesksMemoryInspectOnlySelectedApprovedNotesEnterContext,
             ),
             Mode::Edit => {
-                paint.hint(crate::i18n::Message::DesksMemoryUserNoteEnterPreviewsNeverApproves)
+                paint.hint(crate::messages::Message::DesksMemoryUserNoteEnterPreviewsNeverApproves)
             }
             Mode::Preview => {
-                paint.hint(crate::i18n::Message::DesksMemoryApprovalPreviewNoMemorySavedYet)
+                paint.hint(crate::messages::Message::DesksMemoryApprovalPreviewNoMemorySavedYet)
             }
             Mode::Delete => {
-                paint.hint(crate::i18n::Message::DesksMemoryLocalDeletionPreviewNoDeletionYet)
+                paint.hint(crate::messages::Message::DesksMemoryLocalDeletionPreviewNoDeletionYet)
             }
             Mode::Discard => {
-                paint.hint(crate::i18n::Message::DesksMemoryUnsavedDraftKeepIsSelectedInitially)
+                paint.hint(crate::messages::Message::DesksMemoryUnsavedDraftKeepIsSelectedInitially)
             }
         }
     };
@@ -171,7 +172,7 @@ pub(super) fn render(
         }
         let mut value = match state.mode {
             Mode::Browse if state.show_help => paint
-                .hint(crate::i18n::Message::DesksMemoryCreateMemoryNewNoteRememberNextAction)
+                .hint(crate::messages::Message::DesksMemoryCreateMemoryNewNoteRememberNextAction)
                 .into(),
             Mode::Preview => state
                 .candidate
@@ -189,7 +190,7 @@ pub(super) fn render(
                     }
                 }),
             Mode::Discard => paint.format(
-                crate::i18n::Template::DesksMemoryDiscardPreview,
+                crate::messages::Template::DesksMemoryDiscardPreview,
                 &[("draft", &(state.draft))],
             ),
             Mode::Browse | Mode::Delete => {
@@ -207,10 +208,10 @@ pub(super) fn render(
                             record.id,
                             record.revision,
                             if state.selected_ids.contains(&record.id) {
-                                paint.hint(crate::i18n::Message::DesksMemorySelectedForFutureRequestPreviews)
+                                paint.hint(crate::messages::Message::DesksMemorySelectedForFutureRequestPreviews)
                             } else {
                                 paint.hint(
-                                    crate::i18n::Message::DesksMemoryNotSelectedForOutgoingContext,
+                                    crate::messages::Message::DesksMemoryNotSelectedForOutgoingContext,
                                 )
                             },
                             describe(
@@ -219,12 +220,12 @@ pub(super) fn render(
                                 record.task_id.unwrap_or(state.task_id),
                                 paint
                             ),
-                            paint.hint(crate::i18n::Message::DesksMemoryErasureNotice)
+                            paint.hint(crate::messages::Message::DesksMemoryErasureNotice)
                         )
                     }
                 } else {
                     paint
-                        .hint(crate::i18n::Message::DesksMemoryNoApprovedMemoriesInThisScopeCreate)
+                        .hint(crate::messages::Message::DesksMemoryNoApprovedMemoriesInThisScopeCreate)
                         .into()
                 }
             }
@@ -232,12 +233,15 @@ pub(super) fn render(
         };
         if source_preview {
             value.insert_str(0, "\n\n");
-            value.insert_str(0, paint.hint(crate::i18n::Message::SourceMemoryRetention));
+            value.insert_str(
+                0,
+                paint.hint(crate::messages::Message::SourceMemoryRetention),
+            );
         }
         if state.mode == Mode::Preview && !state.habit_sources.is_empty() {
             value.push_str("\n\n");
             value.push_str(&paint.format(
-                crate::i18n::Template::RecordsHabitMemoryDisclosure,
+                crate::messages::Template::RecordsHabitMemoryDisclosure,
                 &[("sources", &state.habit_sources.join(", "))],
             ));
         }
@@ -260,95 +264,95 @@ pub(super) fn render(
     }
     let footer = if state.saving {
         paint
-            .hint(crate::i18n::Message::DesksMemoryWaitingForStorageDraftRetainedOnFailure)
+            .hint(crate::messages::Message::DesksMemoryWaitingForStorageDraftRetainedOnFailure)
             .into()
     } else {
         match state.mode {
             Mode::Browse => format!(
                 "{}\n{}",
                 paint.hint(
-                    crate::i18n::Message::DesksMemoryUpDownInspectCommandsSelectMemoryContext
+                    crate::messages::Message::DesksMemoryUpDownInspectCommandsSelectMemoryContext
                 ),
-                paint.hint(crate::i18n::Message::HeldMemoryHint)
+                paint.hint(crate::messages::Message::HeldMemoryHint)
             ),
             Mode::Edit => paint
-                .hint(crate::i18n::Message::DesksMemoryEnterPreviewCtrlNNewlineEscKeep)
+                .hint(crate::messages::Message::DesksMemoryEnterPreviewCtrlNNewlineEscKeep)
                 .into(),
             Mode::Preview => paint.format(
-                crate::i18n::Template::DesksMemoryApproveControls,
+                crate::messages::Template::DesksMemoryApproveControls,
                 &[
                     (
                         "stay",
                         (if state.affirmative {
-                            paint.hint(crate::i18n::Message::CommonStay)
+                            paint.hint(crate::messages::Message::CommonStay)
                         } else {
-                            paint.hint(crate::i18n::Message::CommonStaySelected)
+                            paint.hint(crate::messages::Message::CommonStaySelected)
                         }),
                     ),
                     (
                         "approve",
                         (if state.affirmative {
-                            paint.hint(crate::i18n::Message::CommonApproveSelected)
+                            paint.hint(crate::messages::Message::CommonApproveSelected)
                         } else {
-                            paint.hint(crate::i18n::Message::CommonApprove)
+                            paint.hint(crate::messages::Message::CommonApprove)
                         }),
                     ),
                     (
                         "details",
                         (if state.reviewed {
-                            paint.hint(crate::i18n::Message::DesksMemoryVerboseFullDetails)
+                            paint.hint(crate::messages::Message::DesksMemoryVerboseFullDetails)
                         } else {
-                            paint.hint(crate::i18n::Message::CommonEnlargeReview)
+                            paint.hint(crate::messages::Message::CommonEnlargeReview)
                         }),
                     ),
                 ],
             ),
             Mode::Delete => paint.format(
-                crate::i18n::Template::DesksMemoryDeleteControls,
+                crate::messages::Template::DesksMemoryDeleteControls,
                 &[
                     (
                         "stay",
                         (if state.affirmative {
-                            paint.hint(crate::i18n::Message::CommonStay)
+                            paint.hint(crate::messages::Message::CommonStay)
                         } else {
-                            paint.hint(crate::i18n::Message::CommonStaySelected)
+                            paint.hint(crate::messages::Message::CommonStaySelected)
                         }),
                     ),
                     (
                         "delete",
                         (if state.affirmative {
-                            paint.hint(crate::i18n::Message::DesksMemoryDeleteSelected)
+                            paint.hint(crate::messages::Message::DesksMemoryDeleteSelected)
                         } else {
-                            paint.hint(crate::i18n::Message::DesksMemoryDelete)
+                            paint.hint(crate::messages::Message::DesksMemoryDelete)
                         }),
                     ),
                     (
                         "details",
                         (if state.reviewed {
-                            paint.hint(crate::i18n::Message::DesksMemoryVerboseFullDetails)
+                            paint.hint(crate::messages::Message::DesksMemoryVerboseFullDetails)
                         } else {
-                            paint.hint(crate::i18n::Message::CommonEnlargeReview)
+                            paint.hint(crate::messages::Message::CommonEnlargeReview)
                         }),
                     ),
                 ],
             ),
             Mode::Discard => paint.format(
-                crate::i18n::Template::DesksMemoryDiscardControls,
+                crate::messages::Template::DesksMemoryDiscardControls,
                 &[
                     (
                         "keep",
                         (if state.affirmative {
-                            paint.hint(crate::i18n::Message::DesksMemoryKeepEditing)
+                            paint.hint(crate::messages::Message::DesksMemoryKeepEditing)
                         } else {
-                            paint.hint(crate::i18n::Message::DesksMemoryKeepEditingSelected)
+                            paint.hint(crate::messages::Message::DesksMemoryKeepEditingSelected)
                         }),
                     ),
                     (
                         "discard",
                         (if state.affirmative {
-                            paint.hint(crate::i18n::Message::DesksMemoryDiscardDraftSelected)
+                            paint.hint(crate::messages::Message::DesksMemoryDiscardDraftSelected)
                         } else {
-                            paint.hint(crate::i18n::Message::DesksMemoryDiscardDraft)
+                            paint.hint(crate::messages::Message::DesksMemoryDiscardDraft)
                         }),
                     ),
                 ],
@@ -374,25 +378,25 @@ fn summary(
     source_columns: Option<usize>,
 ) -> String {
     let scope = match proposal.scope {
-        memory::Scope::Task => paint.hint(crate::i18n::Message::DesksMemoryThisTask),
-        memory::Scope::Project => paint.hint(crate::i18n::Message::DesksMemoryThisProject),
-        memory::Scope::Personal => paint.hint(crate::i18n::Message::DesksMemoryAllProjects),
+        memory::Scope::Task => paint.hint(crate::messages::Message::DesksMemoryThisTask),
+        memory::Scope::Project => paint.hint(crate::messages::Message::DesksMemoryThisProject),
+        memory::Scope::Personal => paint.hint(crate::messages::Message::DesksMemoryAllProjects),
     };
     paint.format(
         if source_columns.is_some() {
-            crate::i18n::Template::SourceMemorySummary
+            crate::messages::Template::SourceMemorySummary
         } else {
-            crate::i18n::Template::DesksMemorySummary
+            crate::messages::Template::DesksMemorySummary
         },
         &[
             ("scope", (scope)),
             (
                 "effect",
                 (if deleting {
-                    paint.hint(crate::i18n::Message::DesksMemoryDeleteLocallyPriorExportsRemain)
+                    paint.hint(crate::messages::Message::DesksMemoryDeleteLocallyPriorExportsRemain)
                 } else {
                     paint.hint(
-                        crate::i18n::Message::DesksMemorySaveNoteOnlyContextSelectionIsSeparate,
+                        crate::messages::Message::DesksMemorySaveNoteOnlyContextSelectionIsSeparate,
                     )
                 }),
             ),
@@ -413,11 +417,11 @@ fn describe(proposal: &Proposal, project: &str, task_id: i64, paint: &Paint) -> 
         memory::Scope::Task => format!("Task {task_id} in {project}"),
         memory::Scope::Project => format!("Project: {project}"),
         memory::Scope::Personal => paint
-            .hint(crate::i18n::Message::DesksMemoryPersonalEveryProjectUsingThisDataStore)
+            .hint(crate::messages::Message::DesksMemoryPersonalEveryProjectUsingThisDataStore)
             .into(),
     };
     paint.format(
-        crate::i18n::Template::DesksMemoryDetails,
+        crate::messages::Template::DesksMemoryDetails,
         &[
             ("scope", (proposal.scope.label())),
             ("bytes", &(proposal.content.len()).to_string()),

@@ -45,7 +45,6 @@ impl Drop for TestDirectory {
 
 fn config(path: &Path) -> Config {
     Config {
-        language: crate::i18n::Language::ENGLISH,
         ascii: false,
         no_animation: false,
         animation_override: None,

@@ -4,3 +4,4 @@ auto-approve-enabled = Auto-approve ON for this task: file changes and commands 
 auto-approve-disabled = Auto-approve OFF: each file change and command asks again.
 auto-approve-chip = code · auto-approve
 auto-approve-policy = AUTO-APPROVE
+auto-approve-enabled-notice = Auto-approve ON · /auto-approve-off to stop

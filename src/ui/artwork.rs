@@ -19,7 +19,7 @@ use sha2::{Digest, Sha256};
 
 use crate::{
     config::{ColorMode, Config, ImageMode, Theme},
-    i18n::{Language, Message, Template},
+    messages::{Message, Template},
 };
 
 pub const SPECIES: [u16; 9] = [133, 134, 135, 136, 196, 197, 470, 471, 700];
@@ -228,7 +228,6 @@ pub struct Artwork {
     cache: Vec<Raster>,
     color: ColorMode,
     ascii: bool,
-    language: Language,
     theme: Theme,
     tick: u64,
     generation: u64,
@@ -274,13 +273,9 @@ impl Artwork {
                 },
                 Err(error) => Asset {
                     image: None,
-                    status: config
-                        .language
-                        .format(
-                            Template::ProvidersArtworkUnavailable,
-                            &[("error", &error), ("species", &SPECIES[index].to_string())],
-                        )
-                        .unwrap_or_else(|error| format!("Localization error: {error}")),
+                    status: Template::ProvidersArtworkUnavailable
+                        .format(&[("error", &error), ("species", &SPECIES[index].to_string())])
+                        .unwrap_or_else(|error| format!("Message error: {error}")),
                 },
             }
         });
@@ -295,7 +290,6 @@ impl Artwork {
             cache: Vec::new(),
             color: config.color,
             ascii: config.ascii,
-            language: config.language,
             theme: config.theme,
             tick: 0,
             cells_enabled: config.images == ImageMode::Cells,
@@ -408,10 +402,9 @@ impl Artwork {
     pub fn render(&self, index: usize, area: Rect, buffer: &mut Buffer) {
         if self.original(index).is_none() {
             let label = if self.status(index).starts_with("Artwork off") {
-                self.language.text(Message::ProvidersArtworkImagesOff)
+                Message::ProvidersArtworkImagesOff.text()
             } else {
-                self.language
-                    .text(Message::ProvidersArtworkNoImageImagesSetup)
+                Message::ProvidersArtworkNoImageImagesSetup.text()
             };
             Paragraph::new(label)
                 .alignment(Alignment::Center)
@@ -423,7 +416,7 @@ impl Artwork {
             if self.native_active {
                 return;
             }
-            Paragraph::new(self.language.text(Message::ProvidersArtworkNoNativeImage))
+            Paragraph::new(Message::ProvidersArtworkNoNativeImage.text())
                 .alignment(Alignment::Center)
                 .wrap(Wrap { trim: true })
                 .render(area, buffer);

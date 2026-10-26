@@ -1,7 +1,7 @@
 //! Ephemeral, owner-bound recipe authoring; no serialized draft or admission format changes.
 use super::super::{App, Overlay};
 use crate::{
-    i18n::Message,
+    messages::Message,
     store,
     workspace::workflows::authoring::{Draft, Export, command},
 };
@@ -217,9 +217,7 @@ impl App {
             || self.quit_after_save
             || self.reset_after_save
         {
-            self.notice = crate::i18n::Language::ENGLISH
-                .text(Message::RecipeAuthoringBusy)
-                .into();
+            self.notice = (Message::RecipeAuthoringBusy).text().into();
             return;
         }
         self.open_overlay(Overlay::Workflows);

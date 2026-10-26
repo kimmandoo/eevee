@@ -3,7 +3,7 @@
 
 Uses the existing Records journey and genuine approved local executions. SQLite
 is read-only observation, never a fixture writer. No model request, paid service,
-credential, build, or alternate executor is used. Runs English/Korean compact or
+credential, build, or alternate executor is used. Runs compact or
 wide terminals as selected by the caller; retains actual screen/store evidence.
 """
 from __future__ import annotations
@@ -44,7 +44,7 @@ def qualify(journey):
     before_posts = j.peer.snapshot('POST')
     j.source.write_text(BAD + '# distinct source after recurrence\n', encoding='utf-8')
     j.session.command('workflows')
-    j.wait_caption('Specialist desk', '전문가 데스크')
+    j.wait_caption('Specialist desk', )
     j.session.command('refresh')
     latest = j.state()['executions'][-1]['record']['prepared']
     stale_id = 'stale:run:{}:{}'.format(latest['task_id'], latest['run_id'])
@@ -54,7 +54,7 @@ def qualify(journey):
     j.open_records('dex')
     text = j.pages_text('pk07-source-changed-never-current')
     compact = ''.join(text.split())
-    assert ('stale' in text.lower() or '오래된' in text), text
+    assert 'stale' in text.lower(), text
     assert j.pass_id in compact and j.support['id'] in compact, text
     j.workspace()
 
@@ -123,7 +123,7 @@ def qualify(journey):
     j.session.send(UP * (len(rows) + 1) + DOWN * index + '\r')
     wait_for(j.session, 'test records::total ... ok')
     j.session.command('purge')
-    j.wait_caption('Purge retained local output', '보관된 로컬 출력 삭제')
+    j.wait_caption('Purge retained local output', )
     j.session.send('\r')
     assert not next(row['record'] for row in j.state()['executions']
                     if row['record']['prepared']['run_id'] == j.pass_id)['output_unavailable']
@@ -138,8 +138,8 @@ def qualify(journey):
     text = j.pages_text('pk07-purged-pass-honestly-unavailable')
     compact = ''.join(text.split())
     assert j.pass_id in compact
-    assert ('purged/missing/replaced' in compact or '실행출력삭제·누락·교체' in compact), text
-    assert ('Unresolvedrecurringfailure' in compact or '미해결반복실패' in compact), text
+    assert 'purged/missing/replaced' in compact, text
+    assert 'Unresolvedrecurringfailure' in compact, text
     assert len(j.state()['executions']) == before_runs
     assert j.invocations() == before_invocations
     assert j.peer.snapshot('POST') == before_posts == []
@@ -158,7 +158,6 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--binary', required=True, type=Path)
     parser.add_argument('--output', required=True, type=Path)
-    parser.add_argument('--language', choices=('en', 'ko'), default='en')
     parser.add_argument('--compact', action='store_true')
     args = parser.parse_args()
     binary = args.binary.resolve()
@@ -169,8 +168,7 @@ def main():
     results = {key: {'status': 'not-run', 'evidence': []}
                for key in ('failure', 'resolution', 'PK07')}
     report = {'status': 'failed', 'binary': str(binary), 'sha256': identity,
-              'host': platform.platform(), 'language': args.language,
-              'size': [60, 18] if args.compact else [120, 36], 'cases': results,
+              'host': platform.platform(), 'size': [60, 18] if args.compact else [120, 36], 'cases': results,
               'scope': 'Real app + local commands + reviewed relay/purge; no provider requests'}
     journey = None
     try:
@@ -179,7 +177,7 @@ def main():
                 try:
                     journey = Journey.__new__(Journey)
                     journey.__init__(binary, output / 'journey', Path(temporary).resolve(),
-                                     tuple(report['size']), args.compact, results, peer, args.language)
+                                     tuple(report['size']), args.compact, results, peer, )
                     qualify(journey)
                     journey.quit()
                     peer.assert_clean()

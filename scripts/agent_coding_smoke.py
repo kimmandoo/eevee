@@ -5,7 +5,7 @@ Deterministic loopback/JSONL peers ONLY request tools. Eevee creates/edits the
 source, launches a real Rust compiler, receives its real failure, repairs the
 source, compiles an executable and runs that executable. No model, credential,
 SQL write or compiler invocation by the peer is used. Default representative
-coverage is four journeys, not a provider x language x terminal cross product.
+coverage is four journeys, not a provider x terminal cross product.
 """
 from __future__ import annotations
 
@@ -37,12 +37,12 @@ OUTPUT = 'AGENT-CODING:42'
 FUTURE = 'Unsent owner draft / 아직 보내지 않은 초안 界'
 COMMAND = 'eevee_run_command'
 PROFILES = {
-    'representative': (('native', 'en', (120, 36), True),
-                       ('native', 'ko', (60, 18), False),
-                       ('codex', 'en', (60, 18), False),
-                       ('codex', 'ko', (120, 36), True)),
-    'native': (('native', 'en', (120, 36), True), ('native', 'ko', (60, 18), False)),
-    'codex': (('codex', 'en', (60, 18), False), ('codex', 'ko', (120, 36), True)),
+    'representative': (('native', (120, 36), True),
+                       ('native', (60, 18), False),
+                       ('codex', (60, 18), False),
+                       ('codex', (120, 36), True)),
+    'native': (('native', (120, 36), True), ('native', (60, 18), False)),
+    'codex': (('codex', (60, 18), False), ('codex', (120, 36), True)),
 }
 
 
@@ -155,7 +155,7 @@ def file_decision(journey, allow=True):
 
 def command_decision(journey, *, decision='allow', retain_draft=False):
     session = journey.session
-    titles = ('Review one-shot execution permission', '일회성 실행 권한 검토')
+    titles = ('Review one-shot execution permission', )
     def ready():
         if any(title in session.display() for title in titles):
             return True
@@ -190,7 +190,7 @@ def command_decision(journey, *, decision='allow', retain_draft=False):
         session.command('deny')
     else:
         # An automatically presented review must be engaged before choosing.
-        if any(hint in session.display() for hint in ('Enter to review (not approve)', 'Enter 검토 (승인 아님)')):
+        if any(hint in session.display() for hint in ('Enter to review (not approve)', )):
             session.send('\r')
         session.send(ESC + '[C' + '\r', settle=False)
 
@@ -200,9 +200,7 @@ def source_effects(journey, step):
     assert (journey.project / SOURCE).read_bytes() == expected.encode()
 
 
-def natural_request(language, marker):
-    if language == 'ko':
-        return 'main.rs 코드 파일을 생성하고 읽고 수정한 뒤 빌드해줘. 실제 오류를 읽고 고친 다음 다시 빌드하고 프로그램을 실행해줘. ' + marker
+def natural_request(marker):
     return 'Create main.rs, read and edit the code, then build the project. Read the real error, fix it, rebuild and run the program. ' + marker
 
 
@@ -215,15 +213,14 @@ class NativeJourney(files.CreationJourney):
         self.workspace()
 
 
-def native_case(binary, compiler, output, language, size, manual):
-    result = {'status': 'failed', 'route': 'native-chat-completions', 'language': language,
-              'size': size, 'manual_appearance': manual, 'tool_results': []}
+def native_case(binary, compiler, output, size, manual):
+    result = {'status': 'failed', 'route': 'native-chat-completions', 'size': size, 'manual_appearance': manual, 'tool_results': []}
     journey = None
     with tempfile.TemporaryDirectory(prefix='ev-agent-coding-界-') as temporary, Peer(
             'chat_completions', 'public-unused-fixture', True, retain_body_bytes=True) as peer:
         try:
             journey = NativeJourney(binary, output, Path(temporary).resolve(), size, size[0] == 60,
-                                    'compatible', 'chat_completions', True, False, peer, language=language)
+                                    'compatible', 'chat_completions', True, False, peer, )
             # Native connection fixtures deliberately start with an empty PATH.
             # Expose only installed linker helpers needed by the genuine rustc;
             # the peer still cannot compile or write the authored source.
@@ -248,7 +245,7 @@ def native_case(binary, compiler, output, language, size, manual):
                     return files.response_plan(peer, calls=selected,
                         text='Actual compiler/program evidence received.' if not selected else '', number=index)[1](handler, event, row)
                 return ('custom', reply)
-            before = journey.begin(natural_request(language, 'COOP_CODING_NATIVE'), [plan(i) for i in range(9)])
+            before = journey.begin(natural_request('COOP_CODING_NATIVE'), [plan(i) for i in range(9)])
             for index, call in enumerate(calls):
                 if call['name'] in ('eevee_write_file', 'eevee_edit_file'):
                     file_decision(journey)
@@ -272,7 +269,7 @@ def native_case(binary, compiler, output, language, size, manual):
                 call = {'id': decision, 'name': COMMAND, 'arguments': direct(compiler,
                     '--edition=2021', '--color=never', SOURCE, '-o', destination)}
                 literal = '`rustc --edition=2021 --color=never main.rs -o ' + destination + '`'
-                request = literal + ' 실행해줘.' if language == 'ko' else 'Run ' + literal + '.'
+                request = 'Run ' + literal + '.'
                 before = journey.begin(request, [
                     files.response_plan(peer, calls=[call]), files.response_plan(peer, text='No execution approved.')])
                 command_decision(journey, decision=decision)
@@ -312,19 +309,18 @@ def native_case(binary, compiler, output, language, size, manual):
     return result
 
 
-def codex_case(binary, compiler, output, language, size, manual):
-    result = {'status': 'failed', 'route': 'controlled-codex', 'language': language,
-              'size': size, 'manual_appearance': manual, 'tool_results': []}
+def codex_case(binary, compiler, output, size, manual):
+    result = {'status': 'failed', 'route': 'controlled-codex', 'size': size, 'manual_appearance': manual, 'tool_results': []}
     journey = None
     try:
-        journey = files.CodexCreationJourney(binary, output, size, language)
+        journey = files.CodexCreationJourney(binary, output, size, )
         journey.setup(count=1)
         journey.session.command('role-implement')  # Remove setup's explicit Plan; not a sticky grant.
         if not manual:
             journey.session.command('eevee')
         journey.workspace()
         marker = 'COOP_CODING_CODEX'
-        text = natural_request(language, marker)
+        text = natural_request(marker)
         journey.request(1, text, started=False)
         journey.until(lambda: bool(journey.peers('started', marker)), 'ordinary coding request did not start', approve_preview=True)
         assert json.loads(journey.peers('started', marker)[-1]['text'])['request'] == text
@@ -356,7 +352,7 @@ def codex_case(binary, compiler, output, language, size, manual):
             marker = 'COOP_CODING_' + decision.upper()
             destination = 'never-built-' + decision
             literal = '`rustc --edition=2021 --color=never main.rs -o ' + destination + '`'
-            text = (literal + ' 실행해줘.' if language == 'ko' else 'Run ' + literal + '.') + ' ' + marker
+            text = 'Run ' + literal + '.' + ' ' + marker
             journey.request(1, text, started=False)
             journey.until(lambda: bool(journey.peers('started', marker)), 'controlled command request', approve_preview=True)
             journey.publish(marker + '.prompt', json.dumps([{'name': COMMAND, 'arguments': direct(
@@ -425,11 +421,11 @@ def main(argv=None):
                          'No paid models, private credentials or SQL writes.',
                          'Actual compiler and built program run only through Eevee host command approval.',
                          'PTY evidence is not physical GUI/mouse certification.']}
-    for route, language, size, manual in PROFILES[args.profile]:
-        destination = output / '{}-{}-{}'.format(route, language, size[0])
+    for route, size, manual in PROFILES[args.profile]:
+        destination = output / '{}-{}'.format(route, size[0])
         destination.mkdir()
         function = native_case if route == 'native' else codex_case
-        report['journeys'].append(function(binary, compiler, destination, language, size, manual))
+        report['journeys'].append(function(binary, compiler, destination, size, manual))
     assert hashlib.sha256(binary.read_bytes()).hexdigest() == digest, 'supplied binary changed'
     report['status'] = 'passed' if all(row['status'] == 'passed' for row in report['journeys']) else 'failed'
     files.save(output / 'results.json', report)

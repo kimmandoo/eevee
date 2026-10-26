@@ -23,7 +23,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         text(
             frame,
             area,
-            paint.hint(crate::i18n::Message::DesksMovesMovesNeedXDraftRetainedResizeTo),
+            paint.hint(crate::messages::Message::DesksMovesMovesNeedXDraftRetainedResizeTo),
             paint.accent,
         );
         return;
@@ -36,7 +36,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
     );
     frame.render_widget(Clear, area);
     let block = panel(
-        paint.hint(crate::i18n::Message::DesksMovesPanel),
+        paint.hint(crate::messages::Message::DesksMovesPanel),
         config,
         paint,
         true,
@@ -65,13 +65,13 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
     let notice = if app.moves.failed.is_some() {
         app.moves.failed_error.as_str()
     } else if app.moves.persistence_pending() {
-        paint.hint(crate::i18n::Message::DesksMovesLoadingSavingLocalMoveFactsNoAction)
+        paint.hint(crate::messages::Message::DesksMovesLoadingSavingLocalMoveFactsNoAction)
     } else if app.moves.editing() && app.moves.mode != Mode::Name && app.moves.insertion_rejected {
-        paint.hint(crate::i18n::Message::TmPathRefused)
+        paint.hint(crate::messages::Message::TmPathRefused)
     } else if app.moves.portable_exported {
-        paint.hint(crate::i18n::Message::TmExportSaved)
+        paint.hint(crate::messages::Message::TmExportSaved)
     } else if app.moves.notice.is_empty() {
-        paint.hint(crate::i18n::Message::DesksMovesNamesAreLabelsOnlyEveryUseNeeds)
+        paint.hint(crate::messages::Message::DesksMovesNamesAreLabelsOnlyEveryUseNeeds)
     } else {
         &app.moves.notice
     };
@@ -85,9 +85,9 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             frame,
             row(body, 0, 3),
             if app.moves.failure_discard {
-                paint.hint(crate::i18n::Message::DesksMovesDiscardThisUnsavedMoveChangeOrUsage)
+                paint.hint(crate::messages::Message::DesksMovesDiscardThisUnsavedMoveChangeOrUsage)
             } else {
-                paint.hint(crate::i18n::Message::DesksMovesMoveStorageFailedTheExactRequestIs)
+                paint.hint(crate::messages::Message::DesksMovesMoveStorageFailedTheExactRequestIs)
             },
             paint.accent,
         );
@@ -108,12 +108,15 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             frame,
             footer,
             if !app.moves.failure_discard {
-                paint.hint(crate::i18n::Message::DesksMovesRRetryExactRequestDReviewDiscard)
+                paint.hint(crate::messages::Message::DesksMovesRRetryExactRequestDReviewDiscard)
             } else if app.moves.affirmative {
-                paint
-                    .hint(crate::i18n::Message::DesksMovesStayDiscardUnsavedRequestEnterDiscardLeft)
+                paint.hint(
+                    crate::messages::Message::DesksMovesStayDiscardUnsavedRequestEnterDiscardLeft,
+                )
             } else {
-                paint.hint(crate::i18n::Message::DesksMovesStayDiscardUnsavedRequestEnterStayLeft)
+                paint.hint(
+                    crate::messages::Message::DesksMovesStayDiscardUnsavedRequestEnterStayLeft,
+                )
             },
             paint.accent,
         );
@@ -126,7 +129,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                 text(
                     frame,
                     body,
-                    paint.hint(crate::i18n::Message::DesksMovesNoMovesInThisFormYetTeach),
+                    paint.hint(crate::messages::Message::DesksMovesNoMovesInThisFormYetTeach),
                     paint.surface,
                 );
             } else if wide {
@@ -199,7 +202,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             text(
                 frame,
                 footer,
-                paint.hint(crate::i18n::Message::TmMenuControls),
+                paint.hint(crate::messages::Message::TmMenuControls),
                 paint.accent,
             );
         }
@@ -210,7 +213,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             text(
                 frame,
                 row(body, 0, 1),
-                paint.hint(crate::i18n::Message::TmImportTitle),
+                paint.hint(crate::messages::Message::TmImportTitle),
                 paint.accent,
             );
             let partners = app.partners();
@@ -222,7 +225,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                 frame,
                 row(body, 1, 1),
                 &paint.format(
-                    crate::i18n::Template::TmImportPartner,
+                    crate::messages::Template::TmImportPartner,
                     &[("partner", &partner)],
                 ),
                 paint.accent,
@@ -231,7 +234,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                 let details = format!(
                     "{}\n{}\n{}",
                     paint.format(
-                        crate::i18n::Template::TmImportSummary,
+                        crate::messages::Template::TmImportSummary,
                         &[
                             ("name", &definition.name),
                             ("kind", kind(&definition.steps)),
@@ -239,7 +242,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                         ]
                     ),
                     app.moves.portable_text,
-                    paint.hint(crate::i18n::Message::TmImportBoundary)
+                    paint.hint(crate::messages::Message::TmImportBoundary)
                 );
                 render_details(
                     frame,
@@ -252,7 +255,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             text(
                 frame,
                 footer,
-                paint.hint(crate::i18n::Message::TmImportControls),
+                paint.hint(crate::messages::Message::TmImportControls),
                 paint.accent,
             );
         }
@@ -260,12 +263,12 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             text(
                 frame,
                 row(body, 0, 1),
-                paint.hint(crate::i18n::Message::TmExportTitle),
+                paint.hint(crate::messages::Message::TmExportTitle),
                 paint.accent,
             );
             if !app.moves.portable_text.is_empty() {
                 let details = paint.format(
-                    crate::i18n::Template::TmExportDetails,
+                    crate::messages::Template::TmExportDetails,
                     &[
                         ("path", &app.moves.file_path),
                         ("definition", &app.moves.portable_text),
@@ -284,9 +287,9 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                 frame,
                 footer,
                 paint.hint(if app.moves.affirmative {
-                    crate::i18n::Message::TmExportArmed
+                    crate::messages::Message::TmExportArmed
                 } else {
-                    crate::i18n::Message::TmExportControls
+                    crate::messages::Message::TmExportControls
                 }),
                 paint.accent,
             );
@@ -299,22 +302,22 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                 .map(|record| record_details(record, &app.moves, paint))
                 .unwrap_or_else(|| {
                     paint
-                        .hint(crate::i18n::Message::DesksMovesMoveNoLongerAvailableEscToReturn)
+                        .hint(crate::messages::Message::DesksMovesMoveNoLongerAvailableEscToReturn)
                         .into()
                 });
             render_details(frame, body, &details, &mut app.moves, paint);
             let actions = [
-                paint.hint(crate::i18n::Message::DesksMovesUseNormalReview),
-                paint.hint(crate::i18n::Message::DesksMovesRename),
-                paint.hint(crate::i18n::Message::DesksMovesForget),
-                paint.hint(crate::i18n::Message::DesksMovesTeachToPartner),
+                paint.hint(crate::messages::Message::DesksMovesUseNormalReview),
+                paint.hint(crate::messages::Message::DesksMovesRename),
+                paint.hint(crate::messages::Message::DesksMovesForget),
+                paint.hint(crate::messages::Message::DesksMovesTeachToPartner),
             ];
             let selected = app.moves.selected.min(actions.len() - 1);
             text(
                 frame,
                 footer,
                 &paint.format(
-                    crate::i18n::Template::DesksMovesActionControls,
+                    crate::messages::Template::DesksMovesActionControls,
                     &[("action", (actions[selected]))],
                 ),
                 paint.accent,
@@ -325,7 +328,9 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             let postponed_count = app.moves.postponed().count();
             let mut lines = vec![
                 paint
-                    .hint(crate::i18n::Message::DesksMovesForgottenPostponedInThisPartnerAndForm)
+                    .hint(
+                        crate::messages::Message::DesksMovesForgottenPostponedInThisPartnerAndForm,
+                    )
                     .into(),
             ];
             for (index, record) in app.moves.reminders().enumerate() {
@@ -348,7 +353,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             if forgotten_count == 0 && postponed_count == 0 {
                 lines.push(
                     paint
-                        .hint(crate::i18n::Message::DesksMovesNoForgottenOrPostponedMoves)
+                        .hint(crate::messages::Message::DesksMovesNoForgottenOrPostponedMoves)
                         .into(),
                 );
             }
@@ -356,7 +361,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             text(
                 frame,
                 footer,
-                paint.hint(crate::i18n::Message::DesksMovesUpDownChooseEnterRelearnOrInspect),
+                paint.hint(crate::messages::Message::DesksMovesUpDownChooseEnterRelearnOrInspect),
                 paint.accent,
             );
         }
@@ -367,7 +372,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                 .as_ref()
                 .map(|candidate| {
                     paint.format(
-                        crate::i18n::Template::DesksMovesLearnDetails,
+                        crate::messages::Template::DesksMovesLearnDetails,
                         &[
                             ("partner", &(partner)),
                             ("sources-count", &(candidate.uses).to_string()),
@@ -386,20 +391,20 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                 })
                 .unwrap_or_else(|| {
                     paint
-                        .hint(crate::i18n::Message::DesksMovesCandidateUnavailable)
+                        .hint(crate::messages::Message::DesksMovesCandidateUnavailable)
                         .into()
                 });
             render_details(frame, body, &details, &mut app.moves, paint);
             let actions = [
-                paint.hint(crate::i18n::Message::DesksMovesNotNowOfferAfterMoreUses),
-                paint.hint(crate::i18n::Message::DesksMovesLearnChooseName),
-                paint.hint(crate::i18n::Message::DesksMovesNeverForThisAction),
+                paint.hint(crate::messages::Message::DesksMovesNotNowOfferAfterMoreUses),
+                paint.hint(crate::messages::Message::DesksMovesLearnChooseName),
+                paint.hint(crate::messages::Message::DesksMovesNeverForThisAction),
             ];
             text(
                 frame,
                 footer,
                 &paint.format(
-                    crate::i18n::Template::DesksMovesLearnControls,
+                    crate::messages::Template::DesksMovesLearnControls,
                     &[("action", (actions[app.moves.selected.min(2)]))],
                 ),
                 paint.accent,
@@ -413,7 +418,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                 .collect();
             let mut lines = vec![
                 paint
-                    .hint(crate::i18n::Message::DesksMovesCopyExactStepsIntoTheTargetS)
+                    .hint(crate::messages::Message::DesksMovesCopyExactStepsIntoTheTargetS)
                     .into(),
             ];
             for (index, target) in targets.iter().enumerate() {
@@ -426,7 +431,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             if targets.is_empty() {
                 lines.push(
                     paint
-                        .hint(crate::i18n::Message::DesksMovesNoOtherPartyMembersAddAPartner)
+                        .hint(crate::messages::Message::DesksMovesNoOtherPartyMembersAddAPartner)
                         .into(),
                 );
             }
@@ -434,7 +439,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             text(
                 frame,
                 footer,
-                paint.hint(crate::i18n::Message::DesksMovesUpDownTargetEnterReviewCopyEsc),
+                paint.hint(crate::messages::Message::DesksMovesUpDownTargetEnterReviewCopyEsc),
                 paint.accent,
             );
         }
@@ -442,13 +447,13 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             text(
                 frame,
                 body,
-                paint.hint(crate::i18n::Message::DesksMovesLoadingTheChosenPartnerSActualMove),
+                paint.hint(crate::messages::Message::DesksMovesLoadingTheChosenPartnerSActualMove),
                 paint.surface,
             );
             text(
                 frame,
                 footer,
-                paint.hint(crate::i18n::Message::DesksMovesEscBackWaitForTheLocalStore),
+                paint.hint(crate::messages::Message::DesksMovesEscBackWaitForTheLocalStore),
                 paint.accent,
             );
         }
@@ -456,16 +461,16 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             let active = app.moves.active();
             let mut lines = vec![
                 paint
-                    .hint(crate::i18n::Message::DesksMovesFourSlotsAreOccupiedAcrossProjectAnd)
+                    .hint(crate::messages::Message::DesksMovesFourSlotsAreOccupiedAcrossProjectAnd)
                     .into(),
                 paint.format(
-                    crate::i18n::Template::DesksMovesGiveUp,
+                    crate::messages::Template::DesksMovesGiveUp,
                     &[("marker", (marker(0, app.moves.selected)))],
                 ),
             ];
             for (index, record) in active.enumerate() {
                 lines.push(paint.format(
-                    crate::i18n::Template::DesksMovesReplaceRow,
+                    crate::messages::Template::DesksMovesReplaceRow,
                     &[
                         ("marker", (marker(index + 1, app.moves.selected))),
                         ("name", &(record.proposal.name)),
@@ -486,14 +491,19 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             text(
                 frame,
                 footer,
-                paint.hint(crate::i18n::Message::DesksMovesUpDownChooseEnterReviewExactReplacement),
+                paint.hint(
+                    crate::messages::Message::DesksMovesUpDownChooseEnterReviewExactReplacement,
+                ),
                 paint.accent,
             );
         }
         Mode::Review | Mode::Forget => {
-            if app.moves.review_text.as_ref().is_some_and(|cached| {
-                cached.language != config.language || cached.recipient != partner
-            }) {
+            if app
+                .moves
+                .review_text
+                .as_ref()
+                .is_some_and(|cached| cached.recipient != partner)
+            {
                 app.moves.invalidate_review();
             }
             let review_text = app
@@ -503,13 +513,11 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                 .filter(|cached| {
                     app.moves.mode == Mode::Review
                         && app.moves.review_current()
-                        && cached.language == config.language
                         && cached.recipient == partner
                 })
                 .unwrap_or_else(|| {
                     let (summary, details) = review_details(&app.moves, &partner, paint);
                     ReviewText {
-                        language: config.language,
                         recipient: partner,
                         summary,
                         details,
@@ -539,15 +547,17 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             }
             let controls = if !app.moves.reviewed {
                 paint
-                    .hint(crate::i18n::Message::TmSemanticExpose)
+                    .hint(crate::messages::Message::TmSemanticExpose)
                     .to_owned()
             } else if app.moves.affirmative {
                 paint
-                    .hint(crate::i18n::Message::DesksMovesStayConfirmLocalChangeEnterConfirmLeft)
+                    .hint(
+                        crate::messages::Message::DesksMovesStayConfirmLocalChangeEnterConfirmLeft,
+                    )
                     .into()
             } else {
                 paint
-                    .hint(crate::i18n::Message::DesksMovesStayConfirmLocalChangeEnterStayLeft)
+                    .hint(crate::messages::Message::DesksMovesStayConfirmLocalChangeEnterStayLeft)
                     .into()
             };
             text(frame, footer, &controls, paint.accent);
@@ -556,7 +566,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             text(
                 frame,
                 row(body, 0, 3),
-                paint.hint(crate::i18n::Message::DesksMovesReplaceThisTaskSGoalAndCriteria),
+                paint.hint(crate::messages::Message::DesksMovesReplaceThisTaskSGoalAndCriteria),
                 paint.accent,
             );
             let details = app
@@ -565,7 +575,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                 .map(|r| proposal_details(&r.proposal, paint))
                 .unwrap_or_else(|| {
                     paint
-                        .hint(crate::i18n::Message::DesksMovesMoveUnavailable)
+                        .hint(crate::messages::Message::DesksMovesMoveUnavailable)
                         .into()
                 });
             render_details(
@@ -583,11 +593,15 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                 frame,
                 footer,
                 if !app.moves.reviewed {
-                    paint.hint(crate::i18n::Message::DesksMovesResizeToReviewTheTaskChangeEnter)
+                    paint.hint(crate::messages::Message::DesksMovesResizeToReviewTheTaskChangeEnter)
                 } else if app.moves.affirmative {
-                    paint.hint(crate::i18n::Message::DesksMovesStayApplyTemplateEnterApplyLeftRight)
+                    paint.hint(
+                        crate::messages::Message::DesksMovesStayApplyTemplateEnterApplyLeftRight,
+                    )
                 } else {
-                    paint.hint(crate::i18n::Message::DesksMovesStayApplyTemplateEnterStayLeftRight)
+                    paint.hint(
+                        crate::messages::Message::DesksMovesStayApplyTemplateEnterStayLeftRight,
+                    )
                 },
                 paint.accent,
             );
@@ -642,13 +656,13 @@ fn render_details(frame: &mut Frame, area: Rect, details: &str, state: &mut Stat
 fn render_name(frame: &mut Frame, body: Rect, footer: Rect, state: &State, paint: &Paint) {
     let learning = state.learning.as_ref();
     let action = if state.mode == Mode::ImportPath {
-        paint.hint(crate::i18n::Message::TmImportPath)
+        paint.hint(crate::messages::Message::TmImportPath)
     } else if state.mode == Mode::ExportPath {
-        paint.hint(crate::i18n::Message::TmExportPath)
+        paint.hint(crate::messages::Message::TmExportPath)
     } else if matches!(learning, Some(Learning::Rename(_))) {
-        paint.hint(crate::i18n::Message::DesksMovesRenameLabelOnly)
+        paint.hint(crate::messages::Message::DesksMovesRenameLabelOnly)
     } else {
-        paint.hint(crate::i18n::Message::DesksMovesMoveName)
+        paint.hint(crate::messages::Message::DesksMovesMoveName)
     };
     text(frame, row(body, 0, 1), action, paint.accent);
     let input = row(body, 1, body.height.saturating_sub(3).max(1));
@@ -682,13 +696,13 @@ fn render_name(frame: &mut Frame, body: Rect, footer: Rect, state: &State, paint
         text(
             frame,
             row(body, body.height.saturating_sub(2), 2),
-            paint.hint(crate::i18n::Message::TmPathBoundary),
+            paint.hint(crate::messages::Message::TmPathBoundary),
             paint.muted,
         );
         text(
             frame,
             footer,
-            paint.hint(crate::i18n::Message::TmPathControls),
+            paint.hint(crate::messages::Message::TmPathControls),
             paint.accent,
         );
         return;
@@ -697,7 +711,7 @@ fn render_name(frame: &mut Frame, body: Rect, footer: Rect, state: &State, paint
         frame,
         row(body, body.height.saturating_sub(2), 2),
         &paint.format(
-            crate::i18n::Template::DesksMovesNameScope,
+            crate::messages::Template::DesksMovesNameScope,
             &[
                 ("marker", (if state.scope_focus { ">" } else { " " })),
                 ("scope", (state.scope.label())),
@@ -707,9 +721,9 @@ fn render_name(frame: &mut Frame, body: Rect, footer: Rect, state: &State, paint
                         learning,
                         Some(Learning::Teach(_) | Learning::Import(_) | Learning::Copy(..))
                     ) {
-                        paint.hint(crate::i18n::Message::DesksMovesLeftRightChangesScope)
+                        paint.hint(crate::messages::Message::DesksMovesLeftRightChangesScope)
                     } else {
-                        paint.hint(crate::i18n::Message::DesksMovesUnchanged)
+                        paint.hint(crate::messages::Message::DesksMovesUnchanged)
                     }),
                 ),
             ],
@@ -719,7 +733,7 @@ fn render_name(frame: &mut Frame, body: Rect, footer: Rect, state: &State, paint
     text(
         frame,
         footer,
-        paint.hint(crate::i18n::Message::DesksMovesTypeNameTabNameOrScopeEnter),
+        paint.hint(crate::messages::Message::DesksMovesTypeNameTabNameOrScopeEnter),
         paint.accent,
     );
 }
@@ -736,13 +750,14 @@ pub(super) fn proposal_details(proposal: &Proposal, paint: &Paint) -> String {
     match &proposal.steps {
         Steps::Run { argv, cwd } => {
             text.push_str(&paint.format(
-                crate::i18n::Template::DesksMovesRunDetails,
+                crate::messages::Template::DesksMovesRunDetails,
                 &[("argv", &format!("{argv:?}")), ("cwd", &format!("{cwd:?}"))],
             ));
         }
         Steps::Pins { pins } => {
             text.push_str(
-                paint.hint(crate::i18n::Message::DesksMovesPinsAreResolvedAgainAtUseUnavailable),
+                paint
+                    .hint(crate::messages::Message::DesksMovesPinsAreResolvedAgainAtUseUnavailable),
             );
             for pin in pins {
                 text.push_str(&format!(
@@ -753,20 +768,19 @@ pub(super) fn proposal_details(proposal: &Proposal, paint: &Paint) -> String {
         }
         Steps::Request { instruction, pins } => {
             text.push_str(paint.hint(
-                crate::i18n::Message::DesksMovesUserAuthoredInstructionOnlyNotProviderOutput,
+                crate::messages::Message::DesksMovesUserAuthoredInstructionOnlyNotProviderOutput,
             ));
             text.push_str(&format!("{instruction:?}"));
-            text.push_str(paint.hint(crate::i18n::Message::DesksMovesContextSelectors));
+            text.push_str(paint.hint(crate::messages::Message::DesksMovesContextSelectors));
             for pin in pins {
                 text.push_str(&format!(
                     "{}:{}-{}\n",
                     pin.path, pin.start_line, pin.end_line
                 ));
             }
-            text.push_str(
-                paint
-                    .hint(crate::i18n::Message::DesksMovesNormalFullRequestReceiptIsRequiredBefore),
-            );
+            text.push_str(paint.hint(
+                crate::messages::Message::DesksMovesNormalFullRequestReceiptIsRequiredBefore,
+            ));
         }
         Steps::Task { goal, criteria } => {
             text.push_str(&format!("Goal:\n{goal:?}\nCriteria:\n"));
@@ -813,7 +827,7 @@ fn record_details(record: &Record, state: &State, paint: &Paint) -> String {
         })
         .count();
     let mut text = paint.format(
-        crate::i18n::Template::DesksMovesUsageDetails,
+        crate::messages::Template::DesksMovesUsageDetails,
         &[
             ("proposal", &(proposal_details(&record.proposal, paint))),
             ("id", &(record.id).to_string()),
@@ -844,7 +858,7 @@ fn record_details(record: &Record, state: &State, paint: &Paint) -> String {
         ));
     }
     if usages.clone().next().is_none() {
-        text.push_str(paint.hint(crate::i18n::Message::DesksMovesNoJournalLinkedUsesRecorded));
+        text.push_str(paint.hint(crate::messages::Message::DesksMovesNoJournalLinkedUsesRecorded));
     }
     for usage in usages.rev() {
         text.push_str(&format!(
@@ -867,7 +881,7 @@ fn review_details(state: &State, partner: &str, paint: &Paint) -> (String, Strin
             .map(|record| {
                 (
                     paint.format(
-                        crate::i18n::Template::DesksMovesForgetSummary,
+                        crate::messages::Template::DesksMovesForgetSummary,
                         &[
                             ("scope", (record.proposal.scope.label())),
                             ("id", &(record.id).to_string()),
@@ -881,7 +895,7 @@ fn review_details(state: &State, partner: &str, paint: &Paint) -> (String, Strin
             .unwrap_or_else(|| {
                 (
                     paint
-                        .hint(crate::i18n::Message::DesksMovesMoveUnavailable)
+                        .hint(crate::messages::Message::DesksMovesMoveUnavailable)
                         .into(),
                     String::new(),
                 )
@@ -890,34 +904,36 @@ fn review_details(state: &State, partner: &str, paint: &Paint) -> (String, Strin
     let Some(learning) = &state.learning else {
         return (
             paint
-                .hint(crate::i18n::Message::DesksMovesNoChangeSelected)
+                .hint(crate::messages::Message::DesksMovesNoChangeSelected)
                 .into(),
             String::new(),
         );
     };
     let Some(review) = &state.review else {
         return (
-            paint.hint(crate::i18n::Message::TmSemanticStale).into(),
+            paint.hint(crate::messages::Message::TmSemanticStale).into(),
             String::new(),
         );
     };
     if !state.review_current() {
         return (
-            paint.hint(crate::i18n::Message::TmSemanticStale).into(),
+            paint.hint(crate::messages::Message::TmSemanticStale).into(),
             String::new(),
         );
     }
     let proposal = &review.proposal;
     let action = match learning {
         Learning::Teach(_) | Learning::Copy(..) => {
-            paint.hint(crate::i18n::Message::DesksMovesTeach)
+            paint.hint(crate::messages::Message::DesksMovesTeach)
         }
-        Learning::Import(_) => paint.hint(crate::i18n::Message::TmImportAction),
-        Learning::Relearn(_) => paint.hint(crate::i18n::Message::DesksMovesRelearnIdenticalSteps),
-        Learning::Rename(_) => paint.hint(crate::i18n::Message::DesksMovesRenameLabel),
+        Learning::Import(_) => paint.hint(crate::messages::Message::TmImportAction),
+        Learning::Relearn(_) => {
+            paint.hint(crate::messages::Message::DesksMovesRelearnIdenticalSteps)
+        }
+        Learning::Rename(_) => paint.hint(crate::messages::Message::DesksMovesRenameLabel),
     };
     let mut summary = paint.format(
-        crate::i18n::Template::DesksMovesChangeSummary,
+        crate::messages::Template::DesksMovesChangeSummary,
         &[
             ("action", (action)),
             ("scope", (state.scope.label())),
@@ -925,7 +941,7 @@ fn review_details(state: &State, partner: &str, paint: &Paint) -> (String, Strin
         ],
     );
     let mut details = paint.format(
-        crate::i18n::Template::TmSemanticScope,
+        crate::messages::Template::TmSemanticScope,
         &[
             ("partner", partner),
             ("id", &proposal.partner.to_string()),
@@ -935,28 +951,28 @@ fn review_details(state: &State, partner: &str, paint: &Paint) -> (String, Strin
         ],
     );
     details.push('\n');
-    details.push_str(paint.hint(crate::i18n::Message::TmSemanticLiterals));
+    details.push_str(paint.hint(crate::messages::Message::TmSemanticLiterals));
     details.push('\n');
     details.push_str(paint.hint(if review.name_only {
-        crate::i18n::Message::TmSemanticNameOnly
+        crate::messages::Message::TmSemanticNameOnly
     } else if review.same_semantics == Some(true) {
-        crate::i18n::Message::TmSemanticEqual
+        crate::messages::Message::TmSemanticEqual
     } else if review.same_semantics.is_none() {
-        crate::i18n::Message::TmSemanticFresh
+        crate::messages::Message::TmSemanticFresh
     } else {
-        crate::i18n::Message::TmSemanticChanged
+        crate::messages::Message::TmSemanticChanged
     }));
     details.push('\n');
     if let Learning::Copy(_, (id, revision)) = learning {
         details.push_str(&paint.format(
-            crate::i18n::Template::TmSemanticTeacher,
+            crate::messages::Template::TmSemanticTeacher,
             &[("id", &id.to_string()), ("revision", &revision.to_string())],
         ));
         details.push('\n');
     }
     if let Learning::Relearn(source) = learning {
         details.push_str(&paint.format(
-            crate::i18n::Template::TmSemanticReminder,
+            crate::messages::Template::TmSemanticReminder,
             &[
                 ("id", &source.id.to_string()),
                 ("revision", &source.revision.to_string()),
@@ -967,7 +983,7 @@ fn review_details(state: &State, partner: &str, paint: &Paint) -> (String, Strin
     if let Some(old) = &review.old {
         details.push_str(&semantic_changes(old, proposal, &review.changes, paint));
         details.push_str(&paint.format(
-            crate::i18n::Template::TmSemanticOld,
+            crate::messages::Template::TmSemanticOld,
             &[
                 ("id", &old.id.to_string()),
                 ("revision", &old.revision.to_string()),
@@ -976,38 +992,38 @@ fn review_details(state: &State, partner: &str, paint: &Paint) -> (String, Strin
         details.push('\n');
         details.push_str(&proposal_details(&old.proposal, paint));
     }
-    details.push_str(paint.hint(crate::i18n::Message::TmSemanticNew));
+    details.push_str(paint.hint(crate::messages::Message::TmSemanticNew));
     details.push('\n');
     details.push_str(&proposal_details(proposal, paint));
     details.push('\n');
-    details.push_str(paint.hint(crate::i18n::Message::TmSemanticBoundary));
+    details.push_str(paint.hint(crate::messages::Message::TmSemanticBoundary));
     if matches!(learning, Learning::Import(_)) {
         details.insert_str(
             0,
             &format!(
                 "{}\n",
                 paint.format(
-                    crate::i18n::Template::TmImportPartner,
+                    crate::messages::Template::TmImportPartner,
                     &[("partner", partner)]
                 )
             ),
         );
         if state.replacement.is_none() {
             let slot = paint.format(
-                crate::i18n::Template::TmFreeSlot,
+                crate::messages::Template::TmFreeSlot,
                 &[("slot", &(state.active().count() + 1).to_string())],
             );
             summary.push('\n');
             summary.push_str(&slot);
         }
         details.push('\n');
-        details.push_str(paint.hint(crate::i18n::Message::TmImportBoundary));
+        details.push_str(paint.hint(crate::messages::Message::TmImportBoundary));
     }
     if let Some((id, revision)) = state.replacement
         && let Some(record) = review.old.as_ref()
     {
         summary.push_str(&paint.format(
-            crate::i18n::Template::DesksMovesReplacementSummary,
+            crate::messages::Template::DesksMovesReplacementSummary,
             &[
                 ("scope", record.proposal.scope.label()),
                 ("id", &id.to_string()),
@@ -1016,7 +1032,7 @@ fn review_details(state: &State, partner: &str, paint: &Paint) -> (String, Strin
         let slot = state.active().position(|r| r.id == id).map_or(0, |i| i + 1);
         details.push('\n');
         details.push_str(&paint.format(
-            crate::i18n::Template::TmSemanticSlot,
+            crate::messages::Template::TmSemanticSlot,
             &[
                 ("slot", &slot.to_string()),
                 ("id", &id.to_string()),
@@ -1026,7 +1042,7 @@ fn review_details(state: &State, partner: &str, paint: &Paint) -> (String, Strin
     } else if !matches!(learning, Learning::Rename(_)) {
         details.push('\n');
         details.push_str(&paint.format(
-            crate::i18n::Template::TmFreeSlot,
+            crate::messages::Template::TmFreeSlot,
             &[("slot", &(state.active().count() + 1).to_string())],
         ));
     }
@@ -1039,7 +1055,7 @@ fn semantic_changes(
     paint: &Paint,
 ) -> String {
     use crate::{
-        i18n::{Message, Template},
+        messages::{Message, Template},
         workspace::moves::ChangedField,
     };
     let mut details = String::new();
@@ -1241,7 +1257,6 @@ mod tests {
     fn config() -> Config {
         Config {
             ascii: true,
-            language: crate::i18n::Language::ENGLISH,
             no_animation: true,
             animation_override: Some(false),
             theme: crate::config::Theme::Dark,

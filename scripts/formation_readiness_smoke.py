@@ -6,8 +6,8 @@ explicit keyless loopback protocol fixture exercises real Implement admission
 and cancellation; it never produces a tool call, file effect or success frame.
 Requires terminal_smoke.py's existing pyte/wcwidth dependencies. Example:
   python3 scripts/formation_readiness_smoke.py --binary /absolute/ev \
-      --output /tmp/pt12 --language en --size 120x36 --size 60x18
-Repeat with --language ko. All app state is created by actual application actions;
+      --output /tmp/pt12 --size 120x36 --size 60x18
+All app state is created by actual application actions;
 only inert portable definitions and ordinary project source files are authored here.
 """
 from __future__ import annotations
@@ -44,22 +44,13 @@ MOVE = 'Local mapped inspection'
 SOURCE = 'held-public.py'
 TABLES = ('tasks', 'partners', 'moves', 'held_items', 'partner_pairings', 'excerpts',
           'executions', 'active_work', 'provider_journal', 'move_usages', 'move_dispatches', 'selections')
-LABELS = {
-    'en': {'map': 'y apply', 'missing': 'Submit: no remembered route', 'held': 'held: unavailable',
+LABELS = {'map': 'y apply', 'missing': 'Submit: no remembered route', 'held': 'held: unavailable',
            'draft': 'existing draft kept', 'moves': 'Moves: 1', 'empty': 'empty slot',
            'readonly': 'Read-only mapped owner', 'route': 'Remembered route:',
            'busy': 'Staging: blocked by owned work', 'eligible': 'Staging: eligible',
            'import': 'Import TM: literal', 'target': 'Import TM / choose', 'name': 'Move name',
            'review': 'Confirm local change', 'run': 'Review one-shot execution permission',
-           'busy_refusal': 'owned work before'},
-    'ko': {'map': 'y 적용', 'missing': '전송: 기억된 연결 없음', 'held': '지닌 참조: 사용 불가',
-           'draft': '기존 초안 유지', 'moves': '기술: 1', 'empty': '빈 슬롯',
-           'readonly': '배정된 소유자 읽기 전용', 'route': '기억된 연결:',
-           'busy': '준비: 소유한 작업으로 차단됨', 'eligible': '준비: 가능',
-           'import': 'TM 가져오기: 파일', 'target': 'TM 가져오기 · 배울', 'name': '기술 이름',
-           'review': '로컬 변경 확인', 'run': '일회성 실행 권한 검토',
-           'busy_refusal': '소유한 작업을 끝내'},
-}
+           'busy_refusal': 'owned work before'}
 
 
 def save(path, value):
@@ -67,9 +58,9 @@ def save(path, value):
 
 
 class Journey:
-    def __init__(self, binary, output, root, size, language):
-        self.binary, self.output, self.root, self.size, self.language = binary, output, root, size, language
-        self.labels = LABELS[language]
+    def __init__(self, binary, output, root, size, ):
+        self.binary, self.output, self.root, self.size,  = binary, output, root, size, 
+        self.labels = LABELS
         self.project, self.home, self.data = root / 'project 空 格', root / 'home', root / 'data'
         output.mkdir(parents=True, exist_ok=False)
         self.project.mkdir(parents=True)
@@ -133,8 +124,7 @@ class Journey:
     def launch(self):
         self.serial += 1
         self.session = Session([str(self.binary), '--data-dir', str(self.data), '--images', 'off',
-                                '--color', 'mono', '--language', self.language,
-                                *(['--ascii'] if self.size[0] == 60 else [])],
+                                '--color', 'mono', *(['--ascii'] if self.size[0] == 60 else [])],
                                self.project, self.env, self.size, self.output / ('terminal-%02d' % self.serial))
         self.sessions.append(self.session)
         wait_for(self.session, 'Storage: saved', timeout=35)
@@ -143,7 +133,7 @@ class Journey:
         for _ in range(12):
             footer = self.session.display().rstrip().splitlines()[-1].strip()
             if footer.startswith(('Type Request /', 'Type a request /', 'Enter Send /', 'Draft only /',
-                                  '요청 입력 /', 'Enter 전송 /', '초안 편집 /', '초안만')):
+                                  )):
                 return
             self.session.send(ESC)
         raise AssertionError('workspace not restored\n' + self.session.display())
@@ -189,12 +179,12 @@ class Journey:
         request = 'Implement a new project file named writer-not-created.txt with the public fixture text.'
         with Peer('chat_completions', '', True, retain_body_bytes=True) as peer:
             self.lead(2)
-            open_setup(self.session, 'compatible', self.language)
-            fill_text(self.session, 'endpoint', peer.base, self.language)
-            fill_text(self.session, 'model', FIXTURE_MODEL, self.language)
-            focus_field(self.session, 'auth', self.language)
+            open_setup(self.session, 'compatible', )
+            fill_text(self.session, 'endpoint', peer.base, )
+            fill_text(self.session, 'model', FIXTURE_MODEL, )
+            focus_field(self.session, 'auth', )
             self.session.send(' ')  # Explicit reviewed keyless loopback source.
-            focus_field(self.session, 'save', self.language)
+            focus_field(self.session, 'save', )
             self.session.send('\r')
             self.wait(lambda: len(peer.snapshot('GET')) == 1 and FIXTURE_MODEL in self.session.display(),
                       'actual explicit local model metadata returned')
@@ -237,7 +227,7 @@ class Journey:
             # This is deliberate ordinary Request submission, not a fabricated
             # database claim or a formation-triggered send.
             footer = self.session.display().rstrip().splitlines()[-1].strip()
-            if footer.startswith(('Type Request /', 'Type a request /', '요청 입력 /')):
+            if footer.startswith(('Type Request /', 'Type a request /', )):
                 self.session.send('\r')
             self.session.send(UP * 64 + HOME + (ESC + '[3~') * 4096)
             self.session.paste(request)
@@ -279,7 +269,7 @@ class Journey:
             self.session.command('formation formation.toml')
             self.label('map')
             self.label('busy')
-            wait_for(self.session, '쓰기 소유자: #2' if self.language == 'ko' else 'Writer owner: #2')
+            wait_for(self.session, 'Writer owner: #2')
             # Baseline is deliberately after real admission and lead change:
             # automatic appearance and submitted-draft transitions are genuine.
             baseline = self.state()['partners'], self.task()['partner_drafts'], self.task()['lead_partner']
@@ -303,9 +293,9 @@ class Journey:
                 return (closed.is_set() and peer_reader_finished.is_set() and not state['active_work']
                         and state['provider_journal'] == before_writer['provider_journal']
                         and 'Storage: saved' in view
-                        and any(value in view.lower() for value in ('outcome unknown', '결과 불명'))
-                        and any(value in view for value in ('partial', '부분'))
-                        and any(value in view for value in ('unverified', '미검증')))
+                        and any(value in view.lower() for value in ('outcome unknown', ))
+                        and any(value in view for value in ('partial', ))
+                        and any(value in view for value in ('unverified', )))
 
             try:
                 self.session.command('cancel')
@@ -320,7 +310,7 @@ class Journey:
                     'provider_tool_journal_unchanged': after_cancel['provider_journal'] == before_writer['provider_journal'],
                     'move_dispatches': after_cancel['move_dispatches'], 'executions': after_cancel['executions'],
                     'storage_saved': 'Storage: saved' in view, 'display': view,
-                    'remote_outcome': 'unknown' if any(value in view.lower() for value in ('outcome unknown', '결과 불명')) else 'not_observed',
+                    'remote_outcome': 'unknown' if any(value in view.lower() for value in ('outcome unknown', )) else 'not_observed',
                     'remote_cancellation_confirmed': False, 'peer_errors': list(peer.errors),
                     'peer_workers_alive': [worker.is_alive() for worker in peer.workers],
                 })
@@ -374,7 +364,7 @@ class Journey:
         self.label('name')
         self.session.send('\r')
         self.label('review')
-        expose_review(self.session, self.language, self.capture)
+        expose_review(self.session, self.capture)
         self.session.send('y')
         self.wait(lambda: len(self.state()['moves']) == 1, 'reviewed actual move import')
         assert self.state()['moves'][0]['partner'] == 2 and self.state()['moves'][0]['form'] == 7
@@ -402,7 +392,7 @@ class Journey:
                   'actual remembered route committed without metadata discovery')
         self.workspace()
         footer = self.session.display().rstrip().splitlines()[-1].strip()
-        if footer.startswith(('Type Request /', 'Type a request /', '요청 입력 /')):
+        if footer.startswith(('Type Request /', 'Type a request /', )):
             self.session.send('\r')
         self.session.paste(DRAFT)
         self.session.send(HOME + RIGHT * 5 + '\x13')
@@ -460,9 +450,9 @@ class Journey:
         # visits must still return to mapping when normal stack navigation
         # unwinds to an already-open Agents/Records surface.
         self.session.command('provider')
-        wait_for(self.session, ' 연결 ' if self.language == 'ko' else ' Connections ')
+        wait_for(self.session, ' Connections ')
         self.session.command('partner-summary')
-        wait_for(self.session, '파트너 요약' if self.language == 'ko' else 'Partner summary')
+        wait_for(self.session, 'Partner summary')
         self.session.command('formation formation.toml')
         self.label('map')
         self.label('missing')
@@ -532,7 +522,7 @@ class Journey:
         self.capture('successful-local-staging-after-owner-settlement')
         cases.append('successful-atomic-staging-independently-revalidated-and-nonempty-draft-caret-retained')
         self.session.command('formation-save exported.toml')
-        wait_for(self.session, 'y 새 파일 생성' if self.language == 'ko' else 'y create new file', timeout=35)
+        wait_for(self.session, 'y create new file', timeout=35)
         self.session.send('y')
         path = self.project / 'exported.toml'
         self.wait(path.exists, 'actual create-only formation export')
@@ -544,7 +534,7 @@ class Journey:
         self.no_dispatch()
         cases.append('portable-export-has-only-existing-semantic-fields-no-local-readiness-identities-or-authority')
         self.finish(owned_work=True)
-        return {'status': 'passed', 'size': list(self.size), 'language': self.language, 'cases': cases}
+        return {'status': 'passed', 'size': list(self.size), 'cases': cases}
 
     def close(self):
         for session in self.sessions:
@@ -567,7 +557,6 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--binary', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
-    parser.add_argument('--language', choices=('en', 'ko'), default='en')
     parser.add_argument('--size', type=size_arg, action='append', help='repeatable; default 120x36 and 60x18')
     args = parser.parse_args()
     binary, output = args.binary.resolve(), args.output.resolve()
@@ -578,11 +567,10 @@ def main():
             journey = None
             try:
                 journey = Journey(binary, output / ('%02d-%dx%d' % (index, *size)),
-                                  Path(temp) / str(index), size, args.language)
+                                  Path(temp) / str(index), size, )
                 report['journeys'].append(journey.run())
             except Exception:
-                report['journeys'].append({'status': 'failed', 'size': list(size), 'language': args.language,
-                                           'traceback': traceback.format_exc()})
+                report['journeys'].append({'status': 'failed', 'size': list(size), 'traceback': traceback.format_exc()})
                 save(output / 'results.json', report)
                 raise
             finally:

@@ -27,7 +27,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
     let area = sheet(area, 104, area.height);
     frame.render_widget(Clear, area);
     let block = panel(
-        paint.hint(crate::i18n::Message::DesksSourcesPanel),
+        paint.hint(crate::messages::Message::DesksSourcesPanel),
         config,
         paint,
         true,
@@ -185,26 +185,24 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         frame,
         row(content, content.height.saturating_sub(2), 2),
         if app.sources.store_failed {
-            paint.hint(crate::i18n::Message::DesksSourcesEnterRetryRetainedLocalSaveEscDraft)
+            paint.hint(crate::messages::Message::DesksSourcesEnterRetryRetainedLocalSaveEscDraft)
         } else if app.sources.busy() {
             paint.hint(
-                crate::i18n::Message::DesksSourcesSavingValidatingLocallyAttachmentNotCommittedPgup,
+                crate::messages::Message::DesksSourcesSavingValidatingLocallyAttachmentNotCommittedPgup,
             )
         } else {
             match app.sources.mode {
                 Mode::Files => {
-                    paint.hint(crate::i18n::Message::DesksSourcesEnterReviewAttachSSearchRRange)
+                    paint.hint(crate::messages::Message::DesksSourcesEnterReviewAttachSSearchRRange)
                 }
-                Mode::Preview => {
-                    paint.hint(crate::i18n::Message::DesksSourcesEnterAttachLocallyReturnRRangeTab)
-                }
-                Mode::Basket => {
-                    paint.hint(crate::i18n::Message::DesksSourcesDelRemoveReviewTabFilesMorePgup)
-                }
+                Mode::Preview => paint
+                    .hint(crate::messages::Message::DesksSourcesEnterAttachLocallyReturnRRangeTab),
+                Mode::Basket => paint
+                    .hint(crate::messages::Message::DesksSourcesDelRemoveReviewTabFilesMorePgup),
                 Mode::Payload => {
-                    paint.hint(crate::i18n::Message::DesksSourcesMoreTabFilesPgupDnDetailsEsc)
+                    paint.hint(crate::messages::Message::DesksSourcesMoreTabFilesPgupDnDetailsEsc)
                 }
-                Mode::Comparison => paint.hint(crate::i18n::Message::ContextComparisonHint),
+                Mode::Comparison => paint.hint(crate::messages::Message::ContextComparisonHint),
                 Mode::Optimizer => paint.hint(
                     if app
                         .sources
@@ -212,9 +210,9 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                         .as_ref()
                         .is_some_and(|plan| plan.overflow)
                     {
-                        crate::i18n::Message::ContextOptimizerOverflowHint
+                        crate::messages::Message::ContextOptimizerOverflowHint
                     } else {
-                        crate::i18n::Message::ContextOptimizerHint
+                        crate::messages::Message::ContextOptimizerHint
                     },
                 ),
             }
@@ -225,21 +223,21 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         text(
             frame,
             row(content, content.height.saturating_sub(3), 1),
-            paint.hint(crate::i18n::Message::HeldSourceHint),
+            paint.hint(crate::messages::Message::HeldSourceHint),
             paint.muted,
         );
     } else if app.sources.mode == Mode::Basket {
         text(
             frame,
             row(content, content.height.saturating_sub(3), 1),
-            paint.hint(crate::i18n::Message::SourceMemoryHint),
+            paint.hint(crate::messages::Message::SourceMemoryHint),
             paint.muted,
         );
     } else if app.sources.mode != Mode::Comparison {
         text(
             frame,
             row(content, content.height.saturating_sub(3), 1),
-            paint.hint(crate::i18n::Message::ContextOptimizerSourceHint),
+            paint.hint(crate::messages::Message::ContextOptimizerSourceHint),
             paint.muted,
         );
     }
@@ -252,7 +250,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
 }
 
 fn comparison_lines(state: &crate::app::sources::State, paint: &Paint) -> Vec<String> {
-    use crate::i18n::{Message, Template};
+    use crate::messages::{Message, Template};
     let comparison = &state.comparison;
     let mut lines = vec![paint.hint(Message::ContextComparisonTitle).into()];
     if let Some(turn) = &comparison.turn {
@@ -367,7 +365,7 @@ fn comparison_lines(state: &crate::app::sources::State, paint: &Paint) -> Vec<St
     lines
 }
 fn optimizer_lines(state: &crate::app::sources::State, paint: &Paint) -> Vec<String> {
-    use crate::i18n::{Message, Template};
+    use crate::messages::{Message, Template};
     let Some(plan) = &state.optimizer_preview else {
         return vec![paint.hint(Message::ContextOptimizerTitle).into()];
     };
@@ -438,9 +436,13 @@ fn editor(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &Pai
     frame.render_widget(Clear, area);
     let block = panel(
         match editor.kind {
-            EditKind::Search => paint.hint(crate::i18n::Message::DesksSourcesFilenameFilterLiteral),
-            EditKind::Range => paint.hint(crate::i18n::Message::DesksSourcesSourceRangeInclusive),
-            EditKind::Budget => paint.hint(crate::i18n::Message::ContextOptimizerBudgetTitle),
+            EditKind::Search => {
+                paint.hint(crate::messages::Message::DesksSourcesFilenameFilterLiteral)
+            }
+            EditKind::Range => {
+                paint.hint(crate::messages::Message::DesksSourcesSourceRangeInclusive)
+            }
+            EditKind::Budget => paint.hint(crate::messages::Message::ContextOptimizerBudgetTitle),
         },
         config,
         paint,
@@ -453,12 +455,12 @@ fn editor(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &Pai
     } else {
         match editor.kind {
             EditKind::Search => paint.hint(
-                crate::i18n::Message::DesksSourcesCaseSensitiveFilenameSubstringExcludedPathsStay,
+                crate::messages::Message::DesksSourcesCaseSensitiveFilenameSubstringExcludedPathsStay,
             ),
             EditKind::Range => {
-                paint.hint(crate::i18n::Message::DesksSourcesOneBasedStartEndEGExact)
+                paint.hint(crate::messages::Message::DesksSourcesOneBasedStartEndEGExact)
             }
-            EditKind::Budget => paint.hint(crate::i18n::Message::ContextOptimizerBudgetHint),
+            EditKind::Budget => paint.hint(crate::messages::Message::ContextOptimizerBudgetHint),
         }
     };
     text(frame, row(content, 0, 2), hint, paint.muted);
@@ -495,7 +497,7 @@ fn confirmation(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, p
     let area = sheet(area, 76, if app.verbose { 20 } else { 14 });
     frame.render_widget(Clear, area);
     let block = panel(
-        paint.hint(crate::i18n::Message::DesksSourcesReviewLocalExcerptRemoval),
+        paint.hint(crate::messages::Message::DesksSourcesReviewLocalExcerptRemoval),
         config,
         paint,
         true,
@@ -517,19 +519,19 @@ fn confirmation(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, p
         })
         .unwrap_or_else(|| {
             paint
-                .hint(crate::i18n::Message::DesksSourcesUnavailableReloadBeforeConfirming)
+                .hint(crate::messages::Message::DesksSourcesUnavailableReloadBeforeConfirming)
                 .into()
         });
     let details = row(content, 0, content.height.saturating_sub(4));
     let summary = paint.format(
-        crate::i18n::Template::DesksSourcesRemovalSummary,
+        crate::messages::Template::DesksSourcesRemovalSummary,
         &[
             (
                 "action",
                 (if confirmation.purge {
-                    paint.hint(crate::i18n::Message::DesksSourcesPurge)
+                    paint.hint(crate::messages::Message::DesksSourcesPurge)
                 } else {
-                    paint.hint(crate::i18n::Message::DesksSourcesRemove)
+                    paint.hint(crate::messages::Message::DesksSourcesRemove)
                 }),
             ),
             ("id", &(confirmation.id).to_string()),
@@ -541,11 +543,11 @@ fn confirmation(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, p
                 "effect",
                 (if confirmation.purge {
                     paint.hint(
-                        crate::i18n::Message::DesksSourcesClearLocalBytesKeepUnavailableIdentity,
+                        crate::messages::Message::DesksSourcesClearLocalBytesKeepUnavailableIdentity,
                     )
                 } else {
                     paint
-                        .hint(crate::i18n::Message::DesksSourcesRemoveLocalReferenceAndCapturedText)
+                        .hint(crate::messages::Message::DesksSourcesRemoveLocalReferenceAndCapturedText)
                 }),
             ),
         ],
@@ -567,7 +569,7 @@ fn confirmation(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, p
             frame,
             row(details, rows as u16, remaining),
             Paragraph::new(paint.format(
-                crate::i18n::Template::DesksSourcesExactCapture,
+                crate::messages::Template::DesksSourcesExactCapture,
                 &[("capture", &(capture))],
             ))
             .style(paint.muted)
@@ -581,7 +583,7 @@ fn confirmation(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, p
     text(
         frame,
         row(content, content.height.saturating_sub(3), 1),
-        paint.hint(crate::i18n::Message::DesksSourcesNStayKeepTheExcerpt),
+        paint.hint(crate::messages::Message::DesksSourcesNStayKeepTheExcerpt),
         if confirmation.destructive {
             paint.surface
         } else {
@@ -592,9 +594,9 @@ fn confirmation(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, p
         frame,
         row(content, content.height.saturating_sub(2), 1),
         if confirmation.purge {
-            paint.hint(crate::i18n::Message::DesksSourcesYPurgeSelectedLocalCapturedBytes)
+            paint.hint(crate::messages::Message::DesksSourcesYPurgeSelectedLocalCapturedBytes)
         } else {
-            paint.hint(crate::i18n::Message::DesksSourcesYRemoveSelectedBasketReference)
+            paint.hint(crate::messages::Message::DesksSourcesYRemoveSelectedBasketReference)
         },
         if confirmation.destructive {
             paint.selected

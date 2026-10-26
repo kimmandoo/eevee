@@ -55,7 +55,7 @@ def until(session, predicate, message, timeout=35):
 
 def review_plan(session, command='plan-start'):
     session.command(command)
-    until(session, lambda: any(label in session.display() for label in ('Neutral review', '중립 검토')),
+    until(session, lambda: any(label in session.display() for label in ('Neutral review', )),
           'neutral full-graph review did not open')
     # Each key receives a real frame: jumping to a hidden bottom is not exposure.
     for _ in range(120):

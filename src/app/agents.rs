@@ -1700,6 +1700,15 @@ impl State {
         if self.auth_busy() {
             return false;
         }
+        if self.page == Page::Providers
+            && matches!(
+                key.code,
+                KeyCode::Enter | KeyCode::Right | KeyCode::Left | KeyCode::Tab | KeyCode::BackTab
+            )
+            && !self.provider_indices().any(|index| index == self.selected)
+        {
+            return false;
+        }
         match key.code {
             KeyCode::Char('d')
                 if matches!(
@@ -1715,8 +1724,6 @@ impl State {
                 self.remediate();
             }
             KeyCode::Enter if !self.busy() => match self.page {
-                Page::Providers if !self.provider_indices().any(|index| index == self.selected) => {
-                }
                 Page::Providers => {
                     if openai_family(self.selected) {
                         self.page = Page::OpenAi;
@@ -2434,6 +2441,38 @@ mod tests {
         assert!(state.pending.is_none() && state.use_for_task.is_none());
         press(&mut state, KeyCode::Esc);
         assert!(state.search.is_empty());
+    }
+
+    #[test]
+    fn empty_provider_search_cannot_open_actions_for_a_hidden_route() {
+        let mut state = discovered();
+        state.profiles = Agent::ALL.iter().map(|_| profile()).collect();
+        for character in "no-such-provider".chars() {
+            press(&mut state, KeyCode::Char(character));
+        }
+        assert_eq!(state.provider_indices().count(), 0);
+        let selected = state.selected;
+        let active = state.active;
+        for code in [
+            KeyCode::Enter,
+            KeyCode::Right,
+            KeyCode::Tab,
+            KeyCode::BackTab,
+            KeyCode::Left,
+        ] {
+            press(&mut state, code);
+            assert_eq!(state.page, Page::Providers);
+            assert_eq!(state.selected, selected);
+            assert_eq!(state.active, active);
+            assert!(!state.connection_editing());
+            assert!(state.pending.is_none() && state.pending_auth.is_none());
+            assert!(state.use_for_task.is_none() && state.pick.is_none());
+        }
+        press(&mut state, KeyCode::Esc);
+        assert!(state.search.is_empty());
+        assert!(state.provider_indices().any(|index| index == selected));
+        press(&mut state, KeyCode::Right);
+        assert_eq!(state.page, Page::Actions);
     }
 
     #[test]

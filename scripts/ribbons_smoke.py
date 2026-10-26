@@ -26,15 +26,14 @@ class Journey(records.Journey):
 
     def workspace(self, allow_offer=False):
         view = self.session.display()
-        if any(title in view for title in ('Evolution!', '진화했어요!')):
+        if any(title in view for title in ('Evolution!', )):
             self.session.send('\x1b[24~')  # Neutral acknowledgment, not editor Escape.
         view = self.session.display()
-        if any(title in view for title in ('Ribbons / project history', '리본 / 프로젝트 이력')):
+        if any(title in view for title in ('Ribbons / project history', )):
             self.session.send(ESC)
         view = self.session.display()
-        if any(title in view for title in ('Moves / local reusable actions', '기술 / 로컬 재사용 행동')):
-            assert not any(text in view for text in ('Confirm local change', '로컬 변경 확인',
-                                                     'wants to learn a move!', '기술을 배우려고 합니다!'))
+        if any(title in view for title in ('Moves / local reusable actions', )):
+            assert not any(text in view for text in ('Confirm local change', 'wants to learn a move!', ))
             self.session.send(ESC)
         return super().workspace(allow_offer=allow_offer)
 
@@ -52,19 +51,19 @@ class Journey(records.Journey):
 
     def ribbon_panel(self):
         self.session.command('ribbons')
-        self.wait_caption('Ribbons / project history', '리본 / 프로젝트 이력')
+        self.wait_caption('Ribbons / project history', )
         self.session.send(UP * 8)
 
     def export(self, name):
         self.workspace()
         self.session.command('handoff')
-        self.wait_caption('Portable task handoff / local-only', '이동 가능한 작업 인계 / 로컬 전용')
+        self.wait_caption('Portable task handoff / local-only', )
         self.session.command('export-json')
-        self.wait_caption('LITERAL FILE PATH', '리터럴 파일 경로')
+        self.wait_caption('LITERAL FILE PATH', )
         destination = self.root / name
         self.session.paste(str(destination))
         self.session.send('\r')
-        self.wait_caption('SANITIZED EXPORT PREVIEW', '민감 정보 정리 내보내기 미리보기')
+        self.wait_caption('SANITIZED EXPORT PREVIEW', )
         self.session.send(PAGE * 24 + RIGHT + '\r')
         self.until(destination.exists, 'explicit local handoff export did not finish')
         document = json.loads(destination.read_text(encoding='utf-8'))
@@ -79,11 +78,11 @@ class Journey(records.Journey):
 
     def teach_run(self, name):
         self.session.command('teach-move')
-        self.wait_caption('Move name', '기술 이름')
+        self.wait_caption('Move name', )
         self.replace_editor('x' * 64, name)
         self.capture('explicit-move-name-preview')
         self.session.send('\r')
-        self.wait_caption('Confirm local change', '로컬 변경 확인')
+        self.wait_caption('Confirm local change', )
         assert self.milestone('learned_move') is None, 'teaching preview created a milestone'
         self.capture('neutral-teaching-review-before-commit')
         self.session.send('y')
@@ -103,7 +102,7 @@ class Journey(records.Journey):
     def accept_review(self):
         self.form('glaceon')
         self.session.command('workflows')
-        self.wait_caption('Specialist desk', '전문가 데스크')
+        self.wait_caption('Specialist desk', )
         self.workflow_attach(8, 0)  # One actual source, followed by the real run.
         self.workflow_attach(8, 1)
         self.session.command('verdict-accept')
@@ -112,13 +111,13 @@ class Journey(records.Journey):
         self.workspace()
 
 
-def run(binary, output, root, size, language):
+def run(binary, output, root, size, ):
     results = {key: {'evidence': []} for key in records.CASES}
-    result = {'status': 'failed', 'size': list(size), 'language': language, 'cases': []}
+    result = {'status': 'failed', 'size': list(size), 'cases': []}
     journey = None
     with Peer('chat_completions', 'unused-keyless-public-fixture', True, retain_body_bytes=True) as peer:
         try:
-            journey = Journey(binary, output, root, size, size[0] == 60, results, peer, language)
+            journey = Journey(binary, output, root, size, size[0] == 60, results, peer, )
             journey.configure_criteria()
             journey.form('sylveon')
             journey.export('unverified-context.json')
@@ -302,17 +301,16 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--binary', required=True, type=Path)
     parser.add_argument('--output', required=True, type=Path)
-    parser.add_argument('--language', choices=('en', 'ko'), default='en')
     args = parser.parse_args()
     binary, output = args.binary.resolve(), args.output.resolve()
     output.mkdir(parents=True, exist_ok=False)
     with tempfile.TemporaryDirectory(prefix='ev-ribbons-漢字-') as temporary:
         root = Path(temporary).resolve()
-        journeys = [run(binary, output / str(size[0]), root / str(size[0]), size, args.language)
+        journeys = [run(binary, output / str(size[0]), root / str(size[0]), size, )
                     for size in ((120, 36), (60, 18))]
     report = {'status': 'passed' if all(row['status'] == 'passed' for row in journeys) else 'failed',
               'binary': str(binary), 'sha256': hashlib.sha256(binary.read_bytes()).hexdigest(),
-              'language': args.language, 'journeys': journeys,
+              'journeys': journeys,
               'limits': 'Real isolated CLI/PTY, local commands and read-only SQLite/loopback observations; not live-provider, physical-terminal or all-native conformance.'}
     records.save(output / 'results.json', report)
     print(json.dumps({'status': report['status'], 'output': str(output)}))

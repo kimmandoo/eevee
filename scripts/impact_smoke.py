@@ -68,7 +68,7 @@ def pages(session, output, label):
     return ''.join(text.split())
 
 
-def journey(binary, output, language, size):
+def journey(binary, output, size):
     with tempfile.TemporaryDirectory(prefix='ev-impact-') as temporary:
         root = Path(temporary).resolve()
         project, home, data = root / 'project', root / 'home', root / 'data'
@@ -103,7 +103,7 @@ def journey(binary, output, language, size):
         command('init', '-q'); command('add', '.')
         command('-c', 'user.name=Local acceptance', '-c', 'user.email=local@example.invalid', 'commit', '-qm', 'impact baseline')
         database = data / 'workbench.sqlite3'
-        session = SurfaceSession([str(binary), '--data-dir', str(data), '--images', 'off', '--color', 'mono', '--no-animation', *(['--ascii'] if size[0] == 60 else [])], project, environment, size, output, language=language)
+        session = SurfaceSession([str(binary), '--data-dir', str(data), '--images', 'off', '--color', 'mono', '--no-animation', *(['--ascii'] if size[0] == 60 else [])], project, environment, size, output, )
         try:
             wait_for(session, 'Storage: saved', timeout=35)
             session.command('goal'); session.paste('Impact-directed caller check acceptance'); session.send('\r')
@@ -120,7 +120,7 @@ def journey(binary, output, language, size):
             until(session, lambda: 'Targeted recommendation' in session.display(), 'Targeted proposal did not finish')
             text = pages(session, output, 'targeted-proposal')
             assert 'caller_contract' in text and 'unrelated_contract' not in text, text
-            assert 'TARGETED' in text or '選' in text or '선택' in text, text
+            assert 'TARGETED' in text, text
             assert rows(database)[1] == before, 'Inspection started a command'
             session.send(ESC)
             session.command('stage-impact-plan')
@@ -135,7 +135,7 @@ def journey(binary, output, language, size):
             save(output / 'staged-targeted-plan.json', plan)
             review_plan(session)
             session.command('approvals')
-            until(session, lambda: 'Review one-shot execution permission' in session.display() or '일회성 실행 권한' in session.display(), 'Each proposed command needs exact Jolteon review')
+            until(session, lambda: 'Review one-shot execution permission' in session.display(), 'Each proposed command needs exact Jolteon review')
             session.capture('exact-jolteon-review')
             session.send(ESC + '[C' + chr(13))
             until(session, lambda: len(rows(database)[1]) == len(before) + 1 and rows(database)[1][-1]['state'] == 'Failed', 'Caller test did not catch changed callee', timeout=120)
@@ -159,7 +159,7 @@ def journey(binary, output, language, size):
             session.send(ESC)
             session.command('quit'); confirm_exit(session)
             assert session.wait_exit() == 0
-            return {'status': 'passed', 'language': language, 'size': size, 'targeted_exit': 101,
+            return {'status': 'passed', 'size': size, 'targeted_exit': 101,
                     'actual_runs': 1, 'inert_preview_and_stage': True, 'shared_config_broadened': True}
         finally:
             session.close()
@@ -169,7 +169,6 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--binary', required=True)
     parser.add_argument('--output', required=True)
-    parser.add_argument('--language', choices=('en', 'ko'), default='en')
     args = parser.parse_args()
     binary, output = Path(args.binary).resolve(), Path(args.output).resolve()
     assert not output.exists() or not any(output.iterdir()), 'Use a new evidence directory'
@@ -177,7 +176,7 @@ def main():
     report = {'status': 'failed', 'binary_sha256': hashlib.sha256(binary.read_bytes()).hexdigest(), 'journeys': []}
     try:
         for size in ((120, 36), (60, 18)):
-            report['journeys'].append(journey(binary, output / ('wide' if size[0] == 120 else 'compact'), args.language, size))
+            report['journeys'].append(journey(binary, output / ('wide' if size[0] == 120 else 'compact'), size))
         report['status'] = 'passed'
     except Exception:
         report['error'] = traceback.format_exc()

@@ -9,7 +9,7 @@ use super::{Paint, clipped, panel, row, text};
 use crate::{
     app::App,
     config::Config,
-    i18n::{Message, Template},
+    messages::{Message, Template},
 };
 
 pub(super) fn render(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &Paint) {
@@ -144,25 +144,24 @@ pub(super) fn commands(frame: &mut Frame, area: Rect, app: &App, config: &Config
             .clone()
             .or_else(|| app.command_disabled_reason(choice.command))
     });
-    let argument_hint = popup.argument().map(|(name, argument)| {
-        paint.format(
+    let argument_hint = popup.argument().and_then(|(name, argument)| {
+        let action = match name {
+            "model" => Message::ProvidersComposerUseExactModel,
+            "effort" => Message::ProvidersComposerSetReasoning,
+            "connect" => Message::ProvidersComposerChooseConnection,
+            "lead" => Message::ProvidersComposerChoosePartner,
+            _ => return None,
+        };
+        Some(paint.format(
             Template::ProvidersCommandArgument,
             &[
-                (
-                    "action",
-                    (match name {
-                        "model" => paint.hint(Message::ProvidersComposerUseExactModel),
-                        "effort" => paint.hint(Message::ProvidersComposerSetReasoning),
-                        "connect" => paint.hint(Message::ProvidersComposerChooseConnection),
-                        _ => paint.hint(Message::ProvidersComposerChoosePartner),
-                    }),
-                ),
+                ("action", paint.hint(action)),
                 (
                     "argument",
                     &(clipped(argument, content.width.saturating_sub(24) as usize)),
                 ),
             ],
-        )
+        ))
     });
     let help = selected.map(|choice| {
         crate::command_help::key(choice.command)

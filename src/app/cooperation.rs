@@ -2574,133 +2574,129 @@ mod tests {
     fn actual_auto_file_review_requires_engagement_then_rendered_scope_for_once() {
         use crate::{
             config::{ColorMode, Config, ImageMode, LayoutMode, Theme},
-            i18n::{Language, Message},
+            messages::Message,
         };
         use ratatui::{Terminal, backend::TestBackend};
 
-        for tag in ["en", "ko"] {
-            let language = Language::parse(tag).unwrap();
-            let config = Config {
-                language,
-                ascii: true,
-                no_animation: true,
-                animation_override: Some(false),
-                theme: Theme::Dark,
-                color: ColorMode::Mono,
-                images: ImageMode::Off,
-                assets_dir: "unused".into(),
-                layout: LayoutMode::Sanctuary,
-                layout_explicit: false,
-                data_dir: "unused-data".into(),
-                storage_policy: store::Policy::default(),
-                context_exclusions: Vec::new(),
-                capture_capacity: 64 * 1024,
-            };
-            for (width, height) in [(60, 18), (120, 36)] {
-                for editing in [true, false] {
-                    let mut app = app();
-                    app.width = width;
-                    app.height = height;
-                    start(&mut app, 1, 1);
-                    app.planning.work.as_mut().unwrap().writing = true;
-                    app.open_editor(store::EditorField::Request);
-                    app.input = "Future 漢字 request".into();
-                    app.cursor = "Future ".len();
-                    app.editing = editing;
-                    app.focus = Pane::Workspace;
-                    let draft = (app.input.clone(), app.cursor);
-                    file_prompt(&mut app, 1, 2);
-                    assert_eq!(app.overlay, Some(Overlay::Planning));
-                    assert!(app.planning.auto_permission_review);
-                    let mut artwork = crate::ui::artwork::Artwork::load(&config);
-                    let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
-                    let mut draw = |app: &mut App| {
-                        terminal
-                            .draw(|frame| {
-                                crate::ui::render(frame, app, &config, &mut artwork, "off");
-                            })
-                            .unwrap();
-                        let buffer = terminal.backend().buffer();
-                        let mut screen = String::new();
-                        for y in 0..height {
-                            let mut x = 0;
-                            while x < width {
-                                let symbol = buffer[(x, y)].symbol();
-                                screen.push_str(symbol);
-                                x += ratatui::text::Span::raw(symbol).width().max(1) as u16;
-                            }
-                            screen.push('\n');
+        let config = Config {
+            ascii: true,
+            no_animation: true,
+            animation_override: Some(false),
+            theme: Theme::Dark,
+            color: ColorMode::Mono,
+            images: ImageMode::Off,
+            assets_dir: "unused".into(),
+            layout: LayoutMode::Sanctuary,
+            layout_explicit: false,
+            data_dir: "unused-data".into(),
+            storage_policy: store::Policy::default(),
+            context_exclusions: Vec::new(),
+            capture_capacity: 64 * 1024,
+        };
+        for (width, height) in [(60, 18), (120, 36)] {
+            for editing in [true, false] {
+                let mut app = app();
+                app.width = width;
+                app.height = height;
+                start(&mut app, 1, 1);
+                app.planning.work.as_mut().unwrap().writing = true;
+                app.open_editor(store::EditorField::Request);
+                app.input = "Future 漢字 request".into();
+                app.cursor = "Future ".len();
+                app.editing = editing;
+                app.focus = Pane::Workspace;
+                let draft = (app.input.clone(), app.cursor);
+                file_prompt(&mut app, 1, 2);
+                assert_eq!(app.overlay, Some(Overlay::Planning));
+                assert!(app.planning.auto_permission_review);
+                let mut artwork = crate::ui::artwork::Artwork::load(&config);
+                let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+                let mut draw = |app: &mut App| {
+                    terminal
+                        .draw(|frame| {
+                            crate::ui::render(frame, app, &config, &mut artwork, "off");
+                        })
+                        .unwrap();
+                    let buffer = terminal.backend().buffer();
+                    let mut screen = String::new();
+                    for y in 0..height {
+                        let mut x = 0;
+                        while x < width {
+                            let symbol = buffer[(x, y)].symbol();
+                            screen.push_str(symbol);
+                            x += ratatui::text::Span::raw(symbol).width().max(1) as u16;
                         }
-                        screen
-                    };
-                    let screen = draw(&mut app);
-                    assert!(screen.contains("src/new.rs"), "{screen}");
-                    assert_eq!((app.input.clone(), app.cursor), draft);
-                    for code in [KeyCode::Char('a'), KeyCode::Char('y'), KeyCode::Char('n')] {
-                        app.update(Event::Key(KeyEvent::new(code, KeyModifiers::NONE)));
+                        screen.push('\n');
                     }
-                    app.update(Event::Paste("a\ny\nn\n".into()));
-                    assert!(app.planning.auto_permission_review && app.planning.pending.is_none());
-                    app.update(Event::Key(KeyEvent::new(
-                        KeyCode::Enter,
-                        KeyModifiers::NONE,
-                    )));
-                    assert!(!app.planning.auto_permission_review && app.planning.review_details);
-                    assert!(!app.planning.reviewed && app.planning.pending.is_none());
-                    app.update(Event::Key(KeyEvent::new(
-                        KeyCode::Char('a'),
-                        KeyModifiers::NONE,
-                    )));
-                    assert!(
-                        app.planning.pending.is_none(),
-                        "engagement does not reuse prior render authority"
-                    );
-                    let engaged = draw(&mut app);
-                    app.update(Event::Key(KeyEvent::new(
-                        KeyCode::Char('d'),
-                        KeyModifiers::NONE,
-                    )));
-                    let engaged = format!("{engaged}{}", draw(&mut app));
-                    assert!(app.planning.reviewed, "{engaged}");
-                    app.update(Event::Key(KeyEvent::new(
-                        KeyCode::Char('a'),
-                        KeyModifiers::NONE,
-                    )));
-                    assert!(matches!(
-                        app.planning.pending.take(),
-                        Some(providers::Request::Answer { request_id, answer, .. })
-                            if request_id == json!("file-2") && answer == json!("once")
-                    ));
-                    assert!(app.overlay.is_none() && app.planning.request.is_none());
-                    assert_eq!((app.input.clone(), app.cursor), draft);
-                    app.update(Event::Key(KeyEvent::new_with_kind(
-                        KeyCode::Char('a'),
-                        KeyModifiers::NONE,
-                        KeyEventKind::Repeat,
-                    )));
-                    assert!(
-                        app.planning.pending.is_none(),
-                        "one review grants once only"
-                    );
-                    app.provider_event(
-                        1,
-                        providers::Event::Finished {
-                            generation: 7,
-                            task_id: 7,
-                            outcome: providers::Outcome::Completed,
-                            message: "Completed".into(),
-                        },
-                    );
-                    app.refresh_approvals();
-                    let settled = draw(&mut app);
-                    assert!(!settled.contains(
-                        language.text(Message::ProvidersPlanningPermissionAutoReviewActions)
-                    ));
-                    assert!(
-                        !settled.contains(language.text(Message::CoreWaitingForUser)),
-                        "{settled}"
-                    );
+                    screen
+                };
+                let screen = draw(&mut app);
+                assert!(screen.contains("src/new.rs"), "{screen}");
+                assert_eq!((app.input.clone(), app.cursor), draft);
+                for code in [KeyCode::Char('a'), KeyCode::Char('y'), KeyCode::Char('n')] {
+                    app.update(Event::Key(KeyEvent::new(code, KeyModifiers::NONE)));
                 }
+                app.update(Event::Paste("a\ny\nn\n".into()));
+                assert!(app.planning.auto_permission_review && app.planning.pending.is_none());
+                app.update(Event::Key(KeyEvent::new(
+                    KeyCode::Enter,
+                    KeyModifiers::NONE,
+                )));
+                assert!(!app.planning.auto_permission_review && app.planning.review_details);
+                assert!(!app.planning.reviewed && app.planning.pending.is_none());
+                app.update(Event::Key(KeyEvent::new(
+                    KeyCode::Char('a'),
+                    KeyModifiers::NONE,
+                )));
+                assert!(
+                    app.planning.pending.is_none(),
+                    "engagement does not reuse prior render authority"
+                );
+                let engaged = draw(&mut app);
+                app.update(Event::Key(KeyEvent::new(
+                    KeyCode::Char('d'),
+                    KeyModifiers::NONE,
+                )));
+                let engaged = format!("{engaged}{}", draw(&mut app));
+                assert!(app.planning.reviewed, "{engaged}");
+                app.update(Event::Key(KeyEvent::new(
+                    KeyCode::Char('a'),
+                    KeyModifiers::NONE,
+                )));
+                assert!(matches!(
+                    app.planning.pending.take(),
+                    Some(providers::Request::Answer { request_id, answer, .. })
+                        if request_id == json!("file-2") && answer == json!("once")
+                ));
+                assert!(app.overlay.is_none() && app.planning.request.is_none());
+                assert_eq!((app.input.clone(), app.cursor), draft);
+                app.update(Event::Key(KeyEvent::new_with_kind(
+                    KeyCode::Char('a'),
+                    KeyModifiers::NONE,
+                    KeyEventKind::Repeat,
+                )));
+                assert!(
+                    app.planning.pending.is_none(),
+                    "one review grants once only"
+                );
+                app.provider_event(
+                    1,
+                    providers::Event::Finished {
+                        generation: 7,
+                        task_id: 7,
+                        outcome: providers::Outcome::Completed,
+                        message: "Completed".into(),
+                    },
+                );
+                app.refresh_approvals();
+                let settled = draw(&mut app);
+                assert!(
+                    !settled.contains(Message::ProvidersPlanningPermissionAutoReviewActions.text())
+                );
+                assert!(
+                    !settled.contains(Message::CoreWaitingForUser.text()),
+                    "{settled}"
+                );
             }
         }
     }

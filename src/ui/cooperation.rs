@@ -21,7 +21,7 @@ pub(super) fn header(frame: &mut Frame, area: Rect, app: &App, paint: &Paint) ->
     }) {
         let owner = store::Attribution::label(Some(&claim.owner));
         let label = paint.format(
-            crate::i18n::Template::ProvidersPlanningPreparingChanges,
+            crate::messages::Template::ProvidersPlanningPreparingChanges,
             &[("owner", &owner)],
         );
         let paragraph = Paragraph::new(label)
@@ -47,11 +47,13 @@ pub(super) fn header(frame: &mut Frame, area: Rect, app: &App, paint: &Paint) ->
     } else if app.approval_count() > 0 {
         let label = if app.approval_shortcut_available() {
             paint.format(
-                crate::i18n::Template::CorePendingReviewBanner,
+                crate::messages::Template::CorePendingReviewBanner,
                 &[("count", &app.approval_count().to_string())],
             )
         } else {
-            paint.hint(crate::i18n::Message::CoreWaitingForUser).into()
+            paint
+                .hint(crate::messages::Message::CoreWaitingForUser)
+                .into()
         };
         text(frame, row(area, offset, 1), &label, paint.accent);
         offset += 1;
@@ -81,20 +83,20 @@ pub(super) fn header(frame: &mut Frame, area: Rect, app: &App, paint: &Paint) ->
         let fresh = if transition.fresh {
             format!(
                 " · {}",
-                paint.hint(crate::i18n::Message::CoreEvolutionFresh)
+                paint.hint(crate::messages::Message::CoreEvolutionFresh)
             )
         } else {
             String::new()
         };
         let label = paint.format(
-            crate::i18n::Template::CoreEvolutionTransition,
+            crate::messages::Template::CoreEvolutionTransition,
             &[
                 (
                     "mode",
                     paint.hint(if app.lead().auto_form {
-                        crate::i18n::Message::CoreEvolutionAuto
+                        crate::messages::Message::CoreEvolutionAuto
                     } else {
-                        crate::i18n::Message::CoreEvolutionManual
+                        crate::messages::Message::CoreEvolutionManual
                     }),
                 ),
                 ("from", crate::domain::FORMS[transition.from].name),
@@ -133,12 +135,12 @@ pub(super) fn evolution_popup(
     frame.render_widget(Clear, area);
     let title = format!(
         " {} ",
-        paint.hint(crate::i18n::Message::CoreEvolutionPopupTitle)
+        paint.hint(crate::messages::Message::CoreEvolutionPopupTitle)
     );
     let mode = paint.hint(if app.lead().auto_form {
-        crate::i18n::Message::CoreEvolutionAuto
+        crate::messages::Message::CoreEvolutionAuto
     } else {
-        crate::i18n::Message::CoreEvolutionManual
+        crate::messages::Message::CoreEvolutionManual
     });
     let mut block = panel(&title, config, paint, true)
         .title_top(Line::styled(format!(" {mode} "), paint.muted).right_aligned())
@@ -146,7 +148,7 @@ pub(super) fn evolution_popup(
             Line::styled(
                 format!(
                     " {} ",
-                    paint.hint(crate::i18n::Message::CoreEvolutionPopupContinue)
+                    paint.hint(crate::messages::Message::CoreEvolutionPopupContinue)
                 ),
                 paint.muted,
             )
@@ -274,7 +276,7 @@ pub(super) fn board(frame: &mut Frame, area: Rect, app: &mut App, config: &Confi
     let area = sheet(area, 106, 26);
     frame.render_widget(Clear, area);
     let block = panel(
-        paint.hint(crate::i18n::Message::DesksCooperationBoardPanel),
+        paint.hint(crate::messages::Message::DesksCooperationBoardPanel),
         config,
         paint,
         true,
@@ -286,7 +288,7 @@ pub(super) fn board(frame: &mut Frame, area: Rect, app: &mut App, config: &Confi
         text(
             frame,
             content,
-            paint.hint(crate::i18n::Message::DesksCooperationNoPartnerOwnsWorkingOrWaitingWork),
+            paint.hint(crate::messages::Message::DesksCooperationNoPartnerOwnsWorkingOrWaitingWork),
             paint.muted,
         );
         return;
@@ -352,7 +354,7 @@ pub(super) fn board(frame: &mut Frame, area: Rect, app: &mut App, config: &Confi
     text(
         frame,
         row(content, content.height.saturating_sub(3), 3),
-        paint.hint(crate::i18n::Message::DesksCooperationUpDownChooseOwnerEnterFrontOwner),
+        paint.hint(crate::messages::Message::DesksCooperationUpDownChooseOwnerEnterFrontOwner),
         paint.accent,
     );
 }
@@ -377,7 +379,7 @@ pub(super) fn release(
     };
     frame.render_widget(Clear, area);
     let block = panel(
-        paint.hint(crate::i18n::Message::DesksCooperationReleasePanel),
+        paint.hint(crate::messages::Message::DesksCooperationReleasePanel),
         config,
         paint,
         true,
@@ -385,7 +387,7 @@ pub(super) fn release(
     let content = block.inner(area);
     frame.render_widget(block, area);
     let disclosure = paint.format(
-        crate::i18n::Template::DesksCooperationReleaseDisclosure,
+        crate::messages::Template::DesksCooperationReleaseDisclosure,
         &[
             ("owner", &(store::Attribution::label(Some(&review.owner)))),
             ("partner", &(review.owner.partner).to_string()),
@@ -399,11 +401,11 @@ pub(super) fn release(
         .min(u16::MAX as usize) as u16;
     frame.render_widget(paragraph, row(content, 0, content.height.saturating_sub(4)));
     let message = if review.pending {
-        paint.hint(crate::i18n::Message::DesksCooperationWaitingForCommittedRosterAcknowledgementNoSuccess).to_owned()
+        paint.hint(crate::messages::Message::DesksCooperationWaitingForCommittedRosterAcknowledgementNoSuccess).to_owned()
     } else if let Some(refusal) = &review.refusal {
         format!("Refused: {refusal}")
     } else {
-        paint.hint(crate::i18n::Message::DesksCooperationOnlyExplicitConfirmationRequestsRemovalEscKeeps).to_owned()
+        paint.hint(crate::messages::Message::DesksCooperationOnlyExplicitConfirmationRequestsRemovalEscKeeps).to_owned()
     };
     let status = Paragraph::new(message)
         .style(paint.accent)
@@ -421,7 +423,7 @@ pub(super) fn release(
     }
     let choices = Line::from(vec![
         Span::styled(
-            paint.hint(crate::i18n::Message::DesksCooperationStay),
+            paint.hint(crate::messages::Message::DesksCooperationStay),
             if review.affirmative {
                 paint.surface
             } else {
@@ -430,7 +432,7 @@ pub(super) fn release(
         ),
         Span::raw("  "),
         Span::styled(
-            paint.hint(crate::i18n::Message::DesksCooperationReleaseSelectedPartner),
+            paint.hint(crate::messages::Message::DesksCooperationReleaseSelectedPartner),
             if review.affirmative {
                 paint.selected
             } else {
@@ -446,11 +448,13 @@ pub(super) fn release(
         frame,
         row(content, content.height.saturating_sub(2), 1),
         if review.pending {
-            paint.hint(crate::i18n::Message::DesksCooperationWaitingForStorageRemovalCannotBeUndone)
+            paint.hint(
+                crate::messages::Message::DesksCooperationWaitingForStorageRemovalCannotBeUndone,
+            )
         } else if !minimum {
-            paint.hint(crate::i18n::Message::DesksCooperationResizeToXToReviewEscStay)
+            paint.hint(crate::messages::Message::DesksCooperationResizeToXToReviewEscStay)
         } else {
-            paint.hint(crate::i18n::Message::DesksCooperationYRequestLeftStayRightReleaseEnter)
+            paint.hint(crate::messages::Message::DesksCooperationYRequestLeftStayRightReleaseEnter)
         },
         paint.muted,
     );
@@ -483,9 +487,9 @@ pub(super) fn cancellation(
     frame.render_widget(Clear, area);
     let block = panel(
         if review.quit {
-            paint.hint(crate::i18n::Message::DesksCooperationQuitPanel)
+            paint.hint(crate::messages::Message::DesksCooperationQuitPanel)
         } else {
-            paint.hint(crate::i18n::Message::DesksCooperationCancelPanel)
+            paint.hint(crate::messages::Message::DesksCooperationCancelPanel)
         },
         config,
         paint,
@@ -506,7 +510,7 @@ pub(super) fn cancellation(
     }
     let choices = Line::from(vec![
         Span::styled(
-            paint.hint(crate::i18n::Message::DesksCooperationStay),
+            paint.hint(crate::messages::Message::DesksCooperationStay),
             if review.affirmative {
                 paint.surface
             } else {
@@ -516,9 +520,9 @@ pub(super) fn cancellation(
         Span::raw("  "),
         Span::styled(
             if review.quit {
-                paint.hint(crate::i18n::Message::DesksCooperationCancelAllAndWaitThenExit)
+                paint.hint(crate::messages::Message::DesksCooperationCancelAllAndWaitThenExit)
             } else {
-                paint.hint(crate::i18n::Message::DesksCooperationCancelAllAndWait)
+                paint.hint(crate::messages::Message::DesksCooperationCancelAllAndWait)
             },
             if review.affirmative {
                 paint.selected
@@ -535,9 +539,9 @@ pub(super) fn cancellation(
         frame,
         row(content, content.height.saturating_sub(2), 1),
         if review.reviewed {
-            paint.hint(crate::i18n::Message::DesksCooperationYConfirmLeftStayRightActionEnter)
+            paint.hint(crate::messages::Message::DesksCooperationYConfirmLeftStayRightActionEnter)
         } else {
-            paint.hint(crate::i18n::Message::DesksCooperationResizeToInspectAllOwnersEscStay)
+            paint.hint(crate::messages::Message::DesksCooperationResizeToInspectAllOwnersEscStay)
         },
         paint.accent,
     );
@@ -570,7 +574,7 @@ pub(super) fn journal_discard(
     };
     frame.render_widget(Clear, area);
     let block = panel(
-        paint.hint(crate::i18n::Message::DesksCooperationDiscardExactFailedJournalWritesDIds),
+        paint.hint(crate::messages::Message::DesksCooperationDiscardExactFailedJournalWritesDIds),
         config,
         paint,
         true,
@@ -581,7 +585,7 @@ pub(super) fn journal_discard(
     if app.cooperation_ui.journal_discard_details {
         review.affirmative = false;
         let mut detail = paint.format(
-            crate::i18n::Template::DesksCooperationJournalDetails,
+            crate::messages::Template::DesksCooperationJournalDetails,
             &[
                 ("owner", &(store::Attribution::label(Some(&review.owner)))),
                 ("task", &(review.task).to_string()),
@@ -596,7 +600,7 @@ pub(super) fn journal_discard(
             detail,
             "{}",
             paint.format(
-                crate::i18n::Template::DesksCooperationJournalError,
+                crate::messages::Template::DesksCooperationJournalError,
                 &[("error", &(review.error)),]
             )
         );
@@ -628,7 +632,7 @@ pub(super) fn journal_discard(
     }
     let choices = Line::from(vec![
         Span::styled(
-            paint.hint(crate::i18n::Message::DesksCooperationStay),
+            paint.hint(crate::messages::Message::DesksCooperationStay),
             if review.affirmative {
                 paint.surface
             } else {
@@ -637,7 +641,7 @@ pub(super) fn journal_discard(
         ),
         Span::raw("  "),
         Span::styled(
-            paint.hint(crate::i18n::Message::DesksCooperationDiscardFailedWrites),
+            paint.hint(crate::messages::Message::DesksCooperationDiscardFailedWrites),
             if review.affirmative {
                 paint.selected
             } else {
@@ -653,11 +657,11 @@ pub(super) fn journal_discard(
         frame,
         row(content, content.height.saturating_sub(2), 1),
         if app.cooperation_ui.journal_discard_details {
-            paint.hint(crate::i18n::Message::DesksCooperationDSummaryPgupDnIdsAndError)
+            paint.hint(crate::messages::Message::DesksCooperationDSummaryPgupDnIdsAndError)
         } else if review.reviewed {
-            paint.hint(crate::i18n::Message::DesksCooperationDDetailsYConfirmLeftRightEnter)
+            paint.hint(crate::messages::Message::DesksCooperationDDetailsYConfirmLeftRightEnter)
         } else {
-            paint.hint(crate::i18n::Message::DesksCooperationResizeToInspectFullScopeDDetails)
+            paint.hint(crate::messages::Message::DesksCooperationResizeToInspectFullScopeDDetails)
         },
         paint.accent,
     );

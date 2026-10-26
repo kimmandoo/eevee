@@ -55,33 +55,31 @@ def make_plan(binary, output, profile, jobs=2):
              for size, ascii_mode in SIZES]
     commands = []
 
-    def add(name, script, language, extra, coverage):
+    def add(name, script, extra, coverage):
         destination = output / name
         commands.append({
             'name': name, 'output': str(destination),
             'argv': [sys.executable, str(scripts / script), '--binary', str(binary),
-                     '--output', str(destination), '--language', language, *extra],
+                     '--output', str(destination), *extra],
             'timeout_seconds': DRIVER_TIMEOUT,
-            'coverage': {'language': language, 'sizes': sizes, **coverage},
+            'coverage': {'sizes': sizes, **coverage},
         })
 
-    for language in ('en', 'ko'):
-        add('platform-files-' + language, 'file_creation_smoke.py', language,
-            ('--profile', file_profile), {
-                'suite': 'files', 'profile': file_profile,
-                'routes': [{'provider': variant[0], 'protocol': variant[1],
-                            'keyless': variant[2]}
-                           for variant in variants],
-                'controlled_codex': controlled,
-            })
-    languages = () if profile == 'architecture' else (('ko',) if profile == 'macos' else ('en', 'ko'))
-    for language in languages:
-        for suite, script, extra in TOOLS:
-            add('platform-tools-' + suite + '-' + language, script, language, extra,
-                {'suite': suite, 'mode': 'native'})
-    native_files = 2 * len(SIZES) * len(variants)
-    codex_files = 2 * len(SIZES) if controlled else 0
-    tool_runs = len(languages) * len(TOOLS) * len(SIZES)
+    add('platform-files', 'file_creation_smoke.py',
+        ('--profile', file_profile), {
+            'suite': 'files', 'profile': file_profile,
+            'routes': [{'provider': variant[0], 'protocol': variant[1],
+                        'keyless': variant[2]}
+                       for variant in variants],
+            'controlled_codex': controlled,
+        })
+    tools = () if profile == 'architecture' else TOOLS
+    for suite, script, extra in tools:
+        add('platform-tools-' + suite, script, extra,
+            {'suite': suite, 'mode': 'native'})
+    native_files = len(SIZES) * len(variants)
+    codex_files = len(SIZES) if controlled else 0
+    tool_runs = len(tools) * len(SIZES)
     return {
         'schema_version': 1, 'profile': profile, 'jobs': jobs,
         'binary': str(binary), 'output': str(output),

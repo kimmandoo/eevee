@@ -1,6 +1,6 @@
 //! Exact typed plan inspection, separate from ordinary command consent.
 use super::*;
-use crate::{app::tool_plans::Review, i18n::Message, workspace::tool_plans::Operation};
+use crate::{app::tool_plans::Review, messages::Message, workspace::tool_plans::Operation};
 
 pub(super) fn render(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &Paint) {
     frame.render_widget(Clear, area);

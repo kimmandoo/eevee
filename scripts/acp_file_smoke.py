@@ -32,8 +32,8 @@ def save(path, value):
     path.write_text(json.dumps(value, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')
 
 
-def journey(binary, output, route, language, size, mode):
-    result = dict(status='failed', route=route, language=language, size=list(size), mode=mode, cases=[])
+def journey(binary, output, route, size, mode):
+    result = dict(status='failed', route=route, size=list(size), mode=mode, cases=[])
     session = None
     with tempfile.TemporaryDirectory(prefix='eevee-acp-files-') as temporary:
         root = Path(temporary).resolve()
@@ -76,15 +76,15 @@ def journey(binary, output, route, language, size, mode):
         def workspace():
             for _ in range(12):
                 footer = session.display().rstrip().splitlines()[-1].strip()
-                if 'Alt+A' in footer or footer.startswith(tuple(SURFACE[language][key] for key in ('home', 'edit', 'draft'))):
+                if 'Alt+A' in footer or footer.startswith(tuple(SURFACE[key] for key in ('home', 'edit', 'draft'))):
                     return footer
                 session.send(ESC)
             raise AssertionError('Workspace unavailable\n' + session.display())
 
         try:
-            session = SurfaceSession(argv, project, environment, size, output, language=language)
+            session = SurfaceSession(argv, project, environment, size, output, )
             wait_for(session, 'Storage: saved', timeout=40)
-            if workspace().startswith(SURFACE[language]['home']):
+            if workspace().startswith(SURFACE['home']):
                 session.send('\r')
             session.paste(REQUEST)
             session.send('\x13')
@@ -92,7 +92,7 @@ def journey(binary, output, route, language, size, mode):
                   for state in task['partner_drafts'].values() for draft in state.get('drafts', [])), 'request not durably saved')
             session.send('\r')
 
-            neutral = ('Enter to review (not approve)', 'Enter 검토 (승인 아님)')
+            neutral = ('Enter to review (not approve)', )
             until(session, lambda: any(label in session.display() for label in neutral),
                   'required external-policy review did not open automatically', timeout=40)
             session.send('y')
@@ -137,26 +137,26 @@ def journey(binary, output, route, language, size, mode):
             before_deferral = packets()
             session.send(ESC)
             until(session, lambda: not file_review_pending(session)
-                  and not any(label in session.display() for label in ('a/y Allow once', 'a/y 한 번')),
+                  and not any(label in session.display() for label in ('a/y Allow once', )),
                   'file proposal did not defer to the inline response')
             session.send(ALT_END)
             wanted = 'actual new file' if mode == 'happy' else 'must not report success'
             until(session, lambda: wanted in session.display()
-                  and any(label in session.display() for label in ('[FILE]', '[파일]'))
+                  and any(label in session.display() for label in ('[FILE]', ))
                   and not file_review_pending(session)
-                  and not any(label in session.display() for label in ('a/y Allow once', 'a/y 한 번')),
+                  and not any(label in session.display() for label in ('a/y Allow once', )),
                   'received source body and typed identity absent from inline output')
             assert packets() == before_deferral, 'deferring/reading source answered the pending callback'
             assert (project / 'existing.txt').read_bytes() == ORIGINAL and not (project / 'nested').exists(), 'transcript navigation changed files before consent'
             view = session.display()
-            assert any(label in view for label in ('[FILE]', '[파일]')), 'ACP file observation lacks typed identity'
+            assert any(label in view for label in ('[FILE]', )), 'ACP file observation lacks typed identity'
             assert any(line.lstrip().startswith('| ') and wanted in line for line in view.splitlines()), 'ACP source body looks like prose'
             assert not any(line.lstrip().startswith('> ') and wanted in line for line in view.splitlines()), 'ACP fabricated a generating edge for complete arguments'
             session.capture('received-code-distinct-from-prose')
             workspace()
             session.command('approvals')
             path = 'nested/new.txt' if mode == 'happy' else 'existing.txt'
-            until(session, lambda: path in session.display() and any(label in session.display() for label in ('Allow once', '한 번', '1회')), 'exact file review not reopened')
+            until(session, lambda: path in session.display() and any(label in session.display() for label in ('Allow once', )), 'exact file review not reopened')
             session.capture('exact-one-shot-file-consent')
             session.send('a' if mode == 'happy' else 'n')
             if mode == 'happy':
@@ -164,7 +164,7 @@ def journey(binary, output, route, language, size, mode):
                 assert (project / 'nested/new.txt').read_bytes() == b'actual new file\n'
                 assert (project / 'existing.txt').read_bytes() == ORIGINAL, 'existing file edited before its separate consent'
                 session.send('\r')
-                until(session, lambda: 'existing.txt' in session.display() and any(label in session.display() for label in ('Allow once', '한 번', '1회')), 'replacement summary missing')
+                until(session, lambda: 'existing.txt' in session.display() and any(label in session.display() for label in ('Allow once', )), 'replacement summary missing')
                 session.capture('dirty-baseline-exact-replacement-review')
                 session.send('a')
             until(session, lambda: not snapshot()['claims'], 'ACP ownership/journals did not settle', timeout=40)
@@ -205,7 +205,6 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--binary', required=True, type=Path)
     parser.add_argument('--output', required=True, type=Path)
-    parser.add_argument('--language', choices=('en', 'ko'), default='en')
     args = parser.parse_args()
     if os.name != 'posix':
         raise SystemExit('This driver uses POSIX executable fixtures; cross-platform callback tests run in cargo test.')
@@ -219,8 +218,8 @@ def main():
     for route in ('opencode', 'gemini', 'devin'):
         for size in ((120, 36), (60, 18)):
             for mode in ('happy', 'deny'):
-                label = f'{route}-{args.language}-{size[0]}-{mode}'
-                report['journeys'].append(journey(binary, output / label, route, args.language, size, mode))
+                label = f'{route}-{size[0]}-{mode}'
+                report['journeys'].append(journey(binary, output / label, route, size, mode))
     assert hashlib.sha256(binary.read_bytes()).hexdigest() == digest, 'supplied binary changed'
     report['status'] = 'passed' if all(row['status'] == 'passed' for row in report['journeys']) else 'failed'
     save(output / 'results.json', report)

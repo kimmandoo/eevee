@@ -11,7 +11,7 @@ use crate::{
         agents::{ConnectionField, Page},
     },
     config::Config,
-    i18n::{Message, Template},
+    messages::{Message, Template},
 };
 
 fn readiness_label(state: &crate::app::agents::State, index: usize, paint: &Paint) -> &'static str {
@@ -1106,177 +1106,165 @@ mod tests {
     use super::*;
     use ratatui::{Terminal, backend::TestBackend, style::Style};
     #[test]
-    fn minimum_diagnostic_summary_keeps_complete_reason_and_next_step_in_both_languages() {
+    fn minimum_diagnostic_summary_keeps_complete_reason_and_next_step() {
         use crate::providers::{Agent, diagnostics::Failure};
-        for language in ["en", "ko"] {
-            let language = crate::i18n::Language::parse(language).unwrap();
-            let style = Style::default();
-            let paint = Paint {
-                language,
-                base: style,
-                surface: style,
-                muted: style,
-                border: style,
-                accent: style,
-                selected: style,
-            };
-            for width in [54, 114] {
-                let mut app = App::new("/unused".into(), width + 6, 18);
-                app.agents.selected = Agent::Compatible.index();
-                for failure in [
-                    Failure::Http(401),
-                    Failure::Http(403),
-                    Failure::Http(404),
-                    Failure::Http(429),
-                    Failure::Transport,
-                    Failure::Incompatible,
-                    Failure::VersionCheck,
-                    Failure::LoginCancelled,
-                    Failure::LoginExpired,
-                    Failure::LoginFailed,
-                    Failure::LoginRefused,
-                ] {
-                    app.agents.connection_failed(Agent::Compatible, failure);
-                    let mut terminal = Terminal::new(TestBackend::new(width, 8)).unwrap();
-                    terminal
-                        .draw(|frame| {
-                            let height =
-                                diagnostic_summary(frame, frame.area(), &app.agents, &paint);
-                            assert!(
-                                height <= 6,
-                                "reason/next must leave inspectable detail rows"
-                            );
-                        })
-                        .unwrap();
-                    let buffer = terminal.backend().buffer();
-                    let cells: String = buffer.content.iter().map(|cell| cell.symbol()).collect();
-                    let visible: String = cells.chars().filter(|c| !c.is_whitespace()).collect();
-                    for fact in [
-                        diagnostic_reason(&app.agents, &paint),
-                        diagnostic_next(&app.agents, &paint),
-                    ] {
-                        let complete: String =
-                            fact.chars().filter(|c| !c.is_whitespace()).collect();
+        let style = Style::default();
+        let paint = Paint {
+            base: style,
+            surface: style,
+            muted: style,
+            border: style,
+            accent: style,
+            selected: style,
+        };
+        for width in [54, 114] {
+            let mut app = App::new("/unused".into(), width + 6, 18);
+            app.agents.selected = Agent::Compatible.index();
+            for failure in [
+                Failure::Http(401),
+                Failure::Http(403),
+                Failure::Http(404),
+                Failure::Http(429),
+                Failure::Transport,
+                Failure::Incompatible,
+                Failure::VersionCheck,
+                Failure::LoginCancelled,
+                Failure::LoginExpired,
+                Failure::LoginFailed,
+                Failure::LoginRefused,
+            ] {
+                app.agents.connection_failed(Agent::Compatible, failure);
+                let mut terminal = Terminal::new(TestBackend::new(width, 8)).unwrap();
+                terminal
+                    .draw(|frame| {
+                        let height = diagnostic_summary(frame, frame.area(), &app.agents, &paint);
                         assert!(
-                            visible.contains(&complete),
-                            "complete diagnostic fact must remain visible"
+                            height <= 6,
+                            "reason/next must leave inspectable detail rows"
                         );
-                    }
+                    })
+                    .unwrap();
+                let buffer = terminal.backend().buffer();
+                let cells: String = buffer.content.iter().map(|cell| cell.symbol()).collect();
+                let visible: String = cells.chars().filter(|c| !c.is_whitespace()).collect();
+                for fact in [
+                    diagnostic_reason(&app.agents, &paint),
+                    diagnostic_next(&app.agents, &paint),
+                ] {
+                    let complete: String = fact.chars().filter(|c| !c.is_whitespace()).collect();
+                    assert!(
+                        visible.contains(&complete),
+                        "complete diagnostic fact must remain visible"
+                    );
                 }
             }
         }
     }
 
     #[test]
-    fn full_connection_sheet_displays_every_disclosure_cell_in_both_languages() {
-        for language in ["en", "ko"] {
-            let language = crate::i18n::Language::parse(language).unwrap();
-            let config = Config {
-                ascii: true,
-                language,
-                no_animation: true,
-                animation_override: Some(false),
-                theme: crate::config::Theme::Dark,
-                color: crate::config::ColorMode::Mono,
-                images: crate::config::ImageMode::Off,
-                assets_dir: std::path::PathBuf::new(),
-                layout: crate::config::LayoutMode::Linear,
-                layout_explicit: true,
-                data_dir: std::path::PathBuf::new(),
-                storage_policy: crate::store::Policy::default(),
-                context_exclusions: vec![],
-                capture_capacity: 1024,
-            };
-            let style = Style::default();
-            let paint = Paint {
-                language,
-                base: style,
-                surface: style,
-                muted: style,
-                border: style,
-                accent: style,
-                selected: style,
-            };
-            for (width, height) in [(60, 18), (120, 36)] {
-                for agent in [
-                    crate::providers::Agent::ChatGPT,
-                    crate::providers::Agent::OpenAI,
-                    crate::providers::Agent::Compatible,
-                ] {
-                    let mut app = App::new("/unused".into(), width, height);
-                    app.agents.selected = agent.index();
-                    app.agents.connection = Some(crate::app::agents::ConnectionEditor {
-                        form: crate::providers::direct::config::Setup {
-                            credential: String::new(),
-                            base_url: "https://api.example/v1".into(),
-                            model: "한글-model".into(),
-                            effort: None,
-                            effort_model: None,
-                            account_id: "private-account-sentinel".into(),
-                            responses: true,
-                            keyless: false,
-                            persist: false,
-                            source_notice: None,
-                        },
-                        field: 0,
-                        cursor: 0,
-                        visible: false,
-                        advanced: true,
-                    });
-                    app.agents.paste_connection("private-credential-sentinel");
-                    let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
-                    for save_selected in [false, true] {
-                        if save_selected {
-                            app.agents.connection.as_mut().unwrap().field = app
-                                .agents
-                                .connection_fields()
-                                .iter()
-                                .position(|field| *field == ConnectionField::Save)
-                                .unwrap();
-                        }
-                        terminal
-                            .draw(|frame| render(frame, frame.area(), &mut app, &config, &paint))
+    fn full_connection_sheet_displays_every_disclosure_cell() {
+        let config = Config {
+            ascii: true,
+            no_animation: true,
+            animation_override: Some(false),
+            theme: crate::config::Theme::Dark,
+            color: crate::config::ColorMode::Mono,
+            images: crate::config::ImageMode::Off,
+            assets_dir: std::path::PathBuf::new(),
+            layout: crate::config::LayoutMode::Linear,
+            layout_explicit: true,
+            data_dir: std::path::PathBuf::new(),
+            storage_policy: crate::store::Policy::default(),
+            context_exclusions: vec![],
+            capture_capacity: 1024,
+        };
+        let style = Style::default();
+        let paint = Paint {
+            base: style,
+            surface: style,
+            muted: style,
+            border: style,
+            accent: style,
+            selected: style,
+        };
+        for (width, height) in [(60, 18), (120, 36)] {
+            for agent in [
+                crate::providers::Agent::ChatGPT,
+                crate::providers::Agent::OpenAI,
+                crate::providers::Agent::Compatible,
+            ] {
+                let mut app = App::new("/unused".into(), width, height);
+                app.agents.selected = agent.index();
+                app.agents.connection = Some(crate::app::agents::ConnectionEditor {
+                    form: crate::providers::direct::config::Setup {
+                        credential: String::new(),
+                        base_url: "https://api.example/v1".into(),
+                        model: "한글-model".into(),
+                        effort: None,
+                        effort_model: None,
+                        account_id: "private-account-sentinel".into(),
+                        responses: true,
+                        keyless: false,
+                        persist: false,
+                        source_notice: None,
+                    },
+                    field: 0,
+                    cursor: 0,
+                    visible: false,
+                    advanced: true,
+                });
+                app.agents.paste_connection("private-credential-sentinel");
+                let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+                for save_selected in [false, true] {
+                    if save_selected {
+                        app.agents.connection.as_mut().unwrap().field = app
+                            .agents
+                            .connection_fields()
+                            .iter()
+                            .position(|field| *field == ConnectionField::Save)
                             .unwrap();
-                        assert!(app.agents.connection.as_ref().unwrap().visible);
-                        let buffer = terminal.backend().buffer();
-                        let display: String =
-                            buffer.content.iter().map(|cell| cell.symbol()).collect();
-                        assert!(!display.contains("private-credential-sentinel"));
-                        assert!(!display.contains("private-account-sentinel"));
-                        let outer = sheet(Rect::new(0, 0, width, height), 104, height - 2);
-                        // Use the panel's content bounds, including horizontal padding.
-                        let content = panel(
-                            paint.hint(Message::ProvidersAgentsConnections),
-                            &config,
-                            &paint,
-                            true,
-                        )
-                        .inner(outer);
-                        let disclosure = paint
-                            .hint(Message::ProvidersAgentsSaveModelSelectRouteMetadataNeverSend);
-                        for (line, value) in disclosure.lines().enumerate() {
-                            let mut x = content.x;
-                            let y = content.y + content.height - 5 + line as u16;
-                            for character in value.chars() {
-                                let glyph = character.to_string();
-                                assert_eq!(
-                                    buffer[(x, y)].symbol(),
-                                    glyph,
-                                    "{language:?} {width}x{height} {agent:?}, save_selected={save_selected}, disclosure cell ({x}, {y})"
-                                );
-                                x += ratatui::text::Span::raw(glyph).width() as u16;
-                            }
-                            assert!(x <= content.right());
-                        }
                     }
-                    terminal = Terminal::new(TestBackend::new(52, 16)).unwrap();
-                    app.width = 52;
-                    app.height = 16;
                     terminal
                         .draw(|frame| render(frame, frame.area(), &mut app, &config, &paint))
                         .unwrap();
-                    assert!(!app.agents.connection.as_ref().unwrap().visible);
+                    assert!(app.agents.connection.as_ref().unwrap().visible);
+                    let buffer = terminal.backend().buffer();
+                    let display: String = buffer.content.iter().map(|cell| cell.symbol()).collect();
+                    assert!(!display.contains("private-credential-sentinel"));
+                    assert!(!display.contains("private-account-sentinel"));
+                    let outer = sheet(Rect::new(0, 0, width, height), 104, height - 2);
+                    // Use the panel's content bounds, including horizontal padding.
+                    let content = panel(
+                        paint.hint(Message::ProvidersAgentsConnections),
+                        &config,
+                        &paint,
+                        true,
+                    )
+                    .inner(outer);
+                    let disclosure =
+                        paint.hint(Message::ProvidersAgentsSaveModelSelectRouteMetadataNeverSend);
+                    for (line, value) in disclosure.lines().enumerate() {
+                        let mut x = content.x;
+                        let y = content.y + content.height - 5 + line as u16;
+                        for character in value.chars() {
+                            let glyph = character.to_string();
+                            assert_eq!(
+                                buffer[(x, y)].symbol(),
+                                glyph,
+                                "{width}x{height} {agent:?}, save_selected={save_selected}, disclosure cell ({x}, {y})"
+                            );
+                            x += ratatui::text::Span::raw(glyph).width() as u16;
+                        }
+                        assert!(x <= content.right());
+                    }
                 }
+                terminal = Terminal::new(TestBackend::new(52, 16)).unwrap();
+                app.width = 52;
+                app.height = 16;
+                terminal
+                    .draw(|frame| render(frame, frame.area(), &mut app, &config, &paint))
+                    .unwrap();
+                assert!(!app.agents.connection.as_ref().unwrap().visible);
             }
         }
     }

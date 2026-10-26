@@ -151,7 +151,7 @@ providers-planning-immutable-request-unavailable-inspect-exact-payload-details =
 
 providers-planning-eevee-sends-the-exact-http-payload-below =
     { "" }
-    { "Eevee sends the exact initial HTTP payload below with scoped credential headers. Coding tools may discover and read bounded safe project files; requested changes require separate exact content/parent approval. Optional /paths restricts write targets; [] clears only that restriction. Native/Codex writes allow eight files up to 64 KiB each; SDK writes separately allow 256 files up to 256 KiB. Explicit Plan/Review and metadata remain non-writing. No automatic whole-project upload, shell, project hooks/MCP or code execution is added. This is not a universal OS sandbox. The service owns authentication, charges, retention and internal behavior; cancellation does not guarantee remote stop. No automatic retry." }
+    { "Eevee sends the exact initial HTTP payload below with scoped credential headers. Coding tools may discover and read bounded safe project files; requested changes require separate exact content/parent approval. Optional /paths restricts write targets; [] clears only that restriction. Native/Codex writes allow 1024 files up to 4 MiB each; SDK writes separately allow 256 files up to 256 KiB. Explicit Plan/Review and metadata remain non-writing. No automatic whole-project upload, shell, project hooks/MCP or code execution is added. This is not a universal OS sandbox. The service owns authentication, charges, retention and internal behavior; cancellation does not guarantee remote stop. No automatic retry." }
     { "" }
 
 providers-planning-eevee-sends-the-exact-payload-below-it =
@@ -539,6 +539,10 @@ providers-execution-restart-sees-interruption-no-command-is-replayed = { "Restar
 providers-execution-stay-and-journal-retry-retries-storage-only = { "Stay and /journal-retry retries storage only." }
 
 providers-execution-y-confirm-n-stay-tab-choose-enter =
+    { "y Confirm / n Stay / Tab Choose / Enter / Esc Stay" }
+    { "PgUp/Dn · d details" }
+
+providers-execution-allow-all-review-actions =
     { "y Confirm / n Stay / Tab Choose / Enter / Esc Stay" }
     { "PgUp/Dn · d details · A allow all for this task" }
 

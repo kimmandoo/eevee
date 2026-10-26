@@ -4,7 +4,7 @@ use ratatui::text::Span;
 use unicode_segmentation::UnicodeSegmentation;
 
 use super::{Item, ItemKind, State};
-use crate::i18n::{Language, Message, Template};
+use crate::messages::{Message, Template};
 
 #[derive(Clone, PartialEq, Eq)]
 struct Identity(String, String, String);
@@ -50,7 +50,6 @@ pub(super) struct Layout {
     verbose: bool,
     attributed: bool,
     comfortable: bool,
-    language: Option<Language>,
     anchor: Option<Anchor>,
     total: usize,
 }
@@ -188,21 +187,20 @@ impl Layout {
                 {
                     segment.header.clear();
                     if let ItemKind::File(phase) = item.kind {
-                        let language = self.language.unwrap_or_else(|| Language::from_locale("en"));
                         let _ = write!(
                             segment.header,
                             "{} {}",
-                            language.text(Message::ProvidersPlanningFileLabel),
-                            language.text(super::file_phase_message(phase)),
+                            Message::ProvidersPlanningFileLabel.text(),
+                            super::file_phase_message(phase).text(),
                         );
                     } else if attributed {
-                        let language = self.language.unwrap_or_else(|| Language::from_locale("en"));
-                        let kind = language.text(match item.kind {
+                        let kind = (match item.kind {
                             ItemKind::Message => Message::ProvidersPlanningResponse,
                             ItemKind::Plan => Message::ProvidersPlanningPlan,
                             ItemKind::Tool => Message::ProvidersPlanningToolOutput,
                             ItemKind::File(phase) => super::file_phase_message(phase),
-                        });
+                        })
+                        .text();
                         let owner = crate::store::Attribution::label(item.owner.as_ref());
                         // Labels are bounded display previews, never outgoing input.
                         let redacted = crate::workspace::privacy::redact(item.request.as_ref());
@@ -220,16 +218,13 @@ impl Layout {
                             .collect();
                         let owner = crate::workspace::handoff::sanitize(&owner);
                         let id = crate::workspace::handoff::sanitize(&item.item_id);
-                        segment.header = language
-                            .format(
-                                Template::ProvidersPlanningTranscriptSegment,
-                                &[
-                                    ("kind", kind),
-                                    ("owner", &owner),
-                                    ("item", &id),
-                                    ("request", &request),
-                                ],
-                            )
+                        segment.header = Template::ProvidersPlanningTranscriptSegment
+                            .format(&[
+                                ("kind", kind),
+                                ("owner", &owner),
+                                ("item", &id),
+                                ("request", &request),
+                            ])
                             .expect("validated transcript template");
                     }
                     if verbose && !matches!(item.kind, ItemKind::File(_)) {
@@ -557,13 +552,6 @@ impl State {
         }
         self.scroll = self.response_scroll.min(usize::from(u16::MAX)) as u16;
         true
-    }
-
-    pub fn set_response_language(&mut self, language: Language) {
-        if self.response_cache.language != Some(language) {
-            self.response_cache.language = Some(language);
-            self.response_cache.invalidate();
-        }
     }
 
     /// Text-only test access to the same cached chronological viewport.

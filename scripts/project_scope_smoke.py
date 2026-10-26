@@ -75,7 +75,7 @@ def exercise(binary, output, fixture, kind):
         if key.startswith(('EV_', 'OPENAI_', 'ANTHROPIC_', 'GOOGLE_', 'GEMINI_', 'CLAUDE_', 'CODEX_')):
             environment.pop(key)
     environment.update(HOME=str(home), USERPROFILE=str(home), XDG_CONFIG_HOME=str(home / 'config'),
-                       XDG_DATA_HOME=str(home / 'data'), EV_LANGUAGE='en')
+                       XDG_DATA_HOME=str(home / 'data'), )
     session = Session([str(binary), '--data-dir', str(data), '--images', 'off', '--color', 'mono',
                        '--exclude-context', 'EXCLUDED'], launch, environment, (120, 36), output / kind)
     try:

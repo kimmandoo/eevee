@@ -13,7 +13,7 @@ use crate::{
     },
     config::Config,
     domain::FORMS,
-    i18n::{Message, Template},
+    messages::{Message, Template},
     workspace::held::Target,
 };
 
@@ -351,7 +351,6 @@ mod tests {
     pub(super) fn draw(app: &App, width: u16, height: u16) {
         let config = Config {
             ascii: true,
-            language: crate::i18n::Language::ENGLISH,
             no_animation: true,
             animation_override: Some(false),
             theme: crate::config::Theme::Dark,

@@ -70,7 +70,6 @@ pub struct Review {
     owner: (i64, i64, usize),
 }
 pub struct ReviewText {
-    pub language: crate::i18n::Language,
     pub recipient: String,
     pub summary: String,
     pub details: String,

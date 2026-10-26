@@ -37,8 +37,8 @@ mod usage;
 const ANSWER_BYTES: usize = 4096;
 const ITEM_LIMIT: usize = 128;
 
-pub(crate) fn file_phase_message(phase: FilePhase) -> crate::i18n::Message {
-    use crate::i18n::Message;
+pub(crate) fn file_phase_message(phase: FilePhase) -> crate::messages::Message {
+    use crate::messages::Message;
     match phase {
         FilePhase::Generating => Message::ProvidersPlanningFileGenerating,
         FilePhase::Received => Message::ProvidersPlanningFileReceived,

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Real PTY motion preference/receipt journeys; deterministic loopback, no live model.
 
-Runs both supported sizes and languages. No assistive-technology or native-pixel
+Runs both supported sizes. No assistive-technology or native-pixel
 qualification is inferred from the terminal-cell captures.
 """
 import argparse
@@ -20,7 +20,7 @@ from terminal_smoke import confirm_exit
 from workbench_smoke import wait_for
 
 ESC = '\x1b'
-TITLES = ('Evolution!', '진화했어요!')
+TITLES = ('Evolution!', )
 
 
 def raw(session, keys):
@@ -63,7 +63,7 @@ class Journey(response.SurfaceJourney):
         assert self.session.wait_exit() == 0
         self.session.close()
         self.session = response.SurfaceSession([*self.argv, *extra], self.project,
-            self.environment, self.size, self.output / name, language=self.language)
+            self.environment, self.size, self.output / name, )
         wait_for(self.session, 'Storage: saved')
         self.session.pump(.8)
 
@@ -94,12 +94,12 @@ class Journey(response.SurfaceJourney):
         return frames
 
 
-def run(binary, output, root, size, language, previous_binary=None):
+def run(binary, output, root, size, previous_binary=None):
     root.mkdir()
     output.mkdir(parents=True)
     cases = []
     with response.StreamingPeer() as peer:
-        journey = Journey(binary, output, root, size, False, 'compatible', 'chat_completions', True, False, peer, language=language)
+        journey = Journey(binary, output, root, size, False, 'compatible', 'chat_completions', True, False, peer, )
         session = journey.session
         try:
             wait_for(session, 'Storage: saved')
@@ -207,7 +207,7 @@ def run(binary, output, root, size, language, previous_binary=None):
                 before = stored_bytes()
                 previous = response.SurfaceSession([str(previous_binary), *journey.argv[1:]],
                     journey.project, journey.environment, journey.size, output / 'previous-writer',
-                    language=language)
+                    )
                 try:
                     wait_for(previous, 'Storage: save failed', timeout=35)
                     previous.command('inspect')
@@ -217,14 +217,14 @@ def run(binary, output, root, size, language, previous_binary=None):
                     previous.close()
                 assert stored_bytes() == before, 'older writer changed data on exit'
                 journey.session = response.SurfaceSession(journey.argv, journey.project,
-                    journey.environment, journey.size, output / 'current-resume', language=language)
+                    journey.environment, journey.size, output / 'current-resume', )
                 wait_for(journey.session, 'Storage: saved')
                 assert preference(journey.data).get('reduced_motion') is True
                 journey.session.command('quit')
                 confirm_exit(journey.session)
                 assert journey.session.wait_exit() == 0
                 cases.append('actual previous writer refused the new preference without changing bytes; current writer resumed')
-            return {'status': 'passed', 'size': list(size), 'language': language, 'cases': cases}
+            return {'status': 'passed', 'size': list(size), 'cases': cases}
         finally:
             peer.release_append.set()
             peer.release_finish.set()
@@ -243,11 +243,9 @@ def main():
     results = {'status': 'failed', 'binary': str(binary), 'sha256': digest, 'journeys': [],
                'limits': 'Loopback model fixture and actual PTYs; no assistive setup, physical terminal, or native image acceptance claimed.'}
     try:
-        for language in ('en', 'ko'):
-            for size in ((120, 36), (60, 18)):
-                with tempfile.TemporaryDirectory(prefix='ev-motion-界-') as temporary:
-                    results['journeys'].append(run(binary, output / f'{language}-{size[0]}', Path(temporary) / 'journey', size, language,
-                                                  args.previous_binary.resolve() if args.previous_binary else None))
+        for size in ((120, 36), (60, 18)):
+            with tempfile.TemporaryDirectory(prefix='ev-motion-界-') as temporary:
+                results['journeys'].append(run(binary, output / f'{size[0]}', Path(temporary) / 'journey', size, args.previous_binary.resolve() if args.previous_binary else None))
         assert hashlib.sha256(binary.read_bytes()).hexdigest() == digest
         results['status'] = 'passed'
     finally:

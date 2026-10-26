@@ -87,7 +87,7 @@ pub struct State {
     pub query: String,
     pub status: String,
     pub error: String,
-    pub memory_notice: Option<crate::i18n::Message>,
+    pub memory_notice: Option<crate::messages::Message>,
     memory_adoption: Option<MemoryAdoption>,
     pub editor: Option<Editor>,
     pub confirmation: Option<Confirmation>,
@@ -143,7 +143,7 @@ impl State {
         revision: u64,
         report: Option<&Arc<repo::Report>>,
     ) {
-        use crate::i18n::Message;
+        use crate::messages::Message;
         self.cancel_memory_adoption();
         if self.busy() || self.store_failed || self.editor.is_some() || self.confirmation.is_some()
         {
@@ -265,8 +265,8 @@ impl State {
             }) && plan.pin_selection == context::selection_identity(&self.basket)
         })
     }
-    pub fn optimizer_notice(&self) -> crate::i18n::Message {
-        use crate::i18n::Message;
+    pub fn optimizer_notice(&self) -> crate::messages::Message {
+        use crate::messages::Message;
         let previous = self.applied_plan().is_some();
         if self
             .optimizer_preview
@@ -742,7 +742,7 @@ impl State {
             && !matches!(&event.result, Ok(context::Response::Checked(_)) | Err(_))
         {
             self.memory_adoption = None;
-            self.memory_notice = Some(crate::i18n::Message::SourceMemoryStale);
+            self.memory_notice = Some(crate::messages::Message::SourceMemoryStale);
         }
         match event.result {
             Ok(context::Response::Optimized(plan)) => {
@@ -790,7 +790,7 @@ impl State {
                             .checked = true;
                     } else {
                         self.memory_adoption = None;
-                        self.memory_notice = Some(crate::i18n::Message::SourceMemoryStale);
+                        self.memory_notice = Some(crate::messages::Message::SourceMemoryStale);
                     }
                 }
                 if observations.iter().any(|observation| {
@@ -819,7 +819,7 @@ impl State {
             }
             Err(error) => {
                 if self.memory_adoption.take().is_some() {
-                    self.memory_notice = Some(crate::i18n::Message::SourceMemoryUnavailable);
+                    self.memory_notice = Some(crate::messages::Message::SourceMemoryUnavailable);
                 }
                 self.pending_origin_run = None;
                 self.error = safe_error(error);
@@ -1252,7 +1252,7 @@ impl State {
         }
         if self.editor.is_some() || self.confirmation.is_some() {
             if name == "remember-source" {
-                self.memory_notice = Some(crate::i18n::Message::SourceMemoryBusy);
+                self.memory_notice = Some(crate::messages::Message::SourceMemoryBusy);
             }
             return Action::Changed;
         }
@@ -1263,7 +1263,7 @@ impl State {
         }
         if self.busy() {
             if name == "remember-source" {
-                self.memory_notice = Some(crate::i18n::Message::SourceMemoryBusy);
+                self.memory_notice = Some(crate::messages::Message::SourceMemoryBusy);
             }
             self.error = "A context operation is pending; PgUp/Dn and Esc remain available.".into();
             return Action::Changed;
@@ -1291,7 +1291,7 @@ impl State {
                 {
                     return Action::RememberSource(capture.id);
                 }
-                self.memory_notice = Some(crate::i18n::Message::SourceMemorySelect);
+                self.memory_notice = Some(crate::messages::Message::SourceMemorySelect);
             }
             "context-cache-retry" => {
                 self.optimizer_cache_failed = false;

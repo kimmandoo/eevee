@@ -53,7 +53,7 @@ ev
 
 **No `/init` is required.** Ask a question or request a project plan directly. `/init` is only an optional request to create or update the project's `AGENTS.md` guide; it is not account setup, project registration or permission to write.
 
-Terminal: **60 × 18 minimum**, **120 × 36 recommended**. Add `--language ko` for Korean.
+Terminal: **60 × 18 minimum**, **120 × 36 recommended**. The interface is English; Unicode requests, filenames and source text remain supported.
 
 > **Upgrading?** Cleanly exit all instances and back up the **entire data directory**, including database, journals and outputs, before `ev update`. Latest public release is v0.1.31; checked-out v0.1.32 is unreleased Wave5 development. Equal SQL schema does not establish record-reader or lifecycle-rollback compatibility. Offline rollback requires matching build-derived reader identity and data validation; never bypass admission based only on the version or schema number.
 
@@ -79,10 +79,9 @@ Terminal: **60 × 18 minimum**, **120 × 36 recommended**. Add `--language ko` f
 **Neutral permission arrival.** Enter opens the review; it does not approve. Inspect the full scope, then use the displayed decision controls. Typing, paste and held-key repeats never grant permission. Other editors and background partners do not steal focus.
 
 <details>
-<summary>Display, language and advanced controls</summary>
+<summary>Display and advanced controls</summary>
 
 ```sh
-ev --language ko            # Korean; --language en selects English
 ev --theme light           # light palette
 ev --ascii --color mono    # plain-terminal fallback
 ev --no-animation          # static indicators; streaming remains enabled
@@ -91,7 +90,7 @@ ev --help
 ```
 
 - `/motion-off` persists reduced motion; `/motion-on` restores it. CLI overrides last for one launch.
-- `EV_LANGUAGE=ko` also selects Korean. CLI wins; automatic selection uses the locale environment with English fallback. Korean still requires UTF-8 in ASCII mode.
+- The UI is English-only. `--language` was removed and `EV_LANGUAGE` no longer selects a display language; terminal locale still controls UTF-8/ASCII capability detection.
 - Output scrolling pauses following without moving the draft caret. **Alt+Up/Down** jumps between transcript segments; **Alt+Home** reaches the start.
 - `/session-new` and `/session-resume` open advanced exact-payload review. `/chat-new` clears the scoped process-local native conversation, not your draft or durable evidence.
 - `/reset` reviews a new local task while retaining the old one. `/init` prepares an editable request to inspect the current project and create or update `AGENTS.md`; Enter starts it, and each file change needs approval. It preserves your explicit read-only policy, selected paths and form.
@@ -330,15 +329,15 @@ npm test --prefix sidecar
 
 | Native target | Runtime coverage |
 | --- | --- |
-| Linux x86_64 | Full English/Korean protocol, controlled Codex, context and tool journeys at both sizes |
-| Windows x86_64 | Representative file route and all context/tool journeys in both languages and sizes |
-| macOS arm64 | Representative bilingual file route plus Korean context/tool journeys at both sizes |
-| Linux arm64, macOS x86_64 | Representative bilingual file route at both sizes; native unit/build/install gates remain |
+| Linux x86_64 | Full protocol, controlled Codex, context and tool journeys at both sizes |
+| Windows x86_64 | Representative file route and all context/tool journeys at both sizes |
+| macOS arm64 | Representative file route and context/tool journeys at both sizes |
+| Linux arm64, macOS x86_64 | Representative file route at both sizes; native unit/build/install gates remain |
 
 - Reproduce coverage with `python scripts/native_workflows_smoke.py --binary target/release/ev --output /tmp/ev-native-proof --profile full --jobs 2`; use a fresh output directory. `--plan-only` prints the selected scope without launching work. Individual driver defaults still run their full scope.
 - Terminal journeys: `scripts/*_smoke.py`, with `pyte==0.8.2` and `wcwidth==0.2.13`. Live provider checks are opt-in and may incur usage; deterministic peers are not live-account conformance.
 - Windows smoke hosts need an unpackaged Python installation, not a Microsoft Store/App Execution Alias interpreter; see [troubleshooting](docs/TROUBLESHOOTING.md).
-- Add Fluent resources under `locales/<BCP47-tag>/`. The build embeds them automatically with per-key English fallback; preserve message IDs and named arguments, without screen-level language branches.
+- Edit English UI text under `messages/`. The build compiles literal text and named templates into Rust; there is no runtime translation engine or language registry. Keep literal user arguments and Unicode input intact.
 - Keep approval, storage and cancellation contracts intact. Never commit credentials, task data or downloaded artwork.
 
 </details>

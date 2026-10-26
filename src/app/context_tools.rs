@@ -18,7 +18,7 @@ impl App {
                 }
                 self.open_context_sources();
                 self.sources.show_basket();
-                self.sources.memory_notice = Some(crate::i18n::Message::SourceMemorySelect);
+                self.sources.memory_notice = Some(crate::messages::Message::SourceMemorySelect);
                 return true;
             }
             let action = self
@@ -124,7 +124,7 @@ impl App {
     }
 
     pub(super) fn remember_source(&mut self, id: i64) {
-        use crate::i18n::Message;
+        use crate::messages::Message;
         self.sources.cancel_memory_adoption();
         if self.overlay != Some(Overlay::Sources)
             || self.width < 60
@@ -157,7 +157,7 @@ impl App {
     /// existing local-memory review. This never approves, selects or dispatches.
     pub fn context_source_event(&mut self, event: context::Event) {
         use crate::{
-            i18n::Message,
+            messages::Message,
             workspace::memory::{Provenance, SourceKind},
         };
         let Some(event) = self.receive_impact(event) else {

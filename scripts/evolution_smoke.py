@@ -27,24 +27,14 @@ CONTENT = '# user source\r\nvalue = 7\r\n'
 GENERATED = 'generated/automatic.py'
 GENERATED_CONTENT = 'print("automatic file")\r\n'
 
-CASES = {
-    'en': [
+CASES = [
         (4, False, 'Design the module architecture and make an implementation plan; do not change files.'),
         (5, False, 'Diagnose the root cause of this runtime failure and explain the security risk.'),
         (6, True, 'Refactor this code to improve maintainability without changing behavior.'),
         (2, True, 'Run the project tests to verify the behavior.'),
         (7, False, 'Perform an independent code review of the current changes.'),
         (8, False, 'Prepare a handoff summary with verified results and remaining risks.'),
-    ],
-    'ko': [
-        (4, False, '파일을 변경하지 말고 모듈 아키텍처를 설계하고 구현 계획을 세워줘.'),
-        (5, False, '실행 오류의 근본 원인을 진단하고 보안 위험을 설명해줘.'),
-        (6, True, '동작은 유지하면서 이 코드를 리팩터링해서 유지보수성을 개선해줘.'),
-        (2, True, '프로젝트 테스트를 실행해서 동작을 검증해줘.'),
-        (7, False, '현재 변경 사항을 독립적으로 코드 리뷰해줘.'),
-        (8, False, '검증된 결과와 남은 위험을 포함한 작업 인계 요약을 작성해줘.'),
-    ],
-}
+    ]
 
 
 class Journey(files.CreationJourney):
@@ -133,7 +123,7 @@ class Journey(files.CreationJourney):
         before = (len(self.peer.snapshot('POST')), len(self.peer.snapshot('GET')),
                   self.partner()['form'], self.partner()['auto_form'])
         self.session.command('evolution-preview')
-        title = 'Next evolution' if self.language == 'en' else '다음 진화'
+        title = 'Next evolution'
         wait_for(self.session, title)
         observed = self.session.display()
         assert form in observed and operation in observed, observed
@@ -156,31 +146,31 @@ class Journey(files.CreationJourney):
         assert self.session.wait_exit() == 0
         self.session.close()
         self.session = SurfaceSession(self.restart_argv, self.project, self.restart_environment,
-                                      self.restart_size, self.output / label, language=self.language)
+                                      self.restart_size, self.output / label, )
         wait_for(self.session, 'Storage: saved', timeout=40)
 
 
-def run(binary, output, root, size, ascii_mode, language):
+def run(binary, output, root, size, ascii_mode, ):
     output.mkdir(parents=True, exist_ok=False)
-    result = {'status': 'failed', 'language': language, 'size': list(size), 'cases': []}
+    result = {'status': 'failed', 'size': list(size), 'cases': []}
     journey = None
     gate = files.Gate()
     with files.Peer('responses', 'sk-evolution-fixture-only', True, retain_body_bytes=True) as peer:
         try:
             journey = Journey(binary, output, root, size, ascii_mode, 'compatible', 'responses',
-                              True, False, peer, language=language)
+                              True, False, peer, )
             wait_for(journey.session, 'Storage: saved')
             journey.setup_route()
             future = 'Popup future 한글界e\u0301'
             journey.write_request(future)
             before_popup_posts = len(peer.snapshot('POST'))
             journey.session.command('flareon')
-            titles = ('Evolution!', '진화했어요!')
+            titles = ('Evolution!', )
             files.until(journey.session, lambda: any(title in journey.session.display() for title in titles),
                         'actual manual evolution popup did not appear')
             assert 'Eevee' in journey.session.display() and 'Flareon' in journey.session.display()
             assert any(hint in journey.session.display() for hint in
-                       ('Keep typing', '계속 입력하세요')), 'compact receipt clipped its nonmodal typing hint'
+                       ('Keep typing', )), 'compact receipt clipped its nonmodal typing hint'
             journey.capture('manual-evolution-popup')
             journey.session.paste('!')
             assert not any(title in journey.session.display() for title in titles), 'dismissed popup replayed'
@@ -206,11 +196,9 @@ def run(binary, output, root, size, ascii_mode, language):
             model = files.MODEL
             metadata = len(peer.snapshot('GET'))
             predictions = [
-                ('"Create evil.py" is quoted source. Explain the text.' if language == 'en'
-                 else '"evil.py를 생성해줘"는 인용문입니다. 이 문구를 설명해줘.', 0, 'Eevee', False),
-                ('Continue explaining.' if language == 'en' else '계속 설명해줘.', 0, 'Eevee', False),
-                ('Review the code and fix src/main.rs.' if language == 'en'
-                 else '코드를 검토하고 src/main.rs를 수정해줘.', 7, 'Glaceon', True),
+                ('"Create evil.py" is quoted source. Explain the text.', 0, 'Eevee', False),
+                ('Continue explaining.', 0, 'Eevee', False),
+                ('Review the code and fix src/main.rs.', 7, 'Glaceon', True),
             ]
             for index, (draft, form, appearance, writing) in enumerate(predictions):
                 journey.preview(draft, appearance, 'Implement' if writing else 'Plan', 'intent-' + str(index))
@@ -219,8 +207,7 @@ def run(binary, output, root, size, ascii_mode, language):
                 journey.settled(answer, before + 1)
                 journey.assert_mode(form, True)
             result['cases'].append('quoted source and ambiguous drafts kept their policy; mixed review-plus-fix predicted appearance separately from the actual dispatched writing capability')
-            request = ('Create a new Python file generated/automatic.py with the requested code.' if language == 'en'
-                       else '요청한 코드로 generated/automatic.py 파이썬 파일을 생성해줘.')
+            request = 'Create a new Python file generated/automatic.py with the requested code.'
             answer = 'AUTOMATIC_FILE_CREATED'
             journey.preview(request, 'Flareon', 'Implement', 'automatic-implementation')
             before = journey.begin(request, [
@@ -248,8 +235,7 @@ def run(binary, output, root, size, ascii_mode, language):
             journey.capture('automatic-create-and-kept-future-draft')
             result['cases'].append('explicit create evolved the same partner to Flareon; busy future review never changed owner or dispatched; exact consent wrote actual bytes')
 
-            read_request = ('Read src/base.py and list the project source files without changing anything.' if language == 'en'
-                            else '아무것도 변경하지 말고 src/base.py 파일을 읽고 프로젝트 소스 파일 목록을 찾아줘.')
+            read_request = 'Read src/base.py and list the project source files without changing anything.'
             journey.preview(read_request, 'Vaporeon', 'Plan', 'readonly-source')
             answer = 'READ_ONLY_SOURCE_OBSERVED'
             before = journey.begin(read_request, [
@@ -269,7 +255,7 @@ def run(binary, output, root, size, ascii_mode, language):
             journey.capture('automatic-readonly-vaporeon')
             result['cases'].append('Vaporeon advertised only read/list with nonwriting lease and returned actual dirty CRLF bytes/digest without approval or mutation')
 
-            for form, writing, prompt in CASES[language]:
+            for form, writing, prompt in CASES:
                 if form == 7:
                     journey.refresh_repository('fresh-independent-review-evidence')
                 answer = 'EVOLUTION_ROLE_' + str(form)
@@ -281,8 +267,7 @@ def run(binary, output, root, size, ascii_mode, language):
             assert len(peer.snapshot('GET')) == metadata, 'automatic evolution changed connection or browsed models'
             result['cases'].append('planning, diagnosis, refactor, verification, independent review and handoff selected their roles without changing provider/model, extra classifier calls or implicit local execution')
 
-            document = ('Write project documentation to README.md.' if language == 'en'
-                        else 'README.md 파일에 프로젝트 문서를 작성해줘.')
+            document = 'Write project documentation to README.md.'
             before = journey.begin(document, [
                 files.response_plan(peer, calls=[{'id': 'documentation-create', 'path': 'README.md', 'content': '# Actual documentation\n'}]),
                 files.response_plan(peer, text='DOCUMENTATION_WRITTEN', number=1)], writing=True)
@@ -369,7 +354,6 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--binary', required=True, type=Path)
     parser.add_argument('--output', required=True, type=Path)
-    parser.add_argument('--language', choices=('en', 'ko'), default='en')
     args = parser.parse_args()
     binary, output = args.binary.resolve(), args.output.resolve()
     output.mkdir(parents=True, exist_ok=False)
@@ -378,7 +362,7 @@ def main():
               'limits': 'Deterministic loopback peers; actual UI/files/store, not authenticated model or physical GUI qualification.'}
     for size, ascii_mode in [((120, 36), False), ((60, 18), True)]:
         with tempfile.TemporaryDirectory(prefix='ev-evolution-漢字-') as temporary:
-            result['journeys'].append(run(binary, output / str(size[0]), Path(temporary).resolve(), size, ascii_mode, args.language))
+            result['journeys'].append(run(binary, output / str(size[0]), Path(temporary).resolve(), size, ascii_mode, ))
     assert hashlib.sha256(binary.read_bytes()).hexdigest() == digest
     result['status'] = 'passed' if all(row['status'] == 'passed' for row in result['journeys']) else 'failed'
     files.save(output / 'results.json', result)

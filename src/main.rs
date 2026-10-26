@@ -2,7 +2,7 @@ mod app;
 mod command_help;
 mod config;
 mod domain;
-mod i18n;
+mod messages;
 mod platform;
 mod providers;
 mod store;
@@ -24,11 +24,6 @@ fn main() -> ExitCode {
     match config::parse() {
         Ok(Command::Help) => {
             println!("{}", config::HELP);
-            print!("Embedded display languages:");
-            for language in i18n::Language::registered() {
-                print!(" {}", language.tag());
-            }
-            println!();
             ExitCode::SUCCESS
         }
         Ok(Command::Version) => {

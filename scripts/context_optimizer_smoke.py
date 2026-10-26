@@ -55,7 +55,7 @@ class Journey(RecordsJourney):
              '--color', 'mono', *(['--ascii'] if self.ascii_mode else [])],
             self.project, self.environment, self.size,
             self.output / ('terminal-%02d' % self.serial),
-            language=self.language, controlling_tty=True)
+            controlling_tty=True)
         self.sessions.append(self.session)
         wait_for(self.session, 'Storage: saved', timeout=35)
 
@@ -141,7 +141,7 @@ class Journey(RecordsJourney):
         wait_for(self.session, proposal, timeout=35)
         self.capture(label + '-selected-real-provider-response')
         self.session.command('decision')
-        self.wait_caption('Next action', '다음 행동')
+        self.wait_caption('Next action', )
         assert self.task()['workflows'].get('chosen_decision') == before
         self.capture(label + '-next-action-explicit-approval')
         self.session.send('\r')
@@ -177,9 +177,9 @@ class Journey(RecordsJourney):
         before_origins = self.task()['workflows'].get('criterion_origins', [])
         assert not any(row['text'] == criterion for row in before_criteria)
         self.session.command('workflow-recipe')
-        self.wait_caption('Specialist desk', '전문가 데스크')
+        self.wait_caption('Specialist desk', )
         self.session.command('decision-criteria')
-        self.wait_caption('Decision criteria', '결정 기준')
+        self.wait_caption('Decision criteria', )
         self.session.send((ESC + '[A') * 100 + HOME + DELETE * 512)
         self.session.paste(criterion)
         self.capture('first-decision-criterion-real-editor')
@@ -187,7 +187,7 @@ class Journey(RecordsJourney):
         assert self.task()['criteria'] == before_criteria
         assert self.task()['workflows'].get('criterion_origins', []) == before_origins
         self.session.command('confirm-decision-criteria')
-        self.wait_caption('y Apply', 'y 적용')
+        self.wait_caption('y Apply', )
         self.capture('first-decision-criterion-explicit-confirmation')
         assert self.task()['criteria'] == before_criteria
         self.session.send('y')
@@ -223,7 +223,7 @@ class Journey(RecordsJourney):
         # assumes that list and would silently skip the measurements at 60x18.
         # SOURCE_TITLE is defined by context_smoke and reused by RecordsJourney.
         from context_smoke import SOURCE_TITLE
-        titles = (SOURCE_TITLE, '출처 / 작업 소유 맥락')
+        titles = (SOURCE_TITLE, )
         screen = self.session.screen
         top = next(y for y in range(screen.lines)
                    if any(title in self.visual_row(y, 0, screen.columns) for title in titles)
@@ -253,7 +253,7 @@ class Journey(RecordsJourney):
         wait_for(self.session, 'PgUp/Dn')
         # Home is Action::Scroll in Mode::Optimizer, unlike Files/Basket.
         self.session.send(HOME)
-        self.wait_caption('Local context optimizer', '로컬 컨텍스트 최적화')
+        self.wait_caption('Local context optimizer', )
         pages, observed, previous = [], [], None
         label = 'optimizer-metrics-%03d' % self.serial
         try:
@@ -276,26 +276,15 @@ class Journey(RecordsJourney):
                     return r'\s*'.join(re.escape(ch) for ch in text if not ch.isspace())
                 kind_pattern = '(' + literal('Rankedcontext') + '|' + literal('Evidence-linkedcompaction') + ')'
                 gap = r'\s*'
-                if self.language == 'ko':
-                    summary_pattern = (kind_pattern + gap + literal('·로컬토큰') + gap
-                                       + r'([0-9]+)' + gap + literal('/') + gap + r'([0-9]+)'
-                                       + gap + literal('·전체기준') + gap + r'([0-9]+)(?=\s*(?:\n|$))')
-                    measurements_pattern = (r'(?:^|\n)\s*([0-9]+)' + gap + literal('B·처리') + gap
-                                            + r'([0-9]+)' + gap + r'[µμ]' + gap + literal('s·로컬리비전/토큰캐시적중')
-                                            + gap + r'([0-9]+)' + gap + literal('회'))
-                    contributions_pattern = (literal('로컬구성:패킷') + gap + r'([0-9]+)'
-                                             + gap + literal('+필수메모') + gap + r'([0-9]+)' + gap + literal('.'))
-                    tokenizer_label = '토크나이저:'
-                else:
-                    summary_pattern = (kind_pattern + gap + literal('·') + gap
-                                       + r'([0-9]+)' + gap + literal('/') + gap + r'([0-9]+)'
-                                       + gap + literal('localtokens·baseline') + gap + r'([0-9]+)(?=\s*(?:\n|$))')
-                    measurements_pattern = (r'(?:^|\n)\s*([0-9]+)' + gap + literal('B·') + gap
-                                            + r'([0-9]+)' + gap + r'[µμ]' + gap + literal('sprocessing·')
-                                            + gap + r'([0-9]+)' + gap + literal('localrevision/token-cachehits'))
-                    contributions_pattern = (literal('Localcontribution:packet') + gap + r'([0-9]+)'
-                                             + gap + literal('+mandatorynotes') + gap + r'([0-9]+)' + gap + literal(';'))
-                    tokenizer_label = 'Tokenizer:'
+                summary_pattern = (kind_pattern + gap + literal('·') + gap
+                                   + r'([0-9]+)' + gap + literal('/') + gap + r'([0-9]+)'
+                                   + gap + literal('localtokens·baseline') + gap + r'([0-9]+)(?=\s*(?:\n|$))')
+                measurements_pattern = (r'(?:^|\n)\s*([0-9]+)' + gap + literal('B·') + gap
+                                        + r'([0-9]+)' + gap + r'[µμ]' + gap + literal('sprocessing·')
+                                        + gap + r'([0-9]+)' + gap + literal('localrevision/token-cachehits'))
+                contributions_pattern = (literal('Localcontribution:packet') + gap + r'([0-9]+)'
+                                         + gap + literal('+mandatorynotes') + gap + r'([0-9]+)' + gap + literal(';'))
+                tokenizer_label = 'Tokenizer:'
                 summary = re.search(summary_pattern, visible)
                 measurements = re.search(measurements_pattern, visible)
                 named_tokenizer = re.search(literal(tokenizer_label + tokenizer + '.'), visible)
@@ -303,7 +292,7 @@ class Journey(RecordsJourney):
                 if summary and measurements and named_tokenizer and contributions:
                     result = {
                         'source': 'actual Sources optimizer rendered cells',
-                        'language': self.language, 'size': list(self.size),
+                        'size': list(self.size),
                         'tokenizer': tokenizer,
                         'kind': ('Ranked context' if ''.join(summary.group(1).split()) == 'Rankedcontext'
                                  else 'Evidence-linked compaction'),
@@ -326,14 +315,14 @@ class Journey(RecordsJourney):
             self.session.send(HOME)
         raise AssertionError(
             'Missing UI prerequisite: the actual paged optimizer renderer did not expose '
-            'its complete localized selected/budget/full-file-baseline summary, bytes/'
+            'its complete selected/budget/full-file-baseline summary, bytes/'
             'processing_micros/cache_hits measurements and complete named tokenizer. '
             'SQLite context_revisions and selected_sources do not retain those missing '
             'Plan metrics; no estimate or reconstructed tokenizer count is accepted.\n'
             + '\n'.join(observed))
 
-    def reveal_optimizer_notice(self, english, korean):
-        target = korean if self.language == 'ko' else english
+    def reveal_optimizer_notice(self, english, ):
+        target = english
         previous = None
         self.session.send(HOME)
         try:
@@ -476,7 +465,7 @@ class Journey(RecordsJourney):
         return result
     def optimizer(self, command='optimize 20000'):
         self.session.command(command)
-        self.wait_caption('Local context optimizer', '로컬 컨텍스트 최적화')
+        self.wait_caption('Local context optimizer', )
         wait_for(self.session, 'PgUp/Dn')
         self.until(lambda: 'local only' in '\n'.join(self.session.display().splitlines()[:8]),
                    'specific optimizer worker operation completed, not an older preview')
@@ -485,7 +474,7 @@ class Journey(RecordsJourney):
     def apply(self):
         before = self.effects()
         self.session.send('a')
-        self.wait_caption('Applied to the next ordinary request', '다음 일반 요청에 적용됨')
+        self.wait_caption('Applied to the next ordinary request', )
         assert self.effects() == before, 'apply itself started a command or provider request'
 
     def refresh(self):
@@ -548,12 +537,12 @@ class Journey(RecordsJourney):
         def propose():
             self.focus_chip(capture['id'])
             self.session.send('\r')
-            self.wait_caption('Sources / task-owned context', '출처 / 작업 소유 맥락')
+            self.wait_caption('Sources / task-owned context', )
             self.session.command('remember-source')
-            self.wait_caption('APPROVAL PREVIEW / no memory saved yet', '승인 미리보기 / 아직 저장된 메모리 없음')
-            self.wait_caption('y Approve', 'y 승인')
+            self.wait_caption('APPROVAL PREVIEW / no memory saved yet', )
+            self.wait_caption('y Approve', )
             self.wait_caption('/delete-memory removes it separately.',
-                              '/delete-memory로 노트는 별도 삭제합니다.')
+                              )
 
         propose()
         assert {row['id'] for row in self.state()['memories']} == before_ids
@@ -563,7 +552,7 @@ class Journey(RecordsJourney):
         # selection, tool call or source mutation is created by this cancellation.
         self.session.send(ESC)
         self.session.send(ESC)
-        # This is the known memory browser, whose Korean help also mentions
+        # This is the known memory browser, whose help also mentions
         # approval previews; it is not another consent surface.
         wait_for(self.session, '/held-set-memory')
         self.session.send(ESC)
@@ -772,7 +761,7 @@ class Journey(RecordsJourney):
         self.session.command('files')
         wait_for(self.session, 'eligible files /', timeout=35)
         self.session.send('o')
-        self.wait_caption('Explicit local-token budget', '명시적 로컬 토큰 예산')
+        self.wait_caption('Explicit local-token budget', )
         self.session.send(HOME + DELETE * 16)
         self.session.send('alon')
         wait_for(self.session, 'alon')
@@ -791,14 +780,14 @@ class Journey(RecordsJourney):
         assert self.effects() == before, 'local preview dispatched execution/inference'
         self.apply()
         self.optimizer('optimize 64')
-        refusal = '거부됨:' if self.language == 'ko' else 'REFUSED:'
+        refusal = 'REFUSED:'
         assert refusal in self.session.display(), 'mandatory refusal is hidden on the initial review'
         self.wait_caption('REFUSED preview; previous packet stays applied.',
-                          '미리보기 거부됨 · 이전 적용 패킷 유지')
-        self.wait_caption('Apply blocked', '적용 불가')
+                          )
+        self.wait_caption('Apply blocked', )
         overflow_metrics = self.read_preview_metrics()
         assert overflow_metrics['budget'] == 64 and overflow_metrics['tokens'] > 64
-        self.reveal_optimizer_notice('REFUSED:', '거부됨:')
+        self.reveal_optimizer_notice('REFUSED:', )
         self.session.send('a')
         wait_for(self.session, 'exceed budget')
         self.capture('mandatory-overflow-refuses-without-truncation')
@@ -836,7 +825,7 @@ class Journey(RecordsJourney):
         cancellation_pins = self.state()['excerpts']
         self.optimizer('optimize 4000')
         self.wait_caption('Preview not applied; previous packet still active.',
-                          '미리보기 미적용 · 이전 적용 패킷 유지')
+                          )
         self.session.command('context-cancel')
         assert self.task()['partner_drafts'] == cancellation_draft, 'cancel changed the Request draft'
         assert self.state()['excerpts'] == cancellation_pins, 'cancel changed mandatory pins'
@@ -982,14 +971,13 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--binary', required=True, type=Path)
     parser.add_argument('--output', required=True, type=Path)
-    parser.add_argument('--language', choices=('en', 'ko'), default='en')
     args = parser.parse_args()
     binary, output = args.binary.resolve(), args.output.resolve()
     assert binary.is_file(), 'use an existing already-built binary'
     output.mkdir(parents=True, exist_ok=False)
     original = digest(binary)
     result = {'status': 'failed', 'binary': str(binary), 'binary_sha256': original,
-              'host': platform.platform(), 'language': args.language, 'runs': [],
+              'host': platform.platform(), 'runs': [],
               'live_provider_proof': False, 'sql_writes': False,
               'scope': 'Actual Sources UI, safe local worker, failed owned command and loopback serialized transport'}
     try:
@@ -1000,7 +988,7 @@ def main():
                     journey = Journey.__new__(Journey)
                     try:
                         journey.__init__(binary, output / ('%dx%d' % size), Path(temporary).resolve(),
-                                         size, ascii_mode, {}, peer, args.language)
+                                         size, ascii_mode, {}, peer, )
                         proof = journey.run_optimizer()
                         result['runs'].append({'size': list(size), 'status': 'passed', **proof})
                     finally:

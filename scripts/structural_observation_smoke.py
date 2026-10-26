@@ -190,10 +190,10 @@ def scenarios(call, project):
     return results
 
 
-def native(binary, output, size, language):
+def native(binary, output, size, ):
     output.mkdir(parents=True)
     journey = None
-    result = dict(status='failed', route='native-responses', size=list(size), language=language)
+    result = dict(status='failed', route='native-responses', size=list(size), )
     with tempfile.TemporaryDirectory(prefix='ev-structural-native-') as temporary, \
             Peer('responses', 'sk-structural-fixture-only', True, retain_body_bytes=True) as peer:
         replies = queue.Queue()
@@ -228,14 +228,13 @@ def native(binary, output, size, language):
 
             with patch.object(response_smoke, 'SurfaceSession', observation_session):
                 journey = CreationJourney(binary, output, Path(temporary).resolve(), size, size[0] == 60,
-                                          'compatible', 'responses', True, False, peer, language=language)
+                                          'compatible', 'responses', True, False, peer, )
             wait_for(journey.session, 'Storage: saved')
             journey.setup_route()
             fixture(journey.project)
             journey.session.command('role-plan')
             journey.workspace()
-            journey.write_request('Find repeated send expression shapes in Rust. Read only; do not modify files.'
-                                  if language == 'en' else 'Rust에서 반복 send 표현식을 읽기 전용으로 찾아줘. 파일은 수정하지 마.')
+            journey.write_request('Find repeated send expression shapes in Rust. Read only; do not modify files.')
             before = len(peer.snapshot('POST'))
             peer.plans.put(('custom', blocked_reply))
             journey.session.send('\r', settle=False)
@@ -308,12 +307,12 @@ def native(binary, output, size, language):
     return result
 
 
-def codex(binary, output, size, language):
+def codex(binary, output, size, ):
     output.mkdir(parents=True)
     journey = None
-    result = dict(status='failed', route='controlled-codex', size=list(size), language=language)
+    result = dict(status='failed', route='controlled-codex', size=list(size), )
     try:
-        journey = CodexCreationJourney(binary, output, size, language)
+        journey = CodexCreationJourney(binary, output, size, )
         journey.setup(count=1)
         journey.session.command('role-plan')
         journey.workspace()
@@ -354,7 +353,6 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--binary', required=True, type=Path)
     parser.add_argument('--output', required=True, type=Path)
-    parser.add_argument('--language', choices=('en', 'ko'), default='en')
     parser.add_argument('--mode', choices=('native', 'codex', 'all'), default='all')
     parser.add_argument('--size', choices=('wide', 'compact'), default='wide')
     args = parser.parse_args()
@@ -365,7 +363,7 @@ def main():
     size = (120, 36) if args.size == 'wide' else (60, 18)
     for route, run in (('native', native), ('codex', codex)):
         if args.mode in (route, 'all'):
-            report['journeys'].append(run(binary, output / route, size, args.language))
+            report['journeys'].append(run(binary, output / route, size, ))
     assert hashlib.sha256(binary.read_bytes()).hexdigest() == digest
     report['status'] = 'passed' if all(row['status'] == 'passed' for row in report['journeys']) else 'failed'
     save(output / 'results.json', report)

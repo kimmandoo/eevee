@@ -483,7 +483,7 @@ def main():
                 EV_USAGE_CODEX=str(codex), EV_USAGE_LEDGER=str(ledger),
                 PATH=str(bins) + os.pathsep + environment.get('PATH', ''))
             session = QualificationSession([str(binary), '--data-dir', str(data), '--images', 'off',
-                               '--color', 'mono', '--language', 'en'], project, environment,
+                               '--color', 'mono', ], project, environment,
                               (120, 36), root / 'terminal', controlling_tty=True)
 
             def stop_session():

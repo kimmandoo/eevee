@@ -286,6 +286,80 @@ fn approval_is_neutral_dismissible_one_shot_and_never_focus_stealing() {
 }
 
 #[test]
+fn command_stay_returns_to_the_preserved_request_without_answering() {
+    for automatic in [false, true] {
+        for code in [KeyCode::Enter, KeyCode::Char('n'), KeyCode::Esc] {
+            let mut app = crate::app::App::new("/project".into(), 60, 18);
+            app.task_id = 1;
+            app.lead.form = 2;
+            app.open_editor(store::EditorField::Request);
+            app.input = "Future 한글 request".into();
+            app.cursor = "Future ".len();
+            let draft = (app.input.clone(), app.cursor);
+            app.execution = pending();
+            let expected = app.execution.prepared.clone();
+            app.command("execute");
+            app.execution.auto_presented = automatic;
+            app.execution.confirmation_visible = true;
+            if automatic {
+                app.execution_key(key(KeyCode::Enter));
+                assert_eq!(app.overlay, Some(crate::app::Overlay::Execution));
+                assert!(!app.execution.affirmative && !app.execution.reserving);
+            }
+            app.execution_key(key(code));
+            assert_eq!(app.overlay, None, "Stay must return, not open output");
+            assert!(app.editing);
+            assert_eq!((app.input.clone(), app.cursor), draft);
+            assert_eq!(app.execution.prepared, expected);
+            assert!(app.execution.confirmation.is_none());
+            assert!(app.execution.approval_review.is_none());
+            assert!(
+                !app.execution
+                    .queue
+                    .iter()
+                    .any(|job| matches!(job, StoreJob::Reserve(..))),
+                "deferral must not reserve execution"
+            );
+            assert!(!app.execution.reserving && !app.execution.visible());
+        }
+    }
+}
+
+#[test]
+fn owned_local_command_form_change_reviews_cancellation_but_provider_work_stays_blocked() {
+    let mut app = crate::app::App::new("/project".into(), 60, 18);
+    app.task_id = 1;
+    app.lead.form = 2;
+    let owner = store::Attribution::of(&app.lead);
+    app.execution = pending();
+    app.execution.owner = Some(owner.clone());
+    app.execution.prepared.as_mut().unwrap().partner = Some(owner.clone());
+    app.request_navigation(Action::SelectForm(3));
+    assert_eq!(app.overlay, Some(crate::app::Overlay::Execution));
+    assert!(matches!(
+        app.execution.confirmation,
+        Some(Confirmation::Navigate(Action::SelectForm(3)))
+    ));
+    assert!(!app.execution.affirmative);
+    app.execution_key(key(KeyCode::Enter));
+    assert_eq!(app.form(), 2);
+    assert!(app.execution.prepared.is_some());
+    assert!(!app.execution.invalidation && !app.execution.cancellation);
+
+    app.planning.work = Some(store::WorkClaim {
+        task_id: 1,
+        owner,
+        request_id: "provider-still-owns-work".into(),
+        writing: true,
+    });
+    app.request_navigation(Action::SelectForm(3));
+    assert!(app.execution.confirmation.is_none());
+    assert_eq!(app.form(), 2);
+    assert!(app.planning.work.is_some());
+    assert!(!app.execution.invalidation && !app.execution.cancellation);
+}
+
+#[test]
 fn confirmation_shortcuts_require_visible_scope_press_and_matching_request() {
     let mut state = pending();
     state.command("execute");
@@ -310,6 +384,7 @@ fn confirmation_shortcuts_require_visible_scope_press_and_matching_request() {
     assert!(state.confirmation.is_none() && state.queue.is_empty());
     assert!(state.prepared.is_some(), "Stay does not discard command");
     state.command("execute");
+    state.shown = true;
     state.confirmation_visible = true;
     state.key(key(KeyCode::Char('y')));
     assert!(matches!(state.queue.front(), Some(StoreJob::Reserve(..))));

@@ -235,7 +235,7 @@ def main():
             session.send('\r')
             until(session, lambda: bool(task(session)[1]), 'selected decision saved', 15)
             decision = task(session)[1]
-            assert 'Codex' in decision and ('Markdown' in decision or '마크다운' in decision), decision
+            assert 'Codex' in decision and 'Markdown' in decision, decision
             passed('real plan question/literal CJK answer/selected decision durably saved')
 
             if TITLE in session.display():

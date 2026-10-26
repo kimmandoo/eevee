@@ -6,7 +6,7 @@ use crate::{
     },
     config::Config,
     domain::FORMS,
-    i18n::{Message, Template},
+    messages::{Message, Template},
     store,
     workspace::records::{self, Freshness},
 };
@@ -87,13 +87,13 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             &[
                 (
                     "index",
-                    crate::i18n::Argument::Number(if count == 0 {
+                    crate::messages::Argument::Number(if count == 0 {
                         0
                     } else {
                         app.records.selected + 1
                     } as f64),
                 ),
-                ("count", crate::i18n::Argument::Number(count as f64)),
+                ("count", crate::messages::Argument::Number(count as f64)),
             ],
         )
     };

@@ -26,11 +26,10 @@ FORMS = ('eevee', 'vaporeon', 'jolteon', 'flareon', 'espeon',
          'umbreon', 'leafeon', 'glaceon', 'sylveon')
 
 
-def run_case(binary, output, root, size, language, route, protocol, form):
+def run_case(binary, output, root, size, route, protocol, form):
     output.mkdir(parents=True, exist_ok=False)
     root.mkdir(mode=0o700)
-    result = {'status': 'failed', 'size': list(size), 'language': language,
-              'route': route, 'protocol': protocol, 'form': form, 'cases': [],
+    result = {'status': 'failed', 'size': list(size), 'route': route, 'protocol': protocol, 'form': form, 'cases': [],
               'limits': 'Actual terminal and filesystem with local protocol fixtures; not live-account acceptance'}
     journey = None
     gates = []
@@ -39,7 +38,7 @@ def run_case(binary, output, root, size, language, route, protocol, form):
         try:
             journey = CreationJourney(binary, output, root, size, size[0] == 60,
                                       route, protocol, route == 'compatible', False,
-                                      peer, language=language)
+                                      peer, )
             wait_for(journey.session, 'Storage: saved')
             (journey.project / 'seed.rs').write_text('pub const SEED: bool = true;\n')
             (journey.project / '.env').write_text('TEST_ONLY_PRIVATE_BODY\n')
@@ -88,7 +87,7 @@ def run_case(binary, output, root, size, language, route, protocol, form):
                 nonlocal sequence
                 sequence += 1
                 session = journey.session
-                unavailable = ('review all scope before allowing', '전체 범위를 확인한 뒤')
+                unavailable = ('review all scope before allowing', )
                 until(session, lambda: file_review_pending(session),
                       'file permission did not present automatically', timeout=40)
                 target = journey.project / path
@@ -117,15 +116,15 @@ def run_case(binary, output, root, size, language, route, protocol, form):
                         pages += 1
                         assert current() == original and len(peer.snapshot('POST')) == posts
                 visible = session.display()
-                assert ('[ Allow once ]' in visible if language == 'en' else '[ 한 번 허용 ]' in visible), visible
-                selected = ('Allow once' if allow else 'Deny') if language == 'en' else ('한 번 허용' if allow else '거부')
+                assert '[ Allow once ]' in visible, visible
+                selected = ('Allow once' if allow else 'Deny')
                 assert f'> [ {selected} ]' in visible, 'plain-text choice marker did not match the explicit decision'
                 journey.capture(f'{sequence}-selected-decision-complete-scope')
                 session.send('\r')
                 return pages
 
             read_reply = 'Read-only source inspection finished.'
-            before, count = start('Read `seed.rs`' if language == 'en' else '`seed.rs`를 읽어줘.',
+            before, count = start('Read `seed.rs`',
                                   [[{'id': 'read-seed', 'name': 'eevee_read_file',
                                      'arguments': {'path': 'seed.rs', 'start_line': 1, 'end_line': 0}}]],
                                   read_reply, writing=False)
@@ -137,7 +136,7 @@ def run_case(binary, output, root, size, language, route, protocol, form):
             assert_form()
             result['cases'].append('optional path restriction opened directly without changing form, attaching context or granting writes')
 
-            create_request = f'Create `{TARGET}`' if language == 'en' else f'`{TARGET}`를 생성해줘.'
+            create_request = f'Create `{TARGET}`'
             for allow in (False, True):
                 reply = 'Creation approved and completed.' if allow else 'Creation denied; no file was written.'
                 before, count = start(create_request,
@@ -154,7 +153,7 @@ def run_case(binary, output, root, size, language, route, protocol, form):
                 assert f'create-{allow}' in tool_results(protocol, peer.snapshot('POST')[before + 1]['body'])
                 result['cases'].append('quoted create after discovery: ' + ('scrolled exact scope and button-approved literal bytes' if allow else 'button denial settled without files or parents'))
 
-            edit_request = f'Edit `{TARGET}`' if language == 'en' else f'`{TARGET}`를 수정해줘.'
+            edit_request = f'Edit `{TARGET}`'
             for allow in (False, True):
                 reply = 'Exact edit completed.' if allow else 'Edit denied; original file preserved.'
                 before, count = start(edit_request, [
@@ -172,7 +171,7 @@ def run_case(binary, output, root, size, language, route, protocol, form):
 
             handoff = '# Reviewed handoff\n'
             reply = 'Approved handoff file created.'
-            before, count = start('Create handoff.md' if language == 'en' else 'handoff.md를 생성해줘.',
+            before, count = start('Create handoff.md',
                                   [[{'id': 'create-handoff', 'path': 'handoff.md', 'content': handoff}]], reply)
             body = peer.snapshot('POST')[before]['body']
             assert edit_request in json.dumps(body, ensure_ascii=False), 'same-policy form change erased the previous request context'
@@ -205,7 +204,6 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--binary', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
-    parser.add_argument('--language', choices=('en', 'ko'), required=True)
     parser.add_argument('--all-forms', action='store_true',
                         help='Exercise automatic mode and every manually fixed form')
     args = parser.parse_args()
@@ -218,7 +216,7 @@ def main():
                 for size in [(120, 36), (60, 18)]:
                     label = f'{route}-{size[0]}' + (f'-{form}' if args.all_forms else '')
                     results.append(run_case(args.binary.resolve(), output / label,
-                                            Path(temporary) / label, size, args.language, route, protocol, form))
+                                            Path(temporary) / label, size, route, protocol, form))
     report = {'status': 'passed' if all(row['status'] == 'passed' for row in results) else 'failed',
               'cases': results}
     save(output / 'results.json', report)

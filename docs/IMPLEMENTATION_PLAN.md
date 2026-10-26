@@ -4,6 +4,15 @@ Updated2026-10-25. v0.1.31 source `1b83cc4` passed exact-source native/public re
 
 Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPATIBILITY.md). Live-provider conformance remains distinct from implemented transports and deterministic runtime proof.
 
+## Active request — English-only UX and v0.1.32 release
+
+1. Completed: reproduced everyday UX problems on the prior binary, including fresh home, command arguments, empty provider search and neutral command-review return.
+2. Completed: preserved concrete UX repairs and removed multilingual display support completely. English messages are compiled; language selection, runtime translation and locale-dependent UI state are removed. Unicode content and natural-language request interpretation remain supported.
+3. Completed: migrated all application/render consumers and smoke drivers. Both terminal sizes, distinct provider protocols, consent/error paths and all five native targets remain; only duplicate translation journeys were removed.
+4. Local source/runtime gates passed: Rust1.90 formatting,1,679 tests/two ignored, strict Clippy/release build, actual execution/navigation/tooltip/coding/snapshot and full English native7-driver/24-journey coverage. Public installed acceptance follows publication; no measured performance claim.
+5. Commit/push the exact release source, require Check and all five native jobs in one attempt, publish v0.1.32 through the existing tag workflow, then verify public bytes and installed/runtime behavior. No paid/live provider calls or later roadmap implementation.
+
+
 ## Completed implementation — Wave5 source 0.1.32, unreleased
 
 1. Completed: actual0.1.31 public acceptance and committed release handoff (`396696f`).

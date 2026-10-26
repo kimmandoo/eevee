@@ -256,7 +256,7 @@ def advertised_tools(protocol, body):
 
 def file_review_pending(session):
     view = session.display()
-    return any(button in view for button in ('[ Allow once ]', '[ 한 번 허용 ]'))
+    return any(button in view for button in ('[ Allow once ]', ))
 
 
 class CreationJourney(SurfaceJourney):
@@ -266,12 +266,12 @@ class CreationJourney(SurfaceJourney):
         session = self.session
         fields = self.surface['fields']
         labels = list(fields) if self.route == 'compatible' else [fields[i] for i in (0, 1, 2, 5, 6)]
-        open_setup(session, self.route, self.language, advanced=True)
+        open_setup(session, self.route, advanced=True)
         before = len(self.peer.snapshot('POST'))
         metadata = len(self.peer.snapshot('GET')) + 1
         for label in labels:
             field_name = dict(zip(fields, ('key', 'endpoint', 'model', 'protocol', 'auth', 'storage', 'save')))[label]
-            focus_field(session, field_name, self.language)
+            focus_field(session, field_name, )
             assert '> ' + label + ':' in session.display(), session.display()
             if label == fields[0] and not self.keyless:
                 self.private_paste(self.peer.secret)
@@ -390,11 +390,11 @@ class CreationJourney(SurfaceJourney):
             self.session.send('\r')  # Reopen the deferred owner.
         wanted = normalized(path)
         until(self.session, lambda: wanted in self.session.display()
-              and any(word in self.session.display() for word in ('Allow once', '한 번', '1회')),
+              and any(word in self.session.display() for word in ('Allow once', )),
               'exact file permission was not visible: ' + path, timeout=40)
         view = self.session.display()
-        labels = {'Create': ('Create', '생성'), 'Replace': ('Replace', '수정', '교체', 'Modify'),
-                  'Delete': ('Delete', '삭제'), 'Rename': ('Rename', '이름 변경')}
+        labels = {'Create': ('Create', ), 'Replace': ('Replace', 'Modify'),
+                  'Delete': ('Delete', ), 'Rename': ('Rename', )}
         assert any(label in view for label in labels[kind]), view
         self.capture(('allow-' if allow else 'deny-') + path.replace('/', '-')[:70])
         if reviews == 0:
@@ -411,7 +411,7 @@ class CreationJourney(SurfaceJourney):
     def settled(self, answer, post_count):
         def complete():
             view = self.session.display()
-            if any(title in view for title in ('Evolution!', '진화했어요!')):
+            if any(title in view for title in ('Evolution!', )):
                 self.capture('evolution-popup-after-safe-settlement-' + str(post_count))
                 self.session.send(ESC)
                 return False
@@ -456,16 +456,16 @@ def mutation_review(journey, arguments, kind, *, syntax=False):
     else:
         raise AssertionError('compact mutation scope did not reach its final page')
     view = '\n'.join(pages)
-    labels = {'Delete': ('Delete', '삭제'), 'Rename': ('Rename', '이름 변경'),
-              'Replace': ('Replace', 'Modify', '수정', '교체')}
+    labels = {'Delete': ('Delete', ), 'Rename': ('Rename', ),
+              'Replace': ('Replace', 'Modify', )}
     assert any(label in view for label in labels[kind]), view
     for path in (arguments['path'], arguments.get('destination')):
         if path:
             assert normalized(path) in view, 'compact review lost exact mutation scope: ' + path + '\n' + view
     if syntax:
         assert 'Rust' in view, 'compact approval did not disclose the Rust syntax issue'
-        assert any(label in view for label in ('syntax', 'Syntax', '구문')), view
-        assert any(label in view for label in ('newly invalid', '새 오류 발생')), view
+        assert any(label in view for label in ('syntax', 'Syntax', )), view
+        assert any(label in view for label in ('newly invalid', )), view
     session.send(HOME)
     session.capture('compact-' + kind.lower() + '-' + arguments['path'].replace('/', '-'))
 
@@ -577,7 +577,7 @@ def mutation_contracts(journey, execute, result):
             RUST_CONTENT + '// external\r\n' if decision == 'stale' else RUST_CONTENT)
         assert target.read_bytes() == expected.encode(), 'Rust disclosure/cancellation/staleness changed unapproved bytes'
     assert unrelated.read_bytes() == untouched
-    result['cases'].append('RX02 introduced Rust missing-delimiter disclosure visible in compact English/Korean approval before effect; cancellation unchanged; explicit allow applies literal bytes; changed bytes refused')
+    result['cases'].append('RX02 introduced Rust missing-delimiter disclosure visible in compact approval before effect; cancellation unchanged; explicit allow applies literal bytes; changed bytes refused')
 
 
 def native_mutations(journey, peer, result):
@@ -620,18 +620,18 @@ def native_mutations(journey, peer, result):
     mutation_contracts(journey, execute, result)
 
 
-def native_case(binary, output, root, size, ascii_mode, language, variant, advanced, *, mutations=False):
+def native_case(binary, output, root, size, ascii_mode, variant, advanced, *, mutations=False):
     route, protocol, keyless, _persist = variant
     output.mkdir(parents=True, exist_ok=False)
     result = {'status': 'failed', 'route': route, 'protocol': protocol,
-              'language': language, 'size': list(size), 'ascii': ascii_mode,
+              'size': list(size), 'ascii': ascii_mode,
               'cases': [], 'limits': 'Real UI/local writes with synthetic loopback protocol; not live-provider conformance'}
     journey = None
     gate = Gate()
     with Peer(protocol, 'sk-public-file-fixture-only', keyless, retain_body_bytes=True) as peer:
         try:
             journey = CreationJourney(binary, output, root, size, ascii_mode, route, protocol,
-                                      keyless, False, peer, language=language)
+                                      keyless, False, peer, )
             wait_for(journey.session, 'Storage: saved')
             assert not any(journey.project.iterdir()), 'creation fixture did not start with an empty project'
             journey.setup_route()
@@ -758,8 +758,7 @@ def native_case(binary, output, root, size, ascii_mode, language, variant, advan
             # request in read-only mode or discard the plan it refers to.
             planned_path = 'planned/한글/saved.txt'
             planned_content = 'implemented from the retained plan\r\n'
-            plan_request = ('새 프로젝트 구현 계획 세워줘' if language == 'ko'
-                            else 'Plan the implementation of a new project.')
+            plan_request = 'Plan the implementation of a new project.'
             plan_answer = f'Create {planned_path} with exact content: {planned_content}'
             gate.ready.clear()
             gate.release.clear()
@@ -769,7 +768,7 @@ def native_case(binary, output, root, size, ascii_mode, language, variant, advan
             assert not (journey.project / planned_path).parent.exists()
             gate.release.set()
             journey.settled('Create planned/', before + 1)
-            implementation = '구현해줘' if language == 'ko' else 'Implement it.'
+            implementation = 'Implement it.'
             before = journey.begin(implementation, [
                 response_plan(peer, calls=[{'id': 'implement-retained-plan',
                     'path': planned_path, 'content': planned_content}], number=21),
@@ -836,15 +835,15 @@ def native_case(binary, output, root, size, ascii_mode, language, variant, advan
 
 
 class CodexCreationJourney(cooperation_smoke.Journey):
-    def __init__(self, binary, output, size, language):
-        self.language, self.surface = language, SURFACE[language]
+    def __init__(self, binary, output, size, ):
+        self.surface, = SURFACE,
 
         def session(argv, cwd, environment, dimensions, directory):
             environment = environment | {'EV_COOP_EDIT_PATH': FIRST, 'EV_COOP_EDIT_CONTENT': CONTENT}
-            return SurfaceSession(argv, cwd, environment, dimensions, directory, language=language)
+            return SurfaceSession(argv, cwd, environment, dimensions, directory, )
 
         with patch.object(cooperation_smoke, 'Session', session):
-            super().__init__(binary, output, size, 'create-' + language)
+            super().__init__(binary, output, size, 'create')
 
     def workspace(self):
         for _ in range(12):
@@ -935,12 +934,11 @@ def codex_mutations(journey, result):
     mutation_contracts(journey, execute, result)
 
 
-def codex_case(binary, output, size, language, *, mutations=False):
-    result = {'status': 'failed', 'route': 'codex-controlled', 'language': language,
-              'size': list(size), 'cases': [], 'scope': 'Actual Eevee writes, deterministic JSONL peer; not live Codex conformance'}
+def codex_case(binary, output, size, *, mutations=False):
+    result = {'status': 'failed', 'route': 'codex-controlled', 'size': list(size), 'cases': [], 'scope': 'Actual Eevee writes, deterministic JSONL peer; not live Codex conformance'}
     journey = None
     try:
-        journey = CodexCreationJourney(binary, output, size, language)
+        journey = CodexCreationJourney(binary, output, size, )
         journey.setup(count=1)
         journey.session.command('eevee')
         journey.session.command('role-implement')
@@ -1110,7 +1108,7 @@ def codex_case(binary, output, size, language, *, mutations=False):
     finally:
         if journey:
             journey.close()
-        save(output / ('codex-' + language + '-' + str(size[0]) + '.json'), result)
+        save(output / ('codex-' + str(size[0]) + '.json'), result)
     return result
 
 
@@ -1118,33 +1116,31 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--binary', required=True, type=Path)
     parser.add_argument('--output', required=True, type=Path)
-    parser.add_argument('--language', default='en', choices=('en', 'ko'))
     parser.add_argument('--profile', default='full', choices=('full', 'platform', 'mutations'),
                         help='full: existing protocol/Codex matrix; platform: representative native; '
                              'mutations: reviewed mutation suite on native+Codex at both sizes '
-                             '(4 journeys per language on POSIX, 2 native elsewhere)')
+                             '(4 journeys on POSIX, 2 native elsewhere)')
     args = parser.parse_args()
     binary, output = args.binary.resolve(), args.output.resolve()
     output.mkdir(parents=True, exist_ok=False)
     before = hashlib.sha256(binary.read_bytes()).hexdigest()
     report = {'status': 'failed', 'binary': str(binary), 'sha256': before,
-              'language': args.language, 'profile': args.profile, 'journeys': [],
+              'profile': args.profile, 'journeys': [],
               'limits': ['Synthetic protocol peers are not live model/billing conformance.',
                          'Native ChatGPT official endpoint is not redirected to a fixture.',
                          'PTY/ConPTY proof is not physical GUI/mouse certification.']}
     try:
         for size, ascii_mode in SIZES:
             for variant in selected_variants(args.profile):
-                label = '{}x{}-{}-{}-{}'.format(*size, args.language, variant[0], variant[1])
+                label = '{}x{}-{}-{}'.format(*size, variant[0], variant[1])
                 with tempfile.TemporaryDirectory(prefix='ev-file-create-漢字-') as temporary:
                     result = native_case(binary, output / label, Path(temporary).resolve(), size,
-                                         ascii_mode, args.language, variant,
-                                         advanced=(size[0] == (120 if args.language == 'en' else 60)),
+                                         ascii_mode, variant,
+                                         advanced=(size[0] == 120),
                                          mutations=args.profile == 'mutations')
                 report['journeys'].append(result)
             if args.profile in ('full', 'mutations') and os.name == 'posix':
-                report['journeys'].append(codex_case(binary, output, size, args.language,
-                                                   mutations=args.profile == 'mutations'))
+                report['journeys'].append(codex_case(binary, output, size, mutations=args.profile == 'mutations'))
         assert hashlib.sha256(binary.read_bytes()).hexdigest() == before, 'supplied binary changed during qualification'
         report['status'] = 'passed' if all(row['status'] == 'passed' for row in report['journeys']) else 'failed'
     except Exception as error:

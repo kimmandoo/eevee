@@ -8,7 +8,7 @@ Only unfinished work belongs here. Completed specifications and stable dependenc
 - **Included milestones:** A08 → UX04A → S04 and P04A → P04B → T01B shipped: actionable connection diagnostics, persistent text density, reviewed portable workflows, reviewed updates/safe rollback and exact local context comparison. Specifications remain in [COMPLETED.md](tasks/COMPLETED.md).
 - **Compatibility:** Unreleased0.1.32 source retains SQL19/TM1/formation2/SDK bridge10 but admits new same-name historical moves and stale approved-memory references. Genuine0.1.31 refused both tested states with database bytes unchanged; current startup preserved identity/history without replay. Equal SQL schema never bypasses conservative build-derived rollback checks. Back up the whole data directory.
 - **Remaining:** **21 tasks**. All16 Wave1–5 contracts passed implementation/actual acceptance and moved intact to the completed archive. Wave5 is accepted unreleased0.1.32 source; public installers remain0.1.31.
-- **Current request:**0.1.31 release acceptance, requested67G target cleanup and complete Wave5 MV09/PK08/PT12 implementation/actual acceptance passed. Final evidence/handoff is recorded in the checkpoint. No Wave6–8, automatic later publication or paid/live call is authorized.
+- **Current request:** Inspect and repair UX, remove multilingual UI support in favor of English while preserving Unicode content, and publish v0.1.32 after exact-source qualification/public acceptance. The active plan and checkpoint own this release; no Wave6–8 or paid/live call is authorized.
 
 ## Completed Pokémon milestone
 

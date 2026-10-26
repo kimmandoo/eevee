@@ -2,7 +2,6 @@ use super::*;
 use crate::{
     app::{App, Overlay, StorageState},
     config::{ColorMode, Config, ImageMode, LayoutMode, Theme},
-    i18n::Language,
     workspace::{context::optimizer, runner},
 };
 use ratatui::{Terminal, backend::TestBackend};
@@ -164,12 +163,11 @@ fn app(task: &store::Snapshot, capture: context::Excerpt, width: u16, height: u1
     app
 }
 
-fn config(tag: &str) -> Config {
+fn config() -> Config {
     Config {
         ascii: true,
         no_animation: true,
         animation_override: Some(false),
-        language: Language::parse(tag).unwrap(),
         theme: Theme::Dark,
         color: ColorMode::Mono,
         images: ImageMode::Off,
@@ -183,8 +181,8 @@ fn config(tag: &str) -> Config {
     }
 }
 
-fn render(app: &mut App, tag: &str, width: u16, height: u16) -> String {
-    let config = config(tag);
+fn render(app: &mut App, width: u16, height: u16) -> String {
+    let config = config();
     let mut artwork = crate::ui::artwork::Artwork::load(&config);
     let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
     terminal
@@ -256,7 +254,7 @@ fn applied(app: &mut App, worker: &context::Worker, report: &Arc<repo::Report>) 
     let plan = preview(&mut app.sources, worker, report, "optimize 20000");
     assert!(!plan.overflow);
     let (width, height) = (app.width, app.height);
-    render(app, "en", width, height);
+    render(app, width, height);
     assert!(app.sources.optimizer_reviewed);
     key(&mut app.sources, KeyCode::Char('a'), report);
     assert_eq!(app.sources.applied_plan(), Some(&plan));
@@ -294,7 +292,7 @@ fn global_optimizer_command_queues_requested_work_without_incidental_catalogue()
     ));
     let plan = finish(&mut app.sources, &worker);
     assert!(app.sources.applied_plan().is_none());
-    render(&mut app, "en", 120, 36);
+    render(&mut app, 120, 36);
     assert!(app.command("context-apply"));
     assert_eq!(app.sources.applied_plan(), Some(&plan));
     assert_eq!(app.sources.basket, basket);
@@ -388,54 +386,49 @@ fn budget_editor_treats_shortcuts_as_literal_and_esc_keeps_existing_context() {
 }
 
 #[test]
-fn rendered_en_ko_preview_requires_review_and_only_explicit_apply_stages_exact_packet() {
+fn rendered_preview_requires_review_and_only_explicit_apply_stages_exact_packet() {
     let fixture = Fixture::new();
     let report = fixture.report(ORIGINAL);
     let worker = context::Worker::start(Vec::new()).unwrap();
     let capture = capture(&worker, &report);
-    for tag in ["en", "ko"] {
-        for (width, height) in [(60, 18), (120, 36)] {
-            let mut app = app(&fixture.task(), capture.clone(), width, height);
-            let draft = (app.input.clone(), app.cursor);
-            let basket = app.sources.basket.clone();
-            let plan = preview(&mut app.sources, &worker, &report, "optimize 20000");
-            key(&mut app.sources, KeyCode::Char('a'), &report);
-            assert!(app.sources.applied_plan().is_none());
-            assert!(app.sources.error.contains("Review"));
-            render(&mut app, tag, 40, 10);
-            assert!(!app.sources.optimizer_reviewed);
-            key(&mut app.sources, KeyCode::Char('a'), &report);
-            assert!(app.sources.applied_plan().is_none());
-            let screen = render(&mut app, tag, width, height);
-            assert!(
-                app.sources.optimizer_reviewed,
-                "{tag} {width}x{height}\n{screen}"
-            );
-            app.update(crossterm::event::Event::Resize(40, 10));
-            assert!(
-                !app.sources.optimizer_reviewed,
-                "resize must revoke visible review"
-            );
-            render(&mut app, tag, 40, 10);
-            assert!(!app.sources.optimizer_reviewed);
-            app.update(crossterm::event::Event::Resize(width, height));
-            key(&mut app.sources, KeyCode::Char('a'), &report);
-            assert!(
-                app.sources.applied_plan().is_none(),
-                "restoring size alone is not review"
-            );
-            render(&mut app, tag, width, height);
-            assert!(app.sources.optimizer_reviewed);
-            key(&mut app.sources, KeyCode::Char('a'), &report);
-            assert_eq!(app.sources.applied_plan(), Some(&plan));
-            assert_eq!(
-                app.sources.applied_plan().unwrap().packet.as_bytes(),
-                plan.packet.as_bytes()
-            );
-            assert_eq!(app.sources.basket, basket);
-            assert_eq!((app.input.clone(), app.cursor), draft);
-            assert_no_dispatch(&app);
-        }
+    for (width, height) in [(60, 18), (120, 36)] {
+        let mut app = app(&fixture.task(), capture.clone(), width, height);
+        let draft = (app.input.clone(), app.cursor);
+        let basket = app.sources.basket.clone();
+        let plan = preview(&mut app.sources, &worker, &report, "optimize 20000");
+        key(&mut app.sources, KeyCode::Char('a'), &report);
+        assert!(app.sources.applied_plan().is_none());
+        assert!(app.sources.error.contains("Review"));
+        render(&mut app, 40, 10);
+        assert!(!app.sources.optimizer_reviewed);
+        key(&mut app.sources, KeyCode::Char('a'), &report);
+        assert!(app.sources.applied_plan().is_none());
+        let screen = render(&mut app, width, height);
+        assert!(app.sources.optimizer_reviewed, "{width}x{height}\n{screen}");
+        app.update(crossterm::event::Event::Resize(40, 10));
+        assert!(
+            !app.sources.optimizer_reviewed,
+            "resize must revoke visible review"
+        );
+        render(&mut app, 40, 10);
+        assert!(!app.sources.optimizer_reviewed);
+        app.update(crossterm::event::Event::Resize(width, height));
+        key(&mut app.sources, KeyCode::Char('a'), &report);
+        assert!(
+            app.sources.applied_plan().is_none(),
+            "restoring size alone is not review"
+        );
+        render(&mut app, width, height);
+        assert!(app.sources.optimizer_reviewed);
+        key(&mut app.sources, KeyCode::Char('a'), &report);
+        assert_eq!(app.sources.applied_plan(), Some(&plan));
+        assert_eq!(
+            app.sources.applied_plan().unwrap().packet.as_bytes(),
+            plan.packet.as_bytes()
+        );
+        assert_eq!(app.sources.basket, basket);
+        assert_eq!((app.input.clone(), app.cursor), draft);
+        assert_no_dispatch(&app);
     }
 }
 
@@ -448,7 +441,7 @@ fn reviewed_overflow_refuses_apply_and_cancel_or_esc_preserve_previous_plan_and_
     let previous = applied(&mut app, &worker, &report);
     assert_eq!(
         app.sources.optimizer_notice(),
-        crate::i18n::Message::ContextOptimizerApplied
+        crate::messages::Message::ContextOptimizerApplied
     );
     let basket = app.sources.basket.clone();
     let draft = (app.input.clone(), app.cursor);
@@ -464,13 +457,11 @@ fn reviewed_overflow_refuses_apply_and_cancel_or_esc_preserve_previous_plan_and_
         );
         assert_eq!(
             app.sources.optimizer_notice(),
-            crate::i18n::Message::ContextOptimizerOverflowPrevious,
+            crate::messages::Message::ContextOptimizerOverflowPrevious,
         );
-        for tag in ["en", "ko"] {
-            for (width, height) in [(60, 18), (120, 36)] {
-                render(&mut app, tag, width, height);
-                assert!(app.sources.optimizer_reviewed);
-            }
+        for (width, height) in [(60, 18), (120, 36)] {
+            render(&mut app, width, height);
+            assert!(app.sources.optimizer_reviewed);
         }
         key(&mut app.sources, KeyCode::Char('a'), &report);
         assert!(!app.sources.error.is_empty());
@@ -499,7 +490,7 @@ fn reviewed_overflow_refuses_apply_and_cancel_or_esc_preserve_previous_plan_and_
 
 #[test]
 fn optimizer_notice_distinguishes_unapplied_preview_prior_selection_and_explicit_apply() {
-    use crate::i18n::Message;
+    use crate::messages::Message;
     let fixture = Fixture::new();
     let report = fixture.report(ORIGINAL);
     let worker = context::Worker::start(Vec::new()).unwrap();
@@ -525,7 +516,7 @@ fn optimizer_notice_distinguishes_unapplied_preview_prior_selection_and_explicit
         Some(&previous),
         "unrendered preview cannot replace prior selection"
     );
-    render(&mut app, "ko", 60, 18);
+    render(&mut app, 60, 18);
     key(&mut app.sources, KeyCode::Char('a'), &report);
     assert_eq!(app.sources.applied_plan(), Some(&current));
     assert_eq!(
@@ -544,7 +535,7 @@ fn optimizer_notice_distinguishes_unapplied_preview_prior_selection_and_explicit
         app.sources.optimizer_notice(),
         Message::ContextOptimizerOverflowUnapplied
     );
-    render(&mut app, "en", 60, 18);
+    render(&mut app, 60, 18);
     key(&mut app.sources, KeyCode::Char('a'), &report);
     assert!(app.sources.applied_plan().is_none());
     assert_eq!(
@@ -1052,17 +1043,12 @@ fn budget_rejected_same_range_roles_persist_and_render_without_cache_failure() {
     assert_eq!(saved, preview.revisions);
     assert!(!app.sources.optimizer_cache_failed);
     assert!(app.sources.error.is_empty());
-    for tag in ["en", "ko"] {
-        for (width, height) in [(60, 18), (120, 36)] {
-            let screen = render(&mut app, tag, width, height);
-            assert!(
-                app.sources.optimizer_reviewed,
-                "{tag} {width}x{height}\n{screen}"
-            );
-            assert!(app.sources.error.is_empty(), "{screen}");
-            assert!(!app.sources.optimizer_cache_failed, "{screen}");
-            assert_no_dispatch(&app);
-        }
+    for (width, height) in [(60, 18), (120, 36)] {
+        let screen = render(&mut app, width, height);
+        assert!(app.sources.optimizer_reviewed, "{width}x{height}\n{screen}");
+        assert!(app.sources.error.is_empty(), "{screen}");
+        assert!(!app.sources.optimizer_cache_failed, "{screen}");
+        assert_no_dispatch(&app);
     }
     app.source_key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
     assert_eq!(app.sources.applied_plan().unwrap().packet, preview.packet);
@@ -1250,7 +1236,7 @@ fn source_memory_real_capture_check_review_approval_and_explicit_selection() {
         app.memory.pending.is_none(),
         "unrendered approval must remain closed"
     );
-    render(&mut app, "en", 120, 36);
+    render(&mut app, 120, 36);
     assert!(app.memory.reviewed);
     app.update(crossterm::event::Event::Key(KeyEvent::new(
         KeyCode::Char('y'),
@@ -1305,86 +1291,83 @@ fn source_note_retention_is_visible_before_approval_without_compact_lockout() {
     let worker = context::Worker::start(Vec::new()).unwrap();
     let captured = capture(&worker, &report);
     let task = fixture.task();
-    for tag in ["en", "ko"] {
-        let language = Language::parse(tag).unwrap();
-        let disclosure = language.text(crate::i18n::Message::SourceMemoryRetention);
-        let compact_text = |value: &str| {
-            value
-                .chars()
-                .filter(|ch| !ch.is_whitespace())
-                .collect::<String>()
-        };
-        for (width, height) in [(60, 18), (120, 36)] {
-            for verbose in [false, true] {
-                for (kind, reference, expected) in [
-                    (
-                        SourceKind::UserAuthored,
-                        format!("task:{}/source:{}", task.id, captured.id),
-                        true,
-                    ),
-                    (
-                        SourceKind::UserAuthored,
-                        "independent authored instruction".into(),
+    let disclosure = (crate::messages::Message::SourceMemoryRetention).text();
+    let compact_text = |value: &str| {
+        value
+            .chars()
+            .filter(|ch| !ch.is_whitespace())
+            .collect::<String>()
+    };
+    for (width, height) in [(60, 18), (120, 36)] {
+        for verbose in [false, true] {
+            for (kind, reference, expected) in [
+                (
+                    SourceKind::UserAuthored,
+                    format!("task:{}/source:{}", task.id, captured.id),
+                    true,
+                ),
+                (
+                    SourceKind::UserAuthored,
+                    "independent authored instruction".into(),
+                    false,
+                ),
+                (
+                    SourceKind::VerifiedNote,
+                    format!("task:{}/source:{}", task.id, captured.id),
+                    false,
+                ),
+                (
+                    SourceKind::UserAuthored,
+                    format!("task:{}/source:{}", task.id + 1, captured.id),
+                    false,
+                ),
+            ] {
+                let mut app = source_memory_app(&task, captured.clone(), &report);
+                app.overlay = Some(Overlay::Memory);
+                app.verbose = verbose;
+                app.memory
+                    .propose(
+                        &captured.text,
+                        Provenance {
+                            kind,
+                            reference,
+                            task_id: task.id,
+                        },
                         false,
-                    ),
-                    (
-                        SourceKind::VerifiedNote,
-                        format!("task:{}/source:{}", task.id, captured.id),
-                        false,
-                    ),
-                    (
-                        SourceKind::UserAuthored,
-                        format!("task:{}/source:{}", task.id + 1, captured.id),
-                        false,
-                    ),
-                ] {
-                    let mut app = source_memory_app(&task, captured.clone(), &report);
-                    app.overlay = Some(Overlay::Memory);
-                    app.verbose = verbose;
-                    app.memory
-                        .propose(
-                            &captured.text,
-                            Provenance {
-                                kind,
-                                reference,
-                                task_id: task.id,
-                            },
-                            false,
-                        )
-                        .unwrap();
-                    app.update(crossterm::event::Event::Resize(width, height));
-                    app.update(crossterm::event::Event::Key(KeyEvent::new(
-                        KeyCode::Char('y'),
-                        KeyModifiers::NONE,
-                    )));
-                    assert!(
-                        app.memory.pending.is_none(),
-                        "unrendered approval must stay closed"
+                    )
+                    .unwrap();
+                app.update(crossterm::event::Event::Resize(width, height));
+                app.update(crossterm::event::Event::Key(KeyEvent::new(
+                    KeyCode::Char('y'),
+                    KeyModifiers::NONE,
+                )));
+                assert!(
+                    app.memory.pending.is_none(),
+                    "unrendered approval must stay closed"
+                );
+                let screen = render(&mut app, width, height);
+                for line in disclosure.lines() {
+                    assert_eq!(
+                        compact_text(&screen).contains(&compact_text(line)),
+                        expected,
+                        "{width}x{height} verbose={verbose}\n{screen}",
                     );
-                    let screen = render(&mut app, tag, width, height);
-                    for line in disclosure.lines() {
-                        assert_eq!(
-                            compact_text(&screen).contains(&compact_text(line)),
-                            expected,
-                            "{tag} {width}x{height} verbose={verbose}\n{screen}",
-                        );
-                    }
-                    assert!(app.memory.reviewed, "{tag} {width}x{height}\n{screen}");
-                    if !verbose {
-                        assert_eq!(app.memory.scroll_max, 0, "{tag} {width}x{height}\n{screen}");
-                    }
-                    assert!(app.memory.pending.is_none(), "rendering is not approval");
-                    app.update(crossterm::event::Event::Key(KeyEvent::new(
-                        KeyCode::Char('y'),
-                        KeyModifiers::NONE,
-                    )));
-                    assert!(matches!(
-                        &app.memory.pending,
-                        Some(Mutation::Approve(proposal))
-                            if proposal.content.as_bytes() == captured.text.as_bytes()
-                    ));
-                    assert_no_dispatch(&app);
                 }
+                assert!(app.memory.reviewed, "{width}x{height}\n{screen}");
+                if !verbose {
+                    assert_eq!(app.memory.scroll_max, 0, "{width}x{height}\n{screen}");
+                }
+                assert!(app.memory.pending.is_none(), "rendering is not approval");
+                app.update(crossterm::event::Event::Key(KeyEvent::new(
+                    KeyCode::Char('y'),
+                    KeyModifiers::NONE,
+                )));
+                assert!(matches!(
+                    &app.memory.pending,
+                    Some(Mutation::Approve(proposal))
+                        if proposal.content.as_bytes() == captured.text.as_bytes()
+                ));
+                assert_no_dispatch(&app);
             }
         }
     }
@@ -1410,14 +1393,12 @@ fn source_memory_global_command_never_guesses_a_capture_and_local_command_checks
     assert!(app.memory.candidate.is_none());
     assert_eq!(
         app.sources.memory_notice,
-        Some(crate::i18n::Message::SourceMemorySelect)
+        Some(crate::messages::Message::SourceMemorySelect)
     );
-    for tag in ["en", "ko"] {
-        render(&mut app, tag, 120, 36);
-        assert!(app.sources.pending.is_none());
-        assert!(app.memory.candidate.is_none());
-        assert_no_dispatch(&app);
-    }
+    render(&mut app, 120, 36);
+    assert!(app.sources.pending.is_none());
+    assert!(app.memory.candidate.is_none());
+    assert_no_dispatch(&app);
     assert!(app.context_tool_command("remember-source"));
     let Some(context::Request {
         operation: context::Operation::Check { excerpts, .. },
@@ -1531,7 +1512,7 @@ fn source_memory_refuses_changed_missing_and_policy_excluded_real_sources() {
         assert!(app.memory.selected_ids.is_empty());
         assert_eq!(
             app.sources.memory_notice,
-            Some(crate::i18n::Message::SourceMemoryStale)
+            Some(crate::messages::Message::SourceMemoryStale)
         );
         assert_no_dispatch(&app);
     }
@@ -1607,7 +1588,7 @@ fn source_memory_busy_drafts_unsaved_foreign_unavailable_and_oversized_captures_
     assert_eq!(app.sources.basket[0], large);
     assert_eq!(
         app.sources.memory_notice,
-        Some(crate::i18n::Message::SourceMemoryTooLarge)
+        Some(crate::messages::Message::SourceMemoryTooLarge)
     );
     assert_no_dispatch(&app);
 }
@@ -1690,7 +1671,7 @@ fn source_memory_checks_exact_reply_identity_and_retains_newly_busy_memory() {
         assert_eq!(app.memory.draft_snapshot(), draft, "{busy}");
         assert_eq!(
             app.sources.memory_notice,
-            Some(crate::i18n::Message::SourceMemoryBusy)
+            Some(crate::messages::Message::SourceMemoryBusy)
         );
         assert!(app.memory.pending.is_none());
         assert!(app.memory.selected_ids.is_empty());

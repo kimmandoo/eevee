@@ -1,9 +1,6 @@
 //! Text density is a store-global reading preference, never request authority.
 use super::App;
-use crate::{
-    i18n::{Language, Message},
-    store::TextDensity,
-};
+use crate::{messages::Message, store::TextDensity};
 
 impl App {
     pub fn text_density(&self) -> TextDensity {
@@ -14,7 +11,7 @@ impl App {
     pub fn density_notice(&self) -> Option<Message> {
         [Message::DensityCompact, Message::DensityComfortable]
             .into_iter()
-            .find(|message| self.notice == Language::ENGLISH.text(*message))
+            .find(|message| self.notice == (*message).text())
     }
 
     pub(super) fn sync_density_choices(&mut self) {
@@ -39,12 +36,12 @@ impl App {
         self.density_choice = Some(density);
         self.planning.set_text_density(density);
         self.sync_density_choices();
-        self.notice = Language::ENGLISH
-            .text(match density {
-                TextDensity::Compact => Message::DensityCompact,
-                TextDensity::Comfortable => Message::DensityComfortable,
-            })
-            .into();
+        self.notice = (match density {
+            TextDensity::Compact => Message::DensityCompact,
+            TextDensity::Comfortable => Message::DensityComfortable,
+        })
+        .text()
+        .into();
         true
     }
 }

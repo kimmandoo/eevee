@@ -1963,7 +1963,7 @@ impl App {
         Ok(())
     }
 
-    pub fn workflow_rows(&self, language: crate::i18n::Language) -> Vec<String> {
+    pub fn workflow_rows(&self) -> Vec<String> {
         if let Some(chooser) = self.workflow.chooser {
             let choices = self.workflow_choices(chooser);
             return if choices.is_empty() {
@@ -1980,28 +1980,26 @@ impl App {
                 // Shared commands have distinct effects in each specialist tab.
                 let label_key = match (self.workflow.tab, action) {
                     (Tab::Recipe, Action::AuthorRecipe) => {
-                        Some(crate::i18n::Message::RecipeAuthoringCommand)
+                        Some(crate::messages::Message::RecipeAuthoringCommand)
                     }
                     (Tab::Diagnosis, Action::Diagnostic) => {
-                        Some(crate::i18n::Message::DesksWorkflowsDiagnosisDiagnostic)
+                        Some(crate::messages::Message::DesksWorkflowsDiagnosisDiagnostic)
                     }
                     (Tab::Refactor, Action::Diagnostic) => {
-                        Some(crate::i18n::Message::DesksWorkflowsRefactorDiagnostic)
+                        Some(crate::messages::Message::DesksWorkflowsRefactorDiagnostic)
                     }
                     (Tab::Diagnosis, Action::Fix) => {
-                        Some(crate::i18n::Message::DesksWorkflowsDiagnosisFix)
+                        Some(crate::messages::Message::DesksWorkflowsDiagnosisFix)
                     }
                     (Tab::Refactor, Action::Fix) => {
-                        Some(crate::i18n::Message::DesksWorkflowsRefactorFix)
+                        Some(crate::messages::Message::DesksWorkflowsRefactorFix)
                     }
                     (Tab::Review, Action::Fix) => {
-                        Some(crate::i18n::Message::DesksWorkflowsReviewFix)
+                        Some(crate::messages::Message::DesksWorkflowsReviewFix)
                     }
                     _ => command_key,
                 };
-                let label = label_key
-                    .map(|key| language.text(key))
-                    .unwrap_or(original_label);
+                let label = label_key.map(|key| (key).text()).unwrap_or(original_label);
                 match action {
                     Action::Edit(field) => {
                         format!("{label}: {}", self.workflow.value(field).replace('\n', " "))

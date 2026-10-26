@@ -8,7 +8,6 @@ mouse or live-provider qualification. Dependencies match terminal_smoke.py.
 import argparse
 from contextlib import closing
 import hashlib
-from functools import partial
 import json
 from pathlib import Path
 import re
@@ -37,45 +36,34 @@ SECOND_ANSWER = "SECOND_RESPONSE_MARKER"
 
 # Only critical visible controls are named here; provider payloads and drafts
 # remain literal. These are navigation selectors, not catalog snapshot tests.
-SURFACE = {
-    "en": {"response": "Response", "previous": "Previous Response",
+SURFACE = {"response": "Response", "previous": "Previous Response",
            "following": "Following", "paused": "Paused", "unread": "+new",
            "complete": "complete", "help": "KEYS",
            "fields": ("API key", "Endpoint", "Default model", "Protocol",
                       "Authentication", "Storage", "Save & choose model"),
            "matches": "1 matches", "loading": "Loading metadata", "search": "Search: ",
-           "home": "Type Request /", "edit": "Enter Send /", "draft": "Draft only /"},
-    "ko": {"response": "응답", "previous": "이전 응답",
-           "following": "따라가는 중", "paused": "일시 정지", "unread": "+새 출력",
-           "complete": "완료", "help": "단축키",
-           "fields": ("API 키", "엔드포인트", "기본 모델", "프로토콜",
-                      "인증", "저장 방식", "저장 후 모델 선택"),
-           "matches": "검색 결과 1개", "loading": "메타데이터 로딩", "search": "검색: ",
-           "home": "요청 입력 /", "edit": "Enter 전송 /", "draft": "초안"},
-}
+           "home": "Type Request /", "edit": "Enter Send /", "draft": "Draft only /"}
 
 
 class SurfaceSession(Session):
-    def __init__(self, argv, *args, language, **kwargs):
-        self.language = language
-        self.surface = SURFACE[language]
-        super().__init__([*argv, "--language", language], *args, **kwargs)
+    def __init__(self, argv, *args, **kwargs):
+        self.surface = SURFACE
+        super().__init__(argv, *args, **kwargs)
 
     def command(self, name):
-        # Ctrl+K opens/resets the chooser regardless of its translated title.
+        # Ctrl+K opens/resets the chooser from any drawer.
         self.send("\x0b")
         self.send(name)
         self.send("\r")
 
 
 class SurfaceJourney(Journey):
-    def __init__(self, *args, language="en", **kwargs):
-        self.language = language
-        self.surface = SURFACE[language]
+    def __init__(self, *args, **kwargs):
+        self.surface = SURFACE
         # Constructor adaptation only: every input/output still uses the real
         # Session PTY and all upstream isolation/SQL/HTTP ownership is retained.
         with patch.object(native_connection_smoke, "Session",
-                          partial(SurfaceSession, language=language)):
+                          SurfaceSession):
             super().__init__(*args, **kwargs)
 
     def workspace(self):
@@ -220,12 +208,12 @@ def saved_request(journey, text, cursor):
                for draft in owner.get("drafts", []))
 
 
-def run(binary, output, root, size, ascii_mode, language="en"):
+def run(binary, output, root, size, ascii_mode, ):
     cases = []
     root.mkdir()
     with StreamingPeer() as peer:
         journey = SurfaceJourney(binary, output, root, size, ascii_mode, "compatible",
-                                 "chat_completions", True, False, peer, language=language)
+                                 "chat_completions", True, False, peer, )
         session = journey.session
         surface = journey.surface
         try:
@@ -413,7 +401,7 @@ def run(binary, output, root, size, ascii_mode, language="en"):
                 assert session.text.rfind(f"{ESC}[?{mode}l") > session.text.rfind(f"{ESC}[?{mode}h")
             peer.assert_clean()
             cases.append("clean exit restored mouse, raw, alternate-screen, paste and cursor modes")
-            return {"size": size, "ascii": ascii_mode, "language": language, "status": "passed",
+            return {"size": size, "ascii": ascii_mode, "status": "passed",
                     "cases": cases, "actual_posts": len(peer.snapshot("POST"))}
         finally:
             peer.release_append.set()
@@ -425,19 +413,17 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--binary", required=True)
     parser.add_argument("--output", required=True)
-    parser.add_argument("--language", choices=("en", "ko"), default="en")
     args = parser.parse_args()
     binary, output = Path(args.binary).resolve(), Path(args.output).resolve()
     output.mkdir(parents=True, exist_ok=True)
     with binary.open("rb") as handle:
         binary_hash = hashlib.file_digest(handle, "sha256").hexdigest()
-    result = {"status": "failed", "binary": str(binary), "sha256": binary_hash, "language": args.language,
-              "journeys": [], "limits": ["No live account, physical trackpad, GUI terminal or Windows-native qualification."]}
+    result = {"status": "failed", "binary": str(binary), "sha256": binary_hash, "journeys": [], "limits": ["No live account, physical trackpad, GUI terminal or Windows-native qualification."]}
     try:
         with tempfile.TemporaryDirectory(prefix="ev-response-空 格-") as temporary:
             for size, ascii_mode, label in [((120, 36), False, "wide"), ((60, 18), True, "compact")]:
                 result["journeys"].append(run(binary, output / label, Path(temporary) / label,
-                                             size, ascii_mode, args.language))
+                                             size, ascii_mode, ))
         result["status"] = "passed"
     except BaseException:
         result["error"] = traceback.format_exc()

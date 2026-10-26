@@ -1778,6 +1778,9 @@ impl State {
                     self.confirmation_visible = false;
                     self.affirmative = false;
                 }
+                KeyCode::Enter if !self.affirmative && self.defer_approval() => {
+                    return None;
+                }
                 KeyCode::Enter => {
                     if self.affirmative && (!self.confirmation_visible || !self.shown) {
                         return None;

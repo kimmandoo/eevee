@@ -2,6 +2,13 @@
 
 ## 2026-10-26
 
+- feat(ui): removed multilingual display support, Korean catalogs, `--language`, `EV_LANGUAGE` selection and runtime Fluent processing; compiled English messages directly while preserving Unicode input, source text and natural-language requests.
+- fix(ux): made the empty home lead with request input instead of criteria/form setup, kept the auto-approve stop command visible at minimum width, and stopped unrelated command arguments from advertising partner selection.
+- fix(navigation): prevented an empty provider search from opening actions for a hidden route through arrow or Tab navigation while retaining the unsent draft and caret.
+- fix(approvals): returned neutral command-review decisions to the request instead of a stranded execution inspector and showed task-wide approval shortcuts only for eligible agent-owned command reviews.
+- fix(navigation): restored the neutral cancel-and-wait review when changing the front local command owner's form, without bypassing provider ownership, parked commands, pending saves or unknown outcomes.
+- fix(ux): reserved visible completed-response content before optional compact advisory rows, exposed artifact-review paging, and aligned file-limit disclosures with the existing 1024-file/4-MiB bounds.
+- refactor(verification): removed duplicate translation journeys from smoke drivers while retaining compact/wide Unicode-content, provider-protocol, consent and all-five-native release gates.
 - feat(approvals): added `/auto-approve` / `/auto-approve-off` and Shift+A in an engaged file or command review to approve the lead partner's file changes and agent commands for the rest of the current task without per-item reviews; the header shows `AUTO-APPROVE`, each auto-approved item is announced, questions and other partners still ask, and task change or restart clears it.
 - feat(files): raised controlled file limits from 32 files/64 KiB to 1024 files/4 MiB per file, native tool loops from 128 to 1024 calls (64 per round) and per-request bodies from 1 MiB to 8 MiB, and reviewed edits of existing files as the changed region with context instead of the full old and new contents.
 - fix(files): revalidated unchanged frozen targets by file identity/size/time stamps and compared only possibly aliasing path pairs, so large write scopes no longer slow quadratically per operation.
@@ -204,10 +211,16 @@
 
 ## 0.1.32
 
+- feat(ui): switched to an English-only interface with compiled static messages and removed the `--language` option, `EV_LANGUAGE` selection and runtime translation engine; Unicode requests and paths remained supported.
+- fix(ux): simplified first-use guidance, kept completed responses visible at minimum height, preserved request return after neutral reviews, restored local command cancel-and-wait navigation, exposed artifact-review paging, corrected argument hints and blocked hidden provider selection after an empty search.
+- feat(approvals): added explicit task-scoped auto-approve for the lead's file changes and agent commands, visible state and `/auto-approve-off`; questions, other partners, task changes and restart retained their separate boundaries.
+- feat(execution): automatically opened typing-safe agent command reviews, wrapped readable commands and put verbose immutable identity behind `d`.
+- feat(files): raised controlled limits to 1024 files/4 MiB per file and native tool loops to 1024 calls, with changed-region review and stamp-based unrelated-target revalidation.
+- fix(providers): made ordinary requests coding-capable unless explicitly restricted, preserved planning continuity, streamed unfinished file lines and accepted compatible native tool-call variants and required continuation metadata.
 - feat(moves): added MV09 complete semantic replacement/TM review and source-revision-bound teaching without rewriting original usage or synchronizing independent copies.
 - feat(party): added PT12 cached mapped-party readiness and navigation through existing scoped inspectors without changing lead, dispatching or weakening atomic formation application.
 - feat(held): added PK08 neutral old/new held-reference renewal with exact transactional revalidation, truthful unavailable old bodies and unchanged context selection/frozen requests.
-- docs(storage): retained SQL19, TM1, formation2 and SDK bridge10 while documenting data-dependent older-reader refusal and mandatory full-directory backup; source0.1.32 remained unpublished.
+- docs(storage): retained SQL19, TM1, formation2 and SDK bridge10 while documenting data-dependent older-reader refusal and mandatory full-directory backup.
 - fix(party): reused authoritative frozen work ownership after native cancellation instead of treating unknown remote completion as an unreleased local writer; retained honest partial output and actual uncertain-effect blocks.
 - fix(party): restored bounded arrow scrolling in compact mapped move inspection without selecting another partner or granting mutation.
 

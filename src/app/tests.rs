@@ -195,7 +195,6 @@ fn command_alias_search_uses_one_action_and_preserves_exact_aliases() {
     for (query, expected) in [
         ("conn", "provider"),
         ("attachment", "files"),
-        ("첨부", "files"),
         ("stop", "cancel-all"),
         ("evidence", "history"),
         ("wat", "vaporeon"),

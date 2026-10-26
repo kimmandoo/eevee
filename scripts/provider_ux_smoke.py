@@ -19,14 +19,9 @@ from terminal_smoke import confirm_exit
 from workbench_smoke import wait_for
 
 ESC='\x1b'
-LABELS={
-    'en': {'account':'Sign in with ChatGPT','api':'Use an API key','custom':'Custom / local endpoint',
+LABELS={'account':'Sign in with ChatGPT','api':'Use an API key','custom':'Custom / local endpoint',
            'browser':'Browser login','device':'Device login','review':'Review connection',
-           'advanced':'Advanced settings','warning':'NOT encrypted/keychain','token':'Access token'},
-    'ko': {'account':'ChatGPT로 로그인','api':'API 키 사용','custom':'사용자 지정 / 로컬 연결',
-           'browser':'브라우저 로그인','device':'기기 로그인','review':'연결 검토',
-           'advanced':'고급 설정','warning':'암호화/키체인 아님','token':'액세스 토큰'},
-}
+           'advanced':'Advanced settings','warning':'NOT encrypted/keychain','token':'Access token'}
 DRAFT='Keep 요청界e\u0301 future draft'
 ANSWER='LOCAL_UNIFIED_OPENAI_ROUTE_CONFIRMED'
 
@@ -46,11 +41,11 @@ def saved_draft(journey):
             for draft in state.get('drafts',[]) if draft['field']=='Request']
 
 
-def run(binary,output,root,size,language):
+def run(binary,output,root,size,):
     output.mkdir(parents=True)
-    labels=LABELS[language];cases=[]
+    labels=LABELS;cases=[]
     with Peer('responses','sk-fixture-unified-openai-932a8f',False) as peer:
-        journey=SurfaceJourney(binary,output,root,size,size[0]==60,'openai','responses',False,True,peer,language=language)
+        journey=SurfaceJourney(binary,output,root,size,size[0]==60,'openai','responses',False,True,peer,)
         session=journey.session
         try:
             wait_for(session,'Storage: saved')
@@ -90,20 +85,20 @@ def run(binary,output,root,size,language):
             cases.append('native-browser-and-device-reviews-no-cli-neutral-no-network')
 
             session.command('connect openai');choose(session,labels['api'])
-            wait_for(session,FIELDS[language]['key']+':')
+            wait_for(session,FIELDS['key']+':')
             journey.private_paste(peer.secret)
             assert peer.secret not in session.display()
-            focus_field(session,'storage',language);session.send(' ')
-            focus_field(session,'save',language)
+            focus_field(session,'storage',);session.send(' ')
+            focus_field(session,'save',)
             assert labels['warning'] in session.display(),'compact plaintext warning was not visible'
             journey.capture('masked-api-primary-and-complete-storage-disclosure')
-            focus_field(session,'advanced',language);session.send('\r')
-            fill_text(session,'endpoint',peer.base,language)
-            fill_text(session,'model','模型界',language)
+            focus_field(session,'advanced',);session.send('\r')
+            fill_text(session,'endpoint',peer.base,)
+            fill_text(session,'model','模型界',)
             session.send(ESC+'[H'+ESC+'[C'+'X')
             assert '模X型界' in session.display(),'private CJK caret changed the wrong character'
-            fill_text(session,'model',MODEL,language)
-            focus_field(session,'save',language)
+            fill_text(session,'model',MODEL,)
+            focus_field(session,'save',)
             session.resize((59,17));session.send('\r')
             assert not peer.snapshot(),'below-minimum setup granted metadata or inference'
             assert not (journey.home/'.eevee-connections'/'openai.json').exists()
@@ -129,15 +124,15 @@ def run(binary,output,root,size,language):
             cases.append('explicit-request-uses-selected-responses-route-and-exact-draft')
 
             journey.workspace();session.command('connect openai');choose(session,labels['custom'])
-            wait_for(session,FIELDS[language]['endpoint']+':')
-            wait_for(session,FIELDS[language]['protocol']+':')
+            wait_for(session,FIELDS['endpoint']+':')
+            wait_for(session,FIELDS['protocol']+':')
             journey.capture('custom-endpoint-auth-protocol-explicit')
             session.send(ESC);journey.workspace()
             assert len(peer.snapshot('POST'))==1 and len(peer.snapshot('GET'))==1,'cancelled method switched/fetched/replayed'
             cases.append('custom-method-discloses-endpoint-protocol-and-cancel-keeps-account')
             session.command('quit');confirm_exit(session);assert session.wait_exit()==0
             peer.assert_clean()
-            return {'status':'passed','language':language,'size':list(size),'cases':cases}
+            return {'status':'passed','size':list(size),'cases':cases}
         finally:session.close()
 
 
@@ -148,12 +143,11 @@ def main():
     report={'status':'failed','sha256':hashlib.sha256(binary.read_bytes()).hexdigest(),'journeys':[],
             'limits':'Actual disposable PTYs and loopback API; native OAuth network not authorized, no live account/model/billing or physical terminal claim.'}
     try:
-        for language in ('en','ko'):
-            for size in ((120,36),(60,18)):
-                with tempfile.TemporaryDirectory(prefix='ev-provider-ux-') as temporary:
-                    try:report['journeys'].append(run(binary,output/f'{language}-{size[0]}',Path(temporary),size,language))
-                    except Exception as error:
-                        report['journeys'].append({'status':'failed','language':language,'size':list(size),'error':str(error),'traceback':traceback.format_exc()})
+        for size in ((120,36),(60,18)):
+            with tempfile.TemporaryDirectory(prefix='ev-provider-ux-') as temporary:
+                try:report['journeys'].append(run(binary,output/f'{size[0]}',Path(temporary),size,))
+                except Exception as error:
+                    report['journeys'].append({'status':'failed','size':list(size),'error':str(error),'traceback':traceback.format_exc()})
         if all(row['status']=='passed' for row in report['journeys']):report['status']='passed'
     finally:(output/'results.json').write_text(json.dumps(report,indent=2,ensure_ascii=False)+'\n')
     print(json.dumps({'status':report['status'],'results':str(output/'results.json')}));return 0 if report['status']=='passed' else 1

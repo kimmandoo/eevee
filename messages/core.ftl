@@ -2,6 +2,13 @@ core-policy-readonly = Read-only /role
 core-policy-review = Review /role
 core-capability-readonly = read only
 core-capability-reviewed-coding = code · approve changes
+core-response-title = { " RESPONSE " }
+core-request-invitation = What would you like to do?
+core-task-prefix = { "Task: " }
+core-request-start = Type your request below; Enter saves and sends it.
+core-request-save = Ctrl+S keeps a draft without sending.
+core-request-context = @ Attach files / /connect Choose provider
+core-request-tasks = /tasks Resume / /goal Optional task facts
 
 core-terminal-too-small =
     { "Terminal too small" }

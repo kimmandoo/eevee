@@ -1,6 +1,6 @@
 //! EV18: local intent at an explicit ordinary send, never a model classifier.
 use super::App;
-use crate::{i18n::Message, providers::Operation};
+use crate::{messages::Message, providers::Operation};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Selection {

@@ -1,6 +1,6 @@
 //! Motion preference uses the existing nonsecret preference owner and store queue.
 use super::{App, Overlay};
-use crate::i18n::{Language, Message};
+use crate::messages::Message;
 
 impl App {
     pub fn motion_notice(&self) -> Option<Message> {
@@ -10,7 +10,7 @@ impl App {
             Message::MotionAllowed,
         ]
         .into_iter()
-        .find(|message| self.notice == Language::ENGLISH.text(*message))
+        .find(|message| self.notice == (*message).text())
     }
 
     pub fn motion_enabled(&self) -> bool {
@@ -39,13 +39,13 @@ impl App {
             _ => return false,
         };
         self.planning.auto_approve = enabled;
-        self.notice = Language::ENGLISH
-            .text(if enabled {
-                Message::AutoApproveEnabled
-            } else {
-                Message::AutoApproveDisabled
-            })
-            .into();
+        self.notice = (if enabled {
+            Message::AutoApproveEnabled
+        } else {
+            Message::AutoApproveDisabled
+        })
+        .text()
+        .into();
         if enabled {
             let reviewing = matches!(self.overlay, Some(Overlay::Planning | Overlay::Execution))
                 && (self.planning.required_permission_review()
@@ -82,15 +82,15 @@ impl App {
         self.planning.set_reduced_motion(reduced);
         self.sync_motion_choices();
         self.activity_frame = 0;
-        self.notice = Language::ENGLISH
-            .text(if self.motion_override.is_some() {
-                Message::MotionSavedOverride
-            } else if reduced {
-                Message::MotionReduced
-            } else {
-                Message::MotionAllowed
-            })
-            .into();
+        self.notice = (if self.motion_override.is_some() {
+            Message::MotionSavedOverride
+        } else if reduced {
+            Message::MotionReduced
+        } else {
+            Message::MotionAllowed
+        })
+        .text()
+        .into();
         true
     }
 }

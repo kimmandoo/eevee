@@ -19,7 +19,7 @@ RIGHT,DOWN,UP=ESC+'[C',ESC+'[B',ESC+'[A'
 DRAFT='Keep 界e\u0301 suffix'
 
 
-def run(binary,output,root,size,language):
+def run(binary,output,root,size,):
     output.mkdir(parents=True)
     root.mkdir()
     project=root/'project 空 格';project.mkdir()
@@ -49,12 +49,12 @@ def run(binary,output,root,size,language):
     def launch():
         nonlocal serial,session
         serial+=1
-        session=Session([str(binary),'--data-dir',str(data),'--images','off','--color','mono','--language',language,*(['--ascii'] if size[0]==60 else [])],project,env,size,output/('terminal-'+str(serial)))
+        session=Session([str(binary),'--data-dir',str(data),'--images','off','--color','mono',*(['--ascii'] if size[0]==60 else [])],project,env,size,output/('terminal-'+str(serial)))
         wait_for(session,'Storage: saved',timeout=35)
     def homeward():
         for _ in range(8):
             footer=session.display().rstrip().splitlines()[-1].strip()
-            if footer.startswith(('Type Request /','Enter Send /','Draft only /','요청 입력 /','Enter 전송 /','초안 편집 /')):return
+            if footer.startswith(('Type Request /','Enter Send /','Draft only /',)):return
             session.send(ESC)
         raise AssertionError(session.display())
     def wait_forms(expected):until(session,lambda:forms()==expected,'saved forms '+str(expected))
@@ -80,7 +80,7 @@ def run(binary,output,root,size,language):
         preserved=draft(1)
         # Save is a complete inspectable inert recipe; neutral Enter/paste cannot publish.
         session.command('formation-save arrangement.toml')
-        hint='y 새 파일 생성' if language=='ko' else 'y create new file'
+        hint='y create new file'
         wait_for(session,hint)
         session.capture('formation-save-review')
         session.send('\r');session.paste('y');assert not (project/'arrangement.toml').exists()
@@ -103,7 +103,7 @@ def run(binary,output,root,size,language):
             session.command('eevee');until(session,lambda:rows('partners')[ident-1]['form']==0,'neutral form saved');homeward()
         session.command('lead 1');until(session,lambda:task()['lead_partner']==1,'lead returned');homeward()
         session.command('formation arrangement.toml')
-        map_hint='y 적용' if language=='ko' else 'y apply'
+        map_hint='y apply'
         wait_for(session,map_hint);session.capture('formation-three-role-mapping')
         session.send('\r');session.paste('y');assert forms()==[0,0,0]
         session.send(ESC);homeward();assert draft(1)==preserved
@@ -129,7 +129,7 @@ def run(binary,output,root,size,language):
         extra='\n[[roles]]\nrole = "missing"\nform = "Sylveon"\nrequest = "Prepare documentation"\n'
         (project/'four.toml').write_bytes(original+extra.encode())
         session.command('formation four.toml');wait_for(session,map_hint)
-        wait_for(session,'빈 슬롯' if language=='ko' else 'empty slot');session.capture('missing-slot')
+        wait_for(session,'empty slot');session.capture('missing-slot')
         session.send(ESC);homeward();cases.append('missing-partner-visible-without-creation')
         quit_app();launch()
         assert forms()==[1,2,7] and draft(1)==preserved
@@ -143,13 +143,13 @@ def run(binary,output,root,size,language):
         session.command('command-edit');session.paste(json.dumps(argv));session.send('\r')
         until(session,lambda:task()['command']==json.dumps(argv),'saved literal command')
         session.command('execute')
-        until(session,lambda:any(title in session.display() for title in ('Review one-shot execution permission','일회성 실행 권한 검토')),'neutral command review')
+        until(session,lambda:any(title in session.display() for title in ('Review one-shot execution permission',)),'neutral command review')
         session.send(RIGHT+'\r')
         until(session,lambda:rows('active_work') and rows('executions')[-1]['reserved'],'actual busy owner')
         session.command('lead 1');until(session,lambda:task()['lead_partner']==1,'front a different idle owner');homeward()
         before=rows('partners'),task()['partner_drafts']
         session.command('formation arrangement.toml');wait_for(session,map_hint);session.send('y')
-        until(session,lambda:any(word in session.display() for word in ('owned work before','소유한 작업을 끝내')),'busy formation refusal')
+        until(session,lambda:any(word in session.display() for word in ('owned work before',)),'busy formation refusal')
         assert (rows('partners'),task()['partner_drafts'])==before
         session.capture('actual-busy-owner-refused-with-drafts-retained')
         session.send(ESC);session.command('lead 2');session.command('run');session.command('cancel')
@@ -157,7 +157,7 @@ def run(binary,output,root,size,language):
         assert len(rows('executions'))==1 and not rows('provider_journal')
         homeward();cases.append('actual-busy-owner-refusal-and-explicit-cancellation')
         quit_app()
-        result={'status':'passed','size':size,'language':language,'cases':cases}
+        result={'status':'passed','size':size,'cases':cases}
         (output/'results.json').write_text(json.dumps(result,indent=2,ensure_ascii=False)+'\n')
         return result
     finally:
@@ -167,10 +167,10 @@ def run(binary,output,root,size,language):
 
 
 def main():
-    parser=argparse.ArgumentParser();parser.add_argument('--binary',type=Path,required=True);parser.add_argument('--output',type=Path,required=True);parser.add_argument('--language',choices=('en','ko'),default='en')
+    parser=argparse.ArgumentParser();parser.add_argument('--binary',type=Path,required=True);parser.add_argument('--output',type=Path,required=True);
     args=parser.parse_args();binary=args.binary.resolve();output=args.output.resolve();output.mkdir(parents=True)
     with tempfile.TemporaryDirectory(prefix='ev-formations-') as temp:
-        results=[run(binary,output/str(size[0]),Path(temp)/str(size[0]),size,args.language) for size in ((120,36),(60,18))]
+        results=[run(binary,output/str(size[0]),Path(temp)/str(size[0]),size,) for size in ((120,36),(60,18))]
     report={'status':'passed','binary_sha256':hashlib.sha256(binary.read_bytes()).hexdigest(),'journeys':results}
     (output/'results.json').write_text(json.dumps(report,indent=2,ensure_ascii=False)+'\n');print(json.dumps(report))
 if __name__=='__main__':main()

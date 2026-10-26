@@ -84,7 +84,7 @@ def run(binary, output, root):
     with Peer('chat_completions', 'unused-public-snapshot-fixture', True, retain_body_bytes=True) as peer:
         try:
             journey = CreationJourney(binary, output, root, (120, 36), False, 'compatible',
-                                      'chat_completions', True, False, peer, language='en')
+                                      'chat_completions', True, False, peer, )
             session = journey.session
             wait_for(session, 'Storage: saved')
             (journey.project / 'snapshot-source.txt').write_text('SNAPSHOT_RETAINED_TOOL_TEXT\n', encoding='utf-8')
@@ -164,7 +164,7 @@ def run(binary, output, root):
             baseline_posts = len(peer.snapshot('POST'))
             journey.data = restored
             journey.session = SurfaceSession([str(binary), '--data-dir', str(restored), '--images', 'off', '--color', 'mono'],
-                journey.project, env, (120, 36), output / 'restored-tui', language='en')
+                journey.project, env, (120, 36), output / 'restored-tui', )
             session = journey.session
             wait_for(session, 'Storage: saved')
             until(session, lambda: DRAFT in session.display(), 'original unsent draft not visible on restored launch')

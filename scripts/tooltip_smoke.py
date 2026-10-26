@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Qualify visible localized hints through a real PTY and read-only SQLite.
+"""Qualify visible command hints through a real PTY and read-only SQLite.
 
-Runs 120x36 Unicode and 60x18 ASCII journeys for --language en|ko (default en).
+Runs 120x36 Unicode and 60x18 ASCII journeys with English controls.
 Only an explicitly configured keyless loopback model-metadata GET is authorized;
 no inference plan is installed, and every journey requires zero actual POSTs.
 Uses an already-built binary and the terminal_smoke.py dependencies. Screen
@@ -23,16 +23,10 @@ from response_smoke import DRAFT, ESC, SurfaceJourney, saved_request
 from terminal_smoke import confirm_exit
 from workbench_smoke import wait_for
 
-HANGUL = re.compile(r"[\uac00-\ud7a3]")
 NOTE = "Literal 한글 { $not_a_template } e\u0301 raw-note"
-PANELS = {
-    "en": {"provider": "Connections", "model": "Model ·", "files": "Sources /",
+PANELS = {"provider": "Connections", "model": "Model ·", "files": "Sources /",
            "workflows": "Specialist desk /", "memory": "Approved memories /",
-           "handoff": "Portable task handoff /"},
-    "ko": {"provider": "연결", "model": "모델 ·", "files": "출처 /",
-           "workflows": "전문가 데스크 /", "memory": "승인된 메모리 /",
-           "handoff": "이동 가능한 작업 인계 /"},
-}
+           "handoff": "Portable task handoff /"}
 
 
 class TooltipJourney(SurfaceJourney):
@@ -72,13 +66,9 @@ class TooltipJourney(SurfaceJourney):
                          if "Up/Down" in row and "Enter" in row and "Esc" in row), None)
         assert controls is not None, "command picker critical controls missing\n" + session.display()
         # The selected explanation is immediately above the picker controls,
-        # not its localized heading/footer or the separately typed query.
+        # not its heading/footer or the separately typed query.
         hint = "\n".join(rows[max(0, controls - 2):controls]).strip(" |│\n")
-        assert hint and len(re.findall(r"[A-Za-z]+|[\uac00-\ud7a3]+", hint)) >= 2, hint
-        if self.language == "ko":
-            assert HANGUL.search(hint), "selected tooltip has no Hangul: " + hint
-        else:
-            assert not HANGUL.search(hint), "English selected hint unexpectedly localized: " + hint
+        assert hint and len(re.findall(r"[A-Za-z]+", hint)) >= 2, hint
         self.capture(label)
         self.hints.append({"query": query, "selected_command_id": command, "visible_hint": hint,
                            "screen": label + ".txt"})
@@ -95,11 +85,9 @@ class TooltipJourney(SurfaceJourney):
     def panel(self, command):
         self.selected_hint(command, command, command + "-selected-hint")
         self.session.send("\r")
-        wait_for(self.session, PANELS[self.language][command])
+        wait_for(self.session, PANELS[command])
         view = self.session.display()
         assert "Esc" in view, command + ": return control missing"
-        if self.language == "ko":
-            assert HANGUL.search("\n".join(view.splitlines()[-5:])), command + ": localized controls missing"
         self.capture(command + "-opened")
         self.unchanged(command + "-opened")
 
@@ -114,11 +102,11 @@ class TooltipJourney(SurfaceJourney):
         return None
 
 
-def run(binary, output, root, size, ascii_mode, language):
+def run(binary, output, root, size, ascii_mode, ):
     root.mkdir()
     with Peer("chat_completions", "unused-public-keyless-fixture", True) as peer:
         journey = TooltipJourney(binary, output, root, size, ascii_mode, "compatible",
-                                 "chat_completions", True, False, peer, language=language)
+                                 "chat_completions", True, False, peer, )
         session = journey.session
         journey.hints, journey.observations = [], []
         try:
@@ -134,9 +122,9 @@ def run(binary, output, root, size, ascii_mode, language):
             journey.baseline, _ = journey.read_state()
             journey.capture("request-before-tooltips")
 
-            # Korean-description matching is exercised even in the English UI.
+            # Description matching does not require an exact command identifier.
             # No command ID appears in this query and Enter must open /help.
-            journey.selected_hint("탐색 도움말", "help", "korean-semantic-search-help")
+            journey.selected_hint("navigation", "help", "semantic-search-help")
             session.send("\r")
             wait_for(session, journey.surface["help"])
             assert all(control in session.display() for control in ("Ctrl+K", "Enter", "Esc", "PgUp/PgDn"))
@@ -160,8 +148,6 @@ def run(binary, output, root, size, ascii_mode, language):
                     selected_action = next((row for row in session.display().splitlines()
                                             if re.search(r"[│║|]\s*>\s+", row)), "")
                     assert selected_action, "provider action selection missing\n" + session.display()
-                    if language == "ko":
-                        assert HANGUL.search(selected_action), selected_action
                     journey.capture("provider-selected-action-hints")
                     session.send(ESC + "[B")
                     journey.capture("provider-next-action-hints")
@@ -174,7 +160,7 @@ def run(binary, output, root, size, ascii_mode, language):
                     journey.capture("model-original-id-search")
                 elif command == "workflows":
                     session.send(ESC + "[C")
-                    selected_tab = "[Refactor]" if language == "en" else "[리팩터링]"
+                    selected_tab = "[Refactor]"
                     assert selected_tab in session.display(), session.display()
                     journey.capture("specialist-tab-navigation")
                 elif command == "memory":
@@ -202,7 +188,7 @@ def run(binary, output, root, size, ascii_mode, language):
             # A literal note is previewed across all three scopes but never
             # approved or selected for outgoing context; SQL proves no memory.
             session.command("memory")
-            wait_for(session, PANELS[language]["memory"])
+            wait_for(session, PANELS["memory"])
             session.command("create-memory")
             session.paste(NOTE)
             session.send("\r")
@@ -240,7 +226,7 @@ def run(binary, output, root, size, ascii_mode, language):
             confirm_exit(session)
             assert session.wait_exit() == 0
             peer.assert_clean()
-            result = {"status": "passed", "language": language, "size": size, "ascii": ascii_mode,
+            result = {"status": "passed", "size": size, "ascii": ascii_mode,
                       "selected_hints": journey.hints, "observations": journey.observations,
                       "actual_posts": 0, "actual_metadata_gets": 1,
                       "baseline_owned_state": journey.baseline,
@@ -255,20 +241,19 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--binary", required=True)
     parser.add_argument("--output", required=True)
-    parser.add_argument("--language", choices=("en", "ko"), default="en")
     args = parser.parse_args()
     binary, output = Path(args.binary).resolve(), Path(args.output).resolve()
     output.mkdir(parents=True, exist_ok=True)
     with binary.open("rb") as handle:
         binary_hash = hashlib.file_digest(handle, "sha256").hexdigest()
     result = {"status": "failed", "binary": str(binary), "sha256": binary_hash,
-              "language": args.language, "journeys": [],
+              "journeys": [],
               "limits": ["No live account, model inference, physical terminal, GUI or Windows-native qualification."]}
     try:
         with tempfile.TemporaryDirectory(prefix="ev-tooltip-空 格-") as temporary:
             for size, ascii_mode, label in (((120, 36), False, "wide"), ((60, 18), True, "compact")):
                 result["journeys"].append(run(binary, output / label, Path(temporary) / label,
-                                               size, ascii_mode, args.language))
+                                               size, ascii_mode, ))
         result["status"] = "passed"
     except BaseException:
         result["error"] = traceback.format_exc()

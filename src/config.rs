@@ -3,8 +3,6 @@ use std::env;
 use std::ffi::OsString;
 use std::path::PathBuf;
 
-use crate::i18n::Language;
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Theme {
     Dark,
@@ -36,7 +34,6 @@ pub struct Config {
     pub ascii: bool,
     pub no_animation: bool,
     pub animation_override: Option<bool>,
-    pub language: Language,
     pub theme: Theme,
     pub color: ColorMode,
     pub images: ImageMode,
@@ -110,7 +107,6 @@ Options:
   --ascii              Use ASCII borders (cell previews use luminance)
   --no-animation       Force static activity and transitions for this launch
   --animation          Allow motion for this launch, overriding saved preference
-  --language auto|TAG   UI language (default: auto; EV_LANGUAGE overrides locale)
   --images auto|cells|off Native pixels, low-res cell preview, or no image (default: auto)
   --assets-dir PATH    Local PNG directory (default: platform cache/eevee/sprites)
   --download-artwork   Download/resume nine pinned original sprites and manifest
@@ -129,10 +125,7 @@ otherwise monochrome. Nonempty NO_COLOR or TERM=dumb forces monochrome.
 TERM=dumb or an explicitly non-UTF-8 locale also selects ASCII. Windows
 defaults to UTF-8 without locale variables. Locale precedence: LC_ALL,
 LC_CTYPE, LANG (first nonempty value). Repeated options use the last value.
-UI language auto uses LC_ALL, LC_MESSAGES, LANG (first nonempty value);
-an embedded language matching the locale is selected, otherwise English.
---language overrides EV_LANGUAGE; explicit auto resolves the locale anew.
-Localized text requires a UTF-8-capable terminal, including with --ascii.
+The interface is English. Unicode requests, paths and source text remain supported.
 
 Auto images require negotiated Kitty/Sixel support and real pixel/cell dimensions.
 Unsupported or too-small terminals show text, not a pixelated approximation.
@@ -217,7 +210,6 @@ fn parse_with(
     let mut ascii = false;
     let mut no_animation = false;
     let mut animation_override = None;
-    let mut language = None;
     let mut images = ImageMode::Auto;
     let mut assets_dir = default_assets_dir(&environment);
     let mut layout = LayoutMode::Sanctuary;
@@ -237,10 +229,6 @@ fn parse_with(
             .split_once('=')
             .map_or((text, None), |(flag, value)| (flag, Some(value)));
         match flag {
-            "--language" => {
-                let value = value(flag, attached, &mut args)?;
-                language = Some(language_value(&value, flag)?);
-            }
             "--theme" => {
                 let value = value(flag, attached, &mut args)?;
                 theme = match value.as_ref() {
@@ -424,29 +412,6 @@ fn parse_with(
             encoding.eq_ignore_ascii_case("utf-8") || encoding.eq_ignore_ascii_case("utf8")
         })
     });
-    let language = match language {
-        Some(selected) => selected,
-        None => match environment("EV_LANGUAGE") {
-            Some(value) => {
-                let value = value
-                    .to_str()
-                    .ok_or("non-Unicode EV_LANGUAGE; expected auto or a supported language tag")?;
-                language_value(value, "EV_LANGUAGE")?
-            }
-            None => None,
-        },
-    }
-    .unwrap_or_else(|| {
-        let locale = ["LC_ALL", "LC_MESSAGES", "LANG"]
-            .into_iter()
-            .find_map(|key| environment(key).filter(|value| !value.is_empty()));
-        Language::from_locale(
-            locale
-                .as_deref()
-                .and_then(|value| value.to_str())
-                .unwrap_or("en"),
-        )
-    });
     let config = Config {
         ascii: ascii || dumb || !utf8,
         no_animation: no_animation || dumb,
@@ -455,7 +420,6 @@ fn parse_with(
         } else {
             animation_override
         },
-        language,
         theme,
         color,
         images,
@@ -543,16 +507,6 @@ fn parse_snapshot(mut args: impl Iterator<Item = OsString>) -> Result<Command, S
     })
 }
 
-fn language_value(value: &str, setting: &str) -> Result<Option<Language>, String> {
-    if value == "auto" {
-        Ok(None)
-    } else {
-        Language::parse(value)
-            .map(Some)
-            .map_err(|error| format!("{setting}: {error}"))
-    }
-}
-
 fn default_data_dir(environment: &impl Fn(&str) -> Option<OsString>) -> Option<PathBuf> {
     #[cfg(windows)]
     let base = environment("LOCALAPPDATA").map(PathBuf::from);
@@ -638,111 +592,6 @@ mod tests {
             Command::Run(config) => config,
             _ => panic!("expected runnable configuration"),
         }
-    }
-
-    #[test]
-    fn language_explicit_precedence_and_auto_reset() {
-        let variables = [("EV_LANGUAGE", "ko"), ("LANG", "en_US.UTF-8")];
-        assert_eq!(
-            config(&[], &variables).language,
-            Language::parse("ko").unwrap()
-        );
-        assert_eq!(
-            config(&["--language=en"], &variables).language,
-            Language::ENGLISH
-        );
-        assert_eq!(
-            config(&["--language=ko", "--language", "auto"], &variables).language,
-            Language::ENGLISH
-        );
-        assert_eq!(
-            config(
-                &["--language=auto", "--language", "en", "--language=ko"],
-                &variables
-            )
-            .language,
-            Language::parse("ko").unwrap()
-        );
-        assert_eq!(
-            config(&["--language=ko"], &[("EV_LANGUAGE", "invalid")]).language,
-            Language::parse("ko").unwrap()
-        );
-        assert_eq!(
-            config(&[], &[("EV_LANGUAGE", "auto"), ("LANG", "ko_KR.UTF-8")]).language,
-            Language::parse("ko").unwrap()
-        );
-        assert_eq!(
-            config(
-                &["--language=auto"],
-                &[("EV_LANGUAGE", "en"), ("LANG", "ko")]
-            )
-            .language,
-            Language::parse("ko").unwrap()
-        );
-    }
-
-    #[test]
-    fn language_message_locale_precedence_and_ascii_are_independent() {
-        assert_eq!(
-            config(
-                &["--language=auto"],
-                &[
-                    ("LC_ALL", ""),
-                    ("LC_MESSAGES", "ko_KR.UTF-8"),
-                    ("LANG", "en_US.UTF-8")
-                ]
-            )
-            .language,
-            Language::parse("ko").unwrap()
-        );
-        assert_eq!(
-            config(
-                &["--language=auto"],
-                &[("LC_ALL", "C"), ("LC_MESSAGES", "ko_KR.UTF-8")]
-            )
-            .language,
-            Language::ENGLISH
-        );
-        assert_eq!(
-            config(
-                &["--ascii", "--language=auto"],
-                &[("LC_CTYPE", "en_US.UTF-8"), ("LANG", "KO-kr.UTF-8")]
-            )
-            .language,
-            Language::parse("ko").unwrap()
-        );
-        assert_eq!(
-            config(
-                &["--language=auto"],
-                &[("LC_MESSAGES", ""), ("LANG", "kok_IN.UTF-8")]
-            )
-            .language,
-            Language::ENGLISH
-        );
-    }
-
-    #[test]
-    fn invalid_explicit_languages_identify_the_setting() {
-        for value in ["", "kr", "ko--KR", "english"] {
-            let flag = format!("--language={value}");
-            let error = parse(&[&flag], &[]).unwrap_err();
-            assert!(error.contains("--language"), "{error}");
-            let error = parse(&[], &[("EV_LANGUAGE", value)]).unwrap_err();
-            assert!(error.contains("EV_LANGUAGE"), "{error}");
-        }
-        assert!(parse(&["--language"], &[]).is_err());
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn non_unicode_explicit_language_is_rejected_without_process_environment() {
-        use std::os::unix::ffi::OsStringExt;
-        let error = parse_with(
-            ["--data-dir", "isolated-test-data"].map(OsString::from),
-            |key| (key == "EV_LANGUAGE").then(|| OsString::from_vec(vec![0xff])),
-        )
-        .unwrap_err();
-        assert!(error.contains("EV_LANGUAGE"), "{error}");
     }
 
     #[test]

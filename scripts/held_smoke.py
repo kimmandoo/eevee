@@ -33,7 +33,7 @@ NOTE = MEMORY_MARKER + ' Preserve literal { $not_a_template } notes.'
 
 class Journey(evolution_smoke.Journey):
     def workspace(self):
-        if any(title in self.session.display() for title in ('Evolution!', '진화했어요!')):
+        if any(title in self.session.display() for title in ('Evolution!', )):
             # Escape is forwarded to the retained editor and would open discard.
             self.session.send('\x1b[24~')  # Neutral F12 acknowledges without an editor action.
         return super().workspace()
@@ -78,7 +78,7 @@ class Journey(evolution_smoke.Journey):
 
     def choose_file(self, path):
         self.session.command('held-file')
-        files.until(self.session, lambda: any(value in self.session.display() for value in ('eligible files /', '후보 파일')),
+        files.until(self.session, lambda: any(value in self.session.display() for value in ('eligible files /', )),
                     'held file selector did not use actual source inventory', timeout=35)
         self.session.command('search')
         self.session.send(UP * 64 + HOME + DELETE * 4096)
@@ -112,7 +112,7 @@ class Journey(evolution_smoke.Journey):
 
         def complete():
             view = self.session.display()
-            if any(title in view for title in ('wants to learn a move!', '기술을 배우려고 합니다!')):
+            if any(title in view for title in ('wants to learn a move!', )):
                 self.capture('optional-move-offer-before-reading-' + str(post_count))
                 self.session.send(ESC)  # Deliberate Not now; never learn or grant anything.
                 self.session.command('response')
@@ -138,20 +138,20 @@ class Journey(evolution_smoke.Journey):
         self.restart_argv.extend(extra)
         self.session = SurfaceSession(self.restart_argv, self.project, self.restart_environment,
                                       self.restart_size, self.output / ('restart-' + str(getattr(self, '_restarts', 0))),
-                                      language=self.language)
+                                      )
         self._restarts = getattr(self, '_restarts', 0) + 1
         wait_for(self.session, 'Storage: saved', timeout=35)
 
 
-def run(binary, output, root, size, ascii_mode, language):
+def run(binary, output, root, size, ascii_mode, ):
     output.mkdir(parents=True, exist_ok=False)
     root.mkdir(parents=True, exist_ok=False)
-    result = {'status': 'failed', 'language': language, 'size': list(size), 'cases': []}
+    result = {'status': 'failed', 'size': list(size), 'cases': []}
     journey = None
     with files.Peer('responses', 'sk-held-fixture-only', True, retain_body_bytes=True) as peer:
         try:
             journey = Journey(binary, output, root, size, ascii_mode, 'compatible', 'responses',
-                              True, False, peer, language=language)
+                              True, False, peer, )
             wait_for(journey.session, 'Storage: saved')
             # Current exclusions must govern choosing, accepting and later sends.
             journey.restart_with('--exclude-context', 'blocked')
@@ -268,7 +268,7 @@ def run(binary, output, root, size, ascii_mode, language):
             # Replacing an existing slot now requires PK08's complete neutral review.
             journey.session.send('\x1b[6~' * 64)
             files.until(journey.session, lambda: any(value in journey.session.display()
-                        for value in ('y renew exactly', 'y 정확히 갱신')),
+                        for value in ('y renew exactly', )),
                         'replacement did not expose deliberate held renewal consent')
             journey.session.send('y')
             files.until(journey.session, lambda: journey.slot() is not None
@@ -318,7 +318,7 @@ def run(binary, output, root, size, ascii_mode, language):
             subprocess.run(['git', 'init', '-q', '--template='], cwd=other_project,
                            check=True, capture_output=True)
             journey.session = SurfaceSession(journey.restart_argv, other_project, journey.restart_environment,
-                                              journey.restart_size, output / 'other-project', language=language)
+                                              journey.restart_size, output / 'other-project', )
             wait_for(journey.session, 'Storage: saved', timeout=35)
             journey.session.command('held')
             assert memory_label not in journey.session.display() and PATH not in journey.session.display(), \
@@ -327,7 +327,7 @@ def run(binary, output, root, size, ascii_mode, language):
             journey.finish()
             assert journey.held_rows() == saved, 'visiting another project rewrote original scoped preference'
             journey.session = SurfaceSession(journey.restart_argv, journey.project, journey.restart_environment,
-                                              journey.restart_size, output / 'original-project-return', language=language)
+                                              journey.restart_size, output / 'original-project-return', )
             wait_for(journey.session, 'Storage: saved', timeout=35)
             journey.session.command('lead 1')
             journey.session.command('vaporeon')
@@ -354,16 +354,15 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--binary', required=True)
     parser.add_argument('--output', required=True)
-    parser.add_argument('--language', choices=('en', 'ko'), default='en')
     args = parser.parse_args()
     binary, output = Path(args.binary).resolve(), Path(args.output).resolve()
     output.mkdir(parents=True, exist_ok=False)
     with tempfile.TemporaryDirectory(prefix='ev-held-空 格-') as temporary:
         root = Path(temporary)
-        journeys = [run(binary, output / str(size[0]), root / str(size[0]), size, size[0] == 60, args.language)
+        journeys = [run(binary, output / str(size[0]), root / str(size[0]), size, size[0] == 60, )
                     for size in ((120, 36), (60, 18))]
     report = {'status': 'passed' if all(row['status'] == 'passed' for row in journeys) else 'failed',
-              'binary': str(binary), 'language': args.language, 'journeys': journeys,
+              'binary': str(binary), 'journeys': journeys,
               'limits': 'Isolated PTY/SQLite read-only/loopback acceptance, not live-provider or physical-terminal conformance.'}
     files.save(output / 'results.json', report)
     print(json.dumps({'status': report['status'], 'output': str(output)}))
