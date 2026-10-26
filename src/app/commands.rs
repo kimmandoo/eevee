@@ -720,6 +720,14 @@ impl App {
             ("companion", "Show companion"),
             ("preview", "Local role preview"),
             ("reduced-motion", "Toggle persistent reduced motion"),
+            (
+                "auto-approve",
+                "Auto-approve file changes and commands for this task",
+            ),
+            (
+                "auto-approve-off",
+                "Review each file change and command again",
+            ),
             ("motion-off", "Keep all motion static, persistently"),
             ("motion-on", "Allow optional motion, persistently"),
             ("density", "Toggle compact / comfortable text density"),
@@ -891,7 +899,16 @@ impl App {
             || self.execution.confirmation.is_some()
             || self.agents.preview
             || self.agents.auth_preview.is_some())
-            && !matches!(name, "close" | "cancel" | "deny" | "quit" | "verbose")
+            && !matches!(
+                name,
+                "close"
+                    | "cancel"
+                    | "deny"
+                    | "quit"
+                    | "verbose"
+                    | "auto-approve"
+                    | "auto-approve-off"
+            )
         {
             return Some(
                 "Resolve the visible neutral review before opening another action.".into(),
@@ -1002,6 +1019,8 @@ impl App {
                     | "verbose"
                     | "reduced-motion"
                     | "motion-off"
+                    | "auto-approve"
+                    | "auto-approve-off"
                     | "motion-on"
                     | "density"
                     | "density-compact"
@@ -1431,6 +1450,9 @@ impl App {
             return true;
         }
         if self.motion_command(name) {
+            return true;
+        }
+        if self.auto_approve_command(name) {
             return true;
         }
         if self.density_command(name) {

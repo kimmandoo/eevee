@@ -304,7 +304,7 @@ impl Engine<'_> {
             }
             let content = content.ok_or("ACP write requires complete UTF-8 content")?;
             if content.len() > crate::providers::writes::MAX_BYTES {
-                return Err("ACP write exceeds 64 KiB".into());
+                return Err("ACP write exceeds 4 MiB".into());
             }
             let mut candidate = self.files.clone().ok_or("ACP file scope missing")?;
             candidate.admit_paths(std::slice::from_ref(&path))?;

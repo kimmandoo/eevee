@@ -49,7 +49,7 @@ pub(super) fn file_stamp(file: &File) -> Result<FileStamp, String> {
     let stamp = observation_stamp(file)?;
     if stamp.size > MAX_BYTES as u64 {
         return Err(
-            "Selected target must be a regular single-link UTF-8 file at most 64 KiB".into(),
+            "Selected target must be a regular single-link UTF-8 file at most 4 MiB".into(),
         );
     }
     Ok(stamp)

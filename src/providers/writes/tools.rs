@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 const DISCOVERY_ENTRIES: usize = 10_000;
 const LIST_PAGE: usize = 128;
-const SOURCE_FILES: usize = 32;
+pub(super) const SOURCE_FILES: usize = super::MAX_FILES;
 const SOURCE_BYTES: usize = 16 * 1024 * 1024;
 const READ_BYTES: usize = 64 * 1024;
 
@@ -257,20 +257,20 @@ pub(crate) fn definitions(writing: bool) -> Vec<Value> {
     let mut declarations = Vec::with_capacity(if writing { 8 } else { 3 });
     if writing {
         declarations.push(
-        json!({"name":TOOL_NAME,"description":"Create or replace an actual project file through the host file executor, even when the provider's own shell is read-only. Supply complete UTF-8 content (64 KiB maximum); do not substitute a fenced code response for a requested save. Missing parent folders are created after exact full-content allow-once approval. No path preselection is required in workspace mode; an explicit selected-path restriction still applies. Preserve unrelated dirty bytes. No shell or verification.","parameters":{"type":"object","properties":{"path":{"type":"string","description":"Literal project-relative filename, for example src/app/main.py. Nested folders and Unicode names are supported. Do not use an absolute path or parent traversal."},"content":{"type":"string"}},"required":["path","content"],"additionalProperties":false}}),
+        json!({"name":TOOL_NAME,"description":"Create or replace an actual project file through the host file executor, even when the provider's own shell is read-only. Supply complete UTF-8 content (4 MiB maximum); do not substitute a fenced code response for a requested save. Missing parent folders are created after exact full-content allow-once approval. No path preselection is required in workspace mode; an explicit selected-path restriction still applies. Preserve unrelated dirty bytes. No shell or verification.","parameters":{"type":"object","properties":{"path":{"type":"string","description":"Literal project-relative filename, for example src/app/main.py. Nested folders and Unicode names are supported. Do not use an absolute path or parent traversal."},"content":{"type":"string"}},"required":["path","content"],"additionalProperties":false}}),
         );
         declarations.push(crate::providers::commands::definition());
     }
     declarations.extend([
-        json!({"name":"eevee_read_file","description":"Read actual safe project UTF-8 working bytes, independently of the 64 KiB mutation limit. Source capture is bounded at 16 MiB for full-file privacy validation and sha256; returned content is at most 64 KiB of complete lines. Lines are one-based inclusive; end_line=0 requests EOF. Inspect total_lines, truncated and next_start_line, then continue with a narrower range as needed. sha256 always identifies the complete source, never just the returned slice; editable=false refuses mutation of files above 64 KiB. Reading grants no write authority. Credential, excluded, protected, ignored and link paths are refused.","parameters":{"type":"object","properties":{"path":{"type":"string","description":"Literal project-relative filename, not an absolute path or folder. Exact reads need no preceding discovery."},"start_line":{"type":"integer","minimum":1},"end_line":{"type":"integer","minimum":0}},"required":["path","start_line","end_line"],"additionalProperties":false}}),
+        json!({"name":"eevee_read_file","description":"Read actual safe project UTF-8 working bytes, independently of the 4 MiB mutation limit. Source capture is bounded at 16 MiB for full-file privacy validation and sha256; returned content is at most 64 KiB of complete lines. Lines are one-based inclusive; end_line=0 requests EOF. Inspect total_lines, truncated and next_start_line, then continue with a narrower range as needed. sha256 always identifies the complete source, never just the returned slice; editable=false refuses mutation of files above 4 MiB. Reading grants no write authority. Credential, excluded, protected, ignored and link paths are refused.","parameters":{"type":"object","properties":{"path":{"type":"string","description":"Literal project-relative filename, not an absolute path or folder. Exact reads need no preceding discovery."},"start_line":{"type":"integer","minimum":1},"end_line":{"type":"integer","minimum":0}},"required":["path","start_line","end_line"],"additionalProperties":false}}),
         json!({"name":"eevee_list_files","description":"Inspect actual safe project filenames, including plain non-Git projects and files too large to edit. directory is a literal project-relative directory (empty means the project root), applied before enumeration and Git inventory. query is a literal substring; offset starts at zero. At most 128 filenames per page, 10000 scanned entries within that directory. Use next_offset for another page; if the scan bound is exceeded, choose a narrower directory, not another query or offset. Returned paths remain relative to the project root. Discovery grants no write authority.","parameters":{"type":"object","properties":{"directory":{"type":"string","description":"Literal project-relative directory to search recursively; empty selects project root. No absolute path or parent traversal."},"query":{"type":"string"},"offset":{"type":"integer","minimum":0}},"required":["directory","query","offset"],"additionalProperties":false}}),
         json!({"name":"eevee_structural_search","description":"Bounded Rust-only expression search; no binding or rewriting. Grammar: calls/method calls (no turbofish), paths/literals, parentheses, unary/binary/reference, field/index, tuples/arrays, await/try. $NAME captures one expression; repeated names require equal tokens ignoring whitespace/comments. Comments, string lookalikes and macro bodies are not searched. Limits: 128 Rust candidates, 256 KiB/source, 2 MiB scanned bytes, 256 matches, 32/page, 64 KiB response, 2048-byte pattern, 16 captures, 32 KiB capture text/match, 8 KiB each source/omission metadata. Conservative parser ceilings include literal/comment bytes: 64 nesting levels, 1024 opening-delimiter bytes, 32768 nonwhitespace bytes; token-tree expression paths are at most 256 tokens. Omitted sources/details make the result incomplete. First page offset=0,snapshot=\"\"; continuation copies snapshot/next_offset; changed sources or policy refuse. Incomplete is not absence; not compilation.","parameters":{"type":"object","properties":{"directory":{"type":"string"},"language":{"type":"string"},"pattern":{"type":"string","maxLength":2048},"offset":{"type":"integer","minimum":0},"snapshot":{"type":"string"}},"required":["directory","language","pattern","offset","snapshot"],"additionalProperties":false}}),
     ]);
     if writing {
         declarations.extend([
-        json!({"name":"eevee_edit_file","description":"Save 1–32 literal replacements against one previously read original file and its full 64-hex SHA-256. Every nonempty old_text must match exactly once in the ORIGINAL bytes, and spans must not overlap. Replacement output is never input to another replacement. Preserve every unrelated byte, including CRLF and Unicode. Final file is at most 64 KiB and receives one complete exact allow-once review; stale source/ancestors, ambiguous anchors or overlap refuse without writing. Local Rust syntax disclosure is advisory, not compilation or verification.","parameters":{"type":"object","properties":{"path":{"type":"string"},"sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"},"replacements":{"type":"array","minItems":1,"maxItems":32,"items":{"type":"object","properties":{"old_text":{"type":"string","minLength":1},"new_text":{"type":"string"}},"required":["old_text","new_text"],"additionalProperties":false}}},"required":["path","sha256","replacements"],"additionalProperties":false}}),
-        json!({"name":"eevee_delete_file","description":"Irreversibly delete one exact regular project file (at most 64 KiB), bound to its preceding eevee_read_file full SHA-256 and frozen source/ancestors. Requires separate exact allow-once approval; no recursive deletion, recycle bin, shell or rollback. Links, protected/excluded files and stale scope refuse.","parameters":{"type":"object","properties":{"path":{"type":"string"},"sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"}},"required":["path","sha256"],"additionalProperties":false}}),
-        json!({"name":"eevee_rename_file","description":"Rename one exact regular project file (at most 64 KiB) to an exact unoccupied same-project destination. Bind to the preceding read full SHA-256. One approval freezes original bytes, source/destination and ancestors; approved absent destination parents may be created. Never overwrite; case-only and cross-volume moves refuse. Preserve literal bytes and supported metadata; no imports rewriting, shell or rollback.","parameters":{"type":"object","properties":{"path":{"type":"string"},"destination":{"type":"string"},"sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"}},"required":["path","destination","sha256"],"additionalProperties":false}}),
+        json!({"name":"eevee_edit_file","description":"Save 1–32 literal replacements against one previously read original file and its full 64-hex SHA-256. Every nonempty old_text must match exactly once in the ORIGINAL bytes, and spans must not overlap. Replacement output is never input to another replacement. Preserve every unrelated byte, including CRLF and Unicode. Final file is at most 4 MiB and receives one complete exact allow-once review; stale source/ancestors, ambiguous anchors or overlap refuse without writing. Local Rust syntax disclosure is advisory, not compilation or verification.","parameters":{"type":"object","properties":{"path":{"type":"string"},"sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"},"replacements":{"type":"array","minItems":1,"maxItems":32,"items":{"type":"object","properties":{"old_text":{"type":"string","minLength":1},"new_text":{"type":"string"}},"required":["old_text","new_text"],"additionalProperties":false}}},"required":["path","sha256","replacements"],"additionalProperties":false}}),
+        json!({"name":"eevee_delete_file","description":"Irreversibly delete one exact regular project file (at most 4 MiB), bound to its preceding eevee_read_file full SHA-256 and frozen source/ancestors. Requires separate exact allow-once approval; no recursive deletion, recycle bin, shell or rollback. Links, protected/excluded files and stale scope refuse.","parameters":{"type":"object","properties":{"path":{"type":"string"},"sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"}},"required":["path","sha256"],"additionalProperties":false}}),
+        json!({"name":"eevee_rename_file","description":"Rename one exact regular project file (at most 4 MiB) to an exact unoccupied same-project destination. Bind to the preceding read full SHA-256. One approval freezes original bytes, source/destination and ancestors; approved absent destination parents may be created. Never overwrite; case-only and cross-volume moves refuse. Preserve literal bytes and supported metadata; no imports rewriting, shell or rollback.","parameters":{"type":"object","properties":{"path":{"type":"string"},"destination":{"type":"string"},"sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"}},"required":["path","destination","sha256"],"additionalProperties":false}}),
         ]);
     }
     declarations
@@ -468,7 +468,9 @@ impl WriteSet {
                     );
                 }
                 if !self.observed.contains_key(path) && self.observed.len() == SOURCE_FILES {
-                    return Err("Source read cache permits 32 distinct files per request".into());
+                    return Err(format!(
+                        "Source read cache permits {SOURCE_FILES} distinct files per request"
+                    ));
                 }
                 let (stamp, text, hash, digest) = match captured {
                     Some(source) => (source.stamp, source.text, source.hash, source.digest),
@@ -702,7 +704,7 @@ impl WriteSet {
                         || replacement.new_text.len() > MAX_BYTES
                     {
                         return Err(
-                            "Edit old_text must be nonempty and replacement text at most 64 KiB"
+                            "Edit old_text must be nonempty and replacement text at most 4 MiB"
                                 .into(),
                         );
                     }
@@ -718,7 +720,7 @@ impl WriteSet {
                     size = size
                         .checked_sub(old.len())
                         .and_then(|size| size.checked_add(replacement.new_text.len()))
-                        .ok_or("Edit text exceeds the 64 KiB file bound")?;
+                        .ok_or("Edit text exceeds the 4 MiB file bound")?;
                     spans.push((start, start + old.len(), replacement.new_text.as_str()));
                 }
                 spans.sort_unstable_by_key(|span| span.0);
@@ -726,7 +728,7 @@ impl WriteSet {
                     return Err("Edit replacement spans overlap in the original source".into());
                 }
                 if size > MAX_BYTES {
-                    return Err("Edit text exceeds the 64 KiB file bound".into());
+                    return Err("Edit text exceeds the 4 MiB file bound".into());
                 }
                 let mut content = String::with_capacity(size);
                 let mut offset = 0;

@@ -872,6 +872,8 @@ fn header(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &Pai
     let policy = match app.planning.explicit_operation() {
         Some(crate::providers::Operation::Plan) => paint.hint(Message::CorePolicyReadonly),
         Some(crate::providers::Operation::Review) => paint.hint(Message::CorePolicyReview),
+        // A standing grant must stay visible even when the chip has no room.
+        _ if app.planning.auto_approve => paint.hint(Message::AutoApprovePolicy),
         _ => "",
     };
     let status = format!(
@@ -908,6 +910,11 @@ fn header(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &Pai
             crate::providers::Operation::Implement => Message::CoreCapabilityReviewedCoding,
         })
     );
+    let chip = if app.planning.auto_approve && operation == crate::providers::Operation::Implement {
+        format!("[{}] ", paint.hint(Message::AutoApproveChip))
+    } else {
+        chip
+    };
     let (chip_width, used) = (
         Span::raw(chip.as_str()).width() as u16,
         Span::raw(status.as_str()).width() as u16,

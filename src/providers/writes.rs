@@ -33,10 +33,13 @@ pub(crate) use tools::Replacement;
 pub(crate) use tools::{FileTool, ToolKind, definitions};
 
 pub(crate) const TOOL_NAME: &str = "eevee_write_file";
-pub(crate) const MAX_FILES: usize = 32;
-pub(crate) const MAX_BYTES: usize = 64 * 1024;
-const REVIEW_BYTES: usize = 256 * 1024;
-const REVIEW_LINES: usize = 32_768;
+// Generous practical bounds: they protect memory, not the user's workflow.
+pub(crate) const MAX_FILES: usize = 1024;
+pub(crate) const MAX_BYTES: usize = 4 * 1024 * 1024;
+const REVIEW_BYTES: usize = 2 * MAX_BYTES + 1024 * 1024;
+const REVIEW_LINES: usize = 1_000_000;
+// Unchanged lines shown around the changed region of an existing file.
+const PATCH_CONTEXT: usize = 3;
 
 // Capability-backed ASCII distinctions and conservative macOS normalization
 // rejection are admission checks, never lowercased filesystem identities.
@@ -317,22 +320,56 @@ impl Target {
             line_endings(baseline),
             line_endings(content),
         ));
-        for (prefix, text) in [('-', baseline), ('+', content)] {
-            for line in text.split_inclusive('\n') {
-                patch.push(prefix);
-                if let Some(body) = line.strip_suffix("\r\n") {
-                    patch.push_str(body);
-                    patch.push_str(" [CRLF]\n");
-                } else if show_endings && let Some(body) = line.strip_suffix('\n') {
-                    patch.push_str(body);
-                    patch.push_str(" [LF]\n");
-                } else {
-                    patch.push_str(line);
-                    if !line.ends_with('\n') {
-                        patch.push_str("\n\\ No newline at end of file\n");
-                    }
+        let push = |patch: &mut String, prefix: char, line: &str| {
+            patch.push(prefix);
+            if let Some(body) = line.strip_suffix("\r\n") {
+                patch.push_str(body);
+                patch.push_str(" [CRLF]\n");
+            } else if show_endings && let Some(body) = line.strip_suffix('\n') {
+                patch.push_str(body);
+                patch.push_str(" [LF]\n");
+            } else {
+                patch.push_str(line);
+                if !line.ends_with('\n') {
+                    patch.push_str("\n\\ No newline at end of file\n");
                 }
             }
+        };
+        // Show only the changed region of an existing file, with context.
+        // Identical leading/trailing lines are counted, never altered.
+        let old: Vec<&str> = baseline.split_inclusive('\n').collect();
+        let new: Vec<&str> = content.split_inclusive('\n').collect();
+        let same = old.iter().zip(&new).take_while(|(a, b)| a == b).count();
+        let tail = old[same..]
+            .iter()
+            .rev()
+            .zip(new[same..].iter().rev())
+            .take_while(|(a, b)| a == b)
+            .count();
+        let (old_end, new_end) = (old.len() - tail, new.len() - tail);
+        let start = same.saturating_sub(PATCH_CONTEXT);
+        let after = (new_end + PATCH_CONTEXT).min(new.len());
+        if start > 0 {
+            patch.push_str(&format!("@@ lines 1-{start} unchanged @@\n"));
+        }
+        for line in &new[start..same] {
+            push(&mut patch, ' ', line);
+        }
+        for line in &old[same..old_end] {
+            push(&mut patch, '-', line);
+        }
+        for line in &new[same..new_end] {
+            push(&mut patch, '+', line);
+        }
+        for line in &new[new_end..after] {
+            push(&mut patch, ' ', line);
+        }
+        if after < new.len() {
+            patch.push_str(&format!(
+                "@@ lines {}-{} unchanged @@\n",
+                after + 1,
+                new.len()
+            ));
         }
         if content.is_empty() && self.kind() == WriteKind::Create {
             patch.push_str("(new empty file, 0 bytes)\n");
@@ -473,26 +510,26 @@ pub(crate) fn semantic_proposal_refusal(message: &str) -> bool {
         "Protected, excluded, duplicate, conflicting or non-literal proposed write path refused"
             | "Read-only file scope refuses mutation"
             | "Only an exact reviewed selected path may be written"
-            | "Controlled implementation permits at most 32 distinct file targets"
+            | "Controlled implementation permits at most 1024 distinct file targets"
             | "Selected working bytes are oversized, binary, credential-bearing or contain unsafe controls"
-            | "Selected target must be a regular single-link UTF-8 file at most 64 KiB"
+            | "Selected target must be a regular single-link UTF-8 file at most 4 MiB"
             | "Windows file exceeds the controlled-write byte limit."
             | "Filesystem-equivalent selected target/absent-parent aliases refused; select unambiguous paths"
             | "Filesystem-equivalent or conflicting selected write paths refused"
             | "Unsafe or oversized proposed UTF-8 content refused"
-            | "Exact content/path/parent review exceeds 256 KiB or 32768 lines; reduce the change"
+            | "Exact content/path/parent review exceeds its size bound; reduce the change"
             | "Source changed since read; read the file again before proposing a write"
             | "Edit requires a preceding successful read of this exact path"
-            | "Edit requires an unchanged admitted file at most 64 KiB; read again before proposing a write"
+            | "Edit requires an unchanged admitted file at most 4 MiB; read again before proposing a write"
             | "Edit sha256 does not match the preceding source read; read again"
             | "Edit requires 1–32 literal replacements"
-            | "Edit old_text must be nonempty and replacement text at most 64 KiB"
+            | "Edit old_text must be nonempty and replacement text at most 4 MiB"
             | "Edit replacement spans overlap in the original source"
             | "Same-path and case-only rename are unsupported; no move occurred"
             | "Rename destination must be absent; existing entries are never overwritten"
             | "Cross-volume rename is unsupported; no move occurred"
             | "Edit old_text must be nonempty and match exactly once; read and select an unambiguous literal span"
-            | "Edit text exceeds the 64 KiB file bound"
+            | "Edit text exceeds the 4 MiB file bound"
             | "File tool arguments must exactly match the advertised schema"
     )
 }
@@ -657,8 +694,41 @@ fn verify_name_bindings<'a>(
     paths: impl Iterator<Item = &'a Path> + Clone,
     directories: &BTreeMap<PathBuf, platform::Directory>,
 ) -> Result<(), String> {
-    for (index, left) in paths.clone().enumerate() {
-        'comparison: for right in paths.clone().take(index) {
+    // Only paths whose case-folded, normalized components are equal or a
+    // component prefix of one another can alias or conflict; every such pair
+    // still receives the exact native comparison below. This keeps large
+    // scaffolds linear instead of comparing every pair on each operation.
+    let key = |path: &Path| -> Vec<String> {
+        path.components()
+            .map(|part| {
+                part.as_os_str()
+                    .to_string_lossy()
+                    .nfc()
+                    .collect::<String>()
+                    .to_lowercase()
+            })
+            .collect()
+    };
+    let keys: Vec<Vec<String>> = paths.clone().map(key).collect();
+    let mut groups: std::collections::HashMap<&[String], Vec<usize>> =
+        std::collections::HashMap::new();
+    for (index, key) in keys.iter().enumerate() {
+        groups.entry(key.as_slice()).or_default().push(index);
+    }
+    let mut candidates = BTreeSet::new();
+    for (index, key) in keys.iter().enumerate() {
+        for length in 1..=key.len() {
+            for &other in groups.get(&key[..length]).into_iter().flatten() {
+                if other != index {
+                    candidates.insert((index.max(other), index.min(other)));
+                }
+            }
+        }
+    }
+    let paths: Vec<&Path> = paths.collect();
+    for (index, right_index) in candidates {
+        let (left, right) = (paths[index], paths[right_index]);
+        'comparison: for right in std::iter::once(right) {
             let mut left_parent = PathBuf::new();
             let mut right_parent = PathBuf::new();
             let mut policy = NamePolicy::Unknown;
@@ -830,9 +900,9 @@ impl WriteSet {
             }
         }
         if self.targets.len() + additional > MAX_FILES {
-            return Err(
-                "Controlled implementation permits at most 32 distinct file targets".into(),
-            );
+            return Err(format!(
+                "Controlled implementation permits at most {MAX_FILES} distinct file targets"
+            ));
         }
         if additional == 0 {
             return Ok(());
@@ -941,8 +1011,12 @@ impl WriteSet {
                     .file_name()
                     .ok_or("Selected write name missing")?;
                 match &target.baseline {
+                    // Identity, size and modification/change times detect any
+                    // later write without rehashing every frozen target on
+                    // each operation; the operated file itself is reread.
                     Some(expected)
-                        if read_baseline(&mut directory.open_file(name, false)?)? != *expected =>
+                        if platform::file_stamp(&directory.open_file(name, false)?)?
+                            != expected.stamp =>
                     {
                         return Err("Selected working bytes or file identity changed; selected scope is stale".into());
                     }
@@ -1042,7 +1116,7 @@ impl WriteSet {
         .sealed();
         if !review_fits(&proposal) {
             return Err(
-                "Exact content/path/parent review exceeds 256 KiB or 32768 lines; reduce the change".into(),
+                "Exact content/path/parent review exceeds its size bound; reduce the change".into(),
             );
         }
         Ok(proposal)
@@ -1056,7 +1130,7 @@ impl WriteSet {
         let baseline = self.targets.iter().find(|target| target.path == path)
             .and_then(|target| target.baseline.as_ref())
             .filter(|baseline| observed.matches(baseline))
-            .ok_or("Edit requires an unchanged admitted file at most 64 KiB; read again before proposing a write")?;
+            .ok_or("Edit requires an unchanged admitted file at most 4 MiB; read again before proposing a write")?;
         if baseline.digest != digest {
             return Err("Edit sha256 does not match the preceding source read; read again".into());
         }
@@ -1144,7 +1218,9 @@ impl WriteSet {
         }
         .sealed();
         if !review_fits(&proposal) {
-            return Err("Exact content/path/parent review exceeds 256 KiB or 32768 lines; reduce the change".into());
+            return Err(
+                "Exact content/path/parent review exceeds its size bound; reduce the change".into(),
+            );
         }
         Ok(proposal)
     }

@@ -268,7 +268,29 @@ impl App {
         changed
     }
 
+    /// Shift+A, deliberately distinct from the one-shot `a`/`y` keys.
+    pub(super) fn allow_all_key(key: KeyEvent) -> bool {
+        key.kind == KeyEventKind::Press
+            && key.code == KeyCode::Char('A')
+            && !key
+                .modifiers
+                .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+    }
+
     pub(super) fn planning_key(&mut self, key: KeyEvent) -> bool {
+        if Self::allow_all_key(key)
+            && !self.planning.auto_permission_review
+            && self.planning.reviewed
+            && self.planning.required_permission_review()
+            && self.width >= 60
+            && self.height >= 18
+            && self
+                .planning
+                .owner()
+                .is_some_and(|owner| owner.partner == self.lead.id)
+        {
+            return self.auto_approve_command("auto-approve");
+        }
         if key.kind == KeyEventKind::Release {
             return false;
         }

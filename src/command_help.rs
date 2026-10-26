@@ -34,6 +34,8 @@ pub fn key(command: &str) -> Option<Message> {
         "context-cache-purge" => Message::ContextToolsCachePurge,
         "reduced-motion" => Message::MotionCommandToggle,
         "motion-off" => Message::MotionCommandOff,
+        "auto-approve" => Message::AutoApproveCommandOn,
+        "auto-approve-off" => Message::AutoApproveCommandOff,
         "motion-on" => Message::MotionCommandOn,
         "density" => Message::DensityCommandToggle,
         "density-compact" => Message::DensityCommandCompact,

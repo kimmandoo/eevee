@@ -2,6 +2,9 @@
 
 ## 2026-10-26
 
+- feat(approvals): added `/auto-approve` / `/auto-approve-off` and Shift+A in an engaged file or command review to approve the lead partner's file changes and agent commands for the rest of the current task without per-item reviews; the header shows `AUTO-APPROVE`, each auto-approved item is announced, questions and other partners still ask, and task change or restart clears it.
+- feat(files): raised controlled file limits from 32 files/64 KiB to 1024 files/4 MiB per file, native tool loops from 128 to 1024 calls (64 per round) and per-request bodies from 1 MiB to 8 MiB, and reviewed edits of existing files as the changed region with context instead of the full old and new contents.
+- fix(files): revalidated unchanged frozen targets by file identity/size/time stamps and compared only possibly aliasing path pairs, so large write scopes no longer slow quadratically per operation.
 - fix(forms): gave ordinary unclassified requests (for example `make a snake game in python`, `implement dark mode`, `다크모드 구현해줘`, `README에 설치 방법 써줘`) the Implement tool set like other coding agents instead of silently staying read-only, so the model can create and edit project files after exact approval; explicit Plan/Review, read-only wording and ongoing planning conversations still restrict it.
 - fix(forms): treated elliptical follow-ups such as `fix it`, `do it`, `고쳐줘`, `수정해줘`, `그렇게 해줘` as implementation requests carrying the completed plan/diagnosis turn.
 - feat(execution): showed only the exact command, source-coverage caveat and a readable expiry in command approvals by default; request/run IDs, executable hashes/identity, raw timestamps, quotas and enforcement prose moved behind `d`, which toggles without changing the neutral choice.

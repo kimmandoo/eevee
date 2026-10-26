@@ -708,7 +708,7 @@ fn implement_without_preselection_captures_workspace_and_invalid_proposals_do_no
         .unwrap();
     assert_eq!(writes.payload(&[]), json!([]));
     for params in [
-        json!({"tool":TOOL_NAME,"arguments":{"path":"new/invalid.txt","content":"x".repeat(64 * 1024 + 1)}}),
+        json!({"tool":TOOL_NAME,"arguments":{"path":"new/invalid.txt","content":"x".repeat(crate::providers::writes::MAX_BYTES + 1)}}),
         json!({"tool":TOOL_NAME,"arguments":{"path":"new/invalid.txt","content":"unsafe\rcontrol"}}),
         json!({"tool":TOOL_NAME,"arguments":{"path":"new/invalid.txt","content":"ok","grantRoot":"/"}}),
         json!({"tool":TOOL_NAME,"arguments":{"path":"excluded/file.txt","content":"ok"}}),

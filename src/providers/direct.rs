@@ -61,19 +61,28 @@ fn validate_catalog(input: &Input, connection: &Connection) -> Result<(), String
 
 const QUEUE_LIMIT: usize = 128;
 const QUEUE_RESERVE: usize = 24;
+// Long agent sessions resend their whole tool transcript; 8 MiB exceeds any
+// current model context. Tests keep the historical 1 MiB/128-call bounds so
+// boundary fixtures stay small and fast; the logic is identical.
+#[cfg(not(test))]
+const BODY_LIMIT: usize = 8 * 1024 * 1024;
+#[cfg(test)]
 const BODY_LIMIT: usize = 1024 * 1024;
-const REQUEST_BYTES_LIMIT: usize = 64 * BODY_LIMIT;
+const REQUEST_BYTES_LIMIT: usize = 16 * BODY_LIMIT;
 const PAGE_LIMIT: usize = 4 * 1024 * 1024;
 const CATALOGUE_LIMIT: usize = 4096;
 const PAGE_COUNT: usize = 128;
-const FRAME_LIMIT: usize = 2 * 1024 * 1024;
+const FRAME_LIMIT: usize = 16 * 1024 * 1024;
 const OUTPUT_LIMIT: usize = 512 * 1024;
-const STREAM_LIMIT: usize = 64 * 1024 * 1024;
+const STREAM_LIMIT: usize = 512 * 1024 * 1024;
 const HISTORY_MESSAGES: usize = 128;
 const HISTORY_BYTES: usize = 2 * BODY_LIMIT;
 const CALL_TIMEOUT: Duration = Duration::from_secs(120);
 const APPROVAL_TIMEOUT: Duration = Duration::from_secs(300);
-// Allow discovery, reads and writes for a 32-file scaffold, then a final response.
+// Allow discovery, reads, writes and builds for large scaffolds, then a final response.
+#[cfg(not(test))]
+const TOOL_CALL_LIMIT: usize = 1024;
+#[cfg(test)]
 const TOOL_CALL_LIMIT: usize = 128;
 const ROUND_LIMIT: usize = TOOL_CALL_LIMIT + 1;
 
@@ -539,7 +548,7 @@ fn payload(
             if native_writing(input) && input.edit_paths.is_empty() {
                 "Answer the user's request with actual tools, not promised or fenced changes. Use safe project discovery/read before reasoning, then full write, original-SHA literal edit/delete or no-overwrite rename. Preserve unrelated dirty bytes and CRLF/Unicode; files are at most 64 KiB. Every file operation and missing-parent scope needs exact fresh approval. For builds, tests or program execution call eevee_run_command; direct argv has no implicit shell. Each command needs NEW exact approval. Never bypass denial via another route. Read actual nonzero stderr, fix source through reviewed file tools, and request a newly approved command. Rust syntax parsing is advisory, not compilation; only real run exit/output establishes checks. No automatic rollback."
             } else if native_writing(input) {
-                "Answer the user's request with actual tools. File mutations require exact selected source/destination; reads do not grant writes. Edit/delete/rename require a preceding full-read SHA-256; preserve unrelated dirty bytes and CRLF/Unicode, at most 64 KiB per file. Every file operation and missing-parent scope needs new exact approval. eevee_run_command separately supports build/test/program execution after NEW exact command approval. Its effects are NOT confined to selected paths; inherited environment is not fully known and there is no OS filesystem/network sandbox. Report actual exits/output only; nonzero is not successful verification. Do not bypass refusal or promise rollback."
+                "Answer the user's request with actual tools. File mutations require exact selected source/destination; reads do not grant writes. Edit/delete/rename require a preceding full-read SHA-256; preserve unrelated dirty bytes and CRLF/Unicode, at most 4 MiB per file. Every file operation and missing-parent scope needs new exact approval. eevee_run_command separately supports build/test/program execution after NEW exact command approval. Its effects are NOT confined to selected paths; inherited environment is not fully known and there is no OS filesystem/network sandbox. Report actual exits/output only; nonzero is not successful verification. Do not bypass refusal or promise rollback."
             } else {
                 "Answer the user's current request directly. Provide a plan when requested; do not implement changes. When project context is needed, use eevee_list_files and eevee_read_file to inspect actual safe working bytes. Read-only tools cannot authorize or perform changes."
             },
@@ -580,7 +589,10 @@ fn payload(
     }
     let text = serde_json::to_string_pretty(&body).map_err(|_| "Cannot encode native request")?;
     if text.len() > BODY_LIMIT {
-        return Err("Native HTTP body exceeds 1 MiB; use /chat-new to reset local history or reduce the current task/source context. Nothing was truncated or sent".into());
+        return Err(format!(
+            "Native HTTP body exceeds {} MiB; use /chat-new to reset local history or reduce the current task/source context. Nothing was truncated or sent",
+            BODY_LIMIT / (1024 * 1024)
+        ));
     }
     Ok(text)
 }

@@ -540,7 +540,7 @@ providers-execution-stay-and-journal-retry-retries-storage-only = { "Stay and /j
 
 providers-execution-y-confirm-n-stay-tab-choose-enter =
     { "y Confirm / n Stay / Tab Choose / Enter / Esc Stay" }
-    { "PgUp/Dn scroll · d full details; no scroll gate" }
+    { "PgUp/Dn · d details · A allow all for this task" }
 
 providers-execution-no-retained-executions-for-this-task-command = { "No retained executions for this task. /command-edit edits a command; /execute reviews a prepared request. /run only inspects command evidence. Loading history never executes a saved command. Interrupted startup records are evidence, not live process ownership." }
 
@@ -990,7 +990,7 @@ providers-planning-file-details = { "d Complete change, scope & exact request" }
 
 providers-planning-file-actions =
     { "Left/Right choose | Enter confirms | a/y Allow" }
-    { "n Deny | d Details | PgUp/Dn | Esc later" }
+    { "n Deny · d Details · A Allow all for task · Esc later" }
 
 providers-planning-file-unavailable =
     { "PgUp/Dn: review all scope before allowing." }

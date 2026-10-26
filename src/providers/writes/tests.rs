@@ -848,11 +848,11 @@ fn maximum_file_bytes_and_crlf_are_preserved_in_baselines_and_effects() {
     set.admit_paths(&["dirty.txt".into(), "large.txt".into()])
         .unwrap();
     assert_eq!(set.payload(&[])[0]["working_content"], original);
-    let content = "x".repeat(64 * 1024);
+    let content = "x".repeat(MAX_BYTES);
     let large = set.propose("large.txt".into(), content.clone()).unwrap();
     assert!(large.patch.contains(&format!("+{content}\n")));
     assert!(
-        set.propose("large.txt".into(), "x".repeat(64 * 1024 + 1))
+        set.propose("large.txt".into(), "x".repeat(MAX_BYTES + 1))
             .is_err()
     );
     let replacement = set
@@ -897,19 +897,29 @@ fn complete_review_line_bound_rejects_hidden_tail_before_consent() {
     let mut set = WriteSet::capture_workspace(&project.root, &project.data, &[]).unwrap();
     set.admit_paths(&["lines.txt".into()]).unwrap();
     let fitting = set
-        .propose("lines.txt".into(), "\n".repeat(32_000))
+        .propose("lines.txt".into(), "\n".repeat(REVIEW_LINES - 64))
         .unwrap();
     assert!(fitting.description().lines().count() <= REVIEW_LINES);
+    // The complete review never hides a tail beyond its bound.
     assert!(
-        set.propose("lines.txt".into(), "\n".repeat(33_000))
+        set.propose("lines.txt".into(), "\n".repeat(REVIEW_LINES + 1))
             .is_err()
     );
     set.apply(&fitting).unwrap();
-    // Full replacement includes both baseline and proposed lines, not just new.
-    assert!(set.propose("lines.txt".into(), "\n".repeat(1_000)).is_err());
+    // A small edit of a large existing file reviews only the changed region.
+    let mut edited = "\n".repeat(REVIEW_LINES - 64);
+    edited.insert_str(edited.len() / 2, "inserted\n");
+    let small = set.propose("lines.txt".into(), edited).unwrap();
+    assert!(
+        small.description().lines().count() < 64,
+        "{}",
+        small.description()
+    );
+    assert!(small.patch.contains("+inserted\n"));
+    assert!(small.patch.contains("unchanged @@"));
     assert_eq!(
         std::fs::read(project.root.join("lines.txt")).unwrap().len(),
-        32_000
+        REVIEW_LINES - 64
     );
 }
 
@@ -1079,7 +1089,13 @@ fn oversized_source_ranges_keep_full_identity_and_never_enroll_mutation() {
     std::fs::create_dir(project.root.join("src")).unwrap();
     let path = "src/중앙-cafe\u{301}.rs";
     let source: String = (1..=3000)
-        .map(|line| format!("// actual source line {line:04}: café 界 and dirty CRLF\r\n"))
+        // Long lines keep 3000 lines above the mutation bound.
+        .map(|line| {
+            format!(
+                "// actual source line {line:04}: café 界 and dirty CRLF{}\r\n",
+                "·".repeat(700)
+            )
+        })
         .collect();
     assert!(source.len() > MAX_BYTES);
     std::fs::write(project.root.join(path), &source).unwrap();
@@ -1346,12 +1362,14 @@ fn thirty_two_nested_targets_are_admitted_but_excess_batch_has_no_effects() {
         .map(|index| PathBuf::from(format!("scaffold/module-{}/file-{index}.txt", index / 4)))
         .collect::<Vec<_>>();
     let mut set = WriteSet::capture_workspace(&project.root, &project.data, &[]).unwrap();
-    // Fill all but one slot through successive captures and actual applications.
-    for path in &paths[..MAX_FILES - 1] {
+    // Fill all but one slot: a few successive actual applications, then the
+    // rest in one admission (each target revalidates on every operation).
+    for path in &paths[..4] {
         set.admit_paths(std::slice::from_ref(path)).unwrap();
         let proposal = set.propose(path.clone(), "completed\n".into()).unwrap();
         set.apply(&proposal).unwrap();
     }
+    set.admit_paths(&paths[4..MAX_FILES - 1]).unwrap();
     let excess = PathBuf::from("extra/file.txt");
     let error = set
         .admit_paths(&[paths[MAX_FILES - 1].clone(), excess.clone()])
@@ -1369,7 +1387,7 @@ fn thirty_two_nested_targets_are_admitted_but_excess_batch_has_no_effects() {
     set.apply(&proposal).unwrap();
     assert_eq!(set.targets.len(), MAX_FILES);
     assert!(set.admit_paths(std::slice::from_ref(&excess)).is_err());
-    for path in &paths {
+    for path in paths[..4].iter().chain(&paths[MAX_FILES - 1..]) {
         assert_eq!(
             std::fs::read_to_string(project.root.join(path)).unwrap(),
             "completed\n"

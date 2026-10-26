@@ -13,6 +13,9 @@ use crate::providers::writes::TOOL_NAME;
 use crate::providers::writes::{FileTool, MAX_BYTES, ToolKind, definitions};
 use crate::providers::{FilePhase, file_preview};
 
+#[cfg(not(test))]
+const CALL_LIMIT: usize = 64;
+#[cfg(test)]
 const CALL_LIMIT: usize = 16;
 const ID_LIMIT: usize = 256;
 const NAME_LIMIT: usize = 128;

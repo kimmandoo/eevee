@@ -1,5 +1,5 @@
 //! Motion preference uses the existing nonsecret preference owner and store queue.
-use super::App;
+use super::{App, Overlay};
 use crate::i18n::{Language, Message};
 
 impl App {
@@ -28,6 +28,45 @@ impl App {
                 state.sync_motion_choice(reduced);
             }
         }
+    }
+
+    /// Task-scoped, in-memory consent for the lead partner's file changes
+    /// and commands. Enabling also settles the currently pending one.
+    pub(super) fn auto_approve_command(&mut self, command: &str) -> bool {
+        let enabled = match command {
+            "auto-approve" => true,
+            "auto-approve-off" => false,
+            _ => return false,
+        };
+        self.planning.auto_approve = enabled;
+        self.notice = Language::ENGLISH
+            .text(if enabled {
+                Message::AutoApproveEnabled
+            } else {
+                Message::AutoApproveDisabled
+            })
+            .into();
+        if enabled {
+            let reviewing = matches!(self.overlay, Some(Overlay::Planning | Overlay::Execution))
+                && (self.planning.required_permission_review()
+                    || matches!(
+                        self.execution.confirmation,
+                        Some(crate::app::execution::Confirmation::Approval)
+                    ));
+            // An open command review is closed so its exact command settles below.
+            self.execution.defer_approval();
+            self.planning.auto_permission_review = false;
+            self.clear_approval_focus();
+            self.refresh_approvals();
+            if reviewing
+                && self.planning.request.is_none()
+                && self.execution.confirmation.is_none()
+                && matches!(self.overlay, Some(Overlay::Planning | Overlay::Execution))
+            {
+                self.close_overlay();
+            }
+        }
+        true
     }
 
     pub(super) fn motion_command(&mut self, command: &str) -> bool {

@@ -529,7 +529,8 @@ fn malformed_json_is_terminal_but_known_schema_errors_remain_actionable() {
     for (path, content) in [
         ("".to_owned(), "a".to_owned()),
         ("a".repeat(PATH_LIMIT + 1), "b".into()),
-        ("a".into(), "é".repeat(MAX_BYTES / 2 + 1)),
+        // Large multibyte content stays structurally valid within the transcript.
+        ("a".into(), "é".repeat(32 * 1024 + 1)),
     ] {
         let mut calls = Calls::new(Protocol::Responses);
         completed(
@@ -891,13 +892,13 @@ fn successful_messages_stop_labels_cannot_promote_truncated_arguments() {
 fn fully_escaped_sixty_four_kib_content_fits_arguments_without_truncation() {
     let escaped = format!(
         "{{\"path\":\"new.txt\",\"content\":\"{}\"}}",
-        "\\u0078".repeat(MAX_BYTES)
+        "\\u0078".repeat(64 * 1024)
     );
     let mut calls = Calls::new(Protocol::ChatCompletions);
     chat_fragment(&mut calls, json!([{"index":0,"id":"one","type":"function","function":{"name":TOOL_NAME,"arguments":escaped}}]), None).unwrap();
     chat_stop(&mut calls, "stop").unwrap();
     let decoded = calls.finish(true).unwrap();
-    assert_eq!(write_content(&decoded[0]), "x".repeat(MAX_BYTES));
+    assert_eq!(write_content(&decoded[0]), "x".repeat(64 * 1024));
 }
 
 #[test]

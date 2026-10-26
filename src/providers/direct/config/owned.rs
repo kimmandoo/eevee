@@ -204,7 +204,7 @@ pub(super) fn connection(provider: Agent, entry: Stored, now: u64) -> Result<Con
         account_id,
         residency,
         description: format!(
-            "{}: {:?}; explicit own native configuration; {}; configured only, not authenticated. Native Implement supports workspace filenames optionally restricted by /paths: reviewed create/replace, original-snapshot literal edits, irreversible exact regular-file delete and same-project no-overwrite rename (64 KiB per file). Each complete operation requires one-shot approval. Rust parsing is advisory, not verification. Plan/Review/metadata do not write. No shell, hooks, MCP or automatic repair/renewal/retry/account rotation.",
+            "{}: {:?}; explicit own native configuration; {}; configured only, not authenticated. Native Implement supports workspace filenames optionally restricted by /paths: reviewed create/replace, original-snapshot literal edits, irreversible exact regular-file delete and same-project no-overwrite rename (4 MiB per file). Each complete operation requires one-shot approval. Rust parsing is advisory, not verification. Plan/Review/metadata do not write. No shell, hooks, MCP or automatic repair/renewal/retry/account rotation.",
             provider.label(),
             protocol,
             if entry.keyless {

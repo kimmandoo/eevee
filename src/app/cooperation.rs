@@ -731,8 +731,58 @@ impl App {
         self.cooperation.approvals = pending;
     }
 
+    /// Task-scoped auto-approval: answers the lead's current file/tool
+    /// permission or agent command without presenting it, from any surface.
+    /// Questions, other partners and settling/cancelling work are excluded.
+    fn drive_auto_approval(&mut self) -> bool {
+        if !self.planning.auto_approve
+            || self.quit
+            || self.cooperation.cancelling
+            || self.cooperation.quitting
+            || self.planning.cancelling
+            || self.planning.task_id() != self.task_id
+            || self
+                .planning
+                .owner()
+                .is_none_or(|owner| owner.partner != self.lead.id)
+        {
+            return false;
+        }
+        if self.planning.auto_accept() {
+            self.notice = self.planning.notice.clone();
+            if self.overlay == Some(Overlay::Planning) && self.planning.request.is_none() {
+                self.planning.auto_permission_review = false;
+            }
+            return true;
+        }
+        let command = self
+            .execution
+            .approval_identity()
+            .is_some_and(|(task, partner, _, _)| task == self.task_id && partner == self.lead.id)
+            && self
+                .cooperation
+                .command_callbacks
+                .contains_key(&self.lead.id)
+            && self.execution.confirmation.is_none();
+        if command && self.execution.auto_approve() {
+            self.notice = format!(
+                "Auto-approved command: {} · /auto-approve-off to review each command",
+                self.execution
+                    .prepared
+                    .as_ref()
+                    .map(execution::approval_command_summary)
+                    .unwrap_or_default()
+            );
+            return true;
+        }
+        false
+    }
+
     /// Reconcile after input and worker settlement, never before dispatching a key.
     pub(super) fn reconcile_permission_review(&mut self) -> bool {
+        if self.drive_auto_approval() {
+            return true;
+        }
         if !self.approval_shortcut_available()
             || self.width < 60
             || self.height < 18
@@ -1941,6 +1991,78 @@ mod tests {
             assert!(app.cooperation.parked[&2].pending.is_none());
             assert_eq!((app.input.clone(), app.cursor), draft);
         }
+    }
+
+    #[test]
+    fn task_auto_approval_answers_file_permissions_without_review_but_not_other_partners() {
+        let mut app = app();
+        start(&mut app, 1, 1);
+        start(&mut app, 2, 2);
+        app.open_editor(store::EditorField::Request);
+        app.input = "Unsent draft".into();
+        app.cursor = 3;
+        assert!(app.command("auto-approve"));
+        assert!(app.planning.auto_approve);
+        // Another partner's request is neither answered nor presented.
+        file_prompt(&mut app, 2, 10);
+        assert!(app.cooperation.parked[&2].pending.is_none());
+        file_prompt(&mut app, 1, 20);
+        assert!(
+            app.overlay.is_none(),
+            "auto-approval does not open a review"
+        );
+        assert!(matches!(
+            app.planning.pending.take(),
+            Some(providers::Request::Answer { answer, .. }) if answer == json!("once")
+        ));
+        assert_eq!((app.input.as_str(), app.cursor), ("Unsent draft", 3));
+        assert!(app.notice.contains("src/new.rs"), "{}", app.notice);
+        // Questions are never answered automatically.
+        prompt_kind(
+            &mut app,
+            1,
+            30,
+            providers::PromptKind::Questions(vec![providers::Question {
+                id: "q".into(),
+                header: "Choice".into(),
+                question: "Which?".into(),
+                options: Vec::new(),
+                other: true,
+                secret: false,
+            }]),
+        );
+        assert!(app.planning.pending.is_none());
+        // Turning it off restores ordinary review.
+        assert!(app.command("auto-approve-off"));
+        assert!(!app.planning.auto_approve);
+    }
+
+    #[test]
+    fn shift_a_in_an_engaged_file_review_allows_this_and_later_changes() {
+        let mut app = app();
+        start(&mut app, 1, 1);
+        file_prompt(&mut app, 1, 20);
+        assert!(app.planning.auto_permission_review);
+        // Unengaged arrival ignores Shift+A like every other key.
+        app.update(Event::Key(KeyEvent::new(
+            KeyCode::Char('A'),
+            KeyModifiers::SHIFT,
+        )));
+        assert!(!app.planning.auto_approve && app.planning.pending.is_none());
+        app.update(Event::Key(KeyEvent::new(
+            KeyCode::Enter,
+            KeyModifiers::NONE,
+        )));
+        app.planning.reviewed = true;
+        app.update(Event::Key(KeyEvent::new(
+            KeyCode::Char('A'),
+            KeyModifiers::SHIFT,
+        )));
+        assert!(app.planning.auto_approve);
+        assert!(matches!(
+            app.planning.pending.take(),
+            Some(providers::Request::Answer { answer, .. }) if answer == json!("once")
+        ));
     }
 
     #[test]

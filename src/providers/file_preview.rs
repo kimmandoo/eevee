@@ -2,7 +2,7 @@
 use std::collections::HashSet;
 
 const PATH_LIMIT: usize = 4096;
-const CONTENT_LIMIT: usize = 256 * 1024;
+const CONTENT_LIMIT: usize = crate::providers::writes::MAX_BYTES;
 // Edits may also contain a fully escaped old value, which is never retained.
 const WIRE_LIMIT: usize = 6 * (2 * CONTENT_LIMIT + PATH_LIMIT) + 4096;
 const DISPLAY_LIMIT: usize = 16 * 1024;

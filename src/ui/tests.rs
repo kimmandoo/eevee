@@ -585,6 +585,33 @@ fn provider_response_and_request_share_home_at_supported_sizes() {
 }
 
 #[test]
+fn task_auto_approval_stays_visible_in_the_header_at_every_supported_size() {
+    use ratatui::{Terminal, backend::TestBackend};
+    let config = home_config();
+    for (width, height) in [(120, 36), (60, 18)] {
+        let mut app = App::new("/workspace".into(), width, height);
+        let mut artwork = Artwork::load(&config);
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+        let draw = |app: &mut App, terminal: &mut Terminal<TestBackend>, artwork: &mut Artwork| {
+            terminal
+                .draw(|frame| render(frame, app, &config, artwork, "off"))
+                .unwrap();
+            screen_text(terminal)
+        };
+        assert!(!draw(&mut app, &mut terminal, &mut artwork).contains("AUTO-APPROVE"));
+        app.planning.auto_approve = true;
+        let rendered = draw(&mut app, &mut terminal, &mut artwork);
+        assert!(
+            rendered.contains("AUTO-APPROVE"),
+            "{width}x{height}\n{rendered}"
+        );
+        if width == 120 {
+            assert!(rendered.contains("[code · auto-approve]"), "{rendered}");
+        }
+    }
+}
+
+#[test]
 fn suggestion_wraps_without_replacing_response_or_composer() {
     use ratatui::{Terminal, backend::TestBackend};
     let config = home_config();

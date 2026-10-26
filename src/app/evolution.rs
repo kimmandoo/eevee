@@ -1206,7 +1206,8 @@ mod tests {
             assert!(providers::writing_required(input.operation), "{text}");
         }
         // Explicit read-only intent and a Plan restriction still win.
-        for (text, restrict) in [("이 코드 설명해줘, 읽기만", false), ("make a game", true)] {
+        for (text, restrict) in [("이 코드 설명해줘, 읽기만", false), ("make a game", true)]
+        {
             let mut app = app();
             if restrict {
                 app.planning.set_operation(Operation::Plan);

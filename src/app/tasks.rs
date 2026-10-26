@@ -584,6 +584,21 @@ impl App {
         {
             return false;
         }
+        // Shift+A in an engaged review: approve this one and the rest of the task.
+        if Self::allow_all_key(key)
+            && !self.execution.auto_presented
+            && self.execution.confirmation_visible
+            && matches!(
+                self.execution.confirmation,
+                Some(execution::Confirmation::Approval)
+            )
+            && self
+                .cooperation
+                .command_callbacks
+                .contains_key(&self.lead.id)
+        {
+            return self.auto_approve_command("auto-approve");
+        }
         if let Some(action) = self.execution.key(key) {
             self.apply_execution_action(action);
         }

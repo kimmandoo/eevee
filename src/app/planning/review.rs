@@ -630,6 +630,31 @@ impl State {
         true
     }
 
+    /// Answers the current owned permission with its allow-once option while
+    /// task-scoped auto-approval is on. Questions are never answered.
+    pub(in crate::app) fn auto_accept(&mut self) -> bool {
+        if !self.auto_approve || self.pending.is_some() || self.cancelling {
+            return false;
+        }
+        let (answer, subject) = match self.request.as_ref().map(|request| &request.kind) {
+            Some(PromptKind::Permission { options, file, .. }) if options.len() >= 2 => (
+                options[1].answer.clone(),
+                file.as_ref()
+                    .map_or_else(|| "tool permission".into(), |file| file.path.clone()),
+            ),
+            Some(PromptKind::Approval {
+                allow_once: true,
+                command,
+                ..
+            }) => (json!({"decision": "accept"}), command.clone()),
+            _ => return false,
+        };
+        self.auto_permission_review = false;
+        self.send_answer(answer);
+        self.notice = format!("Auto-approved: {subject} · /auto-approve-off to review each change");
+        true
+    }
+
     fn send_answer(&mut self, answer: Value) {
         if self.auto_permission_review || self.pending.is_some() || self.cancelling {
             return;

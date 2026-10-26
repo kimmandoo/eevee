@@ -1570,3 +1570,76 @@ fn command_summary_is_a_readable_unambiguous_argv_line() {
     p.executable.path = "/elsewhere/tool".into();
     assert_eq!(approval_command_summary(&p), "'/tool path/tool' build");
 }
+
+#[test]
+fn task_auto_approval_reserves_agent_commands_without_review() {
+    use crate::providers::{self, Agent, Operation, Preview, Request};
+    let mut app = crate::app::App::new("/project".into(), 120, 36);
+    app.task_id = 1;
+    let owner = store::Attribution::of(&app.lead);
+    let mut task = store::Snapshot::empty("/project".into());
+    task.id = 1;
+    task.goal = "Build after exact consent".into();
+    task.form = owner.form;
+    task.lead_partner = owner.partner;
+    app.planning = app.planning.new_partner(owner.clone(), 1);
+    app.planning.agent = Agent::OpenAI;
+    app.planning.set_operation(Operation::Implement);
+    app.planning.command("new", true, &task, &[], None);
+    let claim = store::WorkClaim {
+        task_id: 1,
+        owner: owner.clone(),
+        request_id: "provider-writer".into(),
+        writing: true,
+    };
+    app.planning.stage_work(claim.clone());
+    let acquire = app.planning.work_pending.take().unwrap();
+    app.planning.work_event(acquire, Ok(vec![claim.clone()]));
+    assert!(matches!(
+        app.planning.pending.take(),
+        Some(Request::Preview(_))
+    ));
+    app.planning.event(providers::Event::Preview(Preview {
+        comparison_scope: None,
+        arrival: 1,
+        generation: 7,
+        task_id: 1,
+        thread_id: None,
+        destination: None,
+        requires_connection_review: false,
+        trust: Vec::new(),
+        payload: "{}".into(),
+        blockers: Vec::new(),
+    }));
+    assert!(app.planning.dispatch_prepared());
+    app.planning.pending.take();
+    let mut prepared = prepared();
+    prepared.partner = Some(owner);
+    let (reply, _received) = std::sync::mpsc::sync_channel(1);
+    assert!(app.provider_command(
+        app.lead.id,
+        7,
+        1,
+        "/unopened-data".into(),
+        claim,
+        "agent-command".into(),
+        "".into(),
+        prepared.spec.clone(),
+        Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        reply,
+    ));
+    app.execution.pending_spec = None;
+    app.execution.request_id = Some(prepared.request_id.clone());
+    app.execution.prepared = Some(prepared);
+    app.overlay = None;
+
+    app.planning.auto_approve = true;
+    app.refresh_approvals();
+    assert_eq!(app.overlay, None, "no review is shown under auto-approval");
+    assert!(app.execution.reserving, "exact prepared command proceeds");
+    assert!(
+        app.notice.contains("Auto-approved command: tool"),
+        "{}",
+        app.notice
+    );
+}

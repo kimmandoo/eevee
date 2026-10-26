@@ -1360,7 +1360,8 @@ fn workspace_generation_supports_complete_content_and_successful_non_tool_stop_l
         Protocol::Gemini,
     ] {
         let fixture = Fixture::new(&[]);
-        let content = "x".repeat(crate::providers::writes::MAX_BYTES);
+        // Large complete content within this test configuration's body bound.
+        let content = "x".repeat(64 * 1024);
         let mut response = wire(
             protocol,
             &[("workspace-call", "generated/main.txt", &content)],
@@ -1730,7 +1731,8 @@ fn truncated_success_labels_never_execute_complete_sibling_calls() {
 #[test]
 fn per_http_body_budget_refuses_continuation_without_truncating_frozen_history() {
     let fixture = Fixture::new(&[]);
-    let content = "z".repeat(crate::providers::writes::MAX_BYTES);
+    // Eight calls fit one round; the frozen history then overflows the body.
+    let content = "z".repeat(64 * 1024);
     let calls = (0..8)
         .map(|index| (format!("call-{index}"), format!("selected-{index}.txt")))
         .collect::<Vec<_>>();

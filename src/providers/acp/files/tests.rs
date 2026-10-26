@@ -76,7 +76,12 @@ fn acp_reads_requested_ranges_beyond_mutation_bound_without_silent_output_trunca
     let fixture = Fixture::new();
     let path = "중앙-cafe\u{301}.rs";
     let source: String = (1..=3000)
-        .map(|line| format!("// ACP actual source {line:04}: café 界\r\n"))
+        .map(|line| {
+            format!(
+                "// ACP actual source {line:04}: café 界{}\r\n",
+                "·".repeat(700)
+            )
+        })
         .collect();
     assert!(source.len() > crate::providers::writes::MAX_BYTES);
     std::fs::write(fixture.root.join(path), &source).unwrap();

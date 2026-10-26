@@ -1,5 +1,15 @@
 # Work Checkpoint
 
+## 2026-10-26 — Task-scoped auto-approve and large file limits (completed)
+
+- **Request:** Add an "approve for this task" option and remove inconvenient file size/count limits, with good UX.
+- **Auto-approve:** `/auto-approve`, `/auto-approve-off`, Shift+A in an engaged (not freshly auto-presented) file or command review. State is `PlanningState::auto_approve` (in memory, reset with the planning state on task change/restart). `App::drive_auto_approval` (start of `reconcile_permission_review`, from any surface) answers the lead's Permission (option index 1 = allow once) or allow-once Approval via `auto_accept`, and reserves agent command callbacks via `execution::State::auto_approve`; questions, other partners and cancelling/quitting work are excluded. Header status shows `AUTO-APPROVE`/`자동 허용 중` (always visible) and the chip becomes `[code · auto-approve]`; each auto-approved item sets a notice. Footer hints mention `A`.
+- **Limits:** `MAX_FILES` 1024, `MAX_BYTES` 4 MiB, review bound 2×MAX+1 MiB/1M lines, native `TOOL_CALL_LIMIT` 1024, per-round calls 64, `BODY_LIMIT` 8 MiB, frames 16 MiB, streams 512 MiB, source-read cache = MAX_FILES. Tests keep the old 1 MiB body/128 calls/16 per round via `#[cfg(test)]` so boundary fixtures stay small. Replacement patches show only the changed region (common prefix/suffix trimmed, 3 context lines). Model/user-facing limit texts updated. SDK sidecar limits unchanged (bridge10).
+- **Performance fix:** see TROUBLESHOOTING 2026-10-26 (stamp-based revalidation, candidate-pair alias checks).
+- **Changed files:** `src/providers/{writes.rs,writes/tools.rs,writes/observations.rs,writes/posix.rs,writes/tests.rs,direct.rs,direct/tools.rs,direct/tools/tests.rs,direct/coding/tests.rs,direct/config.rs,direct/config/owned.rs,codex.rs,codex/tests.rs,acp.rs,acp/files.rs,acp/files/tests.rs,agent.rs,file_preview.rs}`, `src/app/{cooperation.rs,commands.rs,motion.rs,keys.rs,tasks.rs,execution.rs,execution/tests.rs,planning.rs,planning/review.rs}`, `src/command_help.rs`, `src/ui.rs`, `src/ui/tests.rs`, `locales/{en,ko}/{auto_approve.ftl,providers.ftl}`, README, CHANGELOG, DESIGN_RULES, AGENT_COMPATIBILITY, TROUBLESHOOTING, this checkpoint.
+- **Verification:** `cargo clippy --all-targets` clean; `cargo test` 1,681 passed/2 ignored (new: auto-approve file/command/Shift+A/header tests, changed-region review assertion). Release PTY probe (scratchpad `probe/auto_approve.py`): EN 120×36 and KO 60×18, `/auto-approve` then the real rustc create→edit→failing build→fix→build→run chain completed with zero reviews, 3 real runs, header showed the state, `/auto-approve-off` removed it. `agent_coding_smoke.py --profile native` (ordinary reviews) still passed. No live provider call.
+- **Active task / next action:** None.
+
 ## 2026-10-26 — Codex/Claude Code-like default capability (completed)
 
 - **Request:** The flow must work like Codex/Claude Code: input → connected provider model acts; no "cannot create files in this project" problems.

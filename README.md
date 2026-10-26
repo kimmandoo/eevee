@@ -121,7 +121,7 @@ These commands shipped in v0.1.28, including the previously unreleased 0.1.27 im
 
 **Every form can discover, read, create and edit project files.** Evolution changes the companion's appearance and specialty, not permission. Explicit Plan, independent Review and read-only requests remain nonwriting.
 
-File-based project setup supports up to 32 distinct reviewed files per request, each up to 64 KiB. Native HTTP tool loops allow 128 calls across 129 rounds, bounded to 1 MiB per request body and 64 MiB cumulatively. Earlier completed writes remain if a later operation fails; cancellation is not rollback. Dependency installation and shell-based scaffolding require the separate command-review flow.
+File-based project work supports up to 1024 distinct files per request, each up to 4 MiB; reviews of existing files show only the changed region with context. Native HTTP tool loops allow 1024 calls across 1025 rounds, bounded to 8 MiB per request body and 128 MiB cumulatively. `/auto-approve` (or Shift+A in a file/command review) approves the current partner's file changes and commands for the rest of the task, like other coding agents' auto modes; the header shows `AUTO-APPROVE`, `/auto-approve-off` ends it, and task change or restart clears it. Questions still ask. Earlier completed writes remain if a later operation fails; cancellation is not rollback. Dependency installation and shell-based scaffolding require the separate command-review flow.
 
 Missing native model configuration opens the local model picker and keeps your request. Selecting a model does not send it: press Enter deliberately afterward. A file permission's Enter opens the proposed content; return to its decision controls to allow once or deny after inspecting the complete scope. Merely typing into an arriving popup grants nothing.
 
@@ -148,7 +148,7 @@ Receipt capacity is reserved before sending; a full task refuses without losing 
 
 Adopted source notes preserve exact bytes, including CRLF, and use explicit capture identity rather than matching equal text. They are independently approved data: capture, receipt or artifact purge **does not delete the saved note**. Use `/delete-memory` separately; neither operation promises secure erasure or deletion of provider-owned history.
 
-Filename discovery accepts a project-relative directory scope before scanning. Safe files larger than the 64-KiB mutation limit remain discoverable; bounded reads may inspect sources up to 16 MiB with a full-source digest and an explicit noneditable flag. The limit for approved create/replace content remains 64 KiB.
+Filename discovery accepts a project-relative directory scope before scanning. Safe files larger than the 4-MiB mutation limit remain discoverable; bounded reads may inspect sources up to 16 MiB with a full-source digest and an explicit noneditable flag.
 
 | Feature | What it does |
 | --- | --- |

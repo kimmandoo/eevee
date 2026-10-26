@@ -417,8 +417,13 @@ impl WriteSet {
         if let Some(entry) = cached {
             // Preserve mutation-baseline enrollment even when formatting/parsing is reused.
             if let FileTool::Read { path, .. } = tool {
-                if !self.observed.contains_key(path) && self.observed.len() >= 32 {
-                    return Err("Source read cache permits 32 distinct files per request".into());
+                if !self.observed.contains_key(path)
+                    && self.observed.len() >= super::tools::SOURCE_FILES
+                {
+                    return Err(format!(
+                        "Source read cache permits {} distinct files per request",
+                        super::tools::SOURCE_FILES
+                    ));
                 }
                 if let Some(source) = frozen.sources.pop() {
                     self.observed.insert(

@@ -415,7 +415,7 @@ fn capabilities(index: usize) -> Vec<Capability> {
             (
                 "Command/file/permission requests",
                 "Eevee-mediated callbacks",
-                "Implement: model-proposed workspace paths, optionally restricted by /paths; exact creation/replacement and missing parents via Eevee tool with one-shot patch approval; at most 32 files, 64 KiB per file; native edits/escalation refused",
+                "Implement: model-proposed workspace paths, optionally restricted by /paths; exact creation/replacement and missing parents via Eevee tool with one-shot patch approval; at most 1024 files, 4 MiB per file; native edits/escalation refused",
                 "Not every provider/MCP/hook action necessarily reaches a callback",
             ),
             (

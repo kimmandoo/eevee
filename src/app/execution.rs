@@ -575,6 +575,20 @@ impl State {
         self.searching = false;
         self.open_approval()
     }
+    /// Approves the current exact prepared command under task-scoped
+    /// auto-approval. Falls back to the ordinary review when not admissible.
+    pub fn auto_approve(&mut self) -> bool {
+        if !self.open_approval() {
+            return false;
+        }
+        self.confirmation = None;
+        self.confirm(Confirmation::Approval);
+        if !self.reserving {
+            self.confirmation = Some(Confirmation::Approval);
+            return false;
+        }
+        true
+    }
     /// Closing consent is not rejection: the immutable command stays pending.
     pub fn defer_approval(&mut self) -> bool {
         if !matches!(self.confirmation, Some(Confirmation::Approval)) {

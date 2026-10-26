@@ -1,5 +1,12 @@
 # Troubleshooting
 
+### [2026-10-26] Raising the write-target limit made every file operation quadratic
+
+- **Context / Symptom:** After raising `MAX_FILES` from 32 to 1024, `thirty_two_nested_targets_are_admitted_but_excess_batch_has_no_effects` ran for more than five minutes instead of under a second.
+- **Root Cause:** `WriteSet::verify` runs several times per operation and (1) re-read and rehashed every frozen target's full bytes and (2) `verify_name_bindings` compared every pair of target paths, allocating joined paths per component. Both were fine at 32 targets but O(n) bytes and O(n²) pairs per operation at 1024.
+- **Solution:** Unrelated targets are revalidated by their captured file stamp (device/inode, size, modification and change times; Windows identity/size/write/change times); the operated file is still reread and hashed. Name-binding checks now group case-folded NFC component keys and run the exact native comparison only on pairs whose keys are equal or a component prefix of one another. The boundary test batches admissions rather than applying 1023 files one by one.
+- **Prevention / Reference:** When raising a scope bound, time a test at the new bound in a debug build; look for per-operation loops over the whole scope.
+
 ### [2026-10-25] Scoped move inspection swallowed advertised arrow scrolling
 
 - **Context / Symptom:** Complete wide PT12 journeys passed, but60×18 inspection initially showed only upper partner metadata; the mapped Glaceon move name remained below the fold. The footer advertised Up/Down scrolling while scoped input ignored those keys.

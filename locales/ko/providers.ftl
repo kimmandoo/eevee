@@ -540,7 +540,7 @@ providers-execution-stay-and-journal-retry-retries-storage-only = { "머물러�
 
 providers-execution-y-confirm-n-stay-tab-choose-enter =
     { "y 확인 / n 머무르기 / Tab 선택 / Enter / Esc 머무르기" }
-    { "PgUp/Dn 스크롤 · d 전체 상세; 스크롤 승인 조건 없음" }
+    { "PgUp/Dn · d 상세 · A 이 작업 동안 모두 허용" }
 
 providers-execution-no-retained-executions-for-this-task-command = { "이 작업의 보관 실행이 없습니다. /command-edit 명령 편집; /execute 준비된 요청 검토. /run은 명령 증거만 확인합니다. 기록을 불러와도 저장된 명령을 실행하지 않습니다. 시작 시 중단된 기록은 증거이지 실행 중인 프로세스 소유권이 아닙니다." }
 
@@ -990,7 +990,7 @@ providers-planning-file-details = { "d 전체 변경·범위·정확한 요청 �
 
 providers-planning-file-actions =
     { "Tab 선택 · Enter 확인 · a/y 한 번 허용" }
-    { "n 거부 | d 상세 | PgUp/Dn | Esc 나중에" }
+    { "n 거부 · d 상세 · A 작업 내내 허용 · Esc 나중에" }
 
 providers-planning-file-unavailable =
     { "PgUp/Dn으로 전체 범위를 확인한 뒤 허용하세요." }

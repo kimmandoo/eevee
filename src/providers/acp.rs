@@ -19,7 +19,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-const FRAME_LIMIT: usize = 2 * 1024 * 1024;
+const FRAME_LIMIT: usize = 16 * 1024 * 1024;
 const EVENT_LIMIT: usize = 512;
 const OUTPUT_LIMIT: usize = 8 * 1024 * 1024;
 const ITEM_LIMIT: usize = 128;
