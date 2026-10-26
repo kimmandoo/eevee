@@ -1,16 +1,16 @@
 # Eevee Implementation Plan
 
-Updated2026-10-25. v0.1.31 source `1b83cc4` passed exact-source native/public release acceptance. Requested67G target cleanup followed verified external evidence archival. Wave5 MV09/PK08/PT12 passed implementation and four actual locale/size journeys each as unreleased0.1.32 source. All16 wave assignments are archived and21 tasks remain. Waves6–8 remain planning only; no paid/live calls were made.
+Updated2026-10-26. English-only UX changes passed local source/runtime/installation verification and were pushed. The user deferred release; public installers remainv0.1.31. macOS/Windows native CI failures remain unresolved; bounded failure annotations are available on subsequent runs. Wave5 remains source0.1.32, all16 wave assignments are archived and21 tasks remain. Waves6–8 remain planning only; no paid/live calls were made.
 
 Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPATIBILITY.md). Live-provider conformance remains distinct from implemented transports and deterministic runtime proof.
 
-## Active request — English-only UX and v0.1.32 release
+## English-only UX — push-only handoff; release deferred
 
 1. Completed: reproduced everyday UX problems on the prior binary, including fresh home, command arguments, empty provider search and neutral command-review return.
 2. Completed: preserved concrete UX repairs and removed multilingual display support completely. English messages are compiled; language selection, runtime translation and locale-dependent UI state are removed. Unicode content and natural-language request interpretation remain supported.
 3. Completed: migrated all application/render consumers and smoke drivers. Both terminal sizes, distinct provider protocols, consent/error paths and all five native targets remain; only duplicate translation journeys were removed.
-4. Local source/runtime gates passed: Rust1.90 formatting,1,679 tests/two ignored, strict Clippy/release build, actual execution/navigation/tooltip/coding/snapshot and full English native7-driver/24-journey coverage. Public installed acceptance follows publication; no measured performance claim.
-5. Commit/push the exact release source, require Check and all five native jobs in one attempt, publish v0.1.32 through the existing tag workflow, then verify public bytes and installed/runtime behavior. No paid/live provider calls or later roadmap implementation.
+4. Local source/runtime gates passed: Rust1.90 formatting,1,679 tests/two ignored, strict Clippy/release build, actual execution/navigation/tooltip/coding/snapshot, full English native7-driver/24-journey coverage and24 local installation groups including34 terminal scenarios. No measured performance claim or public-release acceptance.
+5. Source and diagnostic commits were pushed. The user's final instruction deferred release: no tag/publication now. Native run40288713516 passed Check/Linux but failed macOS/Windows tests; diagnostic run40291045215 was in progress when local release monitoring stopped. A future release requires inspecting current failure annotations, repairing confirmed failures, all-five exact-source qualification, then explicit publication/public acceptance. No later roadmap work or paid/live calls.
 
 
 ## Completed implementation — Wave5 source 0.1.32, unreleased
