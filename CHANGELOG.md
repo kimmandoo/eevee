@@ -2,6 +2,8 @@
 
 ## 2026-10-27
 
+- docs(license): named the project copyright holder in LICENSE and NOTICE.
+- chore(history): rewrote local history and tags to remove external-reference traces and remapped recorded commit IDs.
 - feat(context): added explicitly reviewed bounded PNG/JPEG attachments on qualified native Responses routes, exact original-byte transport, visible selected-image state, honest image accounting and quota-owned retention/removal/purge without replay.
 - feat(git): added user-authored selected whole-file local commits through the existing neutral one-shot approval, exclusive project writer and owned runner, preserving unselected work and recording actual commit/ref/index or partial/unknown outcomes without treating commits as verification.
 - fix(git): required stable Git2.x>=2.36 before repository/index inspection, reused contained native-handle reads, refused unsafe writable reflog aliases and left HEAD/ref transaction locks to Git while retaining exact final source/configuration/identity checks.
@@ -60,7 +62,7 @@
 - test(eevee): verified12 new Wave5 journeys, four legacy TM journeys, three six-partner boundaries and1,675 Rust tests with strict Clippy/release build, without expanding the default CI matrix.
 - chore(build): preserved complete Wave5 success/failure evidence and the runnable final binary outside target, then removed4.1G of regenerated verification output and confirmed the preserved executable still ran.
 - chore(build): archived verified v0.1.31 release/failure evidence and the genuine public binary outside target, then removed67G of accumulated generated output before authorized Wave5 work.
-- docs(release): published v0.1.31 from `1b83cc4` after same-attempt Check/all-five-native qualification and exact immutable-artifact promotion without replacing0.1.30 assets.
+- docs(release): published v0.1.31 from `06ebff7` after same-attempt Check/all-five-native qualification and exact immutable-artifact promotion without replacing0.1.30 assets.
 - docs(verification): verified all eight public assets, seven checksums, five qualified archive identities,24 installation groups,34 installed terminal scenarios/56 zero-output idle windows and11 actual coding/recovery/wave reports.
 - docs(plan): authorized target cleanup after the completed release and complete Wave5 semantic move/TM review, deliberate held-reference renewal and formation-readiness implementation without automatic later publication or paid/live calls.
 - fix(acp): sampled one monotonic time for terminal expiry/cancellation and replaced platform-origin-dependent backdating with deterministic forward-clock boundary coverage, retaining the15-minute lifetime and30-second unsettled-cancellation grace.
@@ -142,7 +144,7 @@
 - fix(verification): made exact-source catalog fixtures byte-stable across native platforms and collected all independent tool failures while preserving a failing release gate.
 - test(windows): paired active native console cells and wide-glyph attributes with VT captures to diagnose compact Korean redraw corruption without replacing visible assertions.
 - docs(tasks): archived all ten accepted specifications and reconciled18 remaining tasks while keeping exact-source native qualification and publication separate.
-- docs(release): recorded immutable v0.1.28 publication from `801b921`, verified all public asset digests and archives, and passed downloaded installation24/terminal34/workbench35 plus bilingual planning, project creation and evolution journeys.
+- docs(release): recorded immutable v0.1.28 publication from `e18f65b`, verified all public asset digests and archives, and passed downloaded installation24/terminal34/workbench35 plus bilingual planning, project creation and evolution journeys.
 - test(providers): preserved operating-system runtime variables in the isolated metadata diagnostic subprocess and reported child failures before fixture-thread failures.
 - test(workbench): removed the obsolete forced-Espeon initialization expectation and exercised explicit HTTP 503 diagnostic recovery with scrollable compact details; all 35 real workbench groups passed without changing the qualified executable.
 
@@ -170,7 +172,7 @@
 - fix(providers): decoupled native OpenAI account model defaults from external CLI configuration so unrelated unsafe or malformed files no longer blocked request preparation.
 - fix(ux): exposed complete scrollable blockers and direct localized connection setup while retaining frozen requests, future drafts and explicit cancellation without automatic resend.
 - test(providers): verified twelve bilingual compact/wide account-preparation and direct-recovery journeys/36 groups without dispatching inference, altering provider files or bypassing unsafe selected credentials.
-- docs(release): published immutable v0.1.26 from qualified source `140b71d` and verified eight public digests, seven checksum records, source installers and all five exact native archive identities.
+- docs(release): published immutable v0.1.26 from qualified source `f6ed478` and verified eight public digests, seven checksum records, source installers and all five exact native archive identities.
 - test(release): passed downloaded account recovery36, file126, native176, providerUX20 and cooperation24 groups plus installation24/34 installed-native scenarios, with byte-identical reinstalled/public executables.
 
 - fix(forms): separated project coding capability from automatic/manual evolution, preserved explicit readonly policy across form/formation changes and retained same-policy conversation through cosmetic transitions.
@@ -178,17 +180,17 @@
 - fix(permissions): automatically presented required file, generic tool and prepared external-policy reviews with neutral arrival, localized controls and explicit one-shot consent.
 - test(forms): passed all 72 nine-form bilingual/both-size coding journeys/576 groups and 24 ACP prepared/generic/file-permission journeys/72 groups with actual request context, denial and approved filesystem effects.
 - docs(readme): replaced long onboarding prose with a compact project overview, daily-control and feature tables, visible safety guidance and optional advanced setup sections.
-- docs(release): published immutable v0.1.25 from exact qualified source `7210489` and verified eight public digests, seven manifest entries, both source installers and all five native archive identities.
+- docs(release): published immutable v0.1.25 from exact qualified source `8dabe90` and verified eight public digests, seven manifest entries, both source installers and all five native archive identities.
 - test(release): passed downloaded nine-form576, ACP72, file126, native176, providerUX20, cooperation24 and bilingual evolution checks, plus installation24/34 installed-native scenarios and reinstalled/public byte identity.
 
-- docs(release): published v0.1.24 from exact source `19a217e` after unchanged Check/all-five-native qualification and immutable promotion; verified all eight public digests, seven manifest entries, source installers and exact qualified native archives.
+- docs(release): published v0.1.24 from exact source `0f15d61` after unchanged Check/all-five-native qualification and immutable promotion; verified all eight public digests, seven manifest entries, source installers and exact qualified native archives.
 - test(release): verified downloaded v0.1.24 permission/48, file workflows/126, native protocols/176, provider UX/20 and bilingual automatic evolution; passed all 24 installation groups/34 installed-native scenarios and matched reinstalled/public executable bytes.
 
 - fix(files): routed explicit quoted filename changes and handoff-file creation through mutation tools after automatic read-only work while preserving explicit Plan/Review and literal-source boundaries.
 - fix(approvals): made file decisions selectable in automatic popups on every safe home pane and kept long exact scope scrollable with fixed controls instead of permanently disabling compact approval.
 - test(files): reproduced both missing-tool routes and the compact nested-path dead end in v0.1.23, then passed eight bilingual/both-size read/create/edit/handoff journeys with exact one-shot decisions and filesystem effects.
 
-- docs(release): published v0.1.23 from exact source `55999ab` after Check/all-five-native qualification and immutable promotion; verified all eight public digests, seven manifest entries, source installers and exact target-specific qualified archive identities.
+- docs(release): published v0.1.23 from exact source `48a578a` after Check/all-five-native qualification and immutable promotion; verified all eight public digests, seven manifest entries, source installers and exact target-specific qualified archive identities.
 - test(release): verified downloaded v0.1.23 provider UX/20 groups, native protocols/176, bilingual file workflows/126, CLI auth/10 and workbench/35; passed all 24 installation groups/34 installed-native scenarios and matched the reinstalled executable to the public package.
 
 - feat(providers): unified OpenAI account, API, custom endpoint and advanced CLI setup under one family while preserving durable routes and explicit billing/account boundaries.
@@ -198,7 +200,7 @@
 - fix(config): replaced stale selected account overrides after approved login, separated credential import from malformed model configuration and excluded custom-server defaults from subscription routing.
 - test(providers): passed bilingual compact/wide connection UX, ten native protocol variants/176 groups, 24 generated-file journeys/126 groups and all 35 workbench cases; retained exact request/history, source deletion, draft/caret, no-send and explicit quit boundaries.
 
-- docs(release): published v0.1.22 from exact source `4b253b5` after complete same-attempt Check/all-five-native qualification and immutable promotion; verified eight public digests, seven manifest entries, source installers and all native package identities.
+- docs(release): published v0.1.22 from exact source `eb83f9c` after complete same-attempt Check/all-five-native qualification and immutable promotion; verified eight public digests, seven manifest entries, source installers and all native package identities.
 - test(release): verified downloaded bilingual compact/wide formations, every portable TM form/kind through two projects/restarts, motion/key/paste and actual previous-writer refusal/resume; passed all 24 installation groups including 34 installed-native scenarios and matched the reinstalled executable to the public package.
 
 - feat(party): added reviewed create-only formation recipes and atomic explicit local role mapping while preserving nonempty drafts/carets, busy ownership and manual/automatic form policy.
@@ -211,7 +213,7 @@
 
 - docs(tasks): prioritized formations, portable TMs, persistent reduced motion and the remaining picker transition before general context/provider/refactor work; corrected export, authentication, schema and already-implemented foundation requirements.
 - docs(tasks): separated 67 completed detailed specifications and the original foundation index into `tasks/COMPLETED.md`, archived UX03 and retained 38 unfinished tasks with checked dependency/link integrity.
-- docs(release): published v0.1.21 from exact source `96f4479` after complete Check/all-five-native qualification and immutable promotion; verified all eight public asset digests, seven manifest entries, native identities and source installers without changing Schema 18 or complete SDK bridge 9.
+- docs(release): published v0.1.21 from exact source `2043cae` after complete Check/all-five-native qualification and immutable promotion; verified all eight public asset digests, seven manifest entries, native identities and source installers without changing Schema 18 or complete SDK bridge 9.
 - test(release): verified downloaded bilingual compact/wide navigation and tooltips, ten source-context cases, Korean generated-file/continuous-scroll journeys, ten native protocol variants/176 groups and 23 installation lifecycle groups including 34 installed-native scenarios; confirmed the reinstalled binary matched the public package.
 
 - fix(ux): prioritized everyday searchable actions, collapsed duplicate alias rows and added locale-owned attachment, connection, cancellation and evidence keywords without a second dispatcher.
@@ -219,7 +221,7 @@
 - fix(tasks): returned to the already-active task without reloading or applying cross-task work guards, while preserving guards for another task.
 - fix(models): skipped reasoning for unchanged model/effort selections, focused missing retained IDs on Custom and cleared armed review state when opening a picker.
 
-- docs(release): published v0.1.20 from source `7e7259c` after complete exact-source Check/all-five-native qualification and immutable artifact promotion; verified all eight public assets, seven checksums and five native package identities with Schema 18/full-backup and complete SDK bridge 9 guidance.
+- docs(release): published v0.1.20 from source `362f397` after complete exact-source Check/all-five-native qualification and immutable artifact promotion; verified all eight public assets, seven checksums and five native package identities with Schema 18/full-backup and complete SDK bridge 9 guidance.
 - test(release): verified downloaded v0.1.20 project roots, bilingual generated-code/file approval/scroll/ACP/record/evolution journeys, ten native protocol variants, genuine Schema16/17 upgrades and 23 installation groups including 34 installed-native scenarios; confirmed the reinstalled binary matched the public package.
 - fix(project): kept source inventory, exclusions, initialization and file operations inside the canonical launch folder instead of widening nested projects to Git toplevel.
 - fix(context): excluded canonical application storage from project sources and refused new captures and historical private-storage attachments without rewriting retained evidence.
@@ -229,7 +231,7 @@
 - feat(storage)!: added Schema 18 immutable milestone references and purge-safe first-only tombstones on the existing transactional writer.
 - feat(context): added scoped held file and approved-memory proposals with visible compact identities, removable visit chips, explicit context acceptance, revalidation and local-only receipt attribution.
 - feat(storage)!: added Schema 17 held references without duplicating source/memory contents and retained transactional migration and older-writer refusal.
-- docs(release): published v0.1.19 from source `63f1007` after exact-source Check/all-five-native qualification and immutable promotion, retaining Schema 16 and complete SDK bridge 8.
+- docs(release): published v0.1.19 from source `c4ce4a2` after exact-source Check/all-five-native qualification and immutable promotion, retaining Schema 16 and complete SDK bridge 8.
 - test(terminal): acknowledged the new one-time evolution receipt before checking preserved goal/edit/discard behavior in the actual compact installed runtime without changing the published executable.
 - docs(verification): verified all public assets, sixteen bilingual automatic-review/file-progress journeys/64 groups, 24 file journeys/126 groups, evolution popups and preserved typing, scrolling/tooltips, native 176 groups, cooperation 24, six genuine schema upgrade/refusal/resume cases and 23 installation groups/all 34 installed terminal scenarios.
 
@@ -370,7 +372,7 @@
 - feat(evolution): displayed a localized one-time previous-to-next form popup without preempting file approval/live code, consuming typed drafts or replaying task restores.
 - fix(approval): automatically presented owned file proposals at safe home surfaces with draft-preserving neutral engagement before exact one-shot consent.
 - fix(ux): distinguished generated-file output from ordinary assistant responses with localized structural file labels and code gutters.
-- docs(release): published v0.1.18 from source `fb8791d` after exact-source Check/all-five-native qualification and immutable package promotion, with unchanged Schema 16 and complete SDK bridge 8 upgrade guidance.
+- docs(release): published v0.1.18 from source `e1e928a` after exact-source Check/all-five-native qualification and immutable package promotion, with unchanged Schema 16 and complete SDK bridge 8 upgrade guidance.
 - docs(verification): verified every public asset, sixteen staged bilingual file-generation journeys/64 groups, 24 file journeys/126 groups, automatic roles, continuous scrolling, tooltips, native 176 groups, cooperation 24, six genuine Schema15→16 cases and 23 installation groups/all 34 installed terminal scenarios on the downloaded release.
 - feat(ux): implemented v0.1.18 live file/code previews in the continuous transcript with truthful lifecycle states, compact viewport priority, cumulative privacy filtering and complete SDK bridge 8 support without changing Schema 16 or approval authority.
 - docs(release): published v0.1.17 from exact-source Check/all-five-native qualified immutable packages, with Schema 16 full-backup/downgrade and SDK bridge 7 warnings.
@@ -416,7 +418,7 @@
 - fix(evidence): recorded verified post-write digests for mediated mutations instead of decoding obsolete prose; kept reads, denials and provider claims non-authoritative.
 - fix(files): preserved native Unicode filename spelling in Git-backed source discovery and kept optional write restrictions directly accessible from ordinary coding.
 - fix(files): returned portable forward-slash discovery paths and matched directory queries in the same wire spelling without normalizing native filename identity.
-- docs(release): published v0.1.16 from corrected source `927a4f3` after exact-commit Check/all-five-native qualification, promoted only immutable packages and verified all eight public asset digests, seven manifest entries and five safe archive layouts.
+- docs(release): published v0.1.16 from corrected source `75a5a2b` after exact-commit Check/all-five-native qualification, promoted only immutable packages and verified all eight public asset digests, seven manifest entries and five safe archive layouts.
 - test(runtime): verified the downloaded v0.1.16 binary through 24 bilingual ordinary coding journeys/122 behavior groups, 44 continuous-output groups, both-language/both-size tooltips, twelve mutation relay groups, three genuine migration/refusal/resume cases and 23 installation groups with all 34 installed terminal scenarios.
 
 ## 0.1.15
@@ -582,7 +584,7 @@
 
 ## 2026-10-16
 
-- chore(release): published v0.1.10 from `48ab06b` after exact-commit Check and all five native rows passed (`38868170636`), promoted those immutable packages (`38869187969`), verified eight public assets/seven checksums and included Schema 11 downgrade warnings.
+- chore(release): published v0.1.10 from `050da9a` after exact-commit Check and all five native rows passed (`38868170636`), promoted those immutable packages (`38869187969`), verified eight public assets/seven checksums and included Schema 11 downgrade warnings.
 - fix(tests): canonicalized carry-over source fixture roots so native canonical-identity guards accepted valid evidence on Windows and macOS without weakening production checks.
 - chore(release): prepared v0.1.10 and included version-specific changelog and Schema 11 downgrade warnings in publication notes without changing immutable artifact qualification.
 - feat(forms): showed carried criteria, pins, open hypotheses/findings and capability differences after form switches, preserved the next input, reopened exact records from Companion, and deferred counts until evidence hydration without persisting or dispatching work.
@@ -594,7 +596,7 @@
 - fix(execution): kept run state and freshness visible in compact history after partner attribution was added.
 - feat(forms): added a header capability chip per form from the role table (`read`, `read · run`, `read · edit`, `read · edit plans`, `read · edit docs`) that yields to higher-priority status text and leaves project/form names untouched.
 - feat(forms): showed each form's `object → action` line and one primary action (criteria edit, file attach, command review, write paths, design question, diagnosis/refactor/review desks, handoff preview) on the empty home surface.
-- chore(release): published v0.1.9 from `c4b8cd9` after Check and all five native rows passed (run `38841536756`), verified eight public assets and seven checksums, and passed the PT06 partner-attribution TUI journey on the published Linux binary at 120×36 and 60×18.
+- chore(release): published v0.1.9 from `887c116` after Check and all five native rows passed (run `38841536756`), verified eight public assets and seven checksums, and passed the PT06 partner-attribution TUI journey on the published Linux binary at 120×36 and 60×18.
 - feat(party): named the asking partner in run approval/cancel, provider permission/command approval and question dialogs (`Bolt (Jolteon) wants to run: …`) while keeping their choices visible at 60×18.
 - feat(party): keyed provider request state by partner so requests, events and approvals stayed with their owner across lead switches, refused late events for other or released partners, returned failed requests only to the sender's draft, and kept `/lead` and `/party` usable during a request.
 - feat(party): attributed new command runs and provider journal records to the requesting partner with an id plus name/form snapshot, showed it in approval, run history and journal views, and kept older records byte-identical as `partner unknown`.
@@ -604,8 +606,8 @@
 - fix(ux): activated ready providers directly, retained explicit setup and owned-context reviews, and removed the intermediate connection drawer after local selection or cancellation.
 - feat(context): added direct bounded attachment review/save/return, visible saved-file markers and path/range summaries, and direct range, search and neutral removal controls.
 - fix(context): kept attachment filtering local, accepted scoped case-insensitive abbreviations and spaces, prevented path slashes from opening commands, and preserved compact error/status visibility.
-- chore(release): published v0.1.8 from `53f3fd0` after Check and all five native rows passed, verified eight public assets and seven hashes, and passed 23 installation checks, 34 installed terminal scenarios, 33 workbench journeys, real model/effort restart/responses and Schema 9→10 downgrade-refusal checks.
-- chore(release): published v0.1.7 from `0a43c0e` after Check and all five native build/test/install rows passed, verified eight public assets and seven checksums, and passed 23 installation checks, 34 installed terminal scenarios, 31 public workbench journeys and actual no-CLI GPT-6.1/default-model responses.
+- chore(release): published v0.1.8 from `eac0b9e` after Check and all five native rows passed, verified eight public assets and seven hashes, and passed 23 installation checks, 34 installed terminal scenarios, 33 workbench journeys, real model/effort restart/responses and Schema 9→10 downgrade-refusal checks.
+- chore(release): published v0.1.7 from `ca4f87f` after Check and all five native build/test/install rows passed, verified eight public assets and seven checksums, and passed 23 installation checks, 34 installed terminal scenarios, 31 public workbench journeys and actual no-CLI GPT-6.1/default-model responses.
 - feat(ux): made composer Enter save and send qualified ordinary requests without a second popup, kept actual effect approvals, and prevented repeat/modified Enter from submitting.
 - fix(providers): presented one Codex provider with native/CLI methods while retaining distinct tool, credential and session boundaries.
 - feat(models): added acknowledged durable per-route model/effort and last-used provider preferences, safe Schema 9→10 migration, explicit startup-route precedence and retryable save failures; model selection returned without a forced effort dialog.
@@ -619,14 +621,14 @@
 
 ## 2026-10-15
 
-- chore(release): published v0.1.6 from `ef9cef4` after exact-commit Check and all five native build/test/install rows passed, verified all eight public assets and seven checksums, and passed 23 installation checks, 34 installed terminal scenarios and 23 workbench journeys against the public macOS package.
+- chore(release): published v0.1.6 from `012199c` after exact-commit Check and all five native build/test/install rows passed, verified all eight public assets and seven checksums, and passed 23 installation checks, 34 installed terminal scenarios and 23 workbench journeys against the public macOS package.
 - fix(smoke): applied the existing POSIX shell-session ownership guard to self-update as well as bootstrap, preserving macOS terminal-restoration evidence after installer exec.
 - fix(codex): read effective nonsecret model configuration, preserved configured defaults through catalogue revalidation, exposed installed CLI provenance and update guidance, and kept full native model/effort choices inspectable on compact screens.
 - feat(commands): added neutral `/reset` with a durable-save barrier and recoverable old tasks, plus `/init` proposal drafts with explicit replacement review and no implicit execution or file writes.
 - fix(ux): restored the persistent home partner card, returned model/provider selections directly to their invoking surface, and removed intermediate role/form navigation steps while preserving drafts.
 - fix(providers): loaded model catalogues before task creation, retained visible loading/error pickers and retry paths, isolated metadata from task content, and accepted omitted optional Codex input modalities using the protocol default.
 - fix(responses): consolidated live progress in the header, gave compact responses more usable rows, and kept previous partial output distinct from current streaming/model state.
-- chore(release): published v0.1.5 from `6e43e6b` after exact-commit Check and all five native build/test/install rows passed, verified all eight public assets and seven manifest checksums, and passed 23 installation lifecycle checks plus 34 installed terminal scenarios on both Linux and native Windows.
+- chore(release): published v0.1.5 from `97268c7` after exact-commit Check and all five native build/test/install rows passed, verified all eight public assets and seven manifest checksums, and passed 23 installation lifecycle checks plus 34 installed terminal scenarios on both Linux and native Windows.
 - fix(runtime): completed deferred cancel-and-exit immediately after owned-process and journal acknowledgment instead of blocking for another key on an idle screen.
 - fix(smoke): checked compact outgoing context against committed capture facts without pinning JSON key order, removed an obsolete navigation-cycle expectation, and kept native helper builds on the configured local target.
 - feat(providers): accepted newer stable provider releases through observed identity and capability validation, switched Gemini to current `--acp`, and refreshed the optional Claude SDK through explicit latest setup while retaining its policy controls.
@@ -636,7 +638,7 @@
 - feat(ux): made the first screen accept requests directly, prepared reviews only after durable saves, preserved task facts across follow-ups, and returned approved responses to the full-width home workspace.
 - feat(review): centered command and attachment choices, exposed concise effect summaries and fixed approval controls, removed mandatory end-scroll gates, and restricted y/n/a shortcuts to visible, current, non-editing confirmation scopes.
 - feat(store): added durable per-partner Request drafts and Schema 9 migration with byte-preserving old-binary refusal.
-- chore(release): published v0.1.4 from `6489264` after exact-commit Check and all five native build/test/install rows passed; verified all eight public assets and checksum-covered files.
+- chore(release): published v0.1.4 from `88f0312` after exact-commit Check and all five native build/test/install rows passed; verified all eight public assets and checksum-covered files.
 - fix(smoke): preserved existing installer checksum entries when exercising published manifests, instead of introducing duplicates in the local release fixture.
 - fix(store): coalesced implicit draft, caret and navigation saves after 500ms of quiet with a 2s deferral bound, preserved immediate explicit saves and transition/exit flushes, and separated pending edits from in-flight storage and stale acknowledgments.
 - fix(terminal): synchronized screen clears, text and native-image updates, released frames on errors and terminal lifecycle transitions, removed per-input Windows full-screen clears in favor of cell differences, and avoided unchanged image placement on spinner-only frames.

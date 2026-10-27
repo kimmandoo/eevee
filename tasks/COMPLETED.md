@@ -172,9 +172,9 @@ Evidence: `target/wave34-structural-{en,ko}-d`, `wave34-tool-plans-c`, `wave34-i
 
 GP01, GP02, EV19, GP03, GP04, RX01 and RX02 passed implementation and actual runtime acceptance on 2026-10-24. Pinned Rust1.90.0 gates passed1,588 tests/two ignored, formatting, strict Clippy and release build. Actual snapshot/restore preserved task/draft/run/receipt/artifact identities and retained bytes without replay; corrupt/interrupted copies refused. Four final English/Korean compact/wide evolution journeys proved quoted-source, ambiguous, mixed-intent, restrictive-policy and manual-appearance previews against actual dispatch. Eight native/controlled Codex mutation journeys proved exact delete/rename/multi-hunk effects, denial/cancellation, source/ancestor/destination races and advisory Rust parsing. Evidence: `target/wave12-source-verification.json`, `target/wave12-mutation-verification.json`, `target/wave12-snapshot-final`, `target/wave12-evolution-{en,ko}-final`. These are local macOS/loopback observations, not a new public release, live model conformance or Windows runtime qualification.
 
-Subsequent Windows integration exposed mandatory-lock reads and POSIX-only fixture assumptions; those were repaired without skipping coverage. Final candidateC passed1,589 local tests/two ignored and actual snapshot recovery. Exact source `966613e` passed [Check/all-five-native run40082305882](https://github.com/kimmandoo/eevee/actions/runs/40082305882), including real Windows backend regression execution and native build/offline-install/runtime. No release was published for these source additions.
+Subsequent Windows integration exposed mandatory-lock reads and POSIX-only fixture assumptions; those were repaired without skipping coverage. Final candidateC passed1,589 local tests/two ignored and actual snapshot recovery. Exact source `d9d3c62` passed [Check/all-five-native run40082305882](https://github.com/kimmandoo/eevee/actions/runs/40082305882), including real Windows backend regression execution and native build/offline-install/runtime. No release was published for these source additions.
 
-These accepted additions were subsequently included in published v0.1.30 from `1fa1a68`; its exact native/public-runtime proof and follow-up idle-patch acceptance are recorded in the checkpoint.
+These accepted additions were subsequently included in published v0.1.30 from `5d28ace`; its exact native/public-runtime proof and follow-up idle-patch acceptance are recorded in the checkpoint.
 
 ### GP01 — Complete offline data snapshot
 
@@ -423,7 +423,7 @@ Completed PT11 → MV08B → UX04B → PK03 with actual English/Korean 120×36 a
 
 ## Original foundation index
 
-The original scoped specifications were archived in git on 2026-10-15 (`git show fadc6f4:task.md`). Their stable IDs remain available for `Builds on` references:
+The original scoped specifications were archived in git on 2026-10-15 (`git show 11d0f02:task.md`). Their stable IDs remain available for `Builds on` references:
 
 | ID | Completed scope |
 |---|---|
@@ -697,7 +697,7 @@ File operations, continuous response scrolling, automatic file-review presentati
 - **Role capability:** Read-only automatic roles must still be able to use the actual bounded read/list tools on supported routes; they must not advertise or execute write/edit. File-writing roles retain exact one-shot review and frozen filesystem scope. Metadata remains tool-free.
 - **Accept:** English/Korean fixture requests visibly select each supported specialist at both sizes; file generation and read-only discovery actually work. Typing/paste/browsing never evolve or dispatch; manual override and automatic mode survive restart/lead/task changes; busy and pending approvals cannot change form/owner; provider/model/draft/evidence stay intact; old writers refuse the migrated schema byte-for-byte. Complete this item before the combined corrective release.
 - **Verified:** Final D passed all eight specialist forms in actual en/ko 120×36 Unicode/60×18 ASCII journeys, actual reviewed file/document creation and readonly CRLF list/read with digest, explicit Plan refusal, busy-draft ownership and eight real restarts. No suggestion-dismissal workaround, implicit command, classifier/model/metadata switch or paid call was used. Pinned Rust 1.90 passed 1,187 tests/two ignored, fmt, strict Clippy and release. Genuine public v0.1.16 Schema15→16 passed six migration/partner/lead/evidence/refusal/resume cases; ordinary bilingual coding passed 24 journeys/126 groups. Exact-source native/public-package qualification belongs to the combined release gate.
-- **Released / public proof:** v0.1.17 tagged exact-source `c52be9d`; Check/all-five-native `39764008987` attempt1 and immutable publication `39765788873` passed. Actual downloaded binary repeated every evolution/manual/restart case at both sizes/languages and passed ordinary file workflows 24 journeys/126 groups, six genuine Schema15→16 cases and installed-package qualification. EV18 is complete; no further wave is active.
+- **Released / public proof:** v0.1.17 tagged exact-source `429066c`; Check/all-five-native `39764008987` attempt1 and immutable publication `39765788873` passed. Actual downloaded binary repeated every evolution/manual/restart case at both sizes/languages and passed ordinary file workflows 24 journeys/126 groups, six genuine Schema15→16 cases and installed-package qualification. EV18 is complete; no further wave is active.
 
 ## C — Form relays
 
