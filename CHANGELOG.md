@@ -17,6 +17,8 @@
 - docs(verification): passed20 actual WebSocket journeys,20 external-disconnect journeys and four native/Codex retained-outcome journeys at both terminal sizes, preserving exact receipts, original status/context, future drafts/carets and no-replay boundaries.
 - fix(providers): applied ambient TLS-root refusal only to secure WebSocket destinations, preserving proxy/endpoint/secure-trust guards while admitting permitted cleartext loopback sockets under Linux runner TLS settings.
 - fix(verification): used explicit active-input capture for held Windows conversation requests and released the fixture-owned HTTP gate after failure, preserving exact dispatch/partial/draft/caret/outcome predicates and idle defaults elsewhere.
+- docs(verification): qualified the corrected0.1.34 candidate with1,841 Rust tests,20 TLS-environment WebSocket journeys,20 disconnect journeys, four retained-outcome cases,24 full native journeys,38 effort requests,16 progress rows and66 distinct route/model/geometry identities, retaining separate composed account limits.
+- fix(verification): preserved bounded HTTP fixture byte positions across interrupted socket system calls, retaining exact round-limit refusal and effect assertions without replaying provider requests or changing production behavior.
 
 ## 2026-10-27
 

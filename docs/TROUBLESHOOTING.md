@@ -1,5 +1,11 @@
 # Troubleshooting
 
+### [2026-10-28] An interrupted fixture socket read changed a round-limit result
+
+- **Context / Symptom:** Native40574273330 passed Check/Linux-arm64/macOS×2/Windows. Linux-x86_64 failed `round_limit_refuses_the_terminal_call_set_without_executing_it`: the HTTP peer panicked at a raw read with `Os { code: 4, kind: Interrupted, message: "Interrupted system call" }`, so the consumer correctly observed transport Unknown rather than the expected deliberate round-limit refusal.
+- **Root Cause:** The bounded test peer assumed socket accept/read never returned the operating system's Interrupted condition. Its peer failure prevented the planned terminal response; this was not a model-limit or production retry defect.
+- **Solution:** Continued only interrupted accept/header/body-read system calls at the existing byte position and within the existing admission/deadline policy. EOF, other errors, body bounds, exact round counts and the original refusal/effect assertions stayed unchanged. No provider request was restarted or replayed and no production code changed. Original log: `target/ci-40574273330-failed.log`; source-gate results and rebuilt executable identity are recorded in the checkpoint.
+
 ### [2026-10-28] TLS-root settings blocked a cleartext loopback WebSocket
 
 - **Context / Symptom:** Native40567052809 passed Check and both macOS jobs, but both Linux test suites refused plain loopback sockets with `Native WebSocket refuses custom ambient TLS trust; no trust-policy bypass or fallback`.

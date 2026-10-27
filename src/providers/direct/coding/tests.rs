@@ -251,7 +251,12 @@ fn peer(responses: Vec<String>) -> (String, thread::JoinHandle<Vec<Value>>) {
             let mut socket = loop {
                 match listener.accept() {
                     Ok((socket, _)) => break socket,
-                    Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                    Err(error)
+                        if matches!(
+                            error.kind(),
+                            io::ErrorKind::WouldBlock | io::ErrorKind::Interrupted
+                        ) =>
+                    {
                         assert!(
                             Instant::now() < deadline,
                             "Expected native HTTP round did not arrive"
@@ -268,7 +273,10 @@ fn peer(responses: Vec<String>) -> (String, thread::JoinHandle<Vec<Value>>) {
             let mut bytes = Vec::new();
             let (start, length) = loop {
                 let mut chunk = [0; 4096];
-                let n = socket.read(&mut chunk).unwrap();
+                let n = match socket.read(&mut chunk) {
+                    Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+                    result => result.unwrap(),
+                };
                 assert_ne!(n, 0);
                 bytes.extend_from_slice(&chunk[..n]);
                 assert!(bytes.len() <= BODY_LIMIT + 32768);
@@ -287,7 +295,10 @@ fn peer(responses: Vec<String>) -> (String, thread::JoinHandle<Vec<Value>>) {
             };
             while bytes.len() < start + length {
                 let mut chunk = [0; 4096];
-                let n = socket.read(&mut chunk).unwrap();
+                let n = match socket.read(&mut chunk) {
+                    Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+                    result => result.unwrap(),
+                };
                 assert_ne!(n, 0);
                 bytes.extend_from_slice(&chunk[..n]);
             }
