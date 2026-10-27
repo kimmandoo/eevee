@@ -84,6 +84,7 @@ impl Fixture {
         };
         result.unwrap();
         let input = Input {
+            screenshot: None,
             public_context: None,
             tool_catalog: None,
             context_plan: None,
@@ -441,6 +442,181 @@ fn run_with_handler(
     });
     done.store(true, Ordering::Release);
     (result, responder.join().unwrap())
+}
+
+#[test]
+fn screenshot_real_png_survives_responses_tools_and_revalidates_source_and_selection() {
+    use crate::workspace::context::screenshot::{Attachment, Capture, Format};
+    use image::ImageEncoder;
+    use sha2::{Digest, Sha256};
+    let mut fixture = Fixture::for_operation(&[], Operation::Plan);
+    let mut png = Vec::new();
+    image::codecs::png::PngEncoder::new(&mut png)
+        .write_image(&[11, 22, 33, 255], 1, 1, image::ExtendedColorType::Rgba8)
+        .unwrap();
+    let path = fixture.workspace.project.join("screen.png");
+    std::fs::write(&path, &png).unwrap();
+    let attachment = Attachment {
+        capture: Capture {
+            task_id: fixture.input.task.id,
+            partner: fixture.input.task.lead_partner,
+            root: fixture.input.task.project.clone(),
+            path: "screen.png".into(),
+            sha256: Sha256::digest(&png).into(),
+            format: Format::Png,
+            width: 1,
+            height: 1,
+            bytes: png.len(),
+        },
+        bytes: png.clone().into(),
+    };
+    attachment.validate().unwrap();
+    fixture.input.screenshot = Some(attachment.clone());
+    fixture.input.selection.model = Some("gpt-4.1".into());
+    fixture.input.report = Some(crate::providers::tests::repository_report(
+        &fixture.workspace.project,
+        &fixture.workspace.data_dir,
+    ));
+    let store = fixture.store.as_ref().unwrap().clone();
+    let next = || {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            if let Some(event) = store.lock().try_event() {
+                break event;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "Screenshot fixture store timeout"
+            );
+            thread::sleep(Duration::from_millis(2));
+        }
+    };
+    let claim = fixture.input.work.clone().unwrap();
+    let mut release = Some(crate::store::WorkRequest::Release(claim.clone()));
+    assert!(store.lock().try_work(&mut release));
+    let crate::store::Event::Work { result, .. } = next() else {
+        panic!("Expected release")
+    };
+    result.unwrap();
+    let mut put = Some(crate::store::screenshots::Request {
+        task_id: claim.task_id,
+        partner: claim.owner.partner,
+        operation: crate::store::screenshots::Operation::Put(attachment.clone()),
+    });
+    assert!(store.lock().try_screenshot(&mut put));
+    let crate::store::Event::Screenshot { result, .. } = next() else {
+        panic!("Expected screenshot")
+    };
+    result.unwrap();
+    let mut acquire = Some(crate::store::WorkRequest::Acquire {
+        claim: claim.clone(),
+        task: Box::new(fixture.input.task.clone()),
+    });
+    assert!(store.lock().try_work(&mut acquire));
+    let crate::store::Event::Work { result, .. } = next() else {
+        panic!("Expected acquire")
+    };
+    result.unwrap();
+    let responses = vec![
+        wire_tools(
+            Protocol::Responses,
+            &[(
+                "list-image-context",
+                "eevee_list_files",
+                json!({"directory":"","query":"","offset":0}),
+            )],
+            "",
+        ),
+        wire_tools(Protocol::Responses, &[], "Screenshot fixture completed"),
+    ];
+    let (url, server) = peer(responses);
+    let connection = config::test_connection(Protocol::Responses, &url, Some("gpt-4.1"));
+    let writes = capture_writes(&fixture.workspace, &fixture.input).unwrap();
+    let payload = payload(
+        &fixture.workspace,
+        &fixture.input,
+        &connection,
+        writes.as_ref(),
+    )
+    .unwrap();
+    let receipt = crate::workspace::receipt::receipt(&payload);
+    assert_eq!(receipt.image.as_ref().unwrap().compressed_bytes, png.len());
+    assert_eq!(receipt.image.as_ref().unwrap().tokens, None);
+    let mut run = Prepared {
+        generation: 7,
+        input: Box::new(fixture.input.clone()),
+        payload,
+        fingerprint: connection.fingerprint(),
+        writes,
+    };
+    let ((outcome, message), _) = run_with_answers(&fixture, &mut run, &connection, false);
+    assert_eq!(outcome, Outcome::Completed, "{message}");
+    let requests = server.join().unwrap();
+    assert_eq!(requests.len(), 2);
+    let expected = json!({"type":"input_image","image_url":attachment.data_url(),"detail":"auto"});
+    for request in &requests {
+        assert_eq!(request["model"], "gpt-4.1");
+        assert_eq!(request["input"][0]["role"], "user");
+        assert_eq!(request["input"][0]["content"][1], expected);
+        assert_eq!(request["input"][0]["content"].as_array().unwrap().len(), 2);
+    }
+    assert!(
+        requests[1]["input"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["type"] == "function_call_output")
+    );
+    std::fs::write(&path, b"changed source").unwrap();
+    assert!(validate_screenshot(&fixture.workspace, &run.input, &connection).is_err());
+    assert!(validate_prepared(&fixture.workspace, &run, &connection).is_err());
+    std::fs::remove_file(&path).unwrap();
+    assert!(validate_screenshot(&fixture.workspace, &run.input, &connection).is_err());
+    std::fs::write(&path, &png).unwrap();
+    validate_screenshot(&fixture.workspace, &run.input, &connection).unwrap();
+    let mut release = Some(crate::store::WorkRequest::Release(claim.clone()));
+    assert!(store.lock().try_work(&mut release));
+    let crate::store::Event::Work { result, .. } = next() else {
+        panic!("Expected release")
+    };
+    result.unwrap();
+    let mut remove = Some(crate::store::screenshots::Request {
+        task_id: claim.task_id,
+        partner: claim.owner.partner,
+        operation: crate::store::screenshots::Operation::Remove(attachment.capture.clone()),
+    });
+    assert!(store.lock().try_screenshot(&mut remove));
+    let crate::store::Event::Screenshot { result, .. } = next() else {
+        panic!("Expected removal")
+    };
+    result.unwrap();
+    assert!(
+        crate::store::screenshots::validate_selection(
+            &fixture.workspace.data_dir,
+            &fixture.input.task.project,
+            &attachment,
+        )
+        .is_err()
+    );
+    assert!(
+        run.input
+            .validate_committed(&fixture.workspace.data_dir)
+            .unwrap_err()
+            .contains("removed or purged")
+    );
+    for agent in Agent::ALL {
+        if matches!(agent, Agent::OpenAI | Agent::Compatible) {
+            continue;
+        }
+        let mut refused = fixture.input.clone();
+        refused.agent = agent;
+        assert!(
+            refused
+                .validate_selection()
+                .unwrap_err()
+                .contains("refuses images")
+        );
+    }
 }
 
 #[test]

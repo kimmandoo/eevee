@@ -50,6 +50,8 @@ impl App {
         self.parked_drafts.invalidate();
         self.tool_plans.invalidate();
         self.workflow.authoring.invalidate();
+        self.sources.invalidate_screenshot_exposure();
+        self.execution.invalidate_review_exposure();
         if overlay != Overlay::Held {
             self.invalidate_held_review();
         }
@@ -171,6 +173,8 @@ impl App {
         self.parked_drafts.invalidate();
         self.tool_plans.invalidate();
         self.workflow.authoring.invalidate();
+        self.sources.invalidate_screenshot_exposure();
+        self.execution.invalidate_review_exposure();
         if self.overlay == Some(Overlay::Held) {
             self.invalidate_held_review();
         }

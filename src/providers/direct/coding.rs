@@ -25,6 +25,7 @@ fn validate_active(
     }
     run.input.validate_committed(&workspace.data_dir)?;
     validate_catalog(&run.input, connection)?;
+    validate_screenshot(workspace, &run.input, connection)?;
     if run
         .input
         .work

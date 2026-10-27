@@ -5,7 +5,7 @@ fn current_schema(connection: &Connection) -> Result<(), String> {
     let version: i64 = connection
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .map_err(|error| error.to_string())?;
-    if version != 19 {
+    if version != 20 {
         return Err("Read-only request admission requires the current schema; reopen storage to migrate before reviewing".into());
     }
     inspect(connection).map(|_| ())
@@ -15,7 +15,7 @@ fn current_schema(connection: &Connection) -> Result<(), String> {
 /// Acquire the worker's store gate first: an exhausted cursor does not release
 /// its enclosing transaction's SHARED lock, and a writer waiting to commit can
 /// otherwise time out or prevent a later admission from acquiring its snapshot.
-fn read_snapshot<T>(
+pub(super) fn read_snapshot<T>(
     data_dir: &Path,
     read: impl FnOnce(&Connection) -> Result<T, String>,
 ) -> Result<T, String> {

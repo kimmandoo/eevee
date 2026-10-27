@@ -154,6 +154,7 @@ fn input(app: &App) -> providers::Input {
         public_context: None,
         tool_catalog: None,
         context_plan: None,
+        screenshot: None,
         prior_plan: None,
         task,
         work: None,

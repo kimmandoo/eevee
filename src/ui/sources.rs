@@ -16,12 +16,25 @@ use crate::{
 
 pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &Paint) {
     app.sources.optimizer_reviewed = false;
+    app.sources.screenshot_reviewed = false;
     if app.sources.editor.is_some() {
         editor(frame, area, app, config, paint);
         return;
     }
     if app.sources.confirmation.is_some() {
+        if app
+            .sources
+            .confirmation
+            .is_some_and(|confirmation| confirmation.id == -1)
+        {
+            screenshot_confirmation(frame, area, app, config, paint);
+            return;
+        }
         confirmation(frame, area, app, config, paint);
+        return;
+    }
+    if app.sources.mode == Mode::Screenshot {
+        screenshot(frame, area, app, config, paint);
         return;
     }
     let area = sheet(area, 104, area.height);
@@ -203,6 +216,9 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                     paint.hint(crate::messages::Message::DesksSourcesMoreTabFilesPgupDnDetailsEsc)
                 }
                 Mode::Comparison => paint.hint(crate::messages::Message::ContextComparisonHint),
+                Mode::Screenshot => {
+                    "Enter attaches reviewed image locally · PgUp/Dn disclosure · Esc cancels"
+                }
                 Mode::Optimizer => paint.hint(
                     if app
                         .sources
@@ -247,6 +263,164 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         && frame.area().width >= 60
         && frame.area().height >= 18
         && details.height >= 4;
+}
+
+fn screenshot(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &Paint) {
+    let area = sheet(area, 104, area.height);
+    frame.render_widget(Clear, area);
+    let block = panel(
+        "Reviewed screenshot input · local capture",
+        config,
+        paint,
+        true,
+    );
+    let content = block.inner(area);
+    frame.render_widget(block, area);
+    let capability = app
+        .sources
+        .screenshot_route
+        .as_ref()
+        .filter(|review| {
+            review.matches(
+                app.task_id,
+                app.lead().id,
+                app.planning.agent,
+                &app.planning.selection,
+            )
+        })
+        .map(|review| &review.capability);
+    let supported = matches!(capability, Some(Ok(_)))
+        && app.command_popup.is_none()
+        && app.nickname_editor.is_none()
+        && app.confirmation.is_none();
+    let route = match capability {
+        Some(Ok(label)) => label.as_str(),
+        Some(Err(reason)) => reason.as_str(),
+        None => {
+            "Route not reviewed for this task/partner/model. Use /screenshot to capture and review again."
+        }
+    };
+    let selected = if app.sources.screenshot.is_some() {
+        "selected"
+    } else {
+        "not selected"
+    };
+    text(
+        frame,
+        row(content, 0, 1),
+        &format!(
+            "Task #{} · image {selected} · no provider request",
+            app.task_id
+        ),
+        paint.accent,
+    );
+    let disclosure = format!(
+        "{}\nSelected route: {}\n{}\n{}",
+        app.sources.detail, route, app.sources.status, app.sources.error
+    );
+    let details = row(content, 1, content.height.saturating_sub(4));
+    let paragraph = Paragraph::new(disclosure.as_str())
+        .style(paint.surface)
+        .wrap(Wrap { trim: false });
+    let rows = paragraph.line_count(details.width.max(1));
+    let offset = app.scroll_for(ScrollSurface::Preview);
+    let max = selection_details(frame, details, paragraph, offset);
+    app.set_scroll_viewport(ScrollSurface::Preview, max, details.height);
+    app.sources.expose_screenshot(
+        disclosure,
+        details.width,
+        details.height,
+        usize::from(offset.min(max)),
+        rows,
+        supported && !app.sources.busy(),
+    );
+    text(
+        frame,
+        row(content, content.height.saturating_sub(3), 3),
+        if app.sources.screenshot_reviewed {
+            "Enter: attach exact image locally · Esc: cancel\n/remove via /screenshot-remove · /screenshot-purge deletes retained bytes"
+        } else {
+            "PgUp/Dn: read complete disclosure · Enter blocked until reviewed\nEsc: cancel without attachment · /screenshot-show inspects retained metadata"
+        },
+        paint.muted,
+    );
+}
+
+fn screenshot_confirmation(
+    frame: &mut Frame,
+    area: Rect,
+    app: &mut App,
+    config: &Config,
+    paint: &Paint,
+) {
+    let Some(confirmation) = app.sources.confirmation else {
+        return;
+    };
+    let area = sheet(area, 90, 18);
+    frame.render_widget(Clear, area);
+    let block = panel("Review screenshot removal", config, paint, true);
+    let content = block.inner(area);
+    frame.render_widget(block, area);
+    let target = app.sources.screenshot_removal.as_ref();
+    let available = target.is_some();
+    let body = format!(
+        "Task #{} · partner #{}\nRoot {:?}\nImage {:?} · {} compressed bytes\n{} · {} × {}\nSHA-256 {}\n{}\nNo provider request; historical receipt counts remain.",
+        app.task_id,
+        target.map_or(0, |capture| capture.partner),
+        target.map(|capture| &capture.root),
+        target.map(|capture| &capture.path),
+        target.map_or(0, |capture| capture.bytes),
+        target.map_or("unavailable", |capture| capture.format.label()),
+        target.map_or(0, |capture| capture.width),
+        target.map_or(0, |capture| capture.height),
+        target
+            .map(|capture| capture.sha256_hex())
+            .unwrap_or_default(),
+        if confirmation.purge {
+            "Permanently delete retained compressed bytes; no undo."
+        } else {
+            "Deselect only. Exact compressed bytes remain retained until purge/task deletion."
+        }
+    );
+    let details = row(content, 0, content.height.saturating_sub(2));
+    let paragraph = Paragraph::new(body.as_str())
+        .wrap(Wrap { trim: false })
+        .style(paint.surface);
+    let rows = paragraph.line_count(details.width.max(1));
+    let offset = app.scroll_for(ScrollSurface::Preview);
+    let maximum = selection_details(frame, details, paragraph, offset);
+    app.set_scroll_viewport(ScrollSurface::Preview, maximum, details.height);
+    let supported = available
+        && app.command_popup.is_none()
+        && app.nickname_editor.is_none()
+        && app.confirmation.is_none();
+    app.sources.expose_screenshot(
+        body,
+        details.width,
+        details.height,
+        usize::from(offset.min(maximum)),
+        rows,
+        supported,
+    );
+    let reviewed = app.sources.screenshot_reviewed;
+    if let Some(review) = app.sources.confirmation.as_mut() {
+        review.reviewed = reviewed;
+        if !reviewed {
+            review.destructive = false;
+        }
+    }
+    text(
+        frame,
+        row(content, content.height.saturating_sub(2), 2),
+        if !reviewed {
+            "PgUp/Dn: read complete exact scope · Esc cancels"
+        } else if confirmation.destructive {
+            "[ Keep / cancel ]     [ > Confirm removal ]"
+        } else {
+            "[ > Keep / cancel ]     [ Confirm removal ]"
+        },
+        paint.muted,
+    );
 }
 
 fn comparison_lines(state: &crate::app::sources::State, paint: &Paint) -> Vec<String> {
@@ -443,6 +617,7 @@ fn editor(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &Pai
                 paint.hint(crate::messages::Message::DesksSourcesSourceRangeInclusive)
             }
             EditKind::Budget => paint.hint(crate::messages::Message::ContextOptimizerBudgetTitle),
+            EditKind::ScreenshotPath => "Explicit screenshot path · PNG/JPEG",
         },
         config,
         paint,
@@ -461,6 +636,7 @@ fn editor(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &Pai
                 paint.hint(crate::messages::Message::DesksSourcesOneBasedStartEndEGExact)
             }
             EditKind::Budget => paint.hint(crate::messages::Message::ContextOptimizerBudgetHint),
+            EditKind::ScreenshotPath => "Literal project-relative file only; no URL, clipboard, OCR or automatic capture.",
         }
     };
     text(frame, row(content, 0, 2), hint, paint.muted);

@@ -1,8 +1,34 @@
 # Completed work
 
-Updated on2026-10-27 through all21 accepted Wave1–6 assignments. Waves1–5 shipped in public0.1.32; Wave6 is accepted unreleased0.1.33 source, not a new publication. Local controlled-peer proof is not live-provider conformance. This is historical completion evidence, not an execution queue. Active work and priority live in [task.md](../task.md); the current contract is [DESIGN_RULES.md](../docs/DESIGN_RULES.md). Release/runtime evidence remains in [WORK_CHECKPOINT.md](../docs/WORK_CHECKPOINT.md) and [CHANGELOG.md](../CHANGELOG.md).
+Updated on2026-10-27 through all23 accepted Wave1–7 assignments. Waves1–5 shipped in public0.1.32; Waves6–7 are accepted unreleased0.1.33 source, not a new publication. Local controlled-peer proof is not live-provider conformance. This is historical completion evidence, not an execution queue. Active work and priority live in [task.md](../task.md); the current contract is [DESIGN_RULES.md](../docs/DESIGN_RULES.md). Release/runtime evidence remains in [WORK_CHECKPOINT.md](../docs/WORK_CHECKPOINT.md) and [CHANGELOG.md](../CHANGELOG.md).
 
 The specifications below retain their original acceptance notes and wording. Old schema numbers, limits, priorities, proposed ordering and release statements are historical; they do not override the current contract. Scoped completion does not establish authenticated conformance for every provider. T05 was dropped, not completed.
+
+## Wave7 — accepted source 0.1.33, unreleased
+
+GP06 passed actual120×36/60×18 English-UI journeys with exact original PNG/JPEG wire bytes, real receipts, changed/deleted refusal followed by explicit owner cancellation, remove/cancel/restart/purge and a separate quota-refusal journey. GP07 passed both sizes with strict palette authoring, exact long UTF-8 message bytes without a final newline, complete paged neutral/obscured/resized consent, selected-only actual Git effects, untouched dirty binary work, hook/filter/signing/helper tripwires, source/index/config/HEAD/merge/reflog drift refusal, real other-owner writer contention and evidence-only restart. Existing real-Git regressions additionally cover initially staged work, cancellation/unreachable objects and partial ref/index outcomes.
+
+Final feature evidence: `target/wave7-screenshots-final` (three journeys) and `target/wave7-selected-commit-final` (two journeys), frozen candidateB `9cf6f5debd050f80087e0b9dfc5ae54dadc6b08b8bf7d0b52c8e552aa29780e5`. Pinned source gates passed1,764 Rust tests/two ignored, strict Clippy/format/release build and Windows test-code cross-compilation. Full image snapshot/verify/restore and genuine public0.1.32 SQL20 refusal/current no-replay resume passed in `target/wave7-{image-compat,schema-upgrade,plan-upgrade}-final`. Exact final bounded-native qualification and the session handoff are in the checkpoint.
+
+The scoped GP07 design amendment preceded implementation. SQL20/TM1/formation2/bridge10, stable Git2.x>=2.36 and full-directory backup are current; original specification wording below remains historical except completion markers. This is controlled local protocol/process/reader proof—not live image interpretation, native Windows/macOS execution, publication, authentication or push. GP08/GP09/GP10/P05 remain unassigned planning; no later wave starts automatically.
+
+### GP06 — Reviewed screenshot input on a supported native route
+
+- [x] Explicitly attach one bounded PNG/JPEG to a documented image-capable native Responses route.
+- **Priority:** 2. **Needs:** —. **Builds on:** C02, C03A, T01A, T01C.
+- **Gap:** Current native messages and approved source capture are text-only; binary-source rejection is not image support.
+- **Change:** Validate format, compressed/decoded bounds, dimensions and immutable identity. Show disclosure, bytes, selected route capability and retention/purge policy. Respect containment, exclusions, no-link policy and request-body limits. Unknown/unsupported capability refuses rather than silently dropping the image.
+- **Accept:** Protocol evidence contains the exact approved image bytes; receipt distinguishes actual serialized bytes from unknown image tokens. Changed/deleted source invalidates dispatch; removal/cancel sends nothing. Exercise restart, quota and purge. Actual model interpretation remains a separate authorized live row.
+- **Watch out:** Images can contain secrets that cannot reliably be redacted. Do not claim visual review from a hash when the terminal cannot display the image. No URL fetch, automatic clipboard capture, OCR, PDF/audio/video or all-adapter expansion.
+
+### GP07 — Reviewed selected local Git commit
+
+- [x] Commit one explicit whole-file changeset locally without silently including other work.
+- **Priority:** 3. **Needs:** —. **Builds on:** C01, R01, R02, A03.
+- **Gap:** Current repository integration intentionally observes Git read-only. This task requires a scoped design-contract amendment before implementation; this plan does not change that contract.
+- **Change:** Ordinary supported repository and initially clean index only. Freeze selected paths/content, HEAD, index, message, identity and configuration effects. Review and bind the exact commit operation to existing consent. Hooks, filters, signing and helpers must be enforceably excluded with disclosure or cause refusal.
+- **Accept:** In a disposable repository with two dirty files, commit only the selected file and retain the other unchanged. Existing staged changes, merge state and HEAD/source/index/configuration drift refuse. Record actual commit ID and honest partial index/ref outcomes; a commit is not verification of its content.
+- **Watch out:** No push, authentication, branch/worktree management, rebase, conflict resolution, automatic retry/reset or claimed rollback. File approval must not silently authorize repository code execution.
 
 ## Wave6 — accepted source 0.1.33, unreleased
 

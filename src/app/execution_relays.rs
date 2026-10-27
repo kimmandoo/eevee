@@ -31,6 +31,9 @@ pub fn command_draft(spec: &runner::CommandSpec) -> String {
                 runner::ShellDialect::PowerShell => "powershell",
             }, "text": text})
         .to_string(),
+        runner::CommandSpec::SelectedCommit { paths, message, .. } => {
+            serde_json::json!({"selected_commit": paths, "message": message}).to_string()
+        }
     }
 }
 
@@ -46,6 +49,11 @@ pub fn retained_rerun_spec(
         runner::CommandSpec::Shell {
             executable, text, ..
         } => masked(executable) || masked(text),
+        runner::CommandSpec::SelectedCommit { .. } => {
+            return Err(
+                "Selected commits cannot be replayed or rerun. Explicitly author and review a new whole-file changeset.",
+            );
+        }
     };
     if missing {
         Err(

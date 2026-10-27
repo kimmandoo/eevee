@@ -244,6 +244,19 @@ impl App {
     pub(super) fn prepare_context_tools(&mut self, task: &store::Snapshot) -> Result<(), String> {
         self.sources.configure_optimizer(task);
         self.planning.context_plan = self.sources.applied_plan().cloned();
+        if self.sources.screenshot_store_busy || self.sources.screenshot_storage_failed() {
+            return Err("Screenshot storage has not acknowledged the exact selection; settle or explicitly retry it before preparing a request".into());
+        }
+        self.planning.screenshot = self
+            .sources
+            .screenshot
+            .as_ref()
+            .filter(|image| {
+                image.capture.task_id == task.id
+                    && image.capture.partner == task.lead_partner
+                    && image.capture.root == task.project
+            })
+            .cloned();
         self.planning.tool_catalog =
             self.tool_catalog
                 .selection(self.planning.agent, task.id, task.lead_partner)?;

@@ -1,5 +1,47 @@
 # Troubleshooting
 
+### [2026-10-27] Compact selected-commit review rendered no scope rows
+
+- **Context / Symptom:** The actual60×18 Git journey displayed a blank review with `Reviewed 0/87 rows` and correctly refused approval. Its120×36 counterpart completed the selected-only commit and drift/writer/restart cases.
+- **Root Cause:** The renderer required56 inner columns, but the ordinary60-column terminal leaves54 columns after the existing sheet border/padding. Direct state/exposure tests did not exercise the actual root layout.
+- **Solution:** Derived fit from the real fixed decision controls and the existing exact wrapped-row renderer instead of a guessed outer width. Kept the root60×18 minimum, contiguous whole-scope exposure, neutral choice, hidden/resize invalidation and one-shot reservation. A new root-renderer regression failed before the fix at60×18 and covers both supported sizes plus59×18/60×17 refusal; final source/runtime results are recorded in the checkpoint.
+- **Prevention / Reference:** Render through the real root/panel hierarchy when testing minimum terminal dimensions; do not substitute an unpadded rectangle or weaken exposure to make an empty review eligible.
+
+### [2026-10-27] Runtime drivers confused retained ownership and clipped disclosures
+
+- **Context / Symptom:** Initial image journeys mistook the persistent image title for a send refusal, then expected a blocked frozen request's lease to disappear automatically. Compact prose checks failed across frame borders/clipped status rows. The Git writer-conflict driver waited for a detailed reason in the ordinary output view.
+- **Root Cause:** The fixtures assumed incidental presentation and ownership behavior rather than using the existing refusal/cancellation/error-inspection flow.
+- **Solution:** Observed the actual visible changed/deleted-image refusal prefix, asserted no transport, explicitly cancelled the blocked owner and then awaited settlement. Removed static disclosure-wording/route-copy assertions while preserving captured complete pages, strict complete-exposure eligibility and exact wire/model/receipt/byte assertions. Opened the advertised `/run-details` inspector for the exclusive-project reservation error. Product storage, consent, cancellation and ownership guards were unchanged.
+- **Prevention / Reference:** Failed reports remain in `target/wave7-screenshots-{a,b,c}` and `target/wave7-selected-commit-{a,b}`; corrected image journeys passed in `target/wave7-screenshots-d`. A refusal probe is not authority to retry work or silently release a user's pending request.
+
+### [2026-10-27] Selected commit preparation held Git's own HEAD transaction lock
+
+- **Context / Symptom:** The first integrated Wave7 Rust run passed1,747 tests but failed15, including selected-commit success/partial-result cases with `cannot lock ref 'HEAD'` because `.git/HEAD.lock` already existed.
+- **Root Cause:** Eevee reserved `HEAD.lock` itself, while `git update-ref` needs to acquire that same transaction lock even when publishing the reviewed named branch.
+- **Solution:** Retained Eevee's exclusive index/configuration locks, left HEAD/ref transaction locks to Git, and kept final exact HEAD/ref/index/configuration/source/reflog revalidation plus the expected-old-object compare-and-swap. A deterministic external-HEAD-lock interference regression verifies refusal without removing or overwriting another writer's lock. The repaired integrated run passed1,763 tests with2 ignored.
+- **Prevention / Reference:** Do not pre-acquire locks owned by the plumbing command being invoked. Lock acquisition is not a substitute for revalidating the frozen operation immediately before publication.
+
+### [2026-10-27] Existing Git reflogs could alias unselected file contents
+
+- **Context / Symptom:** In a disposable Git2.43.0 reproduction, an existing branch reflog hard-linked to an unselected dirty file grew that file from23 to167 bytes when `update-ref` succeeded, despite `core.logAllRefUpdates=false`.
+- **Root Cause:** Disabling automatic reflog creation does not prevent appending an existing branch/HEAD reflog. Full-path source opens also did not provide the existing descriptor-relative ancestor containment guarantee.
+- **Solution:** Froze and rechecked both writable reflogs and their native ancestors, refused linked/reparse/nonregular or multiply linked log files, and reused `repo::open_contained_node` for selected source/admin reads with same-handle identity/size/mode checks and safe reopen checks. Shared Git version admission now requires stable Git2.x>=2.36 before repository/index reads; older versions interpreted `core.fsmonitor=false` as a hook path.
+- **Prevention / Reference:** Reflog and ancestor-drift regressions are included in the passing integrated Rust run. [Git configuration documentation](https://git-scm.com/docs/git-config) describes the older fsmonitor boolean incompatibility. The later security-review attempt was policy-blocked, not an approval.
+
+### [2026-10-27] Clean Windows environment blocks terminated after their first variable
+
+- **Context / Symptom:** A portable reproduction of the former Windows block builder found a double-NUL terminator after the first of three variables. The clean selected-commit child requires all frozen Git identity/configuration variables.
+- **Root Cause:** Every entry received two NULs instead of one entry terminator followed by one final block terminator.
+- **Solution:** Centralized direct UTF-16 environment encoding with one NUL per entry, a final extra NUL, and a double-NUL empty block. Preserved case-insensitive key ordering, allowed `=` in values rather than names, and kept clean launches from inheriting parent configuration. Portable encoding assertions and an actual owned Linux clean-environment child passed in the integrated Rust run.
+- **Prevention / Reference:** Portable encoding and Linux process proof do not establish native Windows execution; Windows-only code is checked separately.
+
+### [2026-10-27] Screenshot consent invalidation disturbed unrelated source work
+
+- **Context / Symptom:** The first integrated run also failed deferred direct-source/optimizer journeys; compact partner-release consent no longer fit. Earlier integration inspection found screenshot route resolution performing filesystem work from the UI loop.
+- **Root Cause:** Image-only obscuring reused broad source invalidation, source reset could enqueue a load for the prior producer, and the expanded release disclosure exceeded the compact surface.
+- **Solution:** Moved screenshot route qualification into the existing context worker, made the UI's route memo pure, deferred owner changes across accepted image writes, and invalidated only image exposure/removal consent from image-only hooks. Main-loop owner activation owns screenshot loading. Condensed the complete partner-release scope while retaining whole-scope exposure and neutral approval. Existing consumer source/optimizer/release regressions passed in the repaired integrated run.
+- **Prevention / Reference:** The Home composer explicitly displays the selected PNG/JPEG byte count. Driver refusal assertions must observe the actual changed/deleted-image error rather than mistaking that persistent attachment indicator for a refusal.
+
 ### [2026-10-27] Restoring a parked draft required an unnecessarily live Request editor
 
 - **Context / Symptom:** After real writer contention/storage-only recovery, the tray durably contained all three drafts, but `r` did not restore the selected text from a suspended composer (`target/wave6-drafts-d`).

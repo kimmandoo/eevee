@@ -304,6 +304,11 @@ impl State {
             work: None,
             local_only: false,
             instruction_override: None,
+            screenshot: if !inspect_models && !inspect_sessions {
+                self.screenshot.clone()
+            } else {
+                None
+            },
             excerpts: if inspect_models {
                 Vec::new()
             } else {

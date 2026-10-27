@@ -598,6 +598,24 @@ impl App {
                     });
                 }
             }
+            store::Event::Screenshot { request, result } => {
+                if result.is_ok()
+                    && !matches!(request.operation, store::screenshots::Operation::Load)
+                {
+                    self.records_invalidate();
+                    if matches!(request.operation, store::screenshots::Operation::Purge(_)) {
+                        self.receipt_sources_purged(request.task_id);
+                    }
+                }
+                self.sources.screenshot_event(self.task_id, request, result);
+                if self.sources.take_return_to_composer()
+                    && self.overlay == Some(Overlay::Sources)
+                    && self.composer_return.is_some()
+                {
+                    self.close_overlay();
+                    self.notice = "Screenshot saved locally for this task and partner. Nothing sent to a provider.".into();
+                }
+            }
             store::Event::Context { task_id, result } => {
                 let captured = result.is_ok();
                 self.sources.stored(self.task_id, task_id, result);

@@ -10,7 +10,7 @@ const FORMAT: u32 = 1;
 const MAX_MANIFEST: u64 = 16 * 1024 * 1024;
 const MAX_MEMBERS: usize = 65536;
 
-pub const DISCLOSURE: &str = "Offline snapshot format 1 copies ALL app-owned data, including private task/draft text, journals, outputs, artifacts, archived tasks, preferences and any secrets or saved app credentials present in the data directory. It is NOT encrypted or redacted. External credential stores are never accessed. Source bytes are not migrated, repaired or changed. Destinations must not exist; failures may leave a marked incomplete directory. Restore validates the backup with this reader before making a fresh directory usable; it preserves project identities and historical unknown outcomes, not active requests, provider sessions or usable approvals. No merge, project relocation, credential import, dispatch or automatic execution.";
+pub const DISCLOSURE: &str = "Offline snapshot format 1 copies ALL app-owned data, including private task/draft text, journals, outputs, artifacts, retained screenshot bytes (even deselected), archived tasks, preferences and any secrets or saved app credentials present in the data directory. It is NOT encrypted or redacted. External credential stores are never accessed. Source bytes are not migrated, repaired or changed. Destinations must not exist; failures may leave a marked incomplete directory. Restore validates the backup with this reader before making a fresh directory usable; it preserves project identities and historical unknown outcomes, not active requests, provider sessions or usable approvals. No merge, project relocation, credential import, dispatch or automatic execution.";
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]

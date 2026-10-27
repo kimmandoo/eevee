@@ -84,6 +84,87 @@ pub(super) fn spool_name(run_id: &str) -> Result<String, String> {
 pub(super) fn run_json(record: &crate::workspace::runner::RunRecord) -> Result<String, String> {
     use crate::workspace::runner::{RunState, TreeOutcome};
     let prepared = &record.prepared;
+    use crate::workspace::runner::CommandSpec;
+    match &prepared.spec {
+        CommandSpec::SelectedCommit {
+            paths,
+            message,
+            review,
+        } => {
+            crate::workspace::runner::selected_commit::validate(paths, message)?;
+            let review = review
+                .as_ref()
+                .ok_or("Selected commit lacks frozen review metadata")?;
+            crate::workspace::repo::validate_git_version(&review.git_version)?;
+            let hex = |s: &str, n: usize| s.len() == n && s.bytes().all(|b| b.is_ascii_hexdigit());
+            if !hex(&review.head, 40)
+                || !hex(&review.index_sha256, 64)
+                || !hex(&review.config_sha256, 64)
+                || !review.reference.starts_with("refs/heads/")
+                || review.files.len() != paths.len()
+                || review.author.is_empty()
+                || review.email.is_empty()
+                || review.files.iter().zip(paths).any(|(file, path)| {
+                    &file.path != path
+                        || !matches!(file.mode.as_str(), "100644" | "100755" | "deleted")
+                        || file.sha256.as_ref().is_some_and(|v| !hex(v, 64))
+                        || (file.mode == "deleted") != file.sha256.is_none()
+                        || file.bytes > 8 * 1024 * 1024
+                })
+                || prepared.rerun_of.is_some()
+                || prepared.partner.is_none()
+                || record.revision_moving
+                || record.exit_code.is_some()
+                || record.signal.is_some()
+            {
+                return Err("Invalid selected-commit review or exclusive-writer semantics".into());
+            }
+            if let Some(outcome) = &record.selected_commit {
+                if outcome.created_commit.as_ref().is_some_and(|v| !hex(v, 40))
+                    || outcome.observed_head.as_ref().is_some_and(|v| !hex(v, 40))
+                    || outcome
+                        .observed_reference
+                        .as_ref()
+                        .is_some_and(|v| !hex(v, 40))
+                    || outcome
+                        .observed_index_sha256
+                        .as_ref()
+                        .is_some_and(|v| !hex(v, 64))
+                    || outcome
+                        .expected_index_sha256
+                        .as_ref()
+                        .is_some_and(|v| !hex(v, 64))
+                    || outcome.ref_published
+                        && (outcome.created_commit.is_none()
+                            || outcome.created_commit != outcome.observed_reference)
+                    || outcome.index_published
+                        && (outcome.expected_index_sha256.is_none()
+                            || outcome.expected_index_sha256 != outcome.observed_index_sha256)
+                    || record.state == RunState::Succeeded
+                        && (!outcome.ref_published
+                            || !outcome.index_published
+                            || outcome.error.is_some()
+                            || !outcome.publication_started
+                            || !outcome.owned_tree_exited)
+                    || (record.tree == TreeOutcome::OwnedTreeExited) != outcome.owned_tree_exited
+                    || active_state(&record.state)
+                {
+                    return Err(
+                        "Selected-commit outcome does not substantiate its publication claims"
+                            .into(),
+                    );
+                }
+            } else if record.state == RunState::Succeeded {
+                return Err(
+                    "Selected-commit success lacks actual ref/index outcome evidence".into(),
+                );
+            }
+        }
+        _ if record.selected_commit.is_some() => {
+            return Err("Ordinary command cannot claim selected-commit publication".into());
+        }
+        _ => {}
+    }
     if prepared
         .before
         .fingerprint
@@ -122,7 +203,8 @@ pub(super) fn run_json(record: &crate::workspace::runner::RunRecord) -> Result<S
     }
     if record.state == RunState::Succeeded
         && (record.started_at_ms.is_none()
-            || record.exit_code != Some(0)
+            || (!matches!(prepared.spec, CommandSpec::SelectedCommit { .. })
+                && record.exit_code != Some(0))
             || record.tree != TreeOutcome::OwnedTreeExited
             || record.cancelled
             || record.signal.is_some())
@@ -445,6 +527,30 @@ impl State {
         }
         if timestamp()? as u64 >= prepared.expires_at_ms {
             return Err("Prepared request expired before quota reservation; review again".into());
+        }
+        if let crate::workspace::runner::CommandSpec::SelectedCommit { paths, review, .. } =
+            &prepared.spec
+        {
+            if provider_claim.is_some()
+                || prepared.rerun_of.is_some()
+                || review.is_none()
+                || prepared.partner.is_none()
+            {
+                return Err("Selected commit needs explicit local review metadata, not a provider/recipe/rerun; resource reservation alone never grants execution".into());
+            }
+            if fs::canonicalize(&self.project).map_err(|e| e.to_string())? != prepared.cwd {
+                return Err(
+                    "Selected commit cwd must be the exact current saved project root".into(),
+                );
+            }
+            let storage = fs::canonicalize(&self.data_dir).map_err(|e| e.to_string())?;
+            for path in paths {
+                if crate::workspace::context::excluded_prefix(&prepared.cwd.join(path), &storage) {
+                    return Err(
+                        "Application storage cannot be selected for a project commit".into(),
+                    );
+                }
+            }
         }
         let name = spool_name(&prepared.run_id)?;
         let connection = self.connection.as_mut().ok_or("Storage is unavailable")?;
@@ -1118,3 +1224,6 @@ mod moving_tests {
         drop((first_permit, second_permit));
     }
 }
+
+#[cfg(test)]
+mod selected_commit_tests;

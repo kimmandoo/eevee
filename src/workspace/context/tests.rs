@@ -103,6 +103,78 @@ fn observed_project(root: &Path) -> Arc<repo::Report> {
 }
 
 #[test]
+fn screenshot_capture_revalidates_exact_binary_source_and_refuses_changed_deleted_excluded() {
+    use image::ImageEncoder;
+    let fixture = Fixture::new();
+    let mut png = Vec::new();
+    image::codecs::png::PngEncoder::new(&mut png)
+        .write_image(&[1, 2, 3, 255], 1, 1, image::ExtendedColorType::Rgba8)
+        .unwrap();
+    let report = fixture.report(&[("capture.png", &png)]);
+    let stopped = AtomicBool::new(false);
+    let attached =
+        screenshot::capture(7, 2, &report, Path::new("capture.png"), &[], &stopped).unwrap();
+    assert_eq!(attached.bytes.as_ref(), png.as_slice());
+    let worker = Worker::start(Vec::new()).unwrap();
+    let selection = crate::providers::ModelSelection {
+        model: Some("unqualified-model".into()),
+        effort: None,
+    };
+    let mut request = Some(Request {
+        task_id: 7,
+        operation: Operation::Screenshot {
+            report: Arc::clone(&report),
+            path: "capture.png".into(),
+            partner: 2,
+            agent: crate::providers::Agent::Codex,
+            selection: selection.clone(),
+        },
+    });
+    assert!(worker.try_request(&mut request));
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    let captured = loop {
+        if let Some(event) = worker.try_event() {
+            match event.result.unwrap() {
+                Response::Screenshot(captured) => break captured,
+                other => panic!("unexpected screenshot worker result: {other:?}"),
+            }
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "screenshot worker did not return reviewed route"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    };
+    assert_eq!(captured.attachment, attached);
+    assert!(
+        captured
+            .route
+            .matches(7, 2, crate::providers::Agent::Codex, &selection)
+    );
+    assert!(captured.route.capability.is_err());
+    attached.revalidate(&report, &[]).unwrap();
+    assert!(
+        attached
+            .revalidate(&report, &[PathBuf::from("capture.png")])
+            .is_err()
+    );
+    fs::write(fixture.0.join("capture.png"), b"changed bytes").unwrap();
+    assert!(attached.revalidate(&report, &[]).is_err());
+    fs::remove_file(fixture.0.join("capture.png")).unwrap();
+    assert!(attached.revalidate(&report, &[]).is_err());
+    assert!(
+        screenshot::capture(7, 2, &report, Path::new("../capture.png"), &[], &stopped).is_err()
+    );
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(fixture.0.join("other.png"), fixture.0.join("capture.png"))
+            .unwrap();
+        fs::write(fixture.0.join("other.png"), png).unwrap();
+        assert!(attached.revalidate(&report, &[]).is_err());
+    }
+}
+
+#[test]
 fn application_storage_cannot_be_catalogued_captured_or_resent_from_history() {
     for git in [true, false] {
         let fixture = Fixture::new();

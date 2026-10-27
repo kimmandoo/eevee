@@ -1128,6 +1128,7 @@ fn deleting_another_task_to_free_quota_keeps_the_failed_current_draft() {
         targets: vec![store::DeletionTarget {
             task: app.tasks[0].clone(),
             excerpts: Vec::new(),
+            screenshots: Vec::new(),
             runs: Vec::new(),
             provider_records: Vec::new(),
             memories: Vec::new(),
@@ -1146,6 +1147,7 @@ fn deleting_another_task_to_free_quota_keeps_the_failed_current_draft() {
         targets: vec![store::DeletionTarget {
             task: app.tasks[0].clone(),
             excerpts: Vec::new(),
+            screenshots: Vec::new(),
             runs: Vec::new(),
             provider_records: Vec::new(),
             memories: Vec::new(),

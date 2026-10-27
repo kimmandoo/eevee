@@ -47,6 +47,10 @@ impl State {
         let mut hash = Sha256::new();
         hash.update(bytes);
         hash.update(
+            serde_json::to_vec(&self.screenshot.as_ref().map(|image| &image.capture))
+                .expect("serializable frozen screenshot identity"),
+        );
+        hash.update(
             serde_json::to_vec(&self.context_plan.as_ref().map(|plan| {
                 (
                     &plan.packet,

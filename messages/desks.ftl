@@ -455,10 +455,11 @@ desks-handoff-confirm-controls = { $stay } / { $open }{ $action }{ $close }
 desks-handoff-decision-controls = / Commands | Left/Right decision { $index }/{ $count } /copy-decision | PgUp/PgDn / Esc
 
 desks-cooperation-release-disclosure = Selected: { $owner } · #{ $partner }
-    Remove: personal roster entry, own drafts/navigation and proposed recipient intents.
-    Retain: task facts, sources, runs and provider journals with original name/form attribution snapshots.
-    Moves/pairings are not stored; none are removed.
-    No repository/provider erasure; not secure deletion.
+    Remove this partner across all tasks: roster entry,
+    drafts/relays, moves, pairings, held refs, screenshots/bytes.
+    Keep task facts, memories, text sources, runs/journals
+    and their original attribution.
+    No repo/provider erasure or secure deletion.
 
 desks-cooperation-journal-details = DETAILS / no consent here
     Owner: { $owner }

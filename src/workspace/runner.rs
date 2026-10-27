@@ -24,6 +24,8 @@ const SOFT_STOP: Duration = Duration::from_millis(750);
 const HARD_STOP: Duration = Duration::from_secs(3);
 static SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
+pub mod selected_commit;
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub enum CommandSpec {
@@ -35,6 +37,11 @@ pub enum CommandSpec {
         executable: String,
         dialect: ShellDialect,
         text: String,
+    },
+    SelectedCommit {
+        paths: Vec<PathBuf>,
+        message: String,
+        review: Option<Box<selected_commit::Review>>,
     },
 }
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -116,6 +123,18 @@ pub struct RunRecord {
     pub dropped_live_bytes: u64,
     pub error: Option<String>,
     pub after: InputSnapshot,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selected_commit: Option<Box<selected_commit::Outcome>>,
+}
+
+#[derive(Serialize)]
+#[serde(untagged)]
+pub enum CommandObservation<'a> {
+    Ordinary(&'a CommandSpec),
+    SelectedCommit {
+        selected_commit: &'a [PathBuf],
+        message: &'a str,
+    },
 }
 
 /// Historical provider evidence, never a dispatchable preparation or UI attribution.
@@ -125,7 +144,7 @@ pub struct RunObservation<'a> {
     pub run_id: &'a str,
     pub task_id: i64,
     pub partner_id: Option<i64>,
-    pub command: &'a CommandSpec,
+    pub command: CommandObservation<'a>,
     pub cwd: &'a Path,
     pub executable: &'a ExecutableIdentity,
     pub before: &'a InputSnapshot,
@@ -145,6 +164,8 @@ pub struct RunObservation<'a> {
     pub dropped_live_bytes: u64,
     pub error: Option<&'a str>,
     pub rerun_of: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub selected_commit: Option<&'a selected_commit::Outcome>,
 }
 
 impl<'a> From<&'a RunRecord> for RunObservation<'a> {
@@ -155,7 +176,15 @@ impl<'a> From<&'a RunRecord> for RunObservation<'a> {
             run_id: &prepared.run_id,
             task_id: prepared.task_id,
             partner_id: prepared.partner.as_ref().map(|owner| owner.partner),
-            command: &prepared.spec,
+            command: match &prepared.spec {
+                CommandSpec::SelectedCommit { paths, message, .. } => {
+                    CommandObservation::SelectedCommit {
+                        selected_commit: paths,
+                        message,
+                    }
+                }
+                spec => CommandObservation::Ordinary(spec),
+            },
             cwd: &prepared.cwd,
             executable: &prepared.executable,
             before: &prepared.before,
@@ -175,6 +204,7 @@ impl<'a> From<&'a RunRecord> for RunObservation<'a> {
             dropped_live_bytes: record.dropped_live_bytes,
             error: record.error.as_deref(),
             rerun_of: prepared.rerun_of.as_deref(),
+            selected_commit: record.selected_commit.as_deref(),
         }
     }
 }
@@ -196,6 +226,7 @@ impl RunRecord {
             discarded_bytes: 0,
             dropped_live_bytes: 0,
             error: None,
+            selected_commit: None,
             after: InputSnapshot::default(),
         }
     }
@@ -245,8 +276,21 @@ impl RunRecord {
                 redact(executable);
                 redact(text);
             }
+            CommandSpec::SelectedCommit {
+                message, review, ..
+            } => {
+                redact(message);
+                if let Some(review) = review {
+                    review.discard_authority();
+                }
+            }
         }
         if let Some(error) = &mut self.error {
+            redact(error);
+        }
+        if let Some(outcome) = &mut self.selected_commit
+            && let Some(error) = &mut outcome.error
+        {
             redact(error);
         }
         for path in [&mut self.prepared.cwd, &mut self.prepared.executable.path] {
@@ -293,6 +337,7 @@ struct Gate {
     callback_cancelled: Option<Arc<AtomicBool>>,
 }
 enum Command {
+    Invalidate,
     Prepare {
         request_id: String,
         task_id: i64,
@@ -411,6 +456,11 @@ impl Worker {
         if let Some(partner) = &partner {
             partner.validate()?;
         }
+        if matches!(spec, CommandSpec::SelectedCommit { .. }) && partner.is_none() {
+            return Err(
+                "A selected commit must retain its exact requesting partner identity".into(),
+            );
+        }
         if task_id <= 0 {
             return Err("A saved task is required".into());
         }
@@ -450,6 +500,11 @@ impl Worker {
     }
     pub fn invalidate(&self) {
         self.gate.lock().pending = None;
+        if let Some(commands) = &self.commands {
+            // Gate revocation is immediate. This wakeup only releases private
+            // pending bytes; a full queue already guarantees a worker wakeup.
+            let _ = commands.try_send(Command::Invalidate);
+        }
     }
     /// The only dispatch entry point requires a committed, non-forgeable storage permit.
     pub fn dispatch(
@@ -550,7 +605,25 @@ impl Drop for Worker {
     }
 }
 
-fn publish(events: &Mutex<VecDeque<Event>>, event: Event) {
+fn discard_private_authority(prepared: &mut Prepared) {
+    if let CommandSpec::SelectedCommit {
+        review: Some(review),
+        ..
+    } = &mut prepared.spec
+    {
+        review.discard_authority();
+    }
+}
+
+fn publish(events: &Mutex<VecDeque<Event>>, mut event: Event) {
+    match &mut event {
+        Event::Prepared(prepared) => discard_private_authority(prepared),
+        Event::Started(record)
+        | Event::Cancelling(record)
+        | Event::CaptureChanged(record)
+        | Event::Finished(record) => discard_private_authority(&mut record.prepared),
+        Event::Rejected { .. } | Event::Output(_) => {}
+    }
     let mut queue = events.lock();
     // Only one run can be admitted until its Finished is consumed. Keep its <=5 lifecycle/limit
     // notices; superseded prepare/reject notices may be evicted, never pipe-draining blocked.
@@ -572,11 +645,32 @@ fn worker(
     stopped: Arc<AtomicBool>,
 ) {
     let mut pending: Option<Prepared> = None;
-    while let Ok(command) = incoming.recv() {
+    loop {
         if stopped.load(Ordering::Acquire) {
             break;
         }
+        if pending.as_ref().is_some_and(|prepared| {
+            now_ms() >= prepared.expires_at_ms
+                || gate.lock().pending.as_deref() != Some(&prepared.request_id)
+        }) {
+            pending = None;
+        }
+        let command = if let Some(prepared) = &pending {
+            match incoming.recv_timeout(Duration::from_millis(
+                prepared.expires_at_ms.saturating_sub(now_ms()),
+            )) {
+                Ok(command) => command,
+                Err(mpsc::RecvTimeoutError::Timeout) => continue,
+                Err(mpsc::RecvTimeoutError::Disconnected) => break,
+            }
+        } else {
+            match incoming.recv() {
+                Ok(command) => command,
+                Err(_) => break,
+            }
+        };
         match command {
+            Command::Invalidate => {}
             Command::Prepare {
                 request_id,
                 task_id,
@@ -586,6 +680,9 @@ fn worker(
                 partner,
                 move_root,
             } => {
+                if gate.lock().pending.as_deref() != Some(&request_id) {
+                    continue;
+                }
                 let result = (|| {
                     if let Some(root) = move_root.as_deref() {
                         validate_move_cwd(root, &cwd)?;
@@ -657,16 +754,28 @@ fn worker(
                         let mut prepared = pending.take().expect("admitted prepared request");
                         prepared.rerun_of = permit.rerun_of;
                         let mut record = RunRecord::awaiting(&prepared);
+                        discard_private_authority(&mut prepared);
                         record.revision_moving = permit.revision_moving;
-                        run(
-                            process,
-                            record,
-                            (permit.file, permit.capacity),
-                            &events,
-                            &live,
-                            &gate,
-                            &stopped,
-                        );
+                        if let Some(process) = process {
+                            run(
+                                process,
+                                record,
+                                (permit.file, permit.capacity),
+                                &events,
+                                &live,
+                                &gate,
+                                &stopped,
+                            );
+                        } else {
+                            run_selected_commit(
+                                record,
+                                (permit.file, permit.capacity),
+                                &events,
+                                &live,
+                                &gate,
+                                &stopped,
+                            );
+                        }
                     }
                     Err(message) => {
                         publish(
@@ -753,6 +862,9 @@ fn now_ms() -> u64 {
         .min(u64::MAX as u128) as u64
 }
 fn validate_spec(spec: &CommandSpec) -> Result<(), String> {
+    if let CommandSpec::SelectedCommit { paths, message, .. } = spec {
+        return selected_commit::validate(paths, message);
+    }
     let (program, bytes, contains_nul, count) = match spec {
         CommandSpec::Direct { program, args } => (
             program,
@@ -776,6 +888,7 @@ fn validate_spec(spec: &CommandSpec) -> Result<(), String> {
                 1,
             )
         }
+        CommandSpec::SelectedCommit { .. } => unreachable!("validated above"),
     };
     if program.is_empty()
         || program.contains('\0')
@@ -801,7 +914,11 @@ fn prepare(
     if cwd.to_str().is_none() || !cwd.is_dir() {
         return Err("Working directory must be a Unicode directory".into());
     }
-    let path = resolve_executable(program(&spec), &cwd)?;
+    let path = if matches!(spec, CommandSpec::SelectedCommit { .. }) {
+        selected_commit::resolve_git(&cwd)?
+    } else {
+        resolve_executable(program(&spec), &cwd)?
+    };
     #[cfg(windows)]
     if path
         .extension()
@@ -817,7 +934,7 @@ fn prepare(
     let cwd_identity =
         native::directory_identity(&cwd).map_err(|e| format!("Working directory identity: {e}"))?;
     let prepared_at_ms = now_ms();
-    let prepared = Prepared {
+    let mut prepared = Prepared {
         run_id: format!("{request_id}-run"),
         request_id,
         task_id,
@@ -832,6 +949,12 @@ fn prepare(
         partner: None,
         rerun_of: None,
     };
+    if matches!(prepared.spec, CommandSpec::SelectedCommit { .. }) {
+        let review = selected_commit::freeze(&prepared, &|| false)?;
+        if let CommandSpec::SelectedCommit { review: frozen, .. } = &mut prepared.spec {
+            *frozen = Some(Box::new(review));
+        }
+    }
     if serde_json::to_vec(&prepared)
         .map_err(|e| e.to_string())?
         .len()
@@ -946,7 +1069,7 @@ fn admit(
     permit: &crate::store::CommittedRunPermit,
     gate: &Mutex<Gate>,
     stopped: &AtomicBool,
-) -> Result<native::Process, String> {
+) -> Result<Option<native::Process>, String> {
     if permit.request_id != prepared.request_id
         || permit.run_id != prepared.run_id
         || permit.task_id != prepared.task_id
@@ -963,6 +1086,11 @@ fn admit(
     }
     if now_ms() > prepared.expires_at_ms {
         return Err("Approval expired; prepare the command again".into());
+    }
+    if let CommandSpec::SelectedCommit { review, .. } = &prepared.spec
+        && !review.as_ref().is_some_and(|review| review.has_authority())
+    {
+        return Err("Selected commit lost its worker-private live preparation; restored/public metadata cannot dispatch".into());
     }
     if fs::canonicalize(&prepared.cwd).map_err(|e| e.to_string())? != prepared.cwd
         || native::directory_identity(&prepared.cwd).map_err(|e| e.to_string())?
@@ -993,8 +1121,11 @@ fn admit(
         state.active = Some(prepared.run_id.clone());
         state.cancelled = false;
     }
+    if matches!(prepared.spec, CommandSpec::SelectedCommit { .. }) {
+        return Ok(None);
+    }
     match native::Process::spawn(prepared) {
-        Ok(process) => Ok(process),
+        Ok(process) => Ok(Some(process)),
         Err(error) => {
             let mut state = gate.lock();
             state.active = None;
@@ -1007,6 +1138,7 @@ fn program(spec: &CommandSpec) -> &str {
     match spec {
         CommandSpec::Direct { program, .. } => program,
         CommandSpec::Shell { executable, .. } => executable,
+        CommandSpec::SelectedCommit { .. } => "git",
     }
 }
 fn arguments(spec: &CommandSpec) -> impl Iterator<Item = &str> {
@@ -1022,6 +1154,7 @@ fn arguments(spec: &CommandSpec) -> impl Iterator<Item = &str> {
             };
             (&[], prefix, Some(text))
         }
+        CommandSpec::SelectedCommit { .. } => (&[], &[], None),
     };
     direct
         .iter()
@@ -1180,6 +1313,86 @@ fn run(
     }
     // Native RAII does the final kill-on-drop before Finished can authorize task switching.
     drop(process);
+    publish(events, Event::Finished(capture.record));
+}
+
+fn run_selected_commit(
+    record: RunRecord,
+    spool: (File, u64),
+    events: &Mutex<VecDeque<Event>>,
+    live: &SyncSender<Output>,
+    gate: &Mutex<Gate>,
+    stopped: &AtomicBool,
+) {
+    let mut capture = Capture {
+        file: spool.0,
+        capacity: spool.1,
+        record,
+        live,
+        events,
+    };
+    capture.record.started_at_ms = Some(now_ms());
+    capture.record.state = RunState::Running;
+    publish(events, Event::Started(capture.record.clone()));
+    let (outcome, was_cancelled) = {
+        let notified = std::cell::Cell::new(false);
+        let cancelled = || {
+            let cancelled = stopped.load(Ordering::Acquire) || gate.lock().cancelled;
+            if cancelled && !notified.replace(true) {
+                let mut record = capture.record.clone();
+                record.state = RunState::Cancelling;
+                record.cancelled = true;
+                publish(events, Event::Cancelling(record));
+            }
+            cancelled
+        };
+        let outcome = selected_commit::execute(&capture.record.prepared, &cancelled);
+        (outcome, cancelled())
+    };
+    capture.record.cancelled = was_cancelled;
+    if was_cancelled {
+        capture.record.state = RunState::Cancelling;
+    }
+    capture.record.tree = if outcome.owned_tree_exited {
+        TreeOutcome::OwnedTreeExited
+    } else {
+        TreeOutcome::OwnershipUnknown
+    };
+    let terminal_state = if !outcome.owned_tree_exited {
+        RunState::OutcomeUnknown
+    } else if outcome.error.is_none()
+        && outcome.ref_published
+        && outcome.index_published
+        && !capture.record.cancelled
+    {
+        RunState::Succeeded
+    } else if outcome.publication_started
+        && (outcome.observed_reference.is_none() || outcome.observed_index_sha256.is_none())
+    {
+        RunState::OutcomeUnknown
+    } else if capture.record.cancelled {
+        RunState::Cancelled
+    } else {
+        RunState::Failed
+    };
+    // This is a transaction of several owned processes, not one fabricated OS exit.
+    capture.record.exit_code = None;
+    capture.record.error = outcome.error.clone();
+    discard_private_authority(&mut capture.record.prepared);
+    let mut sanitizer = Sanitizer::default();
+    sanitizer.push(
+        outcome.summary().as_bytes(),
+        &mut capture,
+        OutputStream::Stdout,
+    );
+    sanitizer.finish(&mut capture, OutputStream::Stdout);
+    capture.record.ended_at_ms = Some(now_ms());
+    capture.record.state = terminal_state;
+    capture.record.selected_commit = Some(Box::new(outcome));
+    if let Err(error) = capture.file.sync_all() {
+        capture.record.output_unavailable = true;
+        capture.error(format!("Persisting selected-commit evidence: {error}"));
+    }
     publish(events, Event::Finished(capture.record));
 }
 
@@ -1389,6 +1602,27 @@ impl Sanitizer {
     }
 }
 
+#[cfg(any(windows, test))]
+fn encode_windows_environment(entries: &[(String, String)]) -> Vec<u16> {
+    let capacity = entries
+        .iter()
+        .map(|(name, value)| name.len() + value.len() + 2)
+        .sum::<usize>()
+        + 1;
+    let mut block = Vec::with_capacity(capacity.max(2));
+    for (name, value) in entries {
+        block.extend(name.encode_utf16());
+        block.push(u16::from(b'='));
+        block.extend(value.encode_utf16());
+        block.push(0);
+    }
+    block.push(0);
+    if entries.is_empty() {
+        block.push(0);
+    }
+    block
+}
+
 #[cfg(unix)]
 pub(crate) mod native {
     use super::*;
@@ -1418,21 +1652,28 @@ pub(crate) mod native {
     }
     impl Process {
         pub fn spawn(prepared: &Prepared) -> io::Result<Self> {
-            Self::spawn_inner(prepared, false, &[])
+            Self::spawn_inner(prepared, false, &[], false)
         }
         /// Owned bidirectional transport; stdin writes are nonblocking, like capture reads.
         pub fn spawn_piped(prepared: &Prepared) -> io::Result<Self> {
-            Self::spawn_inner(prepared, true, &[])
+            Self::spawn_inner(prepared, true, &[], false)
         }
         /// Like `spawn_piped` with extra environment variables applied to the
         /// child only; values are not recorded in the reviewed spec.
         pub fn spawn_piped_env(prepared: &Prepared, env: &[(String, String)]) -> io::Result<Self> {
-            Self::spawn_inner(prepared, true, env)
+            Self::spawn_inner(prepared, true, env, false)
+        }
+        pub(super) fn spawn_piped_clean_env(
+            prepared: &Prepared,
+            env: &[(String, String)],
+        ) -> io::Result<Self> {
+            Self::spawn_inner(prepared, true, env, true)
         }
         fn spawn_inner(
             prepared: &Prepared,
             piped: bool,
             env: &[(String, String)],
+            clean: bool,
         ) -> io::Result<Self> {
             let (stdout, stdout_writer) = io::pipe()?;
             let (stderr, stderr_writer) = io::pipe()?;
@@ -1469,6 +1710,9 @@ pub(crate) mod native {
                 .stdout(stdout_writer)
                 .stderr(stderr_writer)
                 .process_group(0);
+            if clean {
+                command.env_clear();
+            }
             if !env.is_empty() {
                 command.envs(
                     env.iter()
@@ -1626,35 +1870,31 @@ pub(crate) mod native {
     /// Merges overrides into the parent environment as the sorted,
     /// NUL-delimited UTF-16 block `CreateProcessW` expects. Names are compared
     /// case-insensitively like the Win32 resolver; embedded NULs are refused.
-    fn environment_block(overrides: &[(String, String)]) -> io::Result<Vec<u16>> {
-        let mut merged: Vec<(String, String)> = std::env::vars()
-            .filter(|(name, _)| {
-                !name.is_empty()
-                    && !name.contains('=')
-                    && !overrides
-                        .iter()
-                        .any(|(key, _)| key.eq_ignore_ascii_case(name))
-            })
-            .collect();
+    fn environment_block(overrides: &[(String, String)], clean: bool) -> io::Result<Vec<u16>> {
+        let mut merged: Vec<(String, String)> = if clean {
+            Vec::with_capacity(overrides.len())
+        } else {
+            std::env::vars()
+                .filter(|(name, _)| {
+                    !name.is_empty()
+                        && !name.contains('=')
+                        && !overrides
+                            .iter()
+                            .any(|(key, _)| key.eq_ignore_ascii_case(name))
+                })
+                .collect()
+        };
         for (name, value) in overrides {
             if name.is_empty()
                 || name.contains('=')
-                || [name, value]
-                    .iter()
-                    .any(|part| part.contains('\0') || part.contains('='))
+                || [name, value].iter().any(|part| part.contains('\0'))
             {
                 return Err(io::Error::other("Invalid environment override"));
             }
             merged.push((name.clone(), value.clone()));
         }
-        merged.sort_by(|a, b| a.0.to_uppercase().cmp(&b.0.to_uppercase()));
-        let mut block = Vec::new();
-        for (name, value) in merged {
-            block.extend(wide(std::ffi::OsStr::new(&format!("{name}={value}"))));
-            block.push(0);
-        }
-        block.push(0);
-        Ok(block)
+        merged.sort_by_cached_key(|(name, _)| name.to_uppercase());
+        Ok(encode_windows_environment(&merged))
     }
 
     fn pipe() -> io::Result<(OwnedHandle, OwnedHandle)> {
@@ -1750,21 +1990,28 @@ pub(crate) mod native {
     }
     impl Process {
         pub fn spawn(prepared: &Prepared) -> io::Result<Self> {
-            Self::spawn_inner(prepared, false, &[])
+            Self::spawn_inner(prepared, false, &[], false)
         }
         /// Keep the same suspended-before-Job admission as local commands.
         pub fn spawn_piped(prepared: &Prepared) -> io::Result<Self> {
-            Self::spawn_inner(prepared, true, &[])
+            Self::spawn_inner(prepared, true, &[], false)
         }
         /// Like `spawn_piped` with extra environment variables applied to the
         /// child only; values are not recorded in the reviewed spec.
         pub fn spawn_piped_env(prepared: &Prepared, env: &[(String, String)]) -> io::Result<Self> {
-            Self::spawn_inner(prepared, true, env)
+            Self::spawn_inner(prepared, true, env, false)
+        }
+        pub(super) fn spawn_piped_clean_env(
+            prepared: &Prepared,
+            env: &[(String, String)],
+        ) -> io::Result<Self> {
+            Self::spawn_inner(prepared, true, env, true)
         }
         fn spawn_inner(
             prepared: &Prepared,
             piped: bool,
             env: &[(String, String)],
+            clean: bool,
         ) -> io::Result<Self> {
             let job = handle(unsafe { CreateJobObjectW(null(), null()) })?;
             let mut limits = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
@@ -1884,10 +2131,10 @@ pub(crate) mod native {
             let mut info = PROCESS_INFORMATION::default();
             // Child-only environment block when overrides were supplied;
             // CREATE_UNICODE_ENVIRONMENT pairs with the UTF-16 encoding.
-            let environment = if env.is_empty() {
+            let environment = if env.is_empty() && !clean {
                 None
             } else {
-                Some(environment_block(env)?)
+                Some(environment_block(env, clean)?)
             };
             let creation = CREATE_SUSPENDED
                 | CREATE_NO_WINDOW

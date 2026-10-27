@@ -132,6 +132,44 @@ impl Connection {
         format!("{:x}", digest.finalize())
     }
 
+    /// Protocol qualification, not a user-authored capability declaration.
+    /// Exact documented model IDs only; aliases with arbitrary suffixes refuse.
+    pub fn screenshot_route(&self, model: &str) -> Result<String, String> {
+        let known = matches!(
+            model,
+            "gpt-6-astra"
+                | "gpt-4.1"
+                | "gpt-4.1-2025-04-14"
+                | "gpt-4o"
+                | "gpt-4o-2024-08-06"
+                | "gpt-4o-2024-11-20"
+        );
+        let url = reqwest::Url::parse(&self.base_url)
+            .map_err(|_| "Screenshot route has an invalid endpoint")?;
+        let official =
+            self.provider == Agent::OpenAI && self.base_url == "https://api.openai.com/v1";
+        let loopback = matches!(self.provider, Agent::OpenAI | Agent::Compatible)
+            && url.host_str().is_some_and(|host| {
+                host.eq_ignore_ascii_case("localhost")
+                    || host
+                        .trim_matches(['[', ']'])
+                        .parse::<std::net::IpAddr>()
+                        .is_ok_and(|ip| ip.is_loopback())
+            });
+        if self.protocol != Protocol::Responses || !known || !(official || loopback) {
+            return Err("Screenshot refused: requires native Responses at https://api.openai.com/v1 or an explicitly configured loopback Responses endpoint, with exact model gpt-6-astra, gpt-4.1, gpt-4.1-2025-04-14, gpt-4o, gpt-4o-2024-08-06 or gpt-4o-2024-11-20; unknown models/protocols and other adapters are not qualified".into());
+        }
+        Ok(format!(
+            "Screenshot: exact PNG/JPEG data URL in current user input_image, detail auto; Responses POST {}; model {model}. {} Image tokens and billing are unknown until reported; compressed and serialized image bytes are not token estimates.",
+            self.inference_url(model),
+            if official {
+                "Official documented image-input route."
+            } else {
+                "Explicit loopback Responses protocol qualification only; local implementation/model identity and visual behavior are not independently verified."
+            },
+        ))
+    }
+
     pub fn revalidate(&self) -> Result<(), String> {
         if resolve(self.provider)?.fingerprint() == self.fingerprint() {
             Ok(())
@@ -1064,6 +1102,72 @@ pub(crate) fn profile(provider: Agent) -> agent::Profile {
 mod tests {
     use super::*;
     use std::collections::HashMap;
+
+    #[test]
+    fn screenshot_qualification_uses_ordinary_config_exact_models_and_protocols() {
+        let local = resolve_with(
+            Agent::Compatible,
+            &input(&[
+                ("EV_API_BASE_URL", "http://127.0.0.1:4242/v1"),
+                ("EV_API_PROTOCOL", "responses"),
+                ("EV_API_MODEL", "gpt-4.1"),
+                ("EV_API_KEYLESS", "1"),
+            ]),
+        )
+        .unwrap();
+        let disclosure = local
+            .screenshot_route(local.model.as_deref().unwrap())
+            .unwrap();
+        assert!(disclosure.contains("http://127.0.0.1:4242/v1/responses"));
+        assert!(disclosure.contains("model gpt-4.1"));
+        assert!(disclosure.contains("not independently verified"));
+        for model in [
+            "gpt-6-astra-custom",
+            "gpt-6-astra-unknown",
+            "gpt-4.1-custom",
+            "gpt-4o-audio-preview",
+            "gpt-4o-2024-05-13",
+            "unknown",
+            "fixture-model",
+        ] {
+            assert!(local.screenshot_route(model).is_err(), "{model}");
+        }
+        for protocol in [
+            Protocol::Codex,
+            Protocol::ChatCompletions,
+            Protocol::Messages,
+            Protocol::Gemini,
+        ] {
+            let connection = test_connection(protocol, "http://127.0.0.1:4242/v1", Some("gpt-4.1"));
+            assert!(connection.screenshot_route("gpt-4.1").is_err());
+        }
+        let official = resolve_with(
+            Agent::OpenAI,
+            &input(&[
+                ("OPENAI_API_KEY", "fixture-key"),
+                ("OPENAI_MODEL", "gpt-4o"),
+            ]),
+        )
+        .unwrap();
+        assert!(
+            official
+                .screenshot_route("gpt-4o")
+                .unwrap()
+                .contains("Official documented")
+        );
+        let current = official.screenshot_route("gpt-6-astra").unwrap();
+        assert!(current.contains("model gpt-6-astra"));
+        assert!(current.contains("https://api.openai.com/v1/responses"));
+        assert!(local.screenshot_route("gpt-6-astra").is_ok());
+        assert_eq!(official.model.as_deref(), Some("gpt-4o"));
+        assert_eq!(local.model.as_deref(), Some("gpt-4.1"));
+        let remote = test_connection(
+            Protocol::Responses,
+            "https://example.com/v1",
+            Some("gpt-4.1"),
+        );
+        assert!(remote.screenshot_route("gpt-4.1").is_err());
+    }
 
     #[test]
     fn credential_io_errors_distinguish_missing_and_access_denied() {

@@ -581,6 +581,70 @@ struct Git<'a> {
     cancelled: Option<&'a (dyn Fn() -> bool + Sync)>,
 }
 
+/// Older Git interprets `core.fsmonitor=false` as a hook pathname. Unknown
+/// version spellings refuse before any index-reading plumbing is admitted.
+pub(crate) fn validate_git_version(value: &str) -> Result<(), String> {
+    let refuse = || {
+        "Git inspection and selected commits require qualified Git 2.36 or newer (stable plain, Windows or Apple format); older/unknown Git refuses before index reads".to_owned()
+    };
+    if value.len() > 128 || value.chars().any(char::is_control) {
+        return Err(refuse());
+    }
+    let mut version = value.strip_prefix("git version ").ok_or_else(refuse)?;
+    let number = |part: &str| -> Option<u32> {
+        if part.is_empty()
+            || part.len() > 5
+            || part.len() > 1 && part.starts_with('0')
+            || !part.bytes().all(|byte| byte.is_ascii_digit())
+        {
+            None
+        } else {
+            part.parse().ok()
+        }
+    };
+    let apple = if let Some((base, vendor)) = version.split_once(" (Apple Git-") {
+        let vendor = vendor.strip_suffix(')').ok_or_else(refuse)?;
+        let mut count = 0;
+        for part in vendor.split('.') {
+            if number(part).is_none() || count >= 4 {
+                return Err(refuse());
+            }
+            count += 1;
+        }
+        if count == 0 {
+            return Err(refuse());
+        }
+        version = base;
+        true
+    } else {
+        false
+    };
+    let mut parts = version.split('.');
+    if parts.next() != Some("2") {
+        return Err(refuse());
+    }
+    let minor = parts.next().and_then(number).ok_or_else(refuse)?;
+    parts.next().and_then(number).ok_or_else(refuse)?;
+    if minor < 36 {
+        return Err(refuse());
+    }
+    if let Some(suffix) = parts.next() {
+        if apple || suffix != "windows" {
+            return Err(refuse());
+        }
+        let mut count = 0;
+        for part in parts {
+            if number(part).is_none() || count >= 4 {
+                return Err(refuse());
+            }
+            count += 1;
+        }
+        if count == 0 {
+            return Err(refuse());
+        }
+    }
+    Ok(())
+}
 impl<'a> Git<'a> {
     fn new(cwd: &'a Path, stopped: &'a AtomicBool, deadline: Instant) -> Result<Self, String> {
         // Do not resolve `git` through a relative PATH entry or a binary inside this project.
@@ -600,13 +664,24 @@ impl<'a> Git<'a> {
             .ok_or_else(|| {
                 "No Git executable outside the project was found on the absolute PATH".to_string()
             })?;
-        Ok(Self {
+        let git = Self {
             executable,
             cwd,
             stopped,
             deadline,
             cancelled: None,
-        })
+        };
+        // Version is metadata-only. It MUST precede every index read: older
+        // Git treats core.fsmonitor=false as a helper executable pathname.
+        let version = git.required(&["--version"], None, 128)?;
+        if version.truncated {
+            return Err("Git version exceeds the bounded qualification limit".into());
+        }
+        let value = std::str::from_utf8(&version.bytes)
+            .map_err(|_| "Git version is not Unicode")?
+            .trim_end_matches(['\r', '\n']);
+        validate_git_version(value)?;
+        Ok(git)
     }
 
     fn check_deadline(&self) -> Result<(), String> {
@@ -1269,7 +1344,7 @@ fn open_regular(root: &Path, relative: &Path) -> io::Result<File> {
     {
         use std::os::windows::fs::OpenOptionsExt;
         // Open the final reparse point itself, never follow a substituted final-file link.
-        options.custom_flags(0x0020_0000);
+        options.custom_flags(0x0020_0000 | 0x0200_0000);
     }
     options.open(root.join(relative))
 }
@@ -1312,6 +1387,32 @@ fn validate_opened_path(file: &File, root: &Path, relative: &Path) -> Result<(),
         return Err("Opened file escaped or changed its canonical repository identity".into());
     }
     Ok(())
+}
+
+/// Open one literal project-relative native node without traversing linked
+/// ancestors. Missing nodes stay distinct from unsafe/inaccessible nodes.
+/// Callers independently enforce file/directory kind and any writable-link policy.
+pub(crate) fn open_contained_node(root: &Path, relative: &Path) -> Result<Option<File>, String> {
+    if relative.as_os_str().is_empty()
+        || !relative
+            .components()
+            .all(|component| matches!(component, Component::Normal(_)))
+    {
+        return Err("Contained native path must be nonempty and literal project-relative".into());
+    }
+    validate_ancestors(root, relative)?;
+    let file = match open_regular(root, relative) {
+        Ok(file) => file,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.to_string()),
+    };
+    let metadata = file.metadata().map_err(|error| error.to_string())?;
+    if link_or_reparse(&metadata) || (!metadata.is_file() && !metadata.is_dir()) {
+        return Err("Contained native node is linked, reparsed or nonregular".into());
+    }
+    #[cfg(windows)]
+    validate_opened_path(&file, root, relative)?;
+    Ok(Some(file))
 }
 
 struct FileCapture {

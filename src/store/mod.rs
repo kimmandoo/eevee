@@ -27,6 +27,7 @@ pub mod retained;
 mod ribbons;
 mod runs;
 mod schema;
+pub mod screenshots;
 pub mod snapshot;
 mod spool;
 mod tasks;
@@ -107,6 +108,7 @@ pub enum Management {
 pub struct DeletionTarget {
     pub task: Snapshot,
     pub excerpts: Vec<(i64, String)>,
+    pub screenshots: Vec<(crate::workspace::context::screenshot::Capture, bool)>,
     pub runs: Vec<(String, bool)>,
     pub provider_records: Vec<(String, crate::providers::Agent)>,
     pub memories: Vec<crate::workspace::memory::Record>,
@@ -599,6 +601,10 @@ pub enum Event {
         request: context_cache::Request,
         result: Result<context_cache::Response, String>,
     },
+    Screenshot {
+        request: screenshots::Request,
+        result: Result<screenshots::Response, String>,
+    },
     Retained {
         request: retained::Request,
         result: Result<retained::Response, String>,
@@ -628,6 +634,7 @@ enum Command {
     Artifact(artifacts::Request),
     ToolCatalog(tool_catalog::Request),
     ContextCache(context_cache::Request),
+    Screenshot(screenshots::Request),
     Retained(retained::Request),
     Retry,
 }
@@ -804,6 +811,26 @@ impl Worker {
             Err(
                 TrySendError::Full(Command::ContextCache(request))
                 | TrySendError::Disconnected(Command::ContextCache(request)),
+            ) => {
+                *pending = Some(request);
+                false
+            }
+            Err(_) => unreachable!("try_send returns the submitted command"),
+        }
+    }
+
+    pub fn try_screenshot(&self, pending: &mut Option<screenshots::Request>) -> bool {
+        let Some(commands) = &self.commands else {
+            return false;
+        };
+        let Some(request) = pending.take() else {
+            return false;
+        };
+        match commands.try_send(Command::Screenshot(request)) {
+            Ok(()) => true,
+            Err(
+                TrySendError::Full(Command::Screenshot(request))
+                | TrySendError::Disconnected(Command::Screenshot(request)),
             ) => {
                 *pending = Some(request);
                 false
@@ -1039,6 +1066,10 @@ fn run(
             Command::ContextCache(request) => {
                 let result = state.context_cache_request(&request).map_err(actionable);
                 Event::ContextCache { request, result }
+            }
+            Command::Screenshot(request) => {
+                let result = state.screenshot_request(&request).map_err(actionable);
+                Event::Screenshot { request, result }
             }
             Command::Records(request) => {
                 let result = state.records(&request).map(Box::new).map_err(actionable);

@@ -250,6 +250,8 @@ pub struct Input {
     /// Approved exact-repeat replacement, frozen without changing the authored draft.
     pub instruction_override: Option<crate::workspace::records::InstructionReplacement>,
     pub excerpts: Vec<crate::workspace::context::Excerpt>,
+    /// One explicitly selected immutable image; never implicit binary source discovery.
+    pub screenshot: Option<crate::workspace::context::screenshot::Attachment>,
     /// Explicit local context preview, frozen to the exact task/source basis.
     pub context_plan: Option<crate::workspace::context::optimizer::Plan>,
     /// Explicit selected exact schemas from reviewed local setup; never a grant.
@@ -497,6 +499,23 @@ impl Input {
         }
         self.validate_work()?;
         self.validate_instruction_override()?;
+        if let Some(screenshot) = &self.screenshot {
+            self.validate_screenshot()?;
+            let storage = data_dir
+                .canonicalize()
+                .map_err(|_| "Protected application storage is unavailable")?;
+            if std::path::Path::new(&screenshot.capture.root)
+                .join(&screenshot.capture.path)
+                .starts_with(&storage)
+            {
+                return Err("Application storage cannot be sent as a screenshot".into());
+            }
+            crate::store::screenshots::validate_selection(
+                data_dir,
+                &self.task.project,
+                screenshot,
+            )?;
+        }
         if let Some(selection) = &self.tool_catalog {
             crate::store::tool_catalog::validate_selection(
                 data_dir,
@@ -535,9 +554,33 @@ impl Input {
         Ok(())
     }
 
+    fn validate_screenshot(&self) -> Result<(), String> {
+        let Some(screenshot) = &self.screenshot else {
+            return Ok(());
+        };
+        if !matches!(self.agent, Agent::OpenAI | Agent::Compatible)
+            || self.inspect_models
+            || self.inspect_sessions
+            || self.resume.is_some()
+        {
+            return Err("Screenshot input requires a qualified native Responses image route; this adapter/action refuses images rather than dropping them".into());
+        }
+        screenshot.validate()?;
+        if screenshot.capture.task_id != self.task.id
+            || screenshot.capture.partner != self.task.lead_partner
+            || screenshot.capture.root != self.task.project
+        {
+            return Err(
+                "Screenshot task, partner or project ownership changed; select it again".into(),
+            );
+        }
+        Ok(())
+    }
+
     pub fn validate_selection(&self) -> Result<(), String> {
         self.validate_work()?;
         self.validate_instruction_override()?;
+        self.validate_screenshot()?;
         if let Some(plan) = &self.prior_plan
             && (self.operation != Operation::Implement
                 || self.inspect_models
@@ -1142,6 +1185,7 @@ mod tests {
 
     fn review(agent: Agent) -> Input {
         Input {
+            screenshot: None,
             public_context: None,
             tool_catalog: None,
             context_plan: None,

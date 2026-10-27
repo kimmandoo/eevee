@@ -382,6 +382,12 @@ fn snapshot_known(snapshot: &runner::InputSnapshot) -> bool {
 }
 
 fn historical_run_status(run: &runner::RunRecord) -> EvidenceStatus {
+    if matches!(
+        run.prepared.spec,
+        runner::CommandSpec::SelectedCommit { .. }
+    ) {
+        return EvidenceStatus::Unavailable;
+    }
     if run.output_unavailable {
         return EvidenceStatus::Unavailable;
     }

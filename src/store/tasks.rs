@@ -362,6 +362,7 @@ impl State {
             targets.push(DeletionTarget {
                 task,
                 excerpts,
+                screenshots: super::screenshots::deletion_captures(connection, *id)?,
                 runs,
                 provider_records,
                 memories,
@@ -447,6 +448,9 @@ impl State {
                         .map_err(|error| error.to_string())?;
                     transaction
                         .execute("DELETE FROM context_revisions WHERE task_id=?1", [id])
+                        .map_err(|error| error.to_string())?;
+                    transaction
+                        .execute("DELETE FROM screenshots WHERE task_id=?1", [id])
                         .map_err(|error| error.to_string())?;
                     transaction
                         .execute("DELETE FROM memories WHERE task_id=?1", [id])

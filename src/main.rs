@@ -199,6 +199,7 @@ fn run(config: Config) -> io::Result<()> {
         let mut outstanding_repo = 1_usize;
         let mut outstanding_sources = 0_usize;
         let mut context_task = None;
+        let mut screenshot_owner = None;
         let mut outstanding_agents = 0_usize;
         let mut activity_tick: Option<std::time::Instant> = None;
         let mut mailbox_pending = false;
@@ -370,12 +371,19 @@ fn run(config: Config) -> io::Result<()> {
             if context_task != Some(app.task_id) {
                 context_task = Some(app.task_id);
                 app.sources.reset(app.task_id);
-                app.sources.set_producer(Some(app.attribution()));
                 app.handoff.reset(app.task_id);
                 if app.planning.task_id() != app.task_id {
                     app.planning.reset(app.task_id);
                 }
             }
+            let owner = (app.task_id, app.lead().id);
+            if screenshot_owner != Some(owner) {
+                screenshot_owner = Some(owner);
+                app.sources.set_producer(Some(app.attribution()));
+                app.sources.load_screenshot(owner.0, owner.1);
+            }
+            app.sources
+                .configure_screenshot_route(app.planning.agent, &app.planning.selection);
             app.prepare_composer_sources();
             if app.handoff.pending.is_some() {
                 app.handoff.process_pending();
@@ -475,6 +483,18 @@ fn run(config: Config) -> io::Result<()> {
             {
                 outstanding_store += 1;
             }
+            let screenshot_mutates =
+                app.sources
+                    .pending_screenshot_store
+                    .as_ref()
+                    .is_some_and(|request| {
+                        !matches!(request.operation, store::screenshots::Operation::Load)
+                    });
+            if (!screenshot_mutates || app.records.local.is_empty())
+                && store.try_screenshot(&mut app.sources.pending_screenshot_store)
+            {
+                outstanding_store += 1;
+            }
             if app.memory_request.is_none()
                 && let Some(mutation) = app.memory.pending.take()
             {
@@ -529,6 +549,7 @@ fn run(config: Config) -> io::Result<()> {
                 || planning.values().any(providers::Worker::busy)
                 || app.sources.pending.is_some()
                 || app.sources.pending_store.is_some()
+                || app.sources.pending_screenshot_store.is_some()
                 || app.memory_request.is_some()
                 || app.memory.pending.is_some()
                 || app.memory.saving

@@ -108,10 +108,8 @@ impl App {
             .remove(&partner.id)
             .unwrap_or_else(|| self.execution.new_partner_state(self.task_id));
         let mut previous_execution = std::mem::replace(&mut self.execution, incoming_execution);
-        previous_execution.confirmation_visible = false;
-        previous_execution.affirmative = false;
-        self.execution.confirmation_visible = false;
-        self.execution.affirmative = false;
+        previous_execution.invalidate_review_exposure();
+        self.execution.invalidate_review_exposure();
         self.cooperation
             .executions
             .insert(self.lead.id, previous_execution);

@@ -516,6 +516,19 @@ pub fn render(
     app.planning.set_response_body(Rect::default());
     let area = frame.area();
     app.confirmation_reviewed = false;
+    let consent_obscured = app.command_popup.is_some()
+        || app.nickname_editor.is_some()
+        || app.confirmation.is_some()
+        || app.composer_menu.is_some()
+        || app.cooperation_ui.release.is_some()
+        || app.cooperation.cancel_review.is_some()
+        || app.cooperation.journal_discard.is_some();
+    if app.overlay != Some(Overlay::Execution) || consent_obscured {
+        app.execution.invalidate_review_exposure();
+    }
+    if app.overlay != Some(Overlay::Sources) || consent_obscured {
+        app.sources.invalidate_screenshot_exposure();
+    }
     if let Some(review) = &mut app.cooperation_ui.release {
         review.reviewed = false;
     }
@@ -655,7 +668,11 @@ pub fn render(
             Overlay::Tasks => tasks(frame, area, app, config, &paint),
             Overlay::Criteria => criteria(frame, area, app, config, &paint),
             Overlay::Repository => repository(frame, area, app, config, &paint),
-            Overlay::Sources => sources::render(frame, area, app, config, &paint),
+            Overlay::Sources => {
+                if !consent_obscured {
+                    sources::render(frame, area, app, config, &paint);
+                }
+            }
             Overlay::Execution => {
                 let queue = app.approval_position().map(|(position, total)| {
                     format!(
@@ -677,15 +694,17 @@ pub fn render(
                     )
                 });
                 let allow_all = app.current_callback_command_deniable();
-                execution::render(
-                    frame,
-                    area,
-                    &mut app.execution,
-                    config,
-                    queue.as_deref(),
-                    editing.as_deref(),
-                    allow_all,
-                );
+                if !consent_obscured || app.execution.confirmation.is_none() {
+                    execution::render(
+                        frame,
+                        area,
+                        &mut app.execution,
+                        config,
+                        queue.as_deref(),
+                        editing.as_deref(),
+                        allow_all,
+                    );
+                }
             }
             Overlay::Agents => agents::render(frame, area, app, config, &paint),
             Overlay::Planning => planning::render(frame, area, app, config, &paint),
@@ -2266,7 +2285,22 @@ fn composer_input(frame: &mut Frame, area: Rect, app: &App, config: &Config, pai
     } else {
         paint.hint(Message::CoreTaskFactTitle)
     };
-    let attachment_status = if app.sources.store_failed {
+    let screenshot = app.sources.screenshot.as_ref().filter(|attachment| {
+        attachment.capture.task_id == app.task_id && attachment.capture.partner == app.lead().id
+    });
+    let image_title;
+    let title = if let Some(attachment) = screenshot {
+        image_title = format!(
+            "{} + {} image ({} B)",
+            title,
+            attachment.capture.format.label(),
+            attachment.capture.bytes,
+        );
+        image_title.as_str()
+    } else {
+        title
+    };
+    let attachment_status = if app.sources.store_failed || app.sources.screenshot_storage_failed() {
         paint.hint(Message::CoreAttachmentSaveFailed)
     } else if app.sources.persistence_pending() {
         paint.hint(Message::CoreAttachmentSaving)
@@ -2285,7 +2319,10 @@ fn composer_input(frame: &mut Frame, area: Rect, app: &App, config: &Config, pai
         &[
             ("title", title),
             ("partner", &partner),
-            ("count", &app.sources.basket.len().to_string()),
+            (
+                "count",
+                &(app.sources.basket.len() + usize::from(screenshot.is_some())).to_string(),
+            ),
             ("status", attachment_status),
             (
                 "pairing",
@@ -2641,7 +2678,7 @@ fn delete_confirmation(
     let content = block.inner(area);
     frame.render_widget(block, area);
     let question = format!(
-        "Delete {} tasks/drafts and listed evidence/task memories? Shared memories, sources, exports and provider sessions stay. Not secure erasure. Page {}/{} (Home/End).",
+        "Delete {} listed tasks, drafts, evidence, task memories and screenshot bytes? Shared memories, project files, exports and provider sessions stay. Not secure erasure. Page {}/{} (Home/End).",
         app.delete_targets.len(),
         app.delete_page + 1,
         app.deletion_pages()
@@ -2651,6 +2688,7 @@ fn delete_confirmation(
     enum Item<'a> {
         Task(&'a crate::store::Snapshot),
         Excerpt(i64, &'a str),
+        Screenshot(&'a crate::workspace::context::screenshot::Capture, bool),
         Run(&'a str, bool),
         Provider(&'a str, crate::providers::Agent),
         Memory(&'a crate::workspace::memory::Record),
@@ -2665,6 +2703,12 @@ fn delete_confirmation(
                         .excerpts
                         .iter()
                         .map(|(id, path)| Item::Excerpt(*id, path)),
+                )
+                .chain(
+                    target
+                        .screenshots
+                        .iter()
+                        .map(|(capture, available)| Item::Screenshot(capture, *available)),
                 )
                 .chain(
                     target
@@ -2695,6 +2739,14 @@ fn delete_confirmation(
                 Item::Excerpt(id, path) => format!(
                     "  excerpt #{id} {}",
                     clipped(path, details.width.saturating_sub(32) as usize)
+                ),
+                Item::Screenshot(capture, available) => format!(
+                    "  screenshot partner #{} {:?} / {} / {} B {}",
+                    capture.partner,
+                    capture.path,
+                    capture.format.label(),
+                    if available { capture.bytes } else { 0 },
+                    if available { "retained" } else { "unavailable" },
                 ),
                 Item::Run(id, available) => format!(
                     "  run {id} / output {}",

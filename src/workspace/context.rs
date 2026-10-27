@@ -15,6 +15,7 @@ pub(crate) use comparison::selection as selection_identity;
 pub use comparison::{ComparisonTurn, SelectionComparison};
 pub mod ledger;
 pub mod optimizer;
+pub mod screenshot;
 pub mod symbols;
 pub use optimizer::CacheRevision;
 
@@ -135,6 +136,13 @@ pub struct Request {
 }
 
 pub enum Operation {
+    Screenshot {
+        report: Arc<repo::Report>,
+        path: PathBuf,
+        partner: i64,
+        agent: crate::providers::Agent,
+        selection: crate::providers::ModelSelection,
+    },
     Catalogue {
         report: Arc<repo::Report>,
         query: String,
@@ -192,6 +200,7 @@ pub struct Event {
 #[derive(Debug)]
 pub enum Response {
     Catalogue(Vec<Source>),
+    Screenshot(screenshot::Captured),
     Inspected(Excerpt),
     Assembled(Payload),
     Checked(Vec<Observation>),
@@ -554,6 +563,27 @@ fn execute(
         return Err("Select a committed task before gathering context".into());
     }
     match operation {
+        Operation::Screenshot {
+            report,
+            path,
+            partner,
+            agent,
+            selection,
+        } => {
+            let attachment =
+                screenshot::capture(task_id, partner, &report, &path, exclusions, stopped)?;
+            let capability = crate::providers::direct::screenshot_capability(agent, &selection);
+            Ok(Response::Screenshot(screenshot::Captured {
+                attachment,
+                route: screenshot::RouteReview {
+                    task_id,
+                    partner,
+                    agent,
+                    selection,
+                    capability,
+                },
+            }))
+        }
         Operation::Impact {
             report,
             request,

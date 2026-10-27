@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Actual prior/current binary continuity and strict new-plan reader refusal.
+"""Actual prior/current binary continuity and reader refusal with a staged plan.
 
-SQL Schema19 is unchanged: an optional strict workflow field advances the durable
-reader contract. Both binaries and all app-owned state are genuine, not seeded.
+Admitted predecessor data may migrate to the current SQL schema. Report whether
+refusal was schema-based or strict-state-based; never infer one from the other.
+Both binaries and all app-owned state are genuine, not seeded.
 """
 from __future__ import annotations
 
@@ -81,7 +82,7 @@ def main():
             for key in ('goal', 'criteria', 'next_action', 'command', 'drafts', 'partner_drafts', 'lead_partner'):
                 assert admitted['tasks'][0][key] == before['tasks'][0][key], key
             assert admitted['partners'] == before['partners'] and admitted['runs'] == before['runs']
-            report['cases'].append('genuine-prior-task-and-owner-admitted-without-SQL-schema-change')
+            report['cases'].append('genuine-prior-task-and-owner-admitted-with-authored-facts-unchanged')
             nodes = [{'id': 'read-public', 'dependencies': [], 'operation': {'type': 'Read', 'path': 'public.txt', 'start_line': 1, 'end_line': 0}, 'reason': 'Read public fixture only after explicit plan start'}]
             stage_plan(upgraded, data, 'Strict plan reader continuity', nodes)
             until(upgraded, lambda: load_plan(data) is not None, 'New strict plan field did not persist')
@@ -90,7 +91,7 @@ def main():
             upgraded.capture('new-plan-staged-without-dispatch')
             finish(upgraded)
             after = state(database)
-            assert after['schema'] == 19
+            assert after['schema'] == admitted['schema']
             frozen = database.read_bytes()
             refused = launch(previous, 'previous-refusal')
             wait_for(refused, 'Storage: save failed', timeout=35)
@@ -98,7 +99,10 @@ def main():
             refused.close()  # Owned refusal probe, not a claimed graceful old exit.
             assert database.read_bytes() == frozen, 'Older reader modified new-plan data'
             assert state(database) == after
-            report['cases'].append('actual-prior-reader-refused-new-strict-workflow-with-every-database-byte-unchanged')
+            report['cases'].append('actual-prior-reader-refused-current-plan-data-with-every-database-byte-unchanged')
+            report['reader_refusal_basis'] = (
+                'newer SQL schema' if after['schema'] > before['schema']
+                else 'strict serialized state')
             resumed = launch(current, 'current-resume')
             wait_for(resumed, 'Storage: saved', timeout=35)
             resumed.command('tool-plan')

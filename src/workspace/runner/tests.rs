@@ -224,6 +224,19 @@ fn native_fixture() {
             io::stdin().read_to_string(&mut input).unwrap();
             println!("EEVEE_STDIN={input}");
         }
+        "clean-env" => {
+            let values: std::collections::BTreeMap<_, _> =
+                ["GIT_ATTR_NOSYSTEM", "GIT_CONFIG_GLOBAL", "GIT_INDEX_FILE"]
+                    .into_iter()
+                    .map(|key| (key, std::env::var(key).unwrap()))
+                    .collect();
+            fs::write(
+                "child-environment.json",
+                serde_json::to_vec(&values).unwrap(),
+            )
+            .unwrap();
+            assert!(std::env::var_os("CARGO_MANIFEST_DIR").is_none());
+        }
         "stdin-stall" => thread::sleep(Duration::from_secs(30)),
         "fail" => {
             println!("partial evidence before failure");
@@ -997,4 +1010,72 @@ fn provider_run_observation_omits_local_identity_and_dispatch_approval() {
     ] {
         assert!(!encoded.contains(private), "{private}");
     }
+}
+
+#[test]
+fn windows_environment_keeps_all_unicode_values_before_final_terminator() {
+    let entries = vec![
+        ("GIT_ATTR_NOSYSTEM".into(), "1".into()),
+        ("GIT_CONFIG_GLOBAL".into(), "/dev/null".into()),
+        (
+            "GIT_INDEX_FILE".into(),
+            r"C:\project=한글\isolated.index".into(),
+        ),
+    ];
+    let block = encode_windows_environment(&entries);
+    let values: Vec<_> = block
+        .split(|unit| *unit == 0)
+        .take_while(|part| !part.is_empty())
+        .map(|part| String::from_utf16(part).unwrap())
+        .collect();
+    assert_eq!(
+        values,
+        [
+            "GIT_ATTR_NOSYSTEM=1",
+            "GIT_CONFIG_GLOBAL=/dev/null",
+            r"GIT_INDEX_FILE=C:\project=한글\isolated.index",
+        ]
+    );
+    assert!(block.ends_with(&[0, 0]));
+    assert_eq!(encode_windows_environment(&[]), [0, 0]);
+}
+
+#[test]
+fn owned_clean_environment_reaches_native_child_without_inherited_configuration() {
+    let temp = Temp::new();
+    temp.fixture("clean-env");
+    let index = temp.0.join("isolated=한글.index");
+    let mut environment = vec![
+        ("GIT_ATTR_NOSYSTEM".into(), "1".into()),
+        ("GIT_CONFIG_GLOBAL".into(), "/dev/null".into()),
+        ("GIT_INDEX_FILE".into(), index.to_str().unwrap().into()),
+    ];
+    for key in ["SystemRoot", "WINDIR"] {
+        if let Ok(value) = std::env::var(key) {
+            environment.push((key.into(), value));
+        }
+    }
+    let mut process =
+        native::Process::spawn_piped_clean_env(&prepared(&temp, fixture_spec(&[])), &environment)
+            .unwrap();
+    process.close_stdin();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while process.try_wait().unwrap().is_none() || !process.tree_empty().unwrap() {
+        let mut bytes = [0; 4096];
+        for stream in [0, 1] {
+            if let Err(error) = process.read(stream, &mut bytes) {
+                assert_eq!(error.kind(), io::ErrorKind::WouldBlock);
+            }
+        }
+        assert!(
+            Instant::now() < deadline,
+            "native environment fixture did not exit"
+        );
+        thread::sleep(Duration::from_millis(5));
+    }
+    let values: std::collections::BTreeMap<String, String> =
+        serde_json::from_slice(&fs::read(temp.0.join("child-environment.json")).unwrap()).unwrap();
+    assert_eq!(values["GIT_ATTR_NOSYSTEM"], "1");
+    assert_eq!(values["GIT_CONFIG_GLOBAL"], "/dev/null");
+    assert_eq!(values["GIT_INDEX_FILE"], index.to_str().unwrap());
 }

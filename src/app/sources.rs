@@ -14,12 +14,14 @@ pub enum Mode {
     Payload,
     Comparison,
     Optimizer,
+    Screenshot,
 }
 #[derive(Clone, Copy)]
 pub enum EditKind {
     Search,
     Range,
     Budget,
+    ScreenshotPath,
 }
 pub struct Editor {
     pub kind: EditKind,
@@ -82,6 +84,19 @@ pub struct State {
     pub basket: Vec<context::Excerpt>,
     pub basket_selection: usize,
     pub preview: Option<context::Excerpt>,
+    pub screenshot: Option<context::screenshot::Attachment>,
+    pub screenshot_retained: Option<context::screenshot::Capture>,
+    pub screenshot_preview: Option<context::screenshot::Attachment>,
+    pub screenshot_removal: Option<context::screenshot::Capture>,
+    pub screenshot_route: Option<context::screenshot::RouteReview>,
+    screenshot_route_selection: Option<(crate::providers::Agent, crate::providers::ModelSelection)>,
+    pub screenshot_reviewed: bool,
+    pub pending_screenshot_store: Option<store::screenshots::Request>,
+    pub screenshot_store_busy: bool,
+    screenshot_failed_request: Option<store::screenshots::Request>,
+    screenshot_exposure: Option<(String, u16, u16, Vec<bool>)>,
+    screenshot_desired_owner: Option<(i64, i64)>,
+    screenshot_loaded_owner: Option<(i64, i64)>,
     pub payload: Option<context::Payload>,
     pub detail: String,
     pub query: String,
@@ -374,6 +389,17 @@ impl State {
     }
     /// Updates only the next capture's producer, never an in-flight capture.
     pub fn set_producer(&mut self, producer: Option<store::Attribution>) {
+        if self.producer.as_ref().map(|owner| owner.partner)
+            != producer.as_ref().map(|owner| owner.partner)
+        {
+            self.screenshot = None;
+            self.screenshot_retained = None;
+            self.screenshot_preview = None;
+            self.screenshot_route = None;
+            self.screenshot_reviewed = false;
+            self.screenshot_exposure = None;
+            self.clear_wire_request();
+        }
         if self
             .memory_adoption
             .as_ref()
@@ -382,6 +408,22 @@ impl State {
             self.cancel_memory_adoption();
         }
         self.producer = producer;
+    }
+    pub fn configure_screenshot_route(
+        &mut self,
+        agent: crate::providers::Agent,
+        selection: &crate::providers::ModelSelection,
+    ) {
+        if self.screenshot_route_selection.as_ref().is_none_or(
+            |(current_agent, current_selection)| {
+                *current_agent != agent || current_selection != selection
+            },
+        ) {
+            self.screenshot_route_selection = Some((agent, selection.clone()));
+            self.screenshot_route = None;
+            self.screenshot_exposure = None;
+            self.screenshot_reviewed = false;
+        }
     }
 
     /// Shared initiation hook for move/workflow captures. Freezes attribution
@@ -576,30 +618,181 @@ impl State {
         self.basket_detail();
     }
 
+    /// Resets task context without activating an image owner; the caller must
+    /// set the actual producer before explicitly loading its screenshot.
     pub fn reset(&mut self, task_id: i64) {
         let producer = self.producer.take();
+        let pending_screenshot_store = self.pending_screenshot_store.take();
+        let screenshot_store_busy = self.screenshot_store_busy;
+        let screenshot_failed_request = self.screenshot_failed_request.take();
         *self = Self {
             producer,
+            pending_screenshot_store,
+            screenshot_store_busy,
+            screenshot_failed_request,
             ..Self::default()
         };
         if task_id > 0 {
             self.queue_store(task_id, store::ContextOperation::Load);
         }
     }
+    pub fn load_screenshot(&mut self, task_id: i64, partner: i64) {
+        if task_id <= 0 || partner <= 0 {
+            return;
+        }
+        let owner = (task_id, partner);
+        self.screenshot_desired_owner = Some(owner);
+        if self.screenshot_loaded_owner != Some(owner) {
+            self.screenshot = None;
+            self.screenshot_retained = None;
+            self.screenshot_preview = None;
+            self.screenshot_reviewed = false;
+            self.screenshot_exposure = None;
+            if !self.screenshot_store_busy && self.screenshot_failed_request.is_none() {
+                self.queue_screenshot_store(task_id, partner, store::screenshots::Operation::Load);
+            }
+        }
+    }
+
+    fn queue_screenshot_store(
+        &mut self,
+        task_id: i64,
+        partner: i64,
+        operation: store::screenshots::Operation,
+    ) {
+        self.screenshot_reviewed = false;
+        self.screenshot_exposure = None;
+        self.clear_wire_request();
+        self.pending_screenshot_store = Some(store::screenshots::Request {
+            task_id,
+            partner,
+            operation,
+        });
+        self.screenshot_store_busy = true;
+        self.screenshot_failed_request = None;
+        self.error.clear();
+    }
+
+    pub fn screenshot_event(
+        &mut self,
+        task_id: i64,
+        request: store::screenshots::Request,
+        result: Result<store::screenshots::Response, String>,
+    ) {
+        self.screenshot_store_busy = false;
+        let current = self.screenshot_desired_owner == Some((request.task_id, request.partner))
+            && request.task_id == task_id
+            && self.producer.as_ref().map(|owner| owner.partner) == Some(request.partner);
+        if !current {
+            if result.is_err() && !matches!(&request.operation, store::screenshots::Operation::Load)
+            {
+                self.screenshot_failed_request = Some(request);
+            } else if let Some((task, partner)) = self.screenshot_desired_owner {
+                self.queue_screenshot_store(task, partner, store::screenshots::Operation::Load);
+            }
+            return;
+        }
+        self.screenshot_reviewed = false;
+        self.clear_wire_request();
+        match result {
+            Ok(response) => {
+                self.screenshot_loaded_owner = Some((request.task_id, request.partner));
+                let attached = matches!(&request.operation, store::screenshots::Operation::Put(_));
+                self.screenshot = response.attachment;
+                self.screenshot_retained = response.retained;
+                self.screenshot_preview = None;
+                self.screenshot_exposure = None;
+                self.screenshot_failed_request = None;
+                self.error.clear();
+                if attached {
+                    self.return_to_composer = true;
+                }
+                self.status = if self.screenshot.is_some() { "Screenshot selected and committed locally; provider send still requires fresh request consent." } else { "No screenshot selected; future requests send no image. Retained bytes require explicit purge." }.into();
+                if self.mode == Mode::Screenshot {
+                    self.detail = self
+                        .screenshot_retained
+                        .as_ref()
+                        .map(|capture| capture.disclosure())
+                        .unwrap_or_else(|| {
+                            "Screenshot bytes purged; no image selected or retained.".into()
+                        });
+                }
+            }
+            Err(error) => {
+                self.error = safe_error(error);
+                self.screenshot_failed_request = Some(request);
+                self.status = "Image storage failed; /screenshot-retry explicitly retries. No new attachment admitted.".into();
+            }
+        }
+    }
+    pub fn screenshot_storage_failed(&self) -> bool {
+        self.screenshot_failed_request.is_some()
+    }
+    pub fn expose_screenshot(
+        &mut self,
+        identity: String,
+        width: u16,
+        height: u16,
+        offset: usize,
+        rows: usize,
+        supported: bool,
+    ) {
+        self.screenshot_reviewed = false;
+        let removal = self
+            .confirmation
+            .as_ref()
+            .is_some_and(|confirmation| confirmation.id == -1)
+            && self.screenshot_removal.is_some();
+        if !supported || width < 40 || height < 4 || (self.screenshot_preview.is_none() && !removal)
+        {
+            self.screenshot_exposure = None;
+            return;
+        }
+        if self
+            .screenshot_exposure
+            .as_ref()
+            .is_none_or(|(key, w, h, seen)| {
+                key != &identity || *w != width || *h != height || seen.len() != rows
+            })
+        {
+            self.screenshot_exposure = Some((identity, width, height, vec![false; rows]));
+        }
+        let (_, _, _, seen) = self
+            .screenshot_exposure
+            .as_mut()
+            .expect("current image disclosure");
+        for line in seen.iter_mut().skip(offset).take(height as usize) {
+            *line = true;
+        }
+        self.screenshot_reviewed = !seen.is_empty() && seen.iter().all(|row| *row);
+    }
+    /// Hidden image disclosures lose coverage without revoking text/optimizer review.
+    pub fn invalidate_screenshot_exposure(&mut self) {
+        self.screenshot_reviewed = false;
+        self.screenshot_exposure = None;
+        if let Some(confirmation) = &mut self.confirmation
+            && confirmation.id == -1
+        {
+            confirmation.reviewed = false;
+            confirmation.destructive = false;
+        }
+    }
     pub fn invalidate_review(&mut self) {
         self.cancel_memory_adoption();
         self.preview_reviewed = false;
         self.optimizer_reviewed = false;
+        self.screenshot_reviewed = false;
+        self.screenshot_exposure = None;
         if let Some(confirmation) = &mut self.confirmation {
             confirmation.reviewed = false;
             confirmation.destructive = false;
         }
     }
     pub fn busy(&self) -> bool {
-        self.source_busy || self.store_busy || self.await_refresh
+        self.source_busy || self.store_busy || self.screenshot_store_busy || self.await_refresh
     }
     pub fn persistence_pending(&self) -> bool {
-        self.store_busy && self.store_mutation
+        (self.store_busy && self.store_mutation) || self.screenshot_store_busy
     }
     pub fn take_return_to_composer(&mut self) -> bool {
         std::mem::take(&mut self.return_to_composer)
@@ -745,6 +938,29 @@ impl State {
             self.memory_notice = Some(crate::messages::Message::SourceMemoryStale);
         }
         match event.result {
+            Ok(context::Response::Screenshot(captured)) => {
+                let context::screenshot::Captured { attachment, route } = captured;
+                if self.producer.as_ref().map(|owner| owner.partner)
+                    != Some(attachment.capture.partner)
+                    || self
+                        .screenshot_route_selection
+                        .as_ref()
+                        .is_none_or(|(agent, selection)| {
+                            !route.matches(task_id, attachment.capture.partner, *agent, selection)
+                        })
+                {
+                    return;
+                }
+                self.screenshot_route = Some(route);
+                self.screenshot_reviewed = false;
+                self.screenshot_exposure = None;
+                self.detail = attachment.capture.disclosure();
+                self.screenshot_preview = Some(attachment);
+                self.mode = Mode::Screenshot;
+                self.status =
+                    "Review image disclosure; original image is not displayed. Nothing sent."
+                        .into();
+            }
             Ok(context::Response::Optimized(plan)) => {
                 if !plan.revisions.is_empty() {
                     self.context_cache_request = Some(store::context_cache::Request {
@@ -1050,6 +1266,7 @@ impl State {
             EditKind::Search => 1024,
             EditKind::Range => 64,
             EditKind::Budget => 16,
+            EditKind::ScreenshotPath => 32 * 1024,
         };
         let capacity = limit.saturating_sub(editor.text.len());
         let mut text = String::with_capacity(input.len().min(capacity));
@@ -1094,6 +1311,31 @@ impl State {
             None => Choice::new(name, label),
         };
         vec![
+            choice(
+                "screenshot",
+                "Explicitly capture one PNG/JPEG project-relative path",
+                blocked,
+            ),
+            choice(
+                "screenshot-show",
+                "Inspect retained image metadata and retention policy",
+                blocked,
+            ),
+            choice(
+                "screenshot-remove",
+                "Review deselecting image without deleting retained bytes",
+                blocked,
+            ),
+            choice(
+                "screenshot-purge",
+                "Review permanently purging retained image bytes",
+                blocked,
+            ),
+            choice(
+                "screenshot-retry",
+                "Retry failed image storage operation explicitly",
+                blocked,
+            ),
             choice("search", "Edit literal filename filter", blocked),
             choice(
                 "optimize",
@@ -1257,6 +1499,9 @@ impl State {
             return Action::Changed;
         }
         if name == "close" {
+            self.screenshot_preview = None;
+            self.screenshot_exposure = None;
+            self.screenshot_reviewed = false;
             self.return_after_attach = false;
             self.return_to_composer = false;
             return Action::Close;
@@ -1285,6 +1530,69 @@ impl State {
             return Action::Changed;
         }
         match name {
+            "screenshot" => {
+                self.screenshot_preview = None;
+                self.screenshot_reviewed = false;
+                self.screenshot_exposure = None;
+                self.editor = Some(Editor {
+                    kind: EditKind::ScreenshotPath,
+                    text: String::new(),
+                    cursor: 0,
+                });
+            }
+            "screenshot-show" => {
+                self.screenshot_preview = None;
+                self.screenshot_reviewed = false;
+                self.screenshot_exposure = None;
+                self.mode = Mode::Screenshot;
+                self.detail = self
+                    .screenshot_retained
+                    .as_ref()
+                    .map(|capture| capture.disclosure())
+                    .unwrap_or_else(|| "No retained screenshot for this task and partner.".into());
+            }
+            "screenshot-remove" | "screenshot-purge" if self.screenshot_retained.is_some() => {
+                self.screenshot_reviewed = false;
+                self.screenshot_preview = None;
+                self.screenshot_exposure = None;
+                self.screenshot_removal = self.screenshot_retained.clone();
+                self.confirmation = Some(Confirmation {
+                    id: -1,
+                    purge: name == "screenshot-purge",
+                    destructive: false,
+                    reviewed: false,
+                });
+            }
+            "screenshot-retry" => {
+                if let Some(request) = self.screenshot_failed_request.take() {
+                    self.pending_screenshot_store = Some(request);
+                    self.screenshot_store_busy = true;
+                    self.error.clear();
+                }
+            }
+            "attach" if self.mode == Mode::Screenshot => {
+                let route_current = self
+                    .screenshot_preview
+                    .as_ref()
+                    .zip(self.screenshot_route.as_ref())
+                    .is_some_and(|(image, route)| {
+                        route.capability.is_ok()
+                            && self.screenshot_route_selection.as_ref().is_some_and(
+                                |(agent, selection)| {
+                                    route.matches(task_id, image.capture.partner, *agent, selection)
+                                },
+                            )
+                    });
+                if !self.screenshot_reviewed || !route_current {
+                    self.error = "Read the complete visible image disclosure and supported route before attaching; nothing saved or sent.".into();
+                } else if let Some(attachment) = self.screenshot_preview.clone() {
+                    self.queue_screenshot_store(
+                        task_id,
+                        attachment.capture.partner,
+                        store::screenshots::Operation::Put(attachment),
+                    );
+                }
+            }
             "remember-source" => {
                 if self.mode == Mode::Basket
                     && let Some(capture) = self.basket.get(self.basket_selection)
@@ -1493,6 +1801,24 @@ impl State {
                         .take()
                         .expect("active context confirmation");
                     if confirmation.destructive && !self.busy() {
+                        if confirmation.id == -1 {
+                            if let Some(capture) =
+                                self.screenshot_removal.take().filter(|capture| {
+                                    capture.task_id == task_id
+                                        && self.producer.as_ref().map(|owner| owner.partner)
+                                            == Some(capture.partner)
+                                })
+                            {
+                                let partner = capture.partner;
+                                let operation = if confirmation.purge {
+                                    store::screenshots::Operation::Purge(capture)
+                                } else {
+                                    store::screenshots::Operation::Remove(capture)
+                                };
+                                self.queue_screenshot_store(task_id, partner, operation);
+                            }
+                            return Action::Changed;
+                        }
                         self.payload = None;
                         let operation = if confirmation.purge {
                             store::ContextOperation::Purge(vec![confirmation.id])
@@ -1522,6 +1848,9 @@ impl State {
                 self.optimizer_reviewed = false;
                 self.optimizer_preview_applied = false;
             }
+            self.screenshot_preview = None;
+            self.screenshot_reviewed = false;
+            self.screenshot_exposure = None;
             self.return_after_attach = false;
             self.return_to_composer = false;
             return Action::Close;
@@ -1552,6 +1881,9 @@ impl State {
                 return self.command("context-cancel", task_id, report);
             }
             KeyCode::Enter if self.mode == Mode::Files => self.inspect_file(task_id, report),
+            KeyCode::Enter if self.mode == Mode::Screenshot => {
+                return self.command("attach", task_id, report);
+            }
             KeyCode::Enter if self.mode == Mode::Preview => {
                 return self.command("attach", task_id, report);
             }
@@ -1621,6 +1953,27 @@ impl State {
             }
             let editor = self.editor.take().expect("active source editor");
             match editor.kind {
+                EditKind::ScreenshotPath => {
+                    if let (Some(report), Some(partner), Some((agent, selection))) = (
+                        report,
+                        self.producer.as_ref().map(|owner| owner.partner),
+                        self.screenshot_route_selection.clone(),
+                    ) {
+                        self.queue(
+                            task_id,
+                            context::Operation::Screenshot {
+                                report: Arc::clone(report),
+                                path: editor.text.into(),
+                                partner,
+                                agent,
+                                selection,
+                            },
+                        );
+                    } else {
+                        self.error = "Current repository evidence and exact task partner are required; refresh first.".into();
+                        self.editor = Some(editor);
+                    }
+                }
                 EditKind::Budget => match editor.text.parse::<usize>() {
                     Ok(budget) if (64..=1_000_000).contains(&budget) => {
                         self.optimize(task_id, report, false, budget)
@@ -1857,6 +2210,200 @@ mod tests {
             text: "first\npassword=[REDACTED]\n".into(),
             available: true,
         }
+    }
+
+    fn image() -> context::screenshot::Attachment {
+        use image::ImageEncoder;
+        use sha2::{Digest, Sha256};
+        let mut bytes = Vec::new();
+        image::codecs::png::PngEncoder::new(&mut bytes)
+            .write_image(&[0, 1, 2, 255], 1, 1, image::ExtendedColorType::Rgba8)
+            .unwrap();
+        context::screenshot::Attachment {
+            capture: context::screenshot::Capture {
+                task_id: 7,
+                partner: 1,
+                root: "/workspace".into(),
+                path: "shot.png".into(),
+                sha256: Sha256::digest(&bytes).into(),
+                format: context::screenshot::Format::Png,
+                width: 1,
+                height: 1,
+                bytes: bytes.len(),
+            },
+            bytes: bytes.into(),
+        }
+    }
+
+    fn captured_image() -> context::screenshot::Captured {
+        context::screenshot::Captured {
+            attachment: image(),
+            route: context::screenshot::RouteReview {
+                task_id: 7,
+                partner: 1,
+                agent: crate::providers::Agent::Compatible,
+                selection: crate::providers::ModelSelection {
+                    model: Some("gpt-4.1".into()),
+                    effort: None,
+                },
+                capability: Ok("Controlled Responses route with documented image model".into()),
+            },
+        }
+    }
+
+    #[test]
+    fn changed_route_invalidates_disclosure_and_rejects_late_worker_capture() {
+        let mut state = State::default();
+        state.set_producer(Some(store::Attribution {
+            partner: 1,
+            name: "One".into(),
+            form: 0,
+        }));
+        let captured = captured_image();
+        state.configure_screenshot_route(captured.route.agent, &captured.route.selection);
+        state.event(
+            7,
+            context::Event {
+                task_id: 7,
+                result: Ok(context::Response::Screenshot(captured.clone())),
+            },
+        );
+        state.expose_screenshot("disclosure".into(), 60, 5, 0, 5, true);
+        assert!(state.screenshot_reviewed);
+        let different = crate::providers::ModelSelection {
+            model: Some("unknown-model".into()),
+            effort: None,
+        };
+        state.configure_screenshot_route(captured.route.agent, &different);
+        assert!(state.screenshot_route.is_none());
+        assert!(!state.screenshot_reviewed);
+        state.event(
+            7,
+            context::Event {
+                task_id: 7,
+                result: Ok(context::Response::Screenshot(captured)),
+            },
+        );
+        assert!(state.screenshot_route.is_none());
+        state.command("attach", 7, None);
+        assert!(state.pending_screenshot_store.is_none());
+    }
+
+    #[test]
+    fn image_attachment_requires_complete_exposure_and_store_ack_and_cancel_saves_nothing() {
+        let mut state = State::default();
+        state.set_producer(Some(store::Attribution {
+            partner: 1,
+            name: "One".into(),
+            form: 0,
+        }));
+        state.screenshot_desired_owner = Some((7, 1));
+        let captured = captured_image();
+        state.configure_screenshot_route(captured.route.agent, &captured.route.selection);
+        state.event(
+            7,
+            context::Event {
+                task_id: 7,
+                result: Ok(context::Response::Screenshot(captured)),
+            },
+        );
+        state.command("attach", 7, None);
+        assert!(state.pending_screenshot_store.is_none());
+        state.expose_screenshot("disclosure".into(), 60, 5, 0, 10, true);
+        assert!(!state.screenshot_reviewed);
+        state.expose_screenshot("disclosure".into(), 60, 5, 5, 10, true);
+        assert!(state.screenshot_reviewed);
+        state.expose_screenshot("disclosure".into(), 61, 5, 5, 10, true);
+        assert!(!state.screenshot_reviewed);
+        state.expose_screenshot("disclosure".into(), 61, 5, 0, 10, false);
+        assert!(!state.screenshot_reviewed);
+        state.invalidate_review();
+        state.expose_screenshot("disclosure".into(), 60, 5, 5, 10, true);
+        assert!(!state.screenshot_reviewed);
+        state.expose_screenshot("disclosure".into(), 60, 5, 0, 10, true);
+        state.command("attach", 7, None);
+        let request = state.pending_screenshot_store.take().unwrap();
+        assert!(state.screenshot.is_none());
+        state.screenshot_event(
+            7,
+            request,
+            Ok(store::screenshots::Response {
+                attachment: Some(image()),
+                retained: Some(image().capture),
+            }),
+        );
+        assert!(state.screenshot.is_some());
+        state.screenshot_preview = Some(image());
+        state.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE), 7, None);
+        assert!(state.screenshot_preview.is_none());
+        assert!(state.pending_screenshot_store.is_none());
+    }
+
+    #[test]
+    fn image_owner_switch_defers_load_until_old_mutation_settles_without_substitution() {
+        let mut state = State::default();
+        state.set_producer(Some(store::Attribution {
+            partner: 1,
+            name: "One".into(),
+            form: 0,
+        }));
+        state.screenshot_desired_owner = Some((7, 1));
+        state.queue_screenshot_store(7, 1, store::screenshots::Operation::Put(image()));
+        let old = state.pending_screenshot_store.as_ref().unwrap().clone();
+        state.set_producer(Some(store::Attribution {
+            partner: 2,
+            name: "Two".into(),
+            form: 0,
+        }));
+        state.load_screenshot(7, 2);
+        assert!(matches!(
+            state
+                .pending_screenshot_store
+                .as_ref()
+                .map(|request| &request.operation),
+            Some(store::screenshots::Operation::Put(_))
+        ));
+        state.pending_screenshot_store.take();
+        state.screenshot_event(
+            7,
+            old,
+            Ok(store::screenshots::Response {
+                attachment: Some(image()),
+                retained: Some(image().capture),
+            }),
+        );
+        assert!(state.screenshot.is_none());
+        assert!(matches!(
+            state.pending_screenshot_store.as_ref(),
+            Some(store::screenshots::Request {
+                task_id: 7,
+                partner: 2,
+                operation: store::screenshots::Operation::Load
+            })
+        ));
+    }
+
+    #[test]
+    fn screenshot_removal_queues_frozen_review_not_later_display_selection() {
+        let mut state = State::default();
+        state.set_producer(Some(store::Attribution {
+            partner: 1,
+            name: "One".into(),
+            form: 0,
+        }));
+        let original = image().capture;
+        state.screenshot_retained = Some(original.clone());
+        state.command("screenshot-purge", 7, None);
+        state.screenshot_retained.as_mut().unwrap().path = "other.png".into();
+        let confirmation = state.confirmation.as_mut().unwrap();
+        confirmation.reviewed = true;
+        confirmation.destructive = true;
+        state.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE), 7, None);
+        assert!(
+            matches!(&state.pending_screenshot_store, Some(store::screenshots::Request {
+            task_id: 7, partner: 1, operation: store::screenshots::Operation::Purge(capture),
+        }) if capture == &original)
+        );
     }
 
     #[test]

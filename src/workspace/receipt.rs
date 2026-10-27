@@ -41,6 +41,72 @@ pub struct Receipt {
     pub tokens: usize,
     /// Captures emitted as a `same_bytes_as` citation instead of duplicated text.
     pub deduplicated: usize,
+    pub image: Option<ImageAccounting>,
+}
+
+/// Image token use is deliberately unknown: base64 transport is not text context.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ImageAccounting {
+    pub compressed_bytes: usize,
+    /// Exact serialized JSON data-URL string bytes, including its quotes.
+    pub serialized_bytes: usize,
+    pub tokens: Option<usize>,
+}
+
+fn image_accounting(value: &Value) -> Option<ImageAccounting> {
+    let input = value.get("input")?.as_array()?;
+    let mut result = None;
+    for message in input {
+        let Some(content) = message.get("content").and_then(Value::as_array) else {
+            continue;
+        };
+        for part in content {
+            if part.get("type").and_then(Value::as_str) != Some("input_image") {
+                continue;
+            }
+            let Some(url) = part.get("image_url").and_then(Value::as_str) else {
+                continue;
+            };
+            let Some(encoded) = url
+                .strip_prefix("data:image/png;base64,")
+                .or_else(|| url.strip_prefix("data:image/jpeg;base64,"))
+            else {
+                continue;
+            };
+            // Exact emitted format is canonical standard padded base64.
+            if encoded.len() % 4 != 0
+                || !encoded
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b"+/=".contains(&b))
+            {
+                continue;
+            }
+            let padding = encoded.bytes().rev().take_while(|b| *b == b'=').count();
+            if padding > 2 || encoded.is_empty() {
+                continue;
+            }
+            let image = result.get_or_insert(ImageAccounting {
+                compressed_bytes: 0,
+                serialized_bytes: 0,
+                tokens: None,
+            });
+            image.compressed_bytes += encoded.len() / 4 * 3 - padding;
+            image.serialized_bytes += url.len() + 2;
+        }
+    }
+    result
+}
+
+fn text_tokens(payload: &str, images: Option<&ImageAccounting>) -> usize {
+    let Some(images) = images else {
+        return estimate_tokens(payload);
+    };
+    // All emitted URL characters are ASCII. Keep JSON framing in the text
+    // estimate, excluding only image data URLs (one selected screenshot).
+    let ascii = payload.bytes().filter(u8::is_ascii).count();
+    let image_ascii = images.serialized_bytes.saturating_sub(2);
+    estimate_tokens(payload) - ascii.div_ceil(4) + ascii.saturating_sub(image_ascii).div_ceil(4)
 }
 
 const ORDER: [&str; 6] = [
@@ -72,11 +138,13 @@ fn category(key: &str) -> &'static str {
 
 pub fn receipt(payload: &str) -> Receipt {
     let bytes = payload.len();
-    let tokens = estimate_tokens(payload);
+    let value = serde_json::from_str::<Value>(payload).ok();
+    let image = value.as_ref().and_then(image_accounting);
+    let tokens = text_tokens(payload, image.as_ref());
     let mut sections: Vec<Section> = Vec::new();
-    match serde_json::from_str::<Value>(payload) {
-        Ok(Value::Object(fields)) => {
-            for (key, value) in &fields {
+    match &value {
+        Some(Value::Object(fields)) => {
+            for (key, value) in fields {
                 let text = serde_json::to_string(value).unwrap_or_default();
                 let name = category(key);
                 let section = match sections.iter_mut().find(|s| s.name == name) {
@@ -93,7 +161,8 @@ pub fn receipt(payload: &str) -> Receipt {
                 };
                 section.keys.push(key.clone());
                 section.bytes += text.len();
-                section.tokens += estimate_tokens(&text);
+                let image = if key == "input" { image.as_ref() } else { None };
+                section.tokens += text_tokens(&text, image);
             }
             sections.sort_by_key(|s| ORDER.iter().position(|name| *name == s.name));
         }
@@ -105,16 +174,14 @@ pub fn receipt(payload: &str) -> Receipt {
         }),
     }
     let counted: usize = sections.iter().map(|s| s.bytes).sum();
-    let deduplicated = match serde_json::from_str::<Value>(payload) {
-        Ok(value) => count_refs(&value),
-        Err(_) => 0,
-    };
+    let deduplicated = value.as_ref().map_or(0, count_refs);
     Receipt {
         envelope_bytes: bytes.saturating_sub(counted),
         sections,
         bytes,
         tokens,
         deduplicated,
+        image,
     }
 }
 
@@ -215,9 +282,21 @@ impl Receipt {
         }
         lines.push(format!("JSON keys/indentation: {} B", self.envelope_bytes));
         lines.push(format!(
-            "Total sent by Eevee: {} B ≈ {} tok",
-            self.bytes, self.tokens
+            "Total sent by Eevee: {} B ≈ {} {}",
+            self.bytes,
+            self.tokens,
+            if self.image.is_some() {
+                "text tok + UNKNOWN image tok"
+            } else {
+                "tok"
+            },
         ));
+        if let Some(image) = &self.image {
+            lines.push(format!(
+                "Screenshot: {} B compressed; {} B serialized image data-URL string (included above). Image tokens UNKNOWN, not zero; base64 is excluded from text estimates. No visual review or redaction is claimed.",
+                image.compressed_bytes, image.serialized_bytes,
+            ));
+        }
         lines.push("Partner flavor added by Eevee: 0 B (nicknames stay local).".into());
         lines.push("Not counted: provider instructions, tool schemas, resumed history and cache hits. Provider usage and billing are unknown unless the provider reports them; unknown is not zero.".into());
         lines
@@ -244,6 +323,8 @@ pub struct Durable {
     pub bytes: usize,
     pub tokens: usize,
     pub deduplicated: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image: Option<ImageAccounting>,
     pub captures: Vec<CaptureReference>,
     /// Other explicit source identities, never their text, paths or descriptions.
     pub references: Vec<SourceReference>,
@@ -331,6 +412,7 @@ impl Outgoing {
             bytes: measured.bytes,
             tokens: measured.tokens,
             deduplicated: measured.deduplicated,
+            image: measured.image.clone(),
             captures: wire
                 .captures
                 .into_iter()
@@ -344,8 +426,11 @@ impl Outgoing {
         };
         record.validate()?;
         Ok(Self {
+            // Binary retention belongs exclusively to the screenshot BLOB. Do
+            // not create a second base64 copy in outgoing source history.
+            source: (record.image.is_none() && super::privacy::redact(payload) == payload)
+                .then(|| payload.to_owned()),
             record,
-            source: (super::privacy::redact(payload) == payload).then(|| payload.to_owned()),
         })
     }
 }
@@ -387,6 +472,19 @@ impl Durable {
             return Err(
                 "Outgoing receipt has invalid identity, estimator or bounded counts".into(),
             );
+        }
+        if self.image.as_ref().is_some_and(|image| {
+            image.compressed_bytes == 0
+                || image.compressed_bytes > super::context::screenshot::MAX_COMPRESSED_BYTES
+                || image.serialized_bytes > self.bytes
+                || image.serialized_bytes < image.compressed_bytes
+                || !matches!(
+                    self.agent,
+                    crate::providers::Agent::OpenAI | crate::providers::Agent::Compatible
+                )
+                || image.tokens.is_some()
+        }) {
+            return Err("Outgoing screenshot accounting is invalid or invents image tokens".into());
         }
         let mut bytes = self.envelope_bytes;
         for (index, section) in self.sections.iter().enumerate() {
@@ -474,6 +572,69 @@ fn source_references(node: &Value, kind: Option<&str>, out: &mut Vec<SourceRefer
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn image_transport_is_not_text_tokens_or_a_second_durable_binary_copy() {
+        let bytes = [1u8, 2, 3, 4, 5];
+        let url = format!(
+            "data:image/png;base64,{}",
+            base64_simd::STANDARD.encode_to_string(bytes)
+        );
+        let body = serde_json::json!({
+            "model": "gpt-4.1",
+            "input": [{"role":"user","content":[
+                {"type":"input_text","text":"Inspect this screenshot"},
+                {"type":"input_image","image_url":url,"detail":"auto"}
+            ]}]
+        });
+        let payload = serde_json::to_string_pretty(&body).unwrap();
+        let receipt = receipt(&payload);
+        assert_eq!(
+            receipt.image,
+            Some(ImageAccounting {
+                compressed_bytes: bytes.len(),
+                serialized_bytes: url.len() + 2,
+                tokens: None,
+            })
+        );
+        assert!(receipt.tokens < estimate_tokens(&payload));
+        let mut no_url = body.clone();
+        no_url["input"][0]["content"][1]["image_url"] = Value::String(String::new());
+        assert_eq!(
+            receipt.tokens,
+            estimate_tokens(&serde_json::to_string_pretty(&no_url).unwrap())
+        );
+        assert!(
+            receipt
+                .lines()
+                .iter()
+                .any(|line| line.contains("Image tokens UNKNOWN"))
+        );
+        let claim = crate::store::WorkClaim {
+            task_id: 1,
+            owner: crate::store::Attribution {
+                partner: 1,
+                form: 1,
+                name: "Owner".into(),
+            },
+            request_id: "image-receipt".into(),
+            writing: false,
+        };
+        let outgoing = Outgoing::frozen(
+            &payload,
+            &claim,
+            1,
+            crate::providers::Agent::OpenAI,
+            crate::providers::Operation::Plan,
+            0,
+        )
+        .unwrap();
+        assert!(outgoing.source.is_none());
+        assert_eq!(outgoing.record.image, receipt.image);
+        let mut forged = outgoing.record;
+        forged.image.as_mut().unwrap().tokens = Some(0);
+        assert!(forged.validate().is_err());
+    }
 
     #[test]
     fn estimates_are_local_and_cjk_aware() {

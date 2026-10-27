@@ -2837,6 +2837,9 @@ impl std::fmt::Display for CommandLabel<'_> {
                 f,
                 [executable.as_str(), "[reviewed shell request]"].into_iter(),
             ),
+            runner::CommandSpec::SelectedCommit { .. } => {
+                f.write_str("[reviewed selected local Git commit; not verification]")
+            }
         }
     }
 }

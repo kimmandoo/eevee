@@ -2,6 +2,12 @@
 
 ## 2026-10-27
 
+- feat(context): added explicitly reviewed bounded PNG/JPEG attachments on qualified native Responses routes, exact original-byte transport, visible selected-image state, honest image accounting and quota-owned retention/removal/purge without replay.
+- feat(git): added user-authored selected whole-file local commits through the existing neutral one-shot approval, exclusive project writer and owned runner, preserving unselected work and recording actual commit/ref/index or partial/unknown outcomes without treating commits as verification.
+- fix(git): required stable Git2.x>=2.36 before repository/index inspection, reused contained native-handle reads, refused unsafe writable reflog aliases and left HEAD/ref transaction locks to Git while retaining exact final source/configuration/identity checks.
+- fix(process): corrected clean Windows environment block termination so every frozen Unicode identity/configuration variable reached the child without inherited configuration.
+- fix(approvals): fitted selected-commit controls to the actual padded compact viewport and invalidated hidden/resized image/commit exposure without disturbing unrelated source/optimizer work.
+- docs(storage): recorded SQL20 screenshot migration, exact retained-image full-directory snapshot/restore and genuine public0.1.32 refusal without database mutation, while retaining unreleased source0.1.33 and separate live-model/native-platform limits.
 - feat(search): added bounded cancellable project-private literal retrieval of retained task facts, approved notes, provider journals and run summaries, with archived filtering, truthful time/coverage and freshly validated original-evidence inspection.
 - feat(party): added paged task/form contribution drill-down from partner summaries and route context, retaining immutable producer attribution across rename/release/purge and guarded cross-task navigation; removed unsupported route-visit production inference.
 - feat(drafts): added bounded durable per-task/partner unsent Request parking, exact acknowledged composer clearing, neutral replacement/discard reviews and storage-only recovery without scheduling or replay.

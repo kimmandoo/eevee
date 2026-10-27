@@ -207,6 +207,8 @@ pub struct State {
     pub owner: Option<store::Attribution>,
     request_id: Option<String>,
     approval_review: Option<runner::Prepared>,
+    selected_review_covered: usize,
+    selected_review_geometry: Option<(u16, u16)>,
     pending_spec: Option<runner::CommandSpec>,
     move_cwd: Option<std::path::PathBuf>,
     pub move_origin: Option<(i64, u64)>,
@@ -280,6 +282,8 @@ impl Default for State {
             owner: None,
             request_id: None,
             approval_review: None,
+            selected_review_covered: 0,
+            selected_review_geometry: None,
             pending_spec: None,
             move_cwd: None,
             move_origin: None,
@@ -550,6 +554,7 @@ impl State {
         })
     }
     fn open_approval(&mut self) -> bool {
+        self.invalidate_review_exposure();
         let Some(prepared) = self.approvable().cloned() else {
             return false;
         };
@@ -575,9 +580,51 @@ impl State {
         self.searching = false;
         self.open_approval()
     }
+    /// Any obscured/resized/changed review loses accumulated selected-commit exposure.
+    pub fn invalidate_review_exposure(&mut self) {
+        self.selected_review_covered = 0;
+        self.selected_review_geometry = None;
+        self.confirmation_visible = false;
+        self.affirmative = false;
+        self.detail_scroll = 0;
+    }
+    pub fn expose_selected_review(
+        &mut self,
+        width: u16,
+        rows: u16,
+        total: usize,
+        rendered: bool,
+    ) -> usize {
+        if !self
+            .approvable()
+            .is_some_and(|prepared| self.approval_review.as_ref() == Some(prepared))
+        {
+            self.invalidate_review_exposure();
+            return 0;
+        }
+        if self.selected_review_geometry != Some((width, rows)) {
+            self.invalidate_review_exposure();
+            self.selected_review_geometry = Some((width, rows));
+        }
+        let start = self.detail_scroll as usize;
+        if rendered && start <= self.selected_review_covered {
+            self.selected_review_covered = self
+                .selected_review_covered
+                .max((start + rows as usize).min(total));
+        }
+        self.confirmation_visible = rendered && self.selected_review_covered == total;
+        self.selected_review_covered
+    }
     /// Approves the current exact prepared command under task-scoped
     /// auto-approval. Falls back to the ordinary review when not admissible.
     pub fn auto_approve(&mut self) -> bool {
+        if self
+            .prepared
+            .as_ref()
+            .is_some_and(|p| matches!(p.spec, runner::CommandSpec::SelectedCommit { .. }))
+        {
+            return false;
+        }
         if !self.open_approval() {
             return false;
         }
@@ -622,6 +669,7 @@ impl State {
         true
     }
     pub fn invalidate(&mut self) {
+        self.invalidate_review_exposure();
         self.plan_uncommitted = false;
         self.plan_data_dir = None;
         self.invalidation = true;
@@ -734,6 +782,11 @@ impl State {
         data_dir: std::path::PathBuf,
         cancelled: std::sync::Arc<std::sync::atomic::AtomicBool>,
     ) -> bool {
+        if matches!(spec, runner::CommandSpec::SelectedCommit { .. }) {
+            self.fail("Ownership", "A provider/file writer cannot author a selected local Git commit.",
+                "Author the selected whole-file changeset locally with /commit-edit and review it separately.");
+            return false;
+        }
         if self.busy() || self.storage_pending() {
             return false;
         }
@@ -1450,6 +1503,11 @@ impl State {
                 },
             ),
             choice(
+                "commit-edit",
+                "Author selected whole-file local Git commit",
+                reason,
+            ),
+            choice(
                 "execute",
                 "Review prepared command for one-shot execution",
                 reason.or_else(|| {
@@ -1583,7 +1641,11 @@ impl State {
         if self.searching {
             return None;
         }
-        if self.confirmation.is_some() && !matches!(name, "deny" | "command-edit" | "journal-retry")
+        if self.confirmation.is_some()
+            && !matches!(
+                name,
+                "deny" | "command-edit" | "commit-edit" | "journal-retry"
+            )
         {
             return None;
         }
@@ -1592,7 +1654,7 @@ impl State {
                 self.invalidate();
                 self.notice = "Request denied. Nothing executed; command draft retained.".into();
             }
-            "command-edit" => {
+            "command-edit" | "commit-edit" => {
                 if self.callback_claim.is_some() && self.busy() {
                     self.fail("Ownership", "A provider command's exact arguments cannot be edited in place.", "Deny/cancel this request; let the provider receive the refusal before a new command.");
                     return None;
@@ -2148,6 +2210,9 @@ impl State {
                 record.state, record.tree, record.started_at_ms, record.ended_at_ms, record.exit_code, record.signal, record.cancelled,
                 evidence_label(record, &self.latest), record.captured_bytes, record.discarded_bytes, record.dropped_live_bytes, record.truncated, record.output_unavailable,
                 record.prepared.before, record.after, self.latest));
+            if let Some(outcome) = &record.selected_commit {
+                text.push_str(&safe_text(&outcome.summary()));
+            }
             text.push_str(&approval_details(&record.prepared, self.capture_capacity));
             if let Some(error) = &record.error {
                 text.push_str(&format!("\nExecution details: {}\n", safe_text(error)));
@@ -2170,10 +2235,17 @@ pub fn parse_command(text: &str) -> Result<runner::CommandSpec, String> {
         text: String,
     }
     #[derive(serde::Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct SelectedCommit {
+        selected_commit: Vec<std::path::PathBuf>,
+        message: String,
+    }
+    #[derive(serde::Deserialize)]
     #[serde(untagged)]
     enum Input {
         Direct(Vec<String>),
         Shell(Shell),
+        SelectedCommit(SelectedCommit),
     }
     if text.len() > 64 * 1024 {
         return Err("Command exceeds 64 KiB".into());
@@ -2214,6 +2286,14 @@ pub fn parse_command(text: &str) -> Result<runner::CommandSpec, String> {
                 text: shell.text,
             })
         }
+        Input::SelectedCommit(commit) => {
+            runner::selected_commit::validate(&commit.selected_commit, &commit.message)?;
+            Ok(runner::CommandSpec::SelectedCommit {
+                paths: commit.selected_commit,
+                message: commit.message,
+                review: None,
+            })
+        }
     }
 }
 pub fn safe_text(text: &str) -> String {
@@ -2243,6 +2323,11 @@ pub fn command_summary(spec: &runner::CommandSpec) -> String {
         runner::CommandSpec::Shell { text, dialect, .. } => format!(
             "{dialect:?} shell {}",
             serde_json::to_string(text).unwrap_or_else(|_| "[unavailable command]".into())
+        ),
+        runner::CommandSpec::SelectedCommit { paths, message, .. } => format!(
+            "selected local commit {} whole files; exact message {}",
+            paths.len(),
+            serde_json::to_string(message).unwrap()
         ),
     }
 }
@@ -2302,6 +2387,12 @@ pub fn approval_details(p: &runner::Prepared, capacity: u64) -> String {
         p.expires_at_ms
     );
     text.push_str(&exact_command_lines(&p.spec));
+    if matches!(p.spec, runner::CommandSpec::SelectedCommit { .. }) {
+        text.push_str(&format!(
+            "\nONE explicit local commit only; no standing grant, replay or retry. Initially clean index, ordinary SHA-1 repository and repository-local user.name/email required. Selected regular additions/modifications/deletions only; no symlinks, submodules, detached/unborn HEAD, merge/conflict operations or external object/config includes.\nHermetic environment: no inherited PATH, Git/provider variables or global/system config. Frozen native Git image and OS runtime roots only. Owned plumbing stdin carries raw frozen source bytes/message, never interactive input. Native cancellation ownership is not an OS sandbox.\nExclusive project writer and {}-byte private output reservation commit before dispatch; 256 KiB journal headroom. Sanitized/redacted best-effort retained evidence; partial/unavailable output remains labelled. Cancellation may leave objects or partial ref/index publication; inspect actual outcome. A local commit never verifies content or completes the task.\n",
+            capacity.clamp(1024, 16 * 1024 * 1024)));
+        return text;
+    }
     text.push_str(&format!("\nPermission duration: ONE command; no reusable grant or automatic retry. Runtime duration: until exit or deliberate cancellation; no promised completion time.\nScope: arbitrary filesystem/network effects UNKNOWN. Not read-only, not sandboxed.\nEnforcement: Eevee dispatch checks + {} cancellation ownership before user execution. Escaped POSIX sessions/external effects are not contained.\nNull stdin; no interactive-shell inheritance.\nPrivate output capacity: {} bytes, committed under local quota BEFORE dispatch. Sanitized/redacted best-effort capture; full capture/queues drain and discard with explicit partial-evidence notices.\nBefore source identity: {:?}\n", if cfg!(windows) { "Windows kill-on-close Job" } else { "POSIX process group" }, capacity.clamp(1024, 16 * 1024 * 1024), p.before));
     text.push_str("Storage additionally reserves 256 KiB of bounded journal/metadata headroom; shared quota may refuse the request before any execution.\n");
     text.push_str("Environment boundary: inherits Eevee's current process environment; values are not reviewed, frozen or sanitized and may affect child execution. Model cannot supply an environment overlay. Explicit shells may interpret startup/configuration behavior; this is not an OS sandbox.\n");
@@ -2320,6 +2411,11 @@ pub fn exact_command_lines(spec: &runner::CommandSpec) -> String {
             for (index, arg) in args.iter().enumerate() { text.push_str(&format!("argv[{index}] = {}\n", serde_json::to_string(arg).unwrap())); }
         }
         runner::CommandSpec::Shell { executable, dialect, text: shell } => text.push_str(&format!("Route: explicit shell {:?}\nShell executable = {}\nExact shell text (JSON escaped) = {}\n", dialect, serde_json::to_string(executable).unwrap(), serde_json::to_string(shell).unwrap())),
+        runner::CommandSpec::SelectedCommit { paths, message, review } => {
+            text.push_str("Route: one reviewed selected whole-file local Git transaction; no shell\n");
+            text.push_str(&format!("Exact paths = {}\nExact message (JSON escaped) = {}\n", serde_json::to_string(paths).unwrap(), serde_json::to_string(message).unwrap()));
+            text.push_str(&runner::selected_commit::disclosure(review.as_deref()));
+        }
     }
     text
 }
@@ -2331,6 +2427,12 @@ pub fn source_coverage_partial(p: &runner::Prepared) -> bool {
 
 pub fn evidence_label(record: &runner::RunRecord, latest: &runner::InputSnapshot) -> String {
     let mut labels = Vec::new();
+    if matches!(
+        record.prepared.spec,
+        runner::CommandSpec::SelectedCommit { .. }
+    ) {
+        return "Local Git commit evidence only — never content, build or task verification".into();
+    }
     match record.state {
         runner::RunState::Interrupted => {
             labels.push("Interrupted; prior process ownership is not restored")

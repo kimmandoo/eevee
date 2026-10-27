@@ -65,6 +65,9 @@ pub(super) fn migrate(connection: &Connection) -> Result<(), String> {
 
 fn validate_source(record: &Durable, source: Option<&str>) -> Result<(), String> {
     record.validate()?;
+    if record.image.is_some() && source.is_some() {
+        return Err("Screenshot bytes must not be duplicated in outgoing source history".into());
+    }
     if let Some(source) = source {
         if source.len() > MAX_SOURCE_BYTES
             || source.len() != record.bytes
@@ -80,6 +83,7 @@ fn validate_source(record: &Durable, source: Option<&str>) -> Result<(), String>
             || measured.tokens != record.tokens
             || measured.envelope_bytes != record.envelope_bytes
             || measured.deduplicated != record.deduplicated
+            || measured.image != record.image
             || measured.sections.len() != record.sections.len()
             || measured
                 .sections

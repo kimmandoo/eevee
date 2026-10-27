@@ -7,6 +7,7 @@ fn decoded_body(body: NativeBody<'_>) -> Value {
 
 fn input() -> Input {
     Input {
+        screenshot: None,
         public_context: None,
         tool_catalog: None,
         context_plan: None,

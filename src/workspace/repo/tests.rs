@@ -668,13 +668,13 @@ fn queue_backpressure_retains_pending_intention_and_does_not_block() {
 fn expired_git_deadline_fails_before_launch() {
     let fixture = Fixture::git();
     let stopped = AtomicBool::new(false);
-    let git = Git::new(
+    let error = Git::new(
         &fixture.0,
         &stopped,
         Instant::now() - Duration::from_millis(1),
     )
+    .err()
     .unwrap();
-    let error = git.run(&["rev-parse", "HEAD"], None, 100).err().unwrap();
     assert!(error.contains("deadline"));
 }
 
@@ -785,4 +785,34 @@ fn byte_only_external_edits_remain_unattributed_after_reverting_to_head() {
     assert_eq!(current.changes[0].origin, ChangeOrigin::Unattributed);
     assert!(current.changes[0].was_dirty);
     assert!(Arc::ptr_eq(&initial.baseline, &current.baseline));
+}
+
+#[test]
+fn qualified_git_version_boundary_accepts_stable_native_formats_not_legacy_hook_semantics() {
+    for version in [
+        "git version 2.36.0",
+        "git version 2.43.0",
+        "git version 2.48.1.windows.1",
+        "git version 2.39.5 (Apple Git-154)",
+        "git version 2.50.1 (Apple Git-155.1)",
+    ] {
+        assert!(validate_git_version(version).is_ok(), "{version}");
+    }
+    for version in [
+        "git version 2.35.1",
+        "git version 2.35.99",
+        "git version 1.99.0",
+        "git version 3.0.0",
+        "git version 2.36",
+        "git version 2.36.0.rc1",
+        "git version 2.36.0.windows",
+        "git version 2.36.0 (custom wrapper)",
+        "git version 2.39.5 (Apple Git-154rc1)",
+        "git version 2.035.0",
+        "git version 2.43.0\nextra",
+        "unknown",
+    ] {
+        assert!(validate_git_version(version).is_err(), "{version}");
+    }
+    assert!(validate_git_version(&"x".repeat(129)).is_err());
 }

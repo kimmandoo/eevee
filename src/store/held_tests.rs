@@ -130,7 +130,7 @@ fn stored(state: &State) -> Vec<Item> {
     items(state.connection.as_ref().unwrap(), &state.project).unwrap()
 }
 fn retained(connection: &Connection) -> BTreeMap<String, Vec<Vec<rusqlite::types::Value>>> {
-    let names: Vec<String> = connection.prepare("SELECT name FROM sqlite_schema WHERE type='table' AND name NOT GLOB 'sqlite_*' AND name NOT IN('held_items','ribbons','context_revisions','outgoing_receipts','tool_artifacts','tool_catalog') ORDER BY name").unwrap()
+    let names: Vec<String> = connection.prepare("SELECT name FROM sqlite_schema WHERE type='table' AND name NOT GLOB 'sqlite_*' AND name NOT IN('held_items','ribbons','context_revisions','outgoing_receipts','tool_artifacts','tool_catalog','screenshots') ORDER BY name").unwrap()
         .query_map([], |row| row.get(0)).unwrap().collect::<rusqlite::Result<_>>().unwrap();
     names
         .into_iter()

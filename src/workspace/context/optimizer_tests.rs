@@ -675,6 +675,7 @@ fn selected_note_edits_revision_provenance_and_selection_invalidate_frozen_input
         instruction_override: None,
         excerpts: Vec::new(),
         context_plan: Some(plan.clone()),
+        screenshot: None,
         tool_catalog: None,
         report: Some(Arc::clone(&report)),
         resume: None,

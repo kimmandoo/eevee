@@ -178,6 +178,13 @@ const DIRECT_ACTIONS: &[(&str, Overlay, &str, &str, bool)] = &[
         false,
     ),
     (
+        "commit-edit",
+        Overlay::Execution,
+        "commit-edit",
+        "Author a selected local Git commit; nothing committed",
+        false,
+    ),
+    (
         "execute",
         Overlay::Execution,
         "execute",
@@ -274,6 +281,41 @@ const DIRECT_ACTIONS: &[(&str, Overlay, &str, &str, bool)] = &[
         "copy-decision",
         "Choose an imported unverified decision to copy into editor",
         true,
+    ),
+    (
+        "screenshot",
+        Overlay::Sources,
+        "screenshot",
+        "Review one project PNG/JPEG screenshot attachment",
+        false,
+    ),
+    (
+        "screenshot-show",
+        Overlay::Sources,
+        "screenshot-show",
+        "Inspect this partner's retained screenshot metadata",
+        false,
+    ),
+    (
+        "screenshot-remove",
+        Overlay::Sources,
+        "screenshot-remove",
+        "Remove the selected screenshot from future requests",
+        false,
+    ),
+    (
+        "screenshot-purge",
+        Overlay::Sources,
+        "screenshot-purge",
+        "Review purging locally retained screenshot bytes",
+        false,
+    ),
+    (
+        "screenshot-retry",
+        Overlay::Sources,
+        "screenshot-retry",
+        "Retry only the exact failed screenshot storage operation",
+        false,
     ),
     (
         "search",
@@ -1025,6 +1067,8 @@ impl App {
                     | "runs"
                     | "receipts"
                     | "artifacts"
+                    | "screenshot-show"
+                    | "screenshot-retry"
                     | "project-search"
                     | "retained-responses"
                     | "landmarks"
@@ -1149,7 +1193,15 @@ impl App {
                 && self.overlay != Some(Overlay::Sources)
                 && matches!(
                     *local,
-                    "search" | "basket" | "assemble" | "dispatch-preview"
+                    "search"
+                        | "basket"
+                        | "assemble"
+                        | "dispatch-preview"
+                        | "screenshot"
+                        | "screenshot-show"
+                        | "screenshot-retry"
+                        | "screenshot-remove"
+                        | "screenshot-purge"
                 )
                 && self.sources.editor.is_none()
                 && self.sources.confirmation.is_none()
@@ -1253,6 +1305,8 @@ impl App {
         self.parked_drafts.invalidate();
         self.workflow.authoring.invalidate();
         self.moves.invalidate_review();
+        self.sources.invalidate_screenshot_exposure();
+        self.execution.invalidate_review_exposure();
         self.invalidate_held_review();
         self.command_popup = Some(Popup {
             query: String::new(),
@@ -1652,10 +1706,21 @@ impl App {
             .iter()
             .find(|(command, _, _, _, _)| *command == name)
         {
-            if *local == "command-edit" {
+            if matches!(*local, "command-edit" | "commit-edit") {
                 self.execution.open(self.task_id);
                 if let Some(action) = self.execution.command(local) {
                     self.apply_execution_action(action);
+                }
+                if *local == "commit-edit"
+                    && self.editing
+                    && self.editor_field == crate::store::EditorField::Command
+                {
+                    if self.input.is_empty() && self.command.is_empty() {
+                        self.input = "{\"selected_commit\":[],\"message\":\"\"}".into();
+                        self.cursor = self.input.len();
+                        self.changed_task();
+                    }
+                    self.notice = "Selected commit JSON: {\"selected_commit\":[\"path\"],\"message\":\"exact message\"}. Existing command/draft is retained. Enter saves locally; /execute prepares a separate exact review.".into();
                 }
                 return true;
             }
@@ -1663,7 +1728,20 @@ impl App {
                 self.direct_sheet_return = Some((self.task_id, self.lead.id, *overlay));
             }
             let selecting = *selection && self.overlay != Some(*overlay);
-            self.open_overlay(*overlay);
+            if *overlay == Overlay::Sources
+                && matches!(
+                    *local,
+                    "screenshot"
+                        | "screenshot-show"
+                        | "screenshot-remove"
+                        | "screenshot-purge"
+                        | "screenshot-retry"
+                )
+            {
+                self.open_context_sources();
+            } else {
+                self.open_overlay(*overlay);
+            }
             if selecting {
                 if *overlay == Overlay::Sources && matches!(*local, "inspect" | "attach" | "range")
                 {
@@ -1686,7 +1764,15 @@ impl App {
                     if self.sources.busy()
                         && matches!(
                             *local,
-                            "search" | "basket" | "assemble" | "dispatch-preview"
+                            "search"
+                                | "basket"
+                                | "assemble"
+                                | "dispatch-preview"
+                                | "screenshot"
+                                | "screenshot-show"
+                                | "screenshot-retry"
+                                | "screenshot-remove"
+                                | "screenshot-purge"
                         )
                     {
                         self.pending_source_action = Some((self.task_id, self.lead.id, local));
@@ -3521,6 +3607,36 @@ mod tests {
                 assert!(app.composer_is_request());
                 assert_eq!((app.input.as_str(), app.cursor), ("before suffix", 6));
             }
+        }
+    }
+
+    #[test]
+    fn selected_commit_authoring_preserves_owner_and_nonempty_command_draft() {
+        for (width, height) in [(120, 36), (60, 18)] {
+            let mut app = role_relay_app(width, height, 4);
+            let owner = app.lead.clone();
+            let request = (app.input.clone(), app.cursor);
+            app.command = "[\"old-command\"]".into();
+            let draft = crate::store::Draft {
+                field: crate::store::EditorField::Command,
+                text: "{\"selected_commit\":[\"새 파일.rs\"],\"message\":\"exact suffix\"}".into(),
+                cursor: 8,
+            };
+            app.drafts.push(draft.clone());
+            assert!(app.command("commit-edit"));
+            assert_eq!(app.lead, owner);
+            assert_eq!(app.command, "[\"old-command\"]");
+            assert_eq!(
+                (app.input.as_str(), app.cursor),
+                (draft.text.as_str(), draft.cursor)
+            );
+            assert_eq!(app.editor_field, crate::store::EditorField::Command);
+            assert!(app.drafts.iter().any(|saved| {
+                saved.field == crate::store::EditorField::Request
+                    && (saved.text.as_str(), saved.cursor) == (request.0.as_str(), request.1)
+            }));
+            assert!(app.execution.prepared.is_none());
+            assert!(app.pending_command.is_none());
         }
     }
 }

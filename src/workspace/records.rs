@@ -148,6 +148,7 @@ fn exact_command(spec: &super::runner::CommandSpec) -> bool {
         super::runner::CommandSpec::Shell {
             executable, text, ..
         } => !executable.contains("[REDACTED]") && !text.contains("[REDACTED]"),
+        super::runner::CommandSpec::SelectedCommit { .. } => false,
     }
 }
 fn same_check(a: &super::runner::RunRecord, b: &super::runner::RunRecord) -> bool {

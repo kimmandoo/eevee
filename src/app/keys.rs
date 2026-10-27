@@ -10,6 +10,8 @@ impl App {
 
     /// Inject the event clock for deterministic autosave scheduling.
     pub fn update_at(&mut self, event: Event, now: std::time::Instant) -> bool {
+        self.sources
+            .configure_screenshot_route(self.planning.agent, &self.planning.selection);
         let hide_carry_over = matches!(&event, Event::Paste(_))
             || matches!(&event, Event::Key(key) if key.kind != KeyEventKind::Release);
         let motion_hidden = (hide_carry_over || matches!(&event, Event::Resize(_, _)))
@@ -52,8 +54,7 @@ impl App {
                 if let Some(confirmation) = &mut self.confirmation {
                     confirmation.destructive = false;
                 }
-                self.execution.affirmative = false;
-                self.execution.confirmation_visible = false;
+                self.execution.invalidate_review_exposure();
                 self.agents.reviewed = false;
                 self.images_reviewed = false;
                 self.images_selected = 0;
@@ -62,8 +63,7 @@ impl App {
                     state.invalidate_review();
                 }
                 for state in self.cooperation.executions.values_mut() {
-                    state.affirmative = false;
-                    state.confirmation_visible = false;
+                    state.invalidate_review_exposure();
                 }
                 if let Some(review) = self.cooperation_ui.release.as_mut() {
                     review.reviewed = false;
@@ -1450,6 +1450,7 @@ impl App {
             .iter()
             .map(|target| {
                 1 + target.excerpts.len()
+                    + target.screenshots.len()
                     + target.runs.len()
                     + target.provider_records.len()
                     + target.memories.len()

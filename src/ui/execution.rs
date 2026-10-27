@@ -184,6 +184,17 @@ fn confirmation(
     let Some(confirm) = state.confirmation.as_ref() else {
         return;
     };
+    if matches!(confirm, Confirmation::Approval)
+        && state.prepared.as_ref().is_some_and(|p| {
+            matches!(
+                p.spec,
+                crate::workspace::runner::CommandSpec::SelectedCommit { .. }
+            )
+        })
+    {
+        selected_commit_confirmation(frame, area, state, paint);
+        return;
+    }
     let (title, affirmative, description) = match confirm {
         Confirmation::Approval => (
             paint.hint(Message::ProvidersExecutionReviewOneShotExecutionPermission),
@@ -452,6 +463,76 @@ fn confirmation(
                 Message::ProvidersExecutionYConfirmNStayTabChooseEnter
             },
         ),
+        paint.accent,
+    );
+}
+
+/// GP07 reviews every exact wrapped row through bounded contiguous exposure.
+/// A skip, hidden surface, geometry change or replacement cannot provide consent.
+fn selected_commit_confirmation(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
+    state.confirmation_visible = false;
+    let Some(p) = state.prepared.as_ref() else {
+        return;
+    };
+    let body = execution::safe_text(&execution::approval_details(p, state.capture_capacity));
+    let lines: Vec<String> = body
+        .lines()
+        .flat_map(|line| wrapped_rows(line, area.width as usize, usize::MAX))
+        .collect();
+    text(
+        frame,
+        row(area, 0, 1),
+        "Review one-shot selected LOCAL commit — not verification",
+        paint.accent,
+    );
+    let choices = if state.affirmative {
+        " Stay    [Approve exact selected commit] "
+    } else {
+        " [Stay]    Approve exact selected commit "
+    };
+    let confirm_hint = "Left Stay · Right Approve · Enter confirms ONCE";
+    text(frame, row(area, 1, 1), choices, paint.surface);
+    let available = area.height.saturating_sub(5);
+    state.set_viewport(available as usize);
+    state.expose_selected_review(area.width, available, lines.len(), false);
+    state.detail_max = lines
+        .len()
+        .saturating_sub(available as usize)
+        .min(u16::MAX as usize) as u16;
+    state.detail_scroll = state.detail_scroll.min(state.detail_max);
+    let start = state.detail_scroll as usize;
+    let end = (start + available as usize).min(lines.len());
+    let rendered = available > 0
+        // The 60-column terminal has a 54-column padded review body.
+        // Require the actual decision controls to fit, not a guessed outer width.
+        && usize::from(area.width)
+            >= Span::raw(choices).width().max(Span::raw(confirm_hint).width())
+        && super::planning::render_summary(
+            frame,
+            row(area, 2, available),
+            &lines[start..end],
+            paint,
+        );
+    let reviewed = state.expose_selected_review(area.width, available, lines.len(), rendered);
+    text(
+        frame,
+        row(area, area.height.saturating_sub(3), 1),
+        &format!(
+            "Reviewed {reviewed}/{} rows · PgUp/PgDn inspect",
+            lines.len()
+        ),
+        paint.muted,
+    );
+    text(
+        frame,
+        row(area, area.height.saturating_sub(2), 2),
+        if state.auto_presented {
+            "Enter engages; Esc stays"
+        } else if !state.confirmation_visible {
+            "Review every row first; Esc stays. No standing grant."
+        } else {
+            confirm_hint
+        },
         paint.accent,
     );
 }

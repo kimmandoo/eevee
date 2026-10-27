@@ -27,6 +27,26 @@ use serde_json::{Value, json};
 /// Local preflight failure, before any model metadata or inference request.
 pub(crate) const MODEL_REQUIRED: &str = "Select an explicit model or configure a default before inference; discovery never guesses a fallback";
 
+/// Offline qualification shared by attachment review and native dispatch.
+pub fn screenshot_capability(
+    agent: super::Agent,
+    selection: &super::ModelSelection,
+) -> Result<String, String> {
+    if !matches!(agent, super::Agent::OpenAI | super::Agent::Compatible) {
+        return Err(
+            "This adapter refuses screenshot input; select a qualified native Responses route"
+                .into(),
+        );
+    }
+    let connection = config::resolve(agent)?;
+    let model = selection
+        .model
+        .as_deref()
+        .or(connection.model.as_deref())
+        .ok_or(MODEL_REQUIRED)?;
+    connection.screenshot_route(model)
+}
+
 /// Explicit local setup identity. Resolves only Eevee's own/environment connection
 /// settings; never contacts the server or imports another application's credentials.
 pub fn catalog_connection_scope(agent: super::Agent) -> Result<String, String> {
@@ -305,6 +325,19 @@ fn worker(
                 let result = validate_input(&workspace, &input).and_then(|()| {
                     let connection = config::resolve(input.agent)?;
                     preview.trust.push(connection.description.clone());
+                    if input.screenshot.is_some() {
+                        preview.trust.push(
+                            connection.screenshot_route(selected_model(&input, &connection)?)?,
+                        );
+                        preview.trust.push(
+                            input
+                                .screenshot
+                                .as_ref()
+                                .expect("selected screenshot")
+                                .capture
+                                .disclosure(),
+                        );
+                    }
                     preview.destination = Some(if input.inspect_models {
                         connection.models_url()
                     } else {
@@ -500,6 +533,7 @@ fn payload(
         })).map_err(|_| "Cannot encode model inspection preview".into());
     }
     input.validate_committed(&workspace.data_dir)?;
+    validate_screenshot(workspace, input, connection)?;
     let (purpose, context) = if let Some(review) =
         input.review_payload(&workspace.data_dir, &workspace.exclusions)?
     {
@@ -579,6 +613,9 @@ fn payload(
         input.native_instruction(),
     )?;
     let mut body = serde_json::to_value(body).map_err(|_| "Cannot encode native request")?;
+    if let Some(screenshot) = &input.screenshot {
+        attach_screenshot(&mut body, screenshot)?;
+    }
     if writes.is_some() {
         tools::advertise_selected(
             &mut body,
@@ -595,6 +632,44 @@ fn payload(
         ));
     }
     Ok(text)
+}
+
+fn validate_screenshot(
+    workspace: &Workspace,
+    input: &Input,
+    connection: &Connection,
+) -> Result<(), String> {
+    if let Some(screenshot) = &input.screenshot {
+        connection.screenshot_route(selected_model(input, connection)?)?;
+        let report = input
+            .report
+            .as_deref()
+            .ok_or("Screenshot requires a current project observation; capture it again")?;
+        screenshot.revalidate(report, &workspace.exclusions)?;
+    }
+    Ok(())
+}
+
+fn attach_screenshot(
+    body: &mut Value,
+    screenshot: &crate::workspace::context::screenshot::Attachment,
+) -> Result<(), String> {
+    let user = body
+        .get_mut("input")
+        .and_then(Value::as_array_mut)
+        .and_then(|input| input.last_mut())
+        .filter(|message| message["role"] == "user")
+        .ok_or("Screenshot requires the current Responses user turn")?;
+    let content = user
+        .get_mut("content")
+        .and_then(Value::as_array_mut)
+        .ok_or("Screenshot requires Responses user content")?;
+    content.push(json!({
+        "type": "input_image",
+        "image_url": screenshot.data_url(),
+        "detail": "auto",
+    }));
+    Ok(())
 }
 fn conversation_owner(input: &Input, scope: &str) -> ConversationOwner {
     ConversationOwner {

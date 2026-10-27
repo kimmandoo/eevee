@@ -1811,6 +1811,11 @@ impl App {
             let program = match &spec {
                 crate::workspace::runner::CommandSpec::Direct { program, .. } => program,
                 crate::workspace::runner::CommandSpec::Shell { executable, .. } => executable,
+                crate::workspace::runner::CommandSpec::SelectedCommit { .. } => {
+                    return Err(
+                        "A local commit is not a verification check or reusable baseline".into(),
+                    );
+                }
             };
             let path = crate::workspace::runner::resolve_executable(
                 program,

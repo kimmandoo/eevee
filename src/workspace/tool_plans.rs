@@ -79,6 +79,9 @@ pub fn command_text(spec: &runner::CommandSpec) -> Result<String, String> {
         } => {
             serde_json::json!({"shell":executable,"dialect":match dialect { runner::ShellDialect::Posix => "posix", runner::ShellDialect::Cmd => "cmd", runner::ShellDialect::PowerShell => "powershell" },"text":text})
         }
+        runner::CommandSpec::SelectedCommit { .. } => return Err(
+            "Selected Git commits require explicit local authoring and separate one-shot review; plans cannot authorize them".into()
+        ),
     };
     let text = value.to_string();
     safe(&text, 16 * 1024)?;

@@ -667,7 +667,7 @@ fn schema17_migration_is_atomic_preserves_rows_and_never_awards_legacy_sources()
         connection
             .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
             .unwrap(),
-        19
+        20
     );
     let after: String = connection
         .query_row(
@@ -762,7 +762,7 @@ fn strict_rows_unknown_fields_foreign_owners_and_schema_versions_refuse_without_
     let fixture = Fixture::new();
     let mut state = fixture.open();
     let task = fixture.task(&mut state);
-    for version in [18, 20] {
+    for version in [18, 21] {
         state
             .connection
             .as_ref()

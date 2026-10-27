@@ -151,7 +151,25 @@ The public installers above currently provide0.1.32. Source builds additionally 
 
 External editing waits for all work and saves to settle. Set `VISUAL` (preferred) or `EDITOR` to one executable, or a JSON argv array such as `["code","--wait"]`. No shell syntax or placeholders are expanded. Configure the editor to save in place: replaced files, links, unsafe/oversized output and cleanup failures are refused. The Request is exported as plaintext and may contain secrets; the unsandboxed editor inherits your environment, which may contain credentials, and may retain its own copies. Importing text does not send it.
 
-Parked drafts and landmarks advance the durable-reader contract despite unchanged SQL19. Back up the whole data directory before opening it with the new source; older binaries may refuse the new records.
+Parked drafts and landmarks added strict durable-reader metadata in Wave6. Current source also migrates admitted SQL0–19 data to SQL20 for retained screenshots; TM1/formation2/SDK bridge10 remain. Back up the whole data directory before opening it with new source. Public0.1.32 refuses SQL20; a matching version number is not a reader/rollback compatibility guarantee.
+
+### Reviewed images and selected local commits (unreleased source 0.1.33)
+
+`/screenshot` asks for one literal project-relative PNG/JPEG path. Read every disclosure page, then **Enter** attaches it locally without sending. The Request title shows the selected image and compressed byte count; the next ordinary explicit Send includes its original bytes. `/screenshot-show` inspects metadata, `/screenshot-remove` deselects but retains bytes, and `/screenshot-purge` reviews deletion of the retained capture. Storage failure blocks Send; `/screenshot-retry` retries storage only.
+A different capture requires purging the retained one first; removal alone does not replace its bytes.
+
+Images are bounded to2MiB compressed,4096 pixels per axis,8,388,608 pixels and32MiB decoded. Source containment, exclusions, no-link policy, current bytes and request-body bounds are rechecked. Only explicitly qualified native OpenAI/compatible Responses routes and known image-capable model IDs are supported; unknown routes/models and other adapters refuse. Terminal metadata is **not visual review**: inspect the original yourself. Eevee cannot reliably detect/redact image secrets. Image-token cost remains unknown unless reported; local purge is not secure erasure or provider deletion. Task export does not include image bytes; full-directory backup does.
+
+`/commit-edit` uses the existing Command editor. Author strict JSON, then `/execute` opens the paged one-shot review:
+
+```json
+{"selected_commit":["src/main.rs"],"message":"Describe this local change"}
+```
+
+This locally commits only the1–64 selected whole files (8MiB each/32MiB total; message up to16KiB). It requires stable Git2.x>=2.36, an ordinary SHA-1 repository with a native `.git` directory, an existing local branch, a clean initial index, no merge/conflict state and repository-local `user.name`/`user.email`. Hooks, attributes/filters, CRLF conversion, signing and executable helpers are bypassed under the disclosed raw-byte plumbing semantics. Global/inherited Git configuration is not imported. Unsupported states and HEAD/source/index/configuration drift refuse.
+
+The operation requires exclusive project write ownership and fresh complete-scope approval; provider tools, standing auto-approval and retained rerun cannot authorize it. Other dirty worktree bytes remain untouched. `/run` retains actual commit/ref/index outcomes, including partial/unknown publication and possible unreachable objects—not verification or automatic task completion. There is no push, authentication, automatic retry/reset or rollback claim.
+
 
 ## Providers
 

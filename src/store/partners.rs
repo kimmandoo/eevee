@@ -285,6 +285,9 @@ impl State {
             .execute("DELETE FROM held_items WHERE partner=?1", [partner])
             .map_err(|error| error.to_string())?;
         transaction
+            .execute("DELETE FROM screenshots WHERE partner=?1", [partner])
+            .map_err(|error| error.to_string())?;
+        transaction
             .execute("DELETE FROM partners WHERE id=?1", [partner])
             .map_err(|error| format!("Cannot release the partner: {error}"))?;
         enforce_evidence_quota(&transaction, &self.data_dir, self.policy)?;

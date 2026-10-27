@@ -1725,3 +1725,151 @@ fn task_auto_approval_reserves_agent_commands_without_review() {
         app.notice
     );
 }
+
+#[test]
+fn selected_commit_authoring_is_literal_local_intent_and_cannot_replay_or_auto_approve() {
+    let spec = parse_command(
+        r#"{"selected_commit":["a space.txt","nested/file"],"message":"exact $(not shell)\n"}"#,
+    )
+    .unwrap();
+    assert!(
+        matches!(&spec, runner::CommandSpec::SelectedCommit { paths, message, review: None }
+        if paths.len() == 2 && message == "exact $(not shell)\n")
+    );
+    for value in [
+        r#"{"selected_commit":[],"message":"x"}"#,
+        r#"{"selected_commit":["../outside"],"message":"x"}"#,
+        r#"{"selected_commit":[".git/config"],"message":"x"}"#,
+        r#"{"selected_commit":["same","same"],"message":"x"}"#,
+        r#"{"selected_commit":["source"],"message":""}"#,
+        r#"{"selected_commit":["source"],"message":"x","review":{}}"#,
+    ] {
+        assert!(parse_command(value).is_err(), "{value}");
+    }
+    let mut state = pending();
+    state.prepared.as_mut().unwrap().spec = spec;
+    assert!(!state.auto_approve());
+    assert!(state.take_store_request().is_none());
+    let mut record = runner::RunRecord::awaiting(state.prepared.as_ref().unwrap());
+    record.state = runner::RunState::Succeeded;
+    assert!(crate::app::execution_relays::retained_rerun_spec(&record).is_err());
+    assert!(evidence_label(&record, &record.after).contains("never content"));
+}
+
+#[test]
+fn selected_commit_hidden_skipped_repeated_and_resized_reviews_never_authorize() {
+    for (width, rows) in [(56, 11), (116, 29)] {
+        let mut state = pending();
+        state.prepared.as_mut().unwrap().spec = parse_command(
+            r#"{"selected_commit":["exact.txt"],"message":"one exact local operation"}"#,
+        )
+        .unwrap();
+        state.command("execute");
+        state.expose_selected_review(width, rows, 100, true);
+        state.key(key(KeyCode::Char('y')));
+        assert!(state.take_store_request().is_none());
+        state.detail_scroll = 90;
+        state.expose_selected_review(width, rows, 100, true);
+        assert!(
+            !state.confirmation_visible,
+            "unseen middle rows cannot be skipped"
+        );
+        state.invalidate_review_exposure();
+        while !state.confirmation_visible {
+            state.detail_scroll = state.selected_review_covered as u16;
+            state.expose_selected_review(width, rows, 100, true);
+        }
+        state.key(KeyEvent::new_with_kind(
+            KeyCode::Right,
+            KeyModifiers::NONE,
+            KeyEventKind::Repeat,
+        ));
+        assert!(!state.affirmative);
+        state.expose_selected_review(width + 1, rows, 100, true);
+        assert!(!state.confirmation_visible);
+        state.key(key(KeyCode::Right));
+        assert!(!state.affirmative);
+        state.invalidate_review_exposure(); // chooser/global overlay/owner hiding
+        assert_eq!(state.selected_review_covered, 0);
+        while !state.confirmation_visible {
+            state.detail_scroll = state.selected_review_covered as u16;
+            state.expose_selected_review(width, rows, 100, true);
+        }
+        let exact = state.prepared.clone().unwrap();
+        state.key(key(KeyCode::Right));
+        state.key(key(KeyCode::Enter));
+        assert!(matches!(state.queue.front(), Some(StoreJob::Reserve(p, _)) if *p == exact));
+        assert_eq!(state.queue.len(), 1);
+        state.key(key(KeyCode::Enter));
+        assert_eq!(
+            state.queue.len(),
+            1,
+            "consent cannot authorize a second operation"
+        );
+    }
+}
+
+#[test]
+fn selected_commit_root_review_pages_to_consent_at_supported_sizes_and_refuses_below_minimum() {
+    use crate::config::{ColorMode, Config, ImageMode, LayoutMode, Theme};
+    use ratatui::{Terminal, backend::TestBackend};
+    let config = Config {
+        ascii: true,
+        no_animation: true,
+        animation_override: Some(false),
+        theme: Theme::Dark,
+        color: ColorMode::Mono,
+        images: ImageMode::Off,
+        assets_dir: "unused".into(),
+        layout: LayoutMode::Sanctuary,
+        layout_explicit: false,
+        data_dir: "unused-data".into(),
+        storage_policy: store::Policy::default(),
+        context_exclusions: Vec::new(),
+        capture_capacity: 64 * 1024,
+    };
+    let mut artwork = crate::ui::artwork::Artwork::load(&config);
+    for (width, height) in [(60, 18), (120, 36), (59, 18), (60, 17)] {
+        let supported = width >= 60 && height >= 18;
+        let mut app = crate::app::App::new("/project".into(), width, height);
+        app.task_id = 1;
+        app.editing = false;
+        app.execution = pending();
+        app.execution.prepared.as_mut().unwrap().spec = runner::CommandSpec::SelectedCommit {
+            paths: vec!["exact 東京 file.txt".into()],
+            message: "Exact long message without final LF 東京. ".repeat(24),
+            review: None,
+        };
+        let exact = app.execution.prepared.clone().unwrap();
+        app.execution.command("execute");
+        app.overlay = Some(crate::app::Overlay::Execution);
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+        for _ in 0..128 {
+            terminal
+                .draw(|frame| {
+                    crate::ui::render(frame, &mut app, &config, &mut artwork, "off");
+                })
+                .unwrap();
+            if app.execution.confirmation_visible || !supported {
+                break;
+            }
+            app.execution.key(key(KeyCode::PageDown));
+        }
+        assert_eq!(
+            app.execution.confirmation_visible, supported,
+            "{width}x{height}"
+        );
+        assert!(!app.execution.affirmative);
+        assert!(app.execution.queue.is_empty());
+        app.execution.key(key(KeyCode::Right));
+        app.execution.key(key(KeyCode::Enter));
+        if supported {
+            assert!(
+                matches!(app.execution.queue.front(), Some(StoreJob::Reserve(p, _)) if *p == exact)
+            );
+            assert_eq!(app.execution.queue.len(), 1);
+        } else {
+            assert!(app.execution.queue.is_empty());
+        }
+    }
+}

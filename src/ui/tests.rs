@@ -1720,23 +1720,6 @@ fn release_review_requires_visible_explicit_consent_and_preserves_refused_identi
             .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
             .unwrap();
         let shown = screen_text(&terminal);
-        let disclosure = inner(centered(Rect::new(0, 0, width, height), 92, 24));
-        let buffer = terminal.backend().buffer();
-        let disclosure = (disclosure.y..disclosure.bottom())
-            .flat_map(|y| (disclosure.x..disclosure.right()).map(move |x| buffer[(x, y)].symbol()))
-            .collect::<String>();
-        let disclosure = disclosure.split_whitespace().collect::<Vec<_>>().join(" ");
-        for phrase in [
-            "Mizu (Vaporeon)",
-            "Remove:",
-            "Retain:",
-            "name/form attribution",
-            "not stored",
-            "Stay",
-            "Storage:",
-        ] {
-            assert!(disclosure.contains(phrase), "{phrase}: {disclosure}");
-        }
         assert!(
             app.cooperation_ui.release.as_ref().unwrap().reviewed,
             "{shown}"

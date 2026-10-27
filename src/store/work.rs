@@ -41,7 +41,7 @@ fn rows(connection: &Connection) -> Result<Vec<(WorkClaim, String)>, String> {
         .map_err(|error| error.to_string())?;
     for (claim, kind) in &rows {
         validate_claim(claim)?;
-        if kind != "provider" && kind != "command" || kind == "command" && claim.writing {
+        if kind != "provider" && kind != "command" {
             return Err("Invalid stored work kind".into());
         }
     }
@@ -77,6 +77,27 @@ fn acquire(
         return Err("Work requires its saved active task with a goal".into());
     }
     let current = rows(connection)?;
+    let selected = kind == "command" && claim.writing;
+    for (existing, existing_kind) in &current {
+        let project: String = connection
+            .query_row(
+                "SELECT project FROM tasks WHERE id=?1",
+                [existing.task_id],
+                |row| row.get(0),
+            )
+            .map_err(|e| e.to_string())?;
+        if project == task.project && (selected || existing_kind == "command" && existing.writing) {
+            return Err("Selected local commit requires exclusive project ownership across every task; wait for all owned work to settle".into());
+        }
+    }
+    if selected {
+        let reserved: bool = connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM executions e JOIN tasks t ON t.id=e.task_id WHERE e.reserved=1 AND t.project=?1)",
+            [&task.project], |row| row.get(0)).map_err(|e| e.to_string())?;
+        if reserved {
+            return Err("A project run still owns a reservation; selected commit refused".into());
+        }
+    }
     if let Some((existing, existing_kind)) = current
         .iter()
         .find(|(existing, _)| existing.request_id == claim.request_id)
@@ -238,6 +259,12 @@ pub(super) fn validate_nested_command(
     prepared: &crate::workspace::runner::Prepared,
 ) -> Result<(), String> {
     validate_live(connection, claim)?;
+    if matches!(
+        prepared.spec,
+        crate::workspace::runner::CommandSpec::SelectedCommit { .. }
+    ) {
+        return Err("Provider/file-write approval cannot authorize a selected Git commit; author it locally and review separately".into());
+    }
     if !claim.writing
         || claim.task_id != prepared.task_id
         || prepared.partner.as_ref() != Some(&claim.owner)
@@ -281,12 +308,19 @@ pub(super) fn acquire_command(
         task_id: task.id,
         owner,
         request_id: prepared.request_id.clone(),
-        writing: false,
+        writing: matches!(
+            prepared.spec,
+            crate::workspace::runner::CommandSpec::SelectedCommit { .. }
+        ),
     };
     acquire(connection, task, &claim, "command")?;
-    Ok(claims(connection)?
-        .iter()
-        .any(|claim| claim.task_id == task.id && claim.writing))
+    if claim.writing {
+        Ok(false)
+    } else {
+        Ok(claims(connection)?
+            .iter()
+            .any(|claim| claim.task_id == task.id && claim.writing))
+    }
 }
 
 pub(super) fn release_command(
@@ -300,6 +334,10 @@ pub(super) fn release_command(
         if claim.task_id != prepared.task_id
             || kind != "command"
             || claim.writing
+                != matches!(
+                    prepared.spec,
+                    crate::workspace::runner::CommandSpec::SelectedCommit { .. }
+                )
             || prepared
                 .partner
                 .as_ref()
@@ -332,6 +370,39 @@ pub(super) fn inspect_work(connection: &Connection) -> Result<(), String> {
     if invalid {
         return Err("Invalid durable work ownership or write lease capacity".into());
     }
-    rows(connection)?;
+    let current = rows(connection)?;
+    for (claim, kind) in &current {
+        if kind == "command" && claim.writing {
+            let record: crate::workspace::runner::RunRecord = connection.query_row(
+                "SELECT record FROM executions WHERE request_id=?1 AND task_id=?2 AND reserved=1",
+                params![claim.request_id, claim.task_id], |row| json_column(row, 0, super::runs::MAX_RUN_BYTES))
+                .map_err(|e| e.to_string())?;
+            if !matches!(
+                record.prepared.spec,
+                crate::workspace::runner::CommandSpec::SelectedCommit { .. }
+            ) || record.prepared.task_id != claim.task_id
+                || record.prepared.request_id != claim.request_id
+                || record.prepared.partner.as_ref() != Some(&claim.owner)
+            {
+                return Err(
+                    "Only its exact task/partner/request-selected commit may own a command writer"
+                        .into(),
+                );
+            }
+            let project: String = connection
+                .query_row(
+                    "SELECT project FROM tasks WHERE id=?1",
+                    [claim.task_id],
+                    |row| row.get(0),
+                )
+                .map_err(|e| e.to_string())?;
+            let overlaps: bool = connection.query_row(
+                "SELECT EXISTS(SELECT 1 FROM active_work w JOIN tasks t ON t.id=w.task_id WHERE t.project=?1 AND w.request_id<>?2) OR EXISTS(SELECT 1 FROM executions e JOIN tasks t ON t.id=e.task_id WHERE t.project=?1 AND e.reserved=1 AND e.request_id<>?2)",
+                params![project, claim.request_id], |row| row.get(0)).map_err(|e|e.to_string())?;
+            if overlaps {
+                return Err("Selected commit overlaps another project work owner".into());
+            }
+        }
+    }
     Ok(())
 }

@@ -725,3 +725,44 @@ fn moving_runs_cannot_support_review_diagnosis_or_refactor_after_restore() {
     assert!(facts.is_empty());
     assert!(unresolved.iter().all(|note| note.contains("unverified")));
 }
+
+#[test]
+fn successful_selected_commit_is_never_a_build_test_or_review_verification() {
+    let fixture = Fixture::new();
+    let excerpts = [fixture.source()];
+    let source = EvidenceRef::source(&excerpts[0]).unwrap();
+    let current = snapshot("unchanged");
+    let mut run = record("selected-local-commit", "unchanged", 1);
+    run.prepared.spec = runner::CommandSpec::SelectedCommit {
+        paths: vec!["changed.txt".into()],
+        message: "Local commit, not verification".into(),
+        review: None,
+    };
+    let reference = EvidenceRef::run(&run).unwrap();
+    let runs = [run];
+    let evidence = view(&excerpts, &runs, &current);
+    assert_eq!(evidence.status(&reference), EvidenceStatus::Unavailable);
+    assert!(!evidence.successful_current_run(&reference));
+    let mut state = State::default();
+    let ordinary = [record("ordinary-check", "unchanged", 1)];
+    assert!(
+        state
+            .set_refactor(
+                "Retain behavior",
+                vec![source.clone()],
+                "ordinary-check",
+                &view(&excerpts, &ordinary, &current)
+            )
+            .is_ok()
+    );
+    assert!(
+        state
+            .set_refactor(
+                "Retain behavior",
+                vec![source],
+                "selected-local-commit",
+                &evidence
+            )
+            .is_err()
+    );
+}
