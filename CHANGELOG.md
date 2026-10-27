@@ -8,6 +8,7 @@
 - fix(codex): finalized complete plan-snapshot text through the existing redactor without marking progress complete or weakening ordinary message credential-tail protection.
 - docs(readme): replaced the text-only reconstructed screenshot with a direct Ghostty window capture showing native Eevee pixels, and recorded separate third-party-artwork provenance and rights limits.
 - fix(verification): removed the context-only send wrapper that forced idle settling inside inherited active-request paths, retaining exact protocol/response/lease settlement checks.
+- fix(verification): waited for the rendered Request return after durable source attachment, preventing a stale-drawer Escape from opening draft discard without weakening confirmation guards.
 
 ## 2026-10-27
 

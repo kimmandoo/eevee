@@ -1,5 +1,12 @@
 # Troubleshooting
 
+### [2026-10-28] Attachment persistence preceded the Request return frame
+
+- **Context / Symptom:** Native run40547662468 passed Check/macOS×2/Linux-arm64/Windows. Linux-x86_64 compact context failed after the second source attachment with `refusing to dismiss unknown popup`, showing `Review draft discard`.
+- **Root Cause:** The source row was durably committed before the terminal displayed the transition back to Request. The helper observed the SQL row, mistook the stale source-drawer frame for the current surface and sent Esc after the app had already returned; the normal draft-discard guard then correctly opened.
+- **Solution:** `records_smoke.Journey.pin_range` now waits for the actual Request footer after the existing exact SQL capture acknowledgment before navigating. It neither dismisses a new confirmation nor changes capture/consent/HTTP predicates, deadlines or coverage. The full two-size context journey passed in `target/ci-40547662468-context-fixed`; original failure evidence remains under `target/ci-40547662468/linux-x86_64`.
+- **Prevention / Reference:** Durable acknowledgment and rendered navigation acknowledgment are different boundaries. Wait for both rather than sending another Escape or treating silence as settlement.
+
 ### [2026-10-28] Nested context sends still forced idle-only capture during inference
 
 - **Context / Symptom:** Native run40540661883 passed Check and four native targets, including Windows. macOS-arm64's compact context journey failed in inherited `moves_smoke.Journey.send_request` with `native console output did not settle within the bounded capture window`; the wide journey passed. Retained evidence is `target/ci-40540661883/macos-arm64`.

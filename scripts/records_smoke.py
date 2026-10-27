@@ -395,6 +395,11 @@ class Journey(MovesJourney):
         self.session.command('attach')
         self.until(lambda: len({row['record']['id'] for row in self.state()['excerpts']} - before) == 1,
                    'exact reviewed source capture committed')
+        # The durable row may be committed before the frame returning from the
+        # source drawer. Esc against that stale drawer would discard Request.
+        self.until(lambda: self.session.display().rstrip().splitlines()[-1].strip().startswith(
+            ('Type Request /', 'Type a request /', 'Enter Send /', 'Draft only /')),
+            'source attachment acknowledgement returned to Request')
         self.workspace()
         return next(row['record'] for row in self.state()['excerpts'] if row['record']['id'] not in before)
 
