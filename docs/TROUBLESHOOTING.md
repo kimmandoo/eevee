@@ -1,5 +1,18 @@
 # Troubleshooting
 
+### [2026-10-28] Nested context sends still forced idle-only capture during inference
+
+- **Context / Symptom:** Native run40540661883 passed Check and four native targets, including Windows. macOS-arm64's compact context journey failed in inherited `moves_smoke.Journey.send_request` with `native console output did not settle within the bounded capture window`; the wide journey passed. Retained evidence is `target/ci-40540661883/macos-arm64`.
+- **Root Cause:** The context-only session subclass forwarded every send with `settle=True`, overriding the shared session's asynchronous POSIX default. The earlier explicit async fix covered its direct source-tool path but not inherited request senders; legitimate Connecting animation could therefore fail before the existing HTTP/answer/lease predicates ran.
+- **Solution:** Removed the behaviorless forwarding subclass and used the existing `SurfaceSession` directly. No quiet deadline, retry, coverage, expected response or authority check changed. The actual two-size context journey passed in `target/ci-40540661883-context-fixed`.
+- **Prevention / Reference:** Keep idle-only capture opt-in at appropriate call sites; do not use terminal silence as evidence that an active request settled.
+
+### [2026-10-28] Rust language-server shim resolved without its installed component
+
+- **Context / Symptom:** Exported-symbol reference lookup reported `LSP server exited unexpectedly (code 0)`, although status said rust-analyzer was configured. Direct version inspection reported `Unknown binary 'rust-analyzer' in official toolchain 'stable-aarch64-apple-darwin'`.
+- **Root Cause:** PATH resolved the rustup shim, but the selected stable toolchain lacked its rust-analyzer component; the device also cached the initialization failure.
+- **Solution:** Installed only the missing stable rust-analyzer component, reloaded the server and refreshed the source snapshot after startup indexing. A real Preview reference query then returned75 references. The project's qualification toolchain remained Rust1.90.0; no global default toolchain or product setting changed.
+
 ### [2026-10-28] Real Ghostty capture initially showed setup or monochrome cell art
 
 - **Context / Symptom:** A fresh isolated Ghostty1.3.1 launch first showed `No image / Images: setup`; after artwork installation it showed a monochrome character approximation rather than native pixels. The old README screenshot had explicitly disabled images and reconstructed text cells.

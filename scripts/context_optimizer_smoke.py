@@ -42,15 +42,10 @@ def selected_packet(wire):
     return context[start:start + end].encode('utf-8'), value, messages
 
 
-class OptimizerSession(SurfaceSession):
-    def send(self, keys, *, settle=True):
-        super().send(keys, settle=settle)
-
-
 class Journey(RecordsJourney):
     def launch(self):
         self.serial += 1
-        self.session = OptimizerSession(
+        self.session = SurfaceSession(
             [str(self.binary), '--data-dir', str(self.data), '--images', 'off',
              '--color', 'mono', *(['--ascii'] if self.ascii_mode else [])],
             self.project, self.environment, self.size,

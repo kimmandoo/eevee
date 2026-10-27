@@ -13,6 +13,15 @@ Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPAT
 5. Passed Rust1.90.0 formatting/strict Clippy/1,811 tests/two ignored/release build,45 SDK tests,24 Python tests/four Windows-only skips and all final native/effort/coding/image/commit profiles. Archived only accepted specifications and updated current contracts/docs. **Exact next action: commit/push the qualified candidate.**
 6. Require same-commit Check and all five native jobs in one attempt before tagging0.1.33. Publish only qualified artifacts, verify public checksums/package identities and run the downloaded host package/install journey. Record exact evidence and commit the final release handoff.
 
+## Authorized follow-up — Native session transport and agent usability
+
+1. Compare the behavior reference with current native/stdio ownership and primary provider protocol documentation. Keep reference identifiers/copied code out of tracked product files. Preserve the already accepted0.1.33 feature/graphics evidence; do not silently fold an unqualified transport into its release.
+2. Add native-only explicit auto/http/websocket selection and one Run-owned Responses connection retained across real tool-result continuations. Freeze actual frame/destination/receipts, preserve all approval/ownership and full-context bounds, and reject unsupported/error/replay paths without fallback. Public API and subscription backend remain distinct.
+3. Improve existing request-bound terminal outcome/context clarity, truthful native transport versus provider-session disclosures and concrete external-process disconnect diagnostics. Keep provider claims, item completion, actual local evidence and remote uncertainty separate; no automatic follow-up or grant.
+4. Finish0.1.33 qualification from its exact committed source, including the remaining macOS context-driver default-settlement repair. Publish only after Check/all five same-attempt native rows pass and verify downloaded artifacts/actual installation. Do not push follow-up production changes before that publication finishes.
+5. Advance source to0.1.34 for the authorized follow-up, integrate consumer regressions and actual WS/stdio/TUI smokes, rerun strict pinned-toolchain/SDK/native gates, update docs/checkpoint/changelog, commit and push. Require fresh exact-source native qualification, publish an additional release and verify its downloaded host/package/install behavior. No Wave8 or live/paid calls are authorized by this local change.
+
+
 ## Completed implementation — Wave7 new input and repository effects
 
 1. Completed GP06: explicit fully decoded PNG/JPEG capture reused source workers, one quota-owned BLOB per task/partner, strict SQL20 admission and native request/receipt boundaries. Actual compact/wide journeys proved exact original PNG/JPEG wire bytes, unknown image tokens vs actual serialized bytes, changed/deleted dispatch refusal, explicit blocked-owner cancellation, neutral remove/cancel, restart and purge; a separate quota journey refused storage/transport.
