@@ -202,6 +202,54 @@ fn only_output(packet: &Value, anchor: &str, call: &str, status: &str, path: &st
 }
 
 #[test]
+fn native_websocket_ambient_tls_roots_apply_only_to_secure_transport() {
+    const CHILD: &str = "EEVEE_TEST_WEBSOCKET_AMBIENT_TLS_CHILD";
+    if std::env::var_os(CHILD).is_some() {
+        native_websocket_retains_one_handshake_with_frozen_initial_and_actual_anchored_tool_deltas(
+        );
+        let connection = config::test_authenticated_connection(
+            Protocol::Responses,
+            "https://127.0.0.1:9876/v1",
+            Some("fixture-model"),
+            "synthetic-native-websocket-bearer",
+        );
+        let destination = connection.websocket_url().unwrap();
+        let http = http_client().unwrap();
+        assert!(connection.websocket_request(&http, &destination).is_err());
+        return;
+    }
+    // Environment changes are child-local: other parallel consumers keep their
+    // real network policy, and the secure route must still refuse custom trust.
+    let name = std::any::type_name_of_val(
+        &native_websocket_ambient_tls_roots_apply_only_to_secure_transport,
+    );
+    let name = name.split_once("::").unwrap().1;
+    let mut child = std::process::Command::new(std::env::current_exe().unwrap());
+    child
+        .args(["--exact", name, "--nocapture", "--test-threads=1"])
+        .env(CHILD, "1")
+        .env("SSL_CERT_FILE", "controlled-unavailable-tls-roots.pem")
+        .env("SSL_CERT_DIR", "controlled-unavailable-tls-roots");
+    for key in [
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "ALL_PROXY",
+        "http_proxy",
+        "https_proxy",
+        "all_proxy",
+    ] {
+        child.env_remove(key);
+    }
+    let output = child.output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn native_websocket_retains_one_handshake_with_frozen_initial_and_actual_anchored_tool_deltas() {
     let mut fixture = fixture(&["first.txt", "nested/日本語.txt"]);
     let (url, server) = websocket_peer(|socket| {

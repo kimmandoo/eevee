@@ -1,5 +1,17 @@
 # Troubleshooting
 
+### [2026-10-28] TLS-root settings blocked a cleartext loopback WebSocket
+
+- **Context / Symptom:** Native40567052809 passed Check and both macOS jobs, but both Linux test suites refused plain loopback sockets with `Native WebSocket refuses custom ambient TLS trust; no trust-policy bypass or fallback`.
+- **Root Cause:** The new transport checked ambient TLS-root variables before considering whether the frozen destination actually used TLS. Linux runner settings exposed that cleartext `ws://` cannot consume those trust roots.
+- **Solution:** Limited that check to secure `wss://`, leaving exact destination admission, remote cleartext refusal and all proxy/secure-trust guards intact. Added a child-local environment regression that performs the real retained tool chain with unavailable TLS-root settings and separately requires secure scoped request refusal. Its focused regression passed; full corrected-source and native qualification remain recorded in the checkpoint.
+
+### [2026-10-28] Windows held-response verification requested idle-only capture
+
+- **Context / Symptom:** Native40567052809 Windows passed Rust/build/install/ConPTY8 and six workflow drivers. Conversation failed at its held request Enter with `native console output did not settle within the bounded capture window`; fixture cleanup then masked it as `loopback listener/worker cleanup exceeded deadline`.
+- **Root Cause:** The Windows session's normal idle-only input capture was used while the controlled provider deliberately kept Receiving response active. Cleanup also left that owned HTTP gate held after an assertion.
+- **Solution:** Used explicit non-idle input pumping only for the held request, future Unicode paste/caret/save and cancellation. Exact POST/visible-partial/SQL-owner/outcome/release predicates still determine settlement; idle defaults and deadlines did not change. Failure cleanup now releases the fixture's own gate. Original evidence is retained at `target/ci-40567052809/windows`.
+
 ### [2026-10-28] External uncertainty was confused with a live durable transport lease
 
 - **Context / Symptom:** New postdispatch disconnect verification reported `opaque external effects were silently released` after real Unknown settlement.

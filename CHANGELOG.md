@@ -15,6 +15,8 @@
 - fix(providers): admitted sparse ordered streamed output indices while retaining duplicate, lifecycle, response-identity and final-snapshot consistency checks.
 - docs(release): published v0.1.33 from `3c2db8f` after Check/all-five-native qualification, verified all eight public assets/five exact qualified archives and passed24 downloaded installation groups including34 installed native terminal scenarios.
 - docs(verification): passed20 actual WebSocket journeys,20 external-disconnect journeys and four native/Codex retained-outcome journeys at both terminal sizes, preserving exact receipts, original status/context, future drafts/carets and no-replay boundaries.
+- fix(providers): applied ambient TLS-root refusal only to secure WebSocket destinations, preserving proxy/endpoint/secure-trust guards while admitting permitted cleartext loopback sockets under Linux runner TLS settings.
+- fix(verification): used explicit active-input capture for held Windows conversation requests and released the fixture-owned HTTP gate after failure, preserving exact dispatch/partial/draft/caret/outcome predicates and idle defaults elsewhere.
 
 ## 2026-10-27
 

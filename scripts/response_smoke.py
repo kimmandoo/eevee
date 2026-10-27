@@ -50,11 +50,15 @@ class SurfaceSession(Session):
         self.surface = SURFACE
         super().__init__(argv, *args, **kwargs)
 
-    def command(self, name):
-        # Ctrl+K opens/resets the chooser from any drawer.
-        self.send("\x0b")
-        self.send(name)
-        self.send("\r")
+    def command(self, name, *, settle=None):
+        # Ctrl+K opens/resets the chooser from any drawer. A controlled active
+        # turn uses semantic predicates, not idle-only console settling.
+        self.send("\x0b", settle=settle)
+        self.send(name, settle=settle)
+        self.send("\r", settle=settle)
+
+    def paste(self, text, *, settle=None):
+        self.send(ESC + "[200~" + text + ESC + "[201~", settle=settle)
 
 
 class SurfaceJourney(Journey):

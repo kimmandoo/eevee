@@ -34,6 +34,7 @@ def native_case(binary, output, size, ):
     output.mkdir(parents=True, exist_ok=True)
     result = {'status': 'failed', 'route': 'native-compatible', 'size': list(size), 'cases': [], 'payload_assertions': []}
     journey = None
+    release = None
     with tempfile.TemporaryDirectory(prefix='ev-conversation-native-') as temporary:
         with Peer('chat_completions', 'unused-public-keyless-fixture', True) as peer:
             try:
@@ -57,9 +58,9 @@ def native_case(binary, output, size, ):
                     before = len(peer.snapshot('POST'))
                     peer.plans.put(('complete', answer))
                     if command is None:
-                        session.send('\r')
+                        session.send('\r', settle=False)
                     else:
-                        session.command(command)
+                        session.command(command, settle=False)
                     until(session, lambda: len(peer.snapshot('POST')) == before + 1,
                           label + ': exactly one actual native POST')
                     row = peer.snapshot('POST')[-1]
@@ -183,22 +184,29 @@ def native_case(binary, output, size, ):
                         peer.plans.put(('custom', interrupted))
                     journey.write_request(request)
                     before = len(peer.snapshot('POST'))
-                    session.send('\r')
+                    # The peer deliberately holds this turn open. Windows
+                    # console quiet is not a completion/ready signal here.
+                    session.send('\r', settle=False)
                     until(session, lambda: len(peer.snapshot('POST')) == before + 1,
                           'one explicit interrupted request')
                     _, actual = decoded_payload('chat_completions', peer.snapshot('POST')[-1]['body'])
                     assert actual == history + [('user', request)], actual
                     until(session, peer.cancel_started.is_set if mode == 'cancel' else ready.is_set,
                           'actual partial bytes before future editing')
+                    until(session, lambda: shown_partial in ''.join(
+                        unicodedata.normalize('NFC', session.display()).split()),
+                        'admissible partial rendered before future editing')
                     future = 'Future界e\u0301Z-end'
-                    journey.write_request(future)
-                    session.send((ESC + '[D') * 3)
-                    session.send('\x13')
+                    # Send left the Request editor available for inert future
+                    # work. Do not wait for console silence while it streams.
+                    session.paste(future, settle=False)
+                    session.send((ESC + '[D') * 3, settle=False)
+                    session.send('\x13', settle=False)
                     cursor = len(future[:-3].encode())
                     until(session, lambda: saved_request(journey, future, cursor),
                           'future Unicode draft and nonterminal caret saved')
                     if mode == 'cancel':
-                        session.command('cancel')
+                        session.command('cancel', settle=False)
                         until(session, peer.cancel_closed.is_set, 'actual cancel closed reader')
                     else:
                         release.set()
@@ -252,6 +260,10 @@ def native_case(binary, output, size, ):
                 if journey is not None:
                     journey.capture('failed')
             finally:
+                # An assertion must not strand the owned HTTP fixture on its
+                # gate and replace the useful failure with a cleanup timeout.
+                if release is not None:
+                    release.set()
                 save(output / 'http-requests.json', peer.snapshot())
                 if journey is not None:
                     save(output / 'owned-state.json', journey.snapshot())

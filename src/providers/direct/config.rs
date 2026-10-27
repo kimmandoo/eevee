@@ -119,9 +119,10 @@ impl Connection {
         {
             return Err("Native WebSocket refuses configured proxy routing; select HTTP explicitly or remove proxy settings deliberately; no direct-connect bypass or fallback".into());
         }
-        if ["SSL_CERT_FILE", "SSL_CERT_DIR"]
-            .iter()
-            .any(|key| env::var_os(key).is_some())
+        if frozen_destination.starts_with("wss://")
+            && ["SSL_CERT_FILE", "SSL_CERT_DIR"]
+                .iter()
+                .any(|key| env::var_os(key).is_some())
         {
             return Err("Native WebSocket refuses custom ambient TLS trust; no trust-policy bypass or fallback".into());
         }

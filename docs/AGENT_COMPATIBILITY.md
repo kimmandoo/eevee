@@ -33,7 +33,7 @@ Native account routing remains fixed to the official endpoint. Controlled accoun
 
 ### Native Responses connection retention and request outcomes
 
-Source0.1.34 adds `--native-transport auto|http|websocket`. Auto selects WebSocket only for the exact official public OpenAI Responses endpoint; other native routes remain HTTP. Explicit WebSocket requires Responses, including a separately authorized subscription-backend opt-in. External agents keep their own transports. Ambient proxy/custom TLS configuration refuses WebSocket rather than bypassing network policy; explicit HTTP remains available.
+Source0.1.34 adds `--native-transport auto|http|websocket`. Auto selects WebSocket only for the exact official public OpenAI Responses endpoint; other native routes remain HTTP. Explicit WebSocket requires Responses, including a separately authorized subscription-backend opt-in. External agents keep their own transports. Ambient proxy configuration refuses WebSocket rather than bypassing network policy; custom TLS trust refuses secure `wss://`, while permitted cleartext loopback `ws://` has no TLS roots to override. Explicit HTTP remains available.
 
 One logical Run owns one connection with `store:false`. Its initial `response.create` frame/destination is frozen in the existing preview/receipt representation; actual tool outputs continue with the matching completed response ID, not a retransmitted full context. An HTTP upgrade alone is not dispatched inference. Response attribution, bounded frames/messages/history, registered item lifecycle and control handling remain mandatory through approval waits. Errors, disconnects, cancellation and uncertain sends retire the connection without reconnect, fallback, stale-ID replay or hidden warm-up.
 
