@@ -1,3 +1,4 @@
+mod contributions;
 use super::{Paint, panel, row, selection_details, text};
 use crate::{
     app::{
@@ -29,7 +30,16 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
     }
     let area = super::sheet(area, 110, area.height.saturating_sub(2).max(18));
     frame.render_widget(Clear, area);
-    let block = panel(paint.hint(title(app.records.mode)), config, paint, true);
+    let block = panel(
+        if app.records.mode == Mode::Contributions {
+            "Task/form contributions"
+        } else {
+            paint.hint(title(app.records.mode))
+        },
+        config,
+        paint,
+        true,
+    );
     let content = block.inner(area);
     frame.render_widget(block, area);
     let count = app.record_selection_count();
@@ -212,6 +222,10 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                 ),
             ],
         )
+    } else if app.records.mode == Mode::Contributions {
+        "↑↓ Item  f Form  t Task  p Producer\nEnter Inspect  g Task picker  PgUp/Dn Page\nEsc Back · no send/run/owner switch".to_owned()
+    } else if matches!(app.records.mode, Mode::Summary | Mode::Routes) && !scoped {
+        "c Task/form contributions\n↑↓ Partner  PgUp/Dn Page  Esc Back".to_owned()
     } else {
         paint
             .hint(match app.records.mode {
@@ -233,6 +247,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
 fn title(mode: Mode) -> Message {
     match mode {
         Mode::Summary => Message::RecordsSummary,
+        Mode::Contributions => Message::RecordsSummary,
         Mode::Routes => Message::RecordsRoutes,
         Mode::Dex => Message::RecordsDex,
         Mode::Resolve => Message::RecordsResolve,
@@ -308,6 +323,7 @@ fn body_lines<'a>(app: &'a App, paint: &Paint) -> Vec<Line<'a>> {
         }
     };
     match state.mode {
+        Mode::Contributions => lines.extend(contributions::body(app)),
         Mode::Summary => {
             if let Some(summary) = state.snapshot.summaries.get(state.selected) {
                 let partner = &summary.partner;
@@ -987,14 +1003,7 @@ fn route_chain<'a>(trace: &'a crate::app::records::RouteTrace, paint: &Paint) ->
         if index > 0 {
             spans.push(Span::raw(if visit.discontinuity { " / " } else { " -> " }));
         }
-        spans.push(Span::styled(
-            FORMS[visit.form.min(8)].name,
-            if visit.produced {
-                paint.accent
-            } else {
-                paint.muted
-            },
-        ));
+        spans.push(Span::styled(FORMS[visit.form.min(8)].name, paint.muted));
     }
     Line::from(spans)
 }

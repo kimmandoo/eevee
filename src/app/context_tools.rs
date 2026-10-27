@@ -252,6 +252,10 @@ impl App {
 
     pub fn submit_context_tool_stores(&mut self, worker: &store::Worker) -> usize {
         let mut accepted = usize::from(self.artifacts.pump(worker));
+        if !self.retained.inflight && worker.try_retained(&mut self.retained.pending) {
+            self.retained.inflight = true;
+            accepted += 1;
+        }
         if !self.tool_catalog.inflight && worker.try_tool_catalog(&mut self.tool_catalog.pending) {
             self.tool_catalog.inflight = true;
             accepted += 1;
@@ -276,6 +280,7 @@ impl App {
     }
 
     pub(super) fn receipt_sources_purged(&mut self, task_id: i64) {
+        self.retained.invalidate_task(task_id);
         self.planning.receipts.source_purged(task_id);
         for state in self.cooperation.parked.values_mut() {
             state.receipts.source_purged(task_id);

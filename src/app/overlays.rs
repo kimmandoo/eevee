@@ -46,6 +46,8 @@ impl App {
 
     fn open_overlay_with_source_catalogue(&mut self, overlay: Overlay, request_catalogue: bool) {
         self.updates.leave();
+        self.external_editor.leave();
+        self.parked_drafts.invalidate();
         self.tool_plans.invalidate();
         self.workflow.authoring.invalidate();
         if overlay != Overlay::Held {
@@ -165,6 +167,8 @@ impl App {
 
     pub(super) fn close_overlay(&mut self) {
         self.updates.leave();
+        self.external_editor.leave();
+        self.parked_drafts.invalidate();
         self.tool_plans.invalidate();
         self.workflow.authoring.invalidate();
         if self.overlay == Some(Overlay::Held) {

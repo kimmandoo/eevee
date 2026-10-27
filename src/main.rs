@@ -210,6 +210,28 @@ fn run(config: Config) -> io::Result<()> {
                 && outstanding_agents == 0
                 && pending_save.is_none()
             {
+                dirty |= app.prepare_external_editor();
+                if let Some((plan, original)) = app.take_external_editor() {
+                    input.discard_pending()?;
+                    let result = modes.suspend(|| {
+                        platform::external_editor::Plan::run(
+                            &plan,
+                            &original,
+                            std::path::Path::new(&app.cwd),
+                        )
+                    })?;
+                    app.external_editor_returned(result);
+                    input = input::Input::new()?;
+                    input.discard_pending()?;
+                    graphics = native::NativeGraphics::new(&config);
+                    clear_needed = true;
+                    if graphics_queries {
+                        input.query_graphics(&mut io::stdout().lock())?;
+                    }
+                    let size = terminal.size()?;
+                    app.update(event::Event::Resize(size.width, size.height));
+                    dirty = true;
+                }
                 if let Some(operation) = app.take_lifecycle_check() {
                     input.discard_pending()?;
                     let result = modes.suspend(|| match operation {

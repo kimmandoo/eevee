@@ -45,7 +45,7 @@ CASES = {
     'C03B': 'Captured preview, stale/missing dispatch refusal, excluded/link refusal, actual HTTP wire bytes',
     'T01A': 'Two native HTTP turns and process restart; repeated usage snapshots reconcile by actual request owner',
     'EV05': 'Three real artifact forms and producers, invalidation, none, restart, monochrome',
-    'EV06': 'Two partner routes and final forms survive restart; dim empty visits; non-evidence/export/purge',
+    'EV06': 'Two partner routes and final forms survive restart; navigation-only visits; non-evidence/export/purge',
     'PK02': 'Per-partner summary, met date/no moves, SQL-distinct produced tasks, Bond count, compact paging',
     'EV08A': 'One composer line per actually owned terminal run; journal/restart no replay',
     'EV08B': 'Review/handoff/staleness event lines once, durable off leaves run facts unchanged',
@@ -191,7 +191,7 @@ class Journey(MovesJourney):
                     )
         known = (SOURCE_TITLE, 'Specialist desk', 'Local command evidence; no command running',
                  'Approved memories', 'Task cards / committed snapshots', 'Repository / read-only evidence',
-                 'Partner summary', 'Form routes', 'Failure Dex',
+                 'Partner summary', 'Form routes', 'Failure Dex', 'Task/form contributions',
                  'Ribbons / project history', 'Repeated authored instructions', 'Partner provider pairings',
                  'Portable task handoff / local-only', 'Party roster', 'Espeon /', 'Flareon /',
                  'Glaceon /', 'Model /', )
@@ -268,7 +268,7 @@ class Journey(MovesJourney):
     def detail_rows(self, surface, full=False):
         titles = {
             'sources': (SOURCE_TITLE, ),
-            'records': ('Partner summary', 'Form routes', 'Failure Dex', 'Repeated authored instructions',
+            'records': ('Partner summary', 'Form routes', 'Failure Dex', 'Task/form contributions', 'Repeated authored instructions',
                         'Partner provider pairings',
                         'Review historical resolution link',
                         ),
@@ -845,7 +845,7 @@ class Journey(MovesJourney):
                     for owner in (self.owner, self.other)}
         assert [(row['from'], row['to']) for row in by_owner[self.owner]][-3:] == [(2, 0), (0, 3), (3, 2)]
         self.open_records('routes')
-        dim_flareon, bold_produced = False, False
+        neutral_forms = set()
         for partner_index in range(2):
             if partner_index:
                 self.session.send(DOWN)
@@ -859,10 +859,8 @@ class Journey(MovesJourney):
                     line = ''.join(character for character, _ in styled)
                     for match in re.finditer(r'Flareon|Jolteon', line):
                         span = [bold for _, bold in styled[match.start():match.end()]]
-                        if match.group() == 'Flareon':
-                            dim_flareon |= not any(span)
-                        else:
-                            bold_produced |= all(span)
+                        assert not any(span), 'route visits must not infer production from proximity'
+                        neutral_forms.add(match.group())
                 self.capture('routes-partner-%d-page-%d' % (partner_index, page))
                 self.session.send(PAGE)
                 if self.session.display() == view:
@@ -873,7 +871,7 @@ class Journey(MovesJourney):
             if partner_index:
                 assert 'Mizu' in text
             self.session.send(HOME)
-        assert dim_flareon and bold_produced, 'empty and producing visits lack distinct actual monochrome span emphasis'
+        assert neutral_forms == {'Flareon', 'Jolteon'}, 'route navigation forms were not rendered neutrally'
         self.workspace()
         self.task_card_routes('before-restart')
         self.restart()
@@ -929,7 +927,6 @@ class Journey(MovesJourney):
         cells = [(character, bold) for row in collected for data, bold in row
                  for character in data if not character.isspace()]
         normalized = ''.join(character for character, _ in cells)
-        artifacts = self.records('local_artifacts')
         proof = []
         for partner in self.state()['partners']:
             owner = partner['id']
@@ -940,32 +937,27 @@ class Journey(MovesJourney):
             chain = ''.join(name.split()) + ':'
             visits = []
 
-            def visit(form, start, end):
+            def visit(form):
                 nonlocal chain
                 token = FORMS[form]
-                produced = any(row['task_id'] == self.record_task and row['ordinal'] > start
-                               and (end is None or row['ordinal'] < end)
-                               and row['producer'] and row['producer']['partner'] == owner
-                               and row['producer']['form'] == form for row in artifacts)
-                visits.append((len(chain), token, produced))
+                visits.append((len(chain), token))
                 chain += token
 
-            visit(routes[0]['from'], 0, routes[0]['ordinal'])
+            visit(routes[0]['from'])
             for index, route in enumerate(routes):
                 if index and route['from'] != routes[index - 1]['to']:
                     chain += '/'
-                    visit(route['from'], routes[index - 1]['ordinal'], route['ordinal'])
+                    visit(route['from'])
                 chain += '->'
-                visit(route['to'], route['ordinal'],
-                      routes[index + 1]['ordinal'] if index + 1 < len(routes) else None)
+                visit(route['to'])
             at = normalized.find(chain)
             assert at >= 0, ('task card lacks exact per-partner committed route chain', owner, chain, text)
-            for offset, token, produced in visits:
+            for offset, token in visits:
                 emphasis = [bold for _, bold in cells[at + offset:at + offset + len(token)]]
-                assert emphasis == [produced] * len(token), \
-                    ('task-card visit emphasis disagrees with actual frozen producer/ordinal', owner, token, produced, emphasis)
+                assert not any(emphasis), \
+                    ('task-card route inferred visit authorship', owner, token, emphasis)
             proof.append({'partner': owner, 'chain': chain,
-                          'visits': [{'form': token, 'produced': produced} for _, token, produced in visits]})
+                          'visits': [{'form': token, 'causal_link': 'not retained'} for _, token in visits]})
         assert self.records('form_routes') == self.routes_before, 'task-card inspection manufactured route visits'
         assert self.effects() == before, 'task-card route inspection performed work'
         save(self.output / ('task-card-routes-' + phase + '.json'), proof)

@@ -1409,7 +1409,7 @@ impl App {
         }
     }
 
-    fn workflow_open_reference(&mut self, reference: EvidenceRef) {
+    pub(super) fn workflow_open_reference(&mut self, reference: EvidenceRef) {
         match reference {
             EvidenceRef::Source {
                 task_id,

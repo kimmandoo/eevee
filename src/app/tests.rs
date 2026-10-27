@@ -1177,6 +1177,61 @@ fn deleting_another_task_to_free_quota_keeps_the_failed_current_draft() {
 }
 
 #[test]
+fn archiving_current_task_gives_the_task_picker_ownership_of_restored_request_keys() {
+    for (width, height) in [(120, 36), (60, 18)] {
+        let mut app = app();
+        app.width = width;
+        app.height = height;
+        let mut remaining = store::Snapshot::empty("/workspace".into());
+        remaining.id = 7;
+        remaining.goal = "Remaining task".into();
+        remaining.partner_drafts.insert(
+            1,
+            store::PartnerDrafts {
+                drafts: vec![store::Draft {
+                    field: store::EditorField::Request,
+                    text: "Unsent 설명 request".into(),
+                    cursor: 7,
+                }],
+                editor_field: store::EditorField::Request,
+                editing: true,
+                ..Default::default()
+            },
+        );
+        let mut archived = store::Snapshot::empty("/workspace".into());
+        archived.id = 8;
+        archived.archived = true;
+        app.task_id = archived.id;
+        app.store_event(store::Event::Managed {
+            project: store::Project {
+                tasks: vec![remaining, archived],
+                partners: vec![store::Partner::default()],
+                active_id: Some(7),
+                usage_bytes: 0,
+            },
+            affected: vec![8],
+            warning: None,
+        });
+        assert_eq!(app.task_id, 7);
+        assert_eq!(app.overlay, Some(Overlay::Tasks));
+        assert!(!app.editing);
+        assert_eq!(app.composer_return_owner, Some((7, 1)));
+        key(&mut app, KeyCode::Home);
+        key(&mut app, KeyCode::Enter);
+        assert!(app.overlay.is_none());
+        assert!(app.composer_is_request());
+        assert_eq!((app.input.as_str(), app.cursor), ("Unsent 설명 request", 7));
+        assert!(app.pending_request.is_none());
+        assert!(app.planning.pending.is_none());
+        assert!(app.planning.work.is_none());
+        assert!(app.planning.work_pending.is_none());
+        assert!(!app.planning.work_inflight);
+        assert!(app.planning.held_input.is_none());
+        assert!(!app.planning.owns_work());
+    }
+}
+
+#[test]
 fn archived_view_restores_instead_of_resuming_hidden_tasks() {
     let mut app = app();
     let mut archived = store::Snapshot::empty("/workspace".into());

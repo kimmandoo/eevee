@@ -5,13 +5,16 @@ mod chips;
 mod composer;
 mod cooperation;
 mod execution;
+mod external_editor;
 mod formations;
 mod handoff;
 mod held;
 mod memory;
 mod moves;
+mod parked_drafts;
 mod planning;
 mod records;
+mod retained;
 mod sources;
 mod tool_catalog;
 mod tool_plans;
@@ -694,9 +697,12 @@ pub fn render(
             Overlay::Held => held::render(frame, area, app, config, &paint),
             Overlay::Formations => formations::render(frame, area, app, config, &paint),
             Overlay::Updates => updates::render(frame, area, app, config, &paint),
+            Overlay::ExternalEditor => external_editor::render(frame, area, app, config, &paint),
             Overlay::Artifacts => artifacts::render(frame, area, &mut app.artifacts, config),
             Overlay::ToolCatalog => tool_catalog::render(frame, area, app, config, &paint),
             Overlay::ToolPlans => tool_plans::render(frame, area, app, config, &paint),
+            Overlay::ParkedDrafts => parked_drafts::render(frame, area, app, config, &paint),
+            Overlay::Retained => retained::render(frame, area, app, config, &paint),
             Overlay::Receipts => app.planning.receipts.render(frame, area),
             Overlay::Party => party(frame, area, app, config, &paint),
             Overlay::PartyBoard => cooperation::board(frame, area, app, config, &paint),

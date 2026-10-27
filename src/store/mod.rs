@@ -17,11 +17,13 @@ mod journal;
 mod lifecycle;
 mod memories;
 pub mod moves;
+pub mod parked_drafts;
 mod partners;
 mod preferences;
 pub mod receipts;
 pub mod records;
 mod recovery;
+pub mod retained;
 mod ribbons;
 mod runs;
 mod schema;
@@ -597,6 +599,10 @@ pub enum Event {
         request: context_cache::Request,
         result: Result<context_cache::Response, String>,
     },
+    Retained {
+        request: retained::Request,
+        result: Result<retained::Response, String>,
+    },
 }
 
 struct Managed {
@@ -622,6 +628,7 @@ enum Command {
     Artifact(artifacts::Request),
     ToolCatalog(tool_catalog::Request),
     ContextCache(context_cache::Request),
+    Retained(retained::Request),
     Retry,
 }
 
@@ -644,6 +651,26 @@ impl Worker {
             events: Some(events),
             thread: Some(thread),
         })
+    }
+
+    pub fn try_retained(&self, pending: &mut Option<retained::Request>) -> bool {
+        let Some(commands) = &self.commands else {
+            return false;
+        };
+        let Some(request) = pending.take() else {
+            return false;
+        };
+        match commands.try_send(Command::Retained(request)) {
+            Ok(()) => true,
+            Err(
+                TrySendError::Full(Command::Retained(request))
+                | TrySendError::Disconnected(Command::Retained(request)),
+            ) => {
+                *pending = Some(request);
+                false
+            }
+            Err(_) => unreachable!("try_send returns submitted command"),
+        }
     }
 
     /// Queues a pending snapshot, retaining it on backpressure or disconnect.
@@ -993,6 +1020,10 @@ fn run(
         let access_guard = access.lock();
         let event = match command {
             Command::Retry => state.reopen(),
+            Command::Retained(request) => {
+                let result = state.retained_request(&request).map_err(actionable);
+                Event::Retained { request, result }
+            }
             Command::Receipts(request) => {
                 let result = state.receipts_request(&request).map_err(actionable);
                 Event::Receipts { request, result }

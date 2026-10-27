@@ -200,6 +200,20 @@ impl App {
     pub fn store_event(&mut self, event: store::Event) -> bool {
         let mut changed = true;
         match &event {
+            store::Event::Managed { affected, .. } => {
+                for task in affected {
+                    self.retained.invalidate_task(*task);
+                }
+            }
+            store::Event::Loaded(_) | store::Event::Selected(_) => {
+                self.retained.invalidate_task(self.task_id);
+            }
+            store::Event::Memory {
+                task_id,
+                result: Ok(_),
+            } => {
+                self.retained.invalidate_task(*task_id);
+            }
             store::Event::Journal {
                 task_id,
                 result: Ok(store::JournalResponse::Purged),
@@ -228,6 +242,7 @@ impl App {
             _ => {}
         }
         match event {
+            store::Event::Retained { request, result } => self.retained.response(&request, result),
             store::Event::Receipts { request, result } => self.receipt_store_event(request, result),
             store::Event::Artifact { request, result } => {
                 self.artifacts.store_event(request, result)
@@ -505,6 +520,7 @@ impl App {
                     self.refresh_save_state();
                 }
                 self.commit_pending_commands(&snapshot);
+                self.parked_draft_saved(&snapshot);
                 if let Some(previous) = self.tasks.iter_mut().find(|task| task.id == snapshot.id) {
                     if previous.revision <= snapshot.revision {
                         *previous = snapshot;
@@ -536,6 +552,9 @@ impl App {
                         .cloned()
                         .unwrap_or_else(|| store::Snapshot::empty(self.cwd.clone()));
                     self.load_task(next);
+                    if self.editing {
+                        self.retain_action_editor();
+                    }
                     self.open_overlay(Overlay::Tasks);
                 }
                 self.task_selection = self

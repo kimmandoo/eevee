@@ -1,8 +1,61 @@
 # Completed work
 
-Updated on2026-10-25 through all16 accepted Wave1–5 assignments. Waves1–4 were released/publicly verified in0.1.31; Wave5 is accepted unreleased0.1.32 source, not a new publication. Local controlled-peer proof is not live-provider conformance. This is historical completion evidence, not an execution queue. Active work and priority live in [task.md](../task.md); the current contract is [DESIGN_RULES.md](../docs/DESIGN_RULES.md). Release/runtime evidence remains in [WORK_CHECKPOINT.md](../docs/WORK_CHECKPOINT.md) and [CHANGELOG.md](../CHANGELOG.md).
+Updated on2026-10-27 through all21 accepted Wave1–6 assignments. Waves1–5 shipped in public0.1.32; Wave6 is accepted unreleased0.1.33 source, not a new publication. Local controlled-peer proof is not live-provider conformance. This is historical completion evidence, not an execution queue. Active work and priority live in [task.md](../task.md); the current contract is [DESIGN_RULES.md](../docs/DESIGN_RULES.md). Release/runtime evidence remains in [WORK_CHECKPOINT.md](../docs/WORK_CHECKPOINT.md) and [CHANGELOG.md](../CHANGELOG.md).
 
 The specifications below retain their original acceptance notes and wording. Old schema numbers, limits, priorities, proposed ordering and release statements are historical; they do not override the current contract. Scoped completion does not establish authenticated conformance for every provider. T05 was dropped, not completed.
+
+## Wave6 — accepted source 0.1.33, unreleased
+
+All five contracts passed actual English-UI120×36/60×18 journeys with Unicode/Korean data. GP05/RX06 used real owned commands, controlled durable provider journals, two current-project tasks and a foreign project, another partner streaming, archive/restart, purge and missing targets. PK09 used two actual capture/run/review producers, form-only visits, exact existing inspectors, rename/release/purge and guarded cross-task navigation. RX04 parked two drafts during a held real request, retained exact text/caret through neutral/obscured review, induced real writer contention, recovered storage only and explicitly reconnected before a fresh Send. RX05 used real disposable editors, separate launch/import reviews, exact UTF-8/CRLF/trailing bytes, native Ctrl+C ownership, unsafe/error/cleanup refusal and restored terminal modes.
+
+Evidence: `target/wave6-{retained,contributions,drafts,editor,auth}-final`. Exact binary identities, source gates, older-reader checks and final qualification are in the checkpoint. English-only display remains current; historical bilingual wording below is retained, not permission to restore removed language selection. These local fixtures are not paid/live-model, macOS/Windows execution or new publication proof. All original specifications follow unchanged except their completion markers.
+
+### GP05 — Project search of retained task facts and evidence summaries
+
+- [x] Find retained work across tasks in the current project without network access.
+- **Priority:** 2. **Needs:** —. **Builds on:** E02, E03, R02, S02, T01C.
+- **Gap:** Existing task-scoped journal, execution, source and artifact search does not provide cross-task retrieval.
+- **Change:** Bounded cancellable literal search over explicitly named fields: goals, criteria, decisions, approved notes, retained provider-journal text and run summaries. Attribute task, kind, time and excerpt; offer an archived filter and guarded navigation to original evidence. Label incomplete coverage.
+- **Accept:** Search two current-project tasks plus one foreign-project task across archive/restart. Foreign content appears in neither snippets nor counts. Purge invalidates indexed material; opening a result preserves dirty drafts and ownership guards. Observe zero network or implicit context selection.
+- **Watch out:** No embeddings, generated summaries, reconstruction of process-local conversations or purged bodies, cloud index or automatic attachment.
+
+### PK09 — Partner contribution drill-down
+
+- [x] Open attributed task/form contributions from the partner summary and route context.
+- **Priority:** 2. **Needs:** —. **Builds on:** PK02, EV05, EV06, PT06A, PK06.
+- **Change:** Navigate to paged existing artifact/evidence inspectors filtered by retained task, producer and form identity. Preserve actual producers, freshness and unknown/unavailable states. Current artifacts have no explicit route-visit foreign key: route history is navigation context, not proof that a visit caused an output.
+- **Accept:** Two partners produce distinct retained outputs; capture/run/review, a form-only visit, rename/release and purge retain truthful attribution. Legacy unknown remains unknown, form-only visits create no evidence, and timestamp proximity never invents authorship or a visit link. Compact paging/back navigation and explicit cross-task navigation preserve drafts and ownership.
+- **Watch out:** No new ribbons, scores, rankings, generated retrospective, activity counters or duplicated payload. Label task/form contributions unless an exact causal link is actually retained.
+
+### RX04 — Parked future-request drafts without scheduling
+
+- [x] Keep several separate unsent follow-ups while a partner works, without automatically running them.
+- **Priority:** 2. **Needs:** —. **Builds on:** E02, E03, UX01, PT05B.
+- **Reference:** Follow-up and dequeue editor actions and queued follow-up implementation.
+- **Eevee gap:** The owned composer preserves one future Request during work; a multi-entry unsent draft tray is distinct from moves/templates, tool plans and partner relays.
+- **Change:** Explicitly park, inspect, restore and discard bounded user-authored text entries scoped to project/task/partner. Define count/byte limits; use the existing durable writer and migration/quota contract. No provider/session/tool state accompanies entries. Clear the composer only after acknowledged parking of the exact revision.
+- **Accept:** Park two drafts during a running request, let it finish, restart and switch owners: nothing sends. Restoring over a nonempty draft requires exact replacement review; cancellation preserves both texts/caret. Save failure retains recoverable content. Restore only stages text; ordinary explicit Send prepares current context and fresh authority.
+- **Watch out:** Do not copy automatic queue draining, live steering, synthetic messages, template expansion at enqueue or restart replay. This is a draft tray, not a job scheduler; removing a partner/task follows existing privacy cleanup.
+
+### RX05 — Reviewed external editing of the current Request
+
+- [x] Compose a long Request in a chosen external editor and review the returned text without sending it.
+- **Priority:** 2. **Needs:** —. **Builds on:** UX01, P01, P02, R01.
+- **Reference:** External editor resolution, process and temporary-file lifecycle.
+- **Eevee gap:** In-terminal editing and `src/platform/terminal.rs` terminal lending exist; a reviewed draft-to-editor round trip does not. Reuse those owners rather than a second runner.
+- **Change:** Initially require committed global idle state. Review exact executable/argv and plaintext disclosure; use a private bounded temporary file, terminal lending/restoration and identity-checked return. Treat environment editor configuration as untrusted input, not shell syntax to execute implicitly. Show the returned candidate before replacing the owning draft.
+- **Accept:** Real disposable editor journeys preserve UTF-8, CRLF and trailing newlines within existing limits. Cancellation, nonzero exit, missing executable, invalid/oversized output, unsafe replacement/link and stale owner/draft leave the original intact. Normal/error paths restore terminal modes; temp cleanup failure is reported. Importing text starts no request or context selection.
+- **Watch out:** No full conversation/credential export, silent trimming or arbitrary shell interpolation. The editor is external, not sandboxed; it may create backups or network effects. Removing Eevee's temp file does not erase editor-owned copies. Secret handling/disclosure remains explicit.
+
+### RX06 — Named landmarks on retained responses
+
+- [x] Jump to a user-labelled retained explanation without replaying or branching its request.
+- **Priority:** 3. **Needs:** —. **Builds on:** E02, E03, R02, UX01.
+- **Reference:** Session labels and labelled navigation. Adapt labels only, not conversation-leaf switching.
+- **Eevee gap:** Current response navigation has item/position anchors, but no durable user-named landmarks. GP05 is cross-task search and PK09 is contribution inspection; neither owns manual positional labels.
+- **Change:** Bounded label metadata points to an existing durably retained response/journal identity and optional bounded position. List, rename/remove and jump within the current task using existing inspectors/writer. Show original request/partner attribution; do not persist process-local transcript bodies merely to support labels.
+- **Accept:** Label/jump while another partner streams, resize/reflow, restart and purge. Draft/caret and paused-output position remain owned; missing/purged targets are unavailable or consistently removed, never reconstructed. No implicit owner switch, provider request, old question reopening or replay occurs.
+- **Watch out:** A label is not approved memory, a decision, verification or context selection. No conversation tree, generated switch-summary, file rewind or execution rollback.
 
 ## Wave5 — accepted source 0.1.32, unreleased
 

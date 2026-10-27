@@ -1,17 +1,8 @@
 # I — Additional product capabilities
 
-GP01–GP04 completed in Waves1–2; specifications and scoped proof are in [COMPLETED.md](COMPLETED.md). The three remaining capabilities below are planned only. Reuse the current executor, writer, approvals and receipt authority; [design rules](../docs/DESIGN_RULES.md) remain binding.
+GP01–GP05 completed in Waves1–2/6; specifications and scoped proof are in [COMPLETED.md](COMPLETED.md). The two remaining capabilities below are planned only. Reuse the current executor, writer, approvals and receipt authority; [design rules](../docs/DESIGN_RULES.md) remain binding.
 
 Verification for each task: targeted consumer-visible regressions and an actual disposable CLI/TUI journey. Reuse bounded native coverage profiles; do not multiply every case across every architecture or test internal wiring. Live model interpretation requires separate authorization.
-
-### GP05 — Project search of retained task facts and evidence summaries
-
-- [ ] Find retained work across tasks in the current project without network access.
-- **Priority:** 2. **Needs:** —. **Builds on:** E02, E03, R02, S02, T01C.
-- **Gap:** Existing task-scoped journal, execution, source and artifact search does not provide cross-task retrieval.
-- **Change:** Bounded cancellable literal search over explicitly named fields: goals, criteria, decisions, approved notes, retained provider-journal text and run summaries. Attribute task, kind, time and excerpt; offer an archived filter and guarded navigation to original evidence. Label incomplete coverage.
-- **Accept:** Search two current-project tasks plus one foreign-project task across archive/restart. Foreign content appears in neither snippets nor counts. Purge invalidates indexed material; opening a result preserves dirty drafts and ownership guards. Observe zero network or implicit context selection.
-- **Watch out:** No embeddings, generated summaries, reconstruction of process-local conversations or purged bodies, cloud index or automatic attachment.
 
 ### GP06 — Reviewed screenshot input on a supported native route
 

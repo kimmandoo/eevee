@@ -1,40 +1,10 @@
 # K — Reference-derived capabilities
 
-These capabilities adapt useful behavior from a read-only external reference. RX01/RX02 completed in Wave2 and RX03 in Wave3; their specifications moved to [COMPLETED.md](COMPLETED.md). The three remaining tasks below are planned only. Pinned links identify the inspected reference, not proof that Eevee already supports a planned task.
+All six reference-derived capabilities completed in Waves2–3/6 and moved intact to [COMPLETED.md](COMPLETED.md). They adapted useful behavior from a read-only external reference; pinned links remain attribution to the inspected reference, not copied implementation or prompts.
 
-Existing [F](F-context-tools.md), [I](I-product-capabilities.md), [J](J-eevee-workflows.md) and [completed work](COMPLETED.md) retain their scopes. Do not rebuild shipped symbol/context/catalog/artifact/party workflows or the accepted delete/rename/multi-hunk/syntax additions. Proposed search/screenshot/Git features retain their own tasks. [Design rules](../docs/DESIGN_RULES.md) remain binding; use focused behavior regressions and actual runtime proof rather than another blanket platform cross-product.
+Existing [F](F-context-tools.md), [I](I-product-capabilities.md) and [completed work](COMPLETED.md) retain their scopes. Do not rebuild shipped symbol/context/catalog/artifact/party workflows or the accepted reference adaptations. Screenshot/Git features remain in I; retained search and contribution navigation are archived. [Design rules](../docs/DESIGN_RULES.md) remain binding; use focused behavior regressions and actual runtime proof rather than another blanket platform cross-product.
 
 Reference inspection did not copy implementation or prompts. The reference root MIT license requires retained notices for copied substantial portions; any later code reuse must check the actual component and dependency licenses separately.
-
-### RX04 — Parked future-request drafts without scheduling
-
-- [ ] Keep several separate unsent follow-ups while a partner works, without automatically running them.
-- **Priority:** 2. **Needs:** —. **Builds on:** E02, E03, UX01, PT05B.
-- **Reference:** Follow-up and dequeue editor actions and queued follow-up implementation.
-- **Eevee gap:** The owned composer preserves one future Request during work; a multi-entry unsent draft tray is distinct from moves/templates, tool plans and partner relays.
-- **Change:** Explicitly park, inspect, restore and discard bounded user-authored text entries scoped to project/task/partner. Define count/byte limits; use the existing durable writer and migration/quota contract. No provider/session/tool state accompanies entries. Clear the composer only after acknowledged parking of the exact revision.
-- **Accept:** Park two drafts during a running request, let it finish, restart and switch owners: nothing sends. Restoring over a nonempty draft requires exact replacement review; cancellation preserves both texts/caret. Save failure retains recoverable content. Restore only stages text; ordinary explicit Send prepares current context and fresh authority.
-- **Watch out:** Do not copy automatic queue draining, live steering, synthetic messages, template expansion at enqueue or restart replay. This is a draft tray, not a job scheduler; removing a partner/task follows existing privacy cleanup.
-
-### RX05 — Reviewed external editing of the current Request
-
-- [ ] Compose a long Request in a chosen external editor and review the returned text without sending it.
-- **Priority:** 2. **Needs:** —. **Builds on:** UX01, P01, P02, R01.
-- **Reference:** External editor resolution, process and temporary-file lifecycle.
-- **Eevee gap:** In-terminal editing and `src/platform/terminal.rs` terminal lending exist; a reviewed draft-to-editor round trip does not. Reuse those owners rather than a second runner.
-- **Change:** Initially require committed global idle state. Review exact executable/argv and plaintext disclosure; use a private bounded temporary file, terminal lending/restoration and identity-checked return. Treat environment editor configuration as untrusted input, not shell syntax to execute implicitly. Show the returned candidate before replacing the owning draft.
-- **Accept:** Real disposable editor journeys preserve UTF-8, CRLF and trailing newlines within existing limits. Cancellation, nonzero exit, missing executable, invalid/oversized output, unsafe replacement/link and stale owner/draft leave the original intact. Normal/error paths restore terminal modes; temp cleanup failure is reported. Importing text starts no request or context selection.
-- **Watch out:** No full conversation/credential export, silent trimming or arbitrary shell interpolation. The editor is external, not sandboxed; it may create backups or network effects. Removing Eevee's temp file does not erase editor-owned copies. Secret handling/disclosure remains explicit.
-
-### RX06 — Named landmarks on retained responses
-
-- [ ] Jump to a user-labelled retained explanation without replaying or branching its request.
-- **Priority:** 3. **Needs:** —. **Builds on:** E02, E03, R02, UX01.
-- **Reference:** Session labels and labelled navigation. Adapt labels only, not conversation-leaf switching.
-- **Eevee gap:** Current response navigation has item/position anchors, but no durable user-named landmarks. GP05 is cross-task search and PK09 is contribution inspection; neither owns manual positional labels.
-- **Change:** Bounded label metadata points to an existing durably retained response/journal identity and optional bounded position. List, rename/remove and jump within the current task using existing inspectors/writer. Show original request/partner attribution; do not persist process-local transcript bodies merely to support labels.
-- **Accept:** Label/jump while another partner streams, resize/reflow, restart and purge. Draft/caret and paused-output position remain owned; missing/purged targets are unavailable or consistently removed, never reconstructed. No implicit owner switch, provider request, old question reopening or replay occurs.
-- **Watch out:** A label is not approved memory, a decision, verification or context selection. No conversation tree, generated switch-summary, file rewind or execution rollback.
 
 ## Deliberately not imported
 

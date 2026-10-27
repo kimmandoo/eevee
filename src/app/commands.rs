@@ -564,6 +564,15 @@ impl App {
                 "Compare exact context selection bytes for this turn",
             ),
             (
+                "park-draft",
+                "Park the exact Request locally without sending",
+            ),
+            ("drafts", "Inspect, restore or discard parked unsent drafts"),
+            (
+                "external-edit",
+                "Review external plaintext Request editing; never sends",
+            ),
+            (
                 "optimize",
                 "Preview ranked context under a local token budget",
             ),
@@ -704,6 +713,12 @@ impl App {
             ("run", "Inspect local execution evidence; never execute"),
             ("rerun", "Rerun with Jolteon (new approval)"),
             ("history", "Provider history / journal evidence"),
+            ("project-search", "Search retained facts in this project"),
+            ("landmarks", "Named retained-response landmarks"),
+            (
+                "retained-responses",
+                "Inspect durable responses and add landmarks",
+            ),
             (
                 "journal-discard",
                 "Review exact failed observation writes after terminal",
@@ -1010,6 +1025,11 @@ impl App {
                     | "runs"
                     | "receipts"
                     | "artifacts"
+                    | "project-search"
+                    | "retained-responses"
+                    | "landmarks"
+                    | "park-draft"
+                    | "drafts"
                     | "artifact-search"
                     | "artifact-locations"
                     | "run-details"
@@ -1229,6 +1249,8 @@ impl App {
             return;
         }
         self.updates.leave();
+        self.external_editor.leave();
+        self.parked_drafts.invalidate();
         self.workflow.authoring.invalidate();
         self.moves.invalidate_review();
         self.invalidate_held_review();
@@ -1339,6 +1361,10 @@ impl App {
             Some((name, argument)) => (name, argument.trim()),
             None => (query, ""),
         };
+        if matches!(name, "project-search" | "landmarks" | "retained-responses") {
+            self.command_popup = None;
+            return self.retained_command(name, argument);
+        }
         if name == "tool-plan" {
             self.command_popup = None;
             return self.tool_plan_command(query);
@@ -1436,6 +1462,12 @@ impl App {
             return true;
         }
         self.command_popup = None;
+        if self.retained_command(name, "") {
+            return true;
+        }
+        if self.parked_draft_command(name) {
+            return true;
+        }
         if self.context_tool_command(name) {
             return true;
         }
@@ -1706,6 +1738,7 @@ impl App {
         }
         // Stable globals must precede workspace-local spellings.
         match name {
+            "external-edit" => return self.external_editor_command(),
             "update" => {
                 return self.lifecycle_command(crate::platform::distribution::Operation::Update);
             }

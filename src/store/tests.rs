@@ -5309,3 +5309,115 @@ fn reviewed_tool_plan_args_fingerprints_results_and_unknown_windows_use_the_exis
             .is_err()
     );
 }
+
+#[test]
+fn parked_drafts_use_existing_writer_restart_privacy_and_removal_lifecycle() {
+    use parked_drafts::Entry;
+    let directory = Directory::new();
+    let mut store = state(&directory, "parked-project", Policy::default());
+    store.add_partner().unwrap();
+    let mut task = snapshot("parked-project", 1);
+    task.workflows.parked_drafts = vec![
+        Entry {
+            id: 1,
+            partner: 1,
+            text: "first 한글\r\nnext\n".into(),
+        },
+        Entry {
+            id: 2,
+            partner: 1,
+            text: "second unsent request".into(),
+        },
+        Entry {
+            id: 3,
+            partner: 2,
+            text: "other owner".into(),
+        },
+    ];
+    let task = store.save(task).unwrap();
+    drop(store);
+    let mut store = state(&directory, "parked-project", Policy::default());
+    let committed = load_task(
+        store.connection.as_ref().unwrap(),
+        "parked-project",
+        task.id,
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(
+        committed.workflows.parked_drafts,
+        task.workflows.parked_drafts
+    );
+    assert!(
+        work::claims(store.connection.as_ref().unwrap())
+            .unwrap()
+            .is_empty()
+    );
+    let project = store.release_partner(1).unwrap();
+    assert_eq!(
+        project.tasks[0].workflows.parked_drafts,
+        vec![task.workflows.parked_drafts[2].clone()]
+    );
+    store
+        .manage(Management::Delete {
+            ids: vec![task.id],
+            expired_before: None,
+        })
+        .unwrap();
+    assert!(
+        load_task(
+            store.connection.as_ref().unwrap(),
+            "parked-project",
+            task.id
+        )
+        .unwrap()
+        .is_none()
+    );
+}
+
+#[test]
+fn parked_draft_admission_rejects_foreign_owner_and_unknown_fields_without_repair() {
+    let directory = Directory::new();
+    let mut store = state(&directory, "parked-project", Policy::default());
+    let mut task = snapshot("parked-project", 1);
+    task.workflows.parked_drafts.push(parked_drafts::Entry {
+        id: 1,
+        partner: 999,
+        text: "unsent".into(),
+    });
+    assert!(store.save(task.clone()).unwrap_err().contains("owner"));
+    task.workflows.parked_drafts[0].partner = 1;
+    let task = store.save(task).unwrap();
+    store.connection.as_ref().unwrap().execute(
+        "UPDATE tasks SET workflows=json_set(workflows,'$.parked_drafts[0].grant',1) WHERE id=?1",
+        [task.id],
+    ).unwrap();
+    drop(store);
+    let before = fs::read(directory.0.join(DATABASE)).unwrap();
+    assert!(preflight(&directory.0.join(DATABASE)).is_err());
+    assert_eq!(fs::read(directory.0.join(DATABASE)).unwrap(), before);
+}
+
+#[test]
+fn parked_draft_quota_failure_rolls_back_and_preserves_recoverable_candidate() {
+    let directory = Directory::new();
+    let mut store = state(&directory, "parked-project", Policy::default());
+    let mut task = store.save(snapshot("parked-project", 1)).unwrap();
+    task.revision += 1;
+    task.workflows.parked_drafts.push(parked_drafts::Entry {
+        id: 1,
+        partner: 1,
+        text: "recoverable text".into(),
+    });
+    store.policy.quota_bytes = 1;
+    assert!(store.save(task.clone()).is_err());
+    let saved = load_task(
+        store.connection.as_ref().unwrap(),
+        "parked-project",
+        task.id,
+    )
+    .unwrap()
+    .unwrap();
+    assert!(saved.workflows.parked_drafts.is_empty());
+    assert_eq!(task.workflows.parked_drafts[0].text, "recoverable text");
+}

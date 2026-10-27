@@ -1,5 +1,40 @@
 # Troubleshooting
 
+### [2026-10-27] Restoring a parked draft required an unnecessarily live Request editor
+
+- **Context / Symptom:** After real writer contention/storage-only recovery, the tray durably contained all three drafts, but `r` did not restore the selected text from a suspended composer (`target/wave6-drafts-d`).
+- **Root Cause:** Restore required `editing=true` even though the existing retained Request contained the exact text/caret needed for replacement review.
+- **Solution:** Resolved the owned Request uniformly from the live editor or retained draft, binding both exact bytes and its own caret. Active non-Request editors remain protected. Neutral cancellation, stale retained caret and approved replacement have a regression; both real terminal sizes completed the entire fresh-authority Send journey in `target/wave6-drafts-final`.
+- **Prevention / Reference:** Restore stages text, not a session or connection. The session-only connection was explicitly set up again after restart before the fixture's final Send; no credential restoration, timeout relaxation or automatic retry was introduced.
+
+### [2026-10-27] Post-archive task picker still owned the restored Request editor
+
+- **Context / Symptom:** The real Wave6 archive/restart journey displayed the task picker, but Home/Enter submitted the restored unsent Request instead of resuming its highlighted task. The failed quit then correctly retained an unknown provider outcome (`target/wave6-retained-d`).
+- **Root Cause:** The management acknowledgment loaded another task with its retained editor active, then opened `Overlay::Tasks` without suspending that editor. Generic editing dispatch preceded task-picker handling.
+- **Solution:** Retained the restored editor through the existing action-editor owner before presenting the picker. Compact/wide Managed→Home/Enter regressions preserve exact text/caret and acquire no provider intent, preflight or lease. The unmodified direct-picker journeys passed in `target/wave6-retained-g`; no quit guard or timeout was relaxed.
+- **Prevention / Reference:** A visible overlay does not itself retire editor ownership. Exercise real acknowledgment-driven navigation, not only directly assigned overlay fixtures.
+
+### [2026-10-27] External editor Ctrl+C killed the workbench's foreground process group
+
+- **Context / Symptom:** Real disposable-editor cancellation terminated Eevee with SIGINT before it could restore the TUI (`target/wave6-editor-diagnosis-d`).
+- **Root Cause:** Direct `Command::status` inherited Eevee's foreground group. Canonical terminal Ctrl+C reached both processes.
+- **Solution:** Extracted the existing authentication `NativeSignals`/`NativeChild` owner into `platform::native_process` and reused its POSIX foreground-group handoff/restoration and Windows job admission; migrated authentication rather than duplicating a runner. `target/wave6-editor-p` passed both sizes with distinct editor/workbench groups, Ctrl+C, temporary cleanup and final termios restoration. `target/wave6-auth-c` passed both existing authentication fixture journeys, including listener cancellation and no model execution.
+- **Prevention / Reference:** Terminal lending also requires native process/signal ownership. Windows code is compile-checked separately; Linux PTY proof is not native Windows execution.
+
+### [2026-10-27] External editor review bound the revision before its own navigation save
+
+- **Context / Symptom:** Opening `/external-edit` reported “Owner or draft changed while waiting” despite unchanged Request bytes/caret (`target/wave6-editor-b`).
+- **Root Cause:** The command froze its revision before the generic event tail persisted the new editor surface. Its own navigation then invalidated the review.
+- **Solution:** Acquired the navigation revision before binding the immutable owner/draft scope. The regression uses the actual command chooser and durable acknowledgments. Separate launch and returned-candidate consent remain exact; stale input still refuses.
+- **Prevention / Reference:** Full scope exposure is not current readiness. A separate intermittent fixture stall was proven to be a late `records.inflight` load (`target/wave6-editor-predicate-trace-m.jsonl`); the driver now observes explicit Tab→`[Proceed]` eligibility before Enter, without bypassing the idle gate or replaying an editor launch.
+
+### [2026-10-27] Parked-draft controls were blocked during work and retained hidden review state
+
+- **Context / Symptom:** The actual running-request journey refused `/park-draft` with “Finish or cancel the active provider request first” (`target/wave6-drafts-b`). A full-scope regression also showed Ctrl+K retaining replacement consent after the review became obscured.
+- **Root Cause:** The global busy-command allowlist omitted the new inert tray actions; direct feature-method tests bypassed it. The tray's exposure tracker did not invalidate on navigation or obscuring.
+- **Solution:** Allowed only text parking/tray inspection through the existing busy dispatcher, retaining all provider/effect authority. Invalidated replacement/discard exposure on chooser/open/close/resize and refused hidden exposure accumulation. Both actual terminal sizes parked two drafts while the original request stayed owned, sent neither on completion/restart/owner changes, and retained exact text/caret after obscuring (`target/wave6-drafts-c`).
+- **Prevention / Reference:** Drive the real command registry and rendered consent lifecycle. Keep deferred effects separate from unsent text; never solve this by scheduling or automatically sending the tray.
+
 ### [2026-10-26] Alias pre-filter missed case/normalization-aliased parents on macOS and Windows
 
 - **Context / Symptom:** Native CI (run `40291871944`) failed `actual_case_aliases_are_rejected_without_capture_mutation_when_supported`, `workspace_alias_batches_never_gain_partial_authority` (macOS, Windows) and `actual_normalization_aliases_never_overwrite_or_manufacture_uncertain_effects` (macOS: `Reviewed absent parent appeared ... uncertain: true`). Linux passed because its byte-sensitive policy skips these cases.

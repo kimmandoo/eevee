@@ -35,6 +35,10 @@ pub struct State {
     pub tool_plans: Option<super::tool_plans::Plan>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tool_plan_history: Vec<super::tool_plans::Plan>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub landmarks: Vec<crate::store::retained::Landmark>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub parked_drafts: Vec<crate::store::parked_drafts::Entry>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -581,6 +585,8 @@ pub struct ReviewGuard {
 
 impl State {
     pub fn validate(&self, task_id: i64) -> Result<(), String> {
+        crate::store::retained::validate_landmarks(&self.landmarks)?;
+        crate::store::parked_drafts::validate(&self.parked_drafts)?;
         if let Some(plan) = &self.tool_plans {
             plan.validate(task_id)?;
         }

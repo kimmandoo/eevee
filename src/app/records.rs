@@ -14,6 +14,8 @@ use crate::{
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use std::collections::{BTreeMap, HashSet, VecDeque};
 
+pub mod contributions;
+
 const CAPACITY: usize = 8192;
 const LOCAL_CAPACITY: usize = 256;
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -21,6 +23,7 @@ pub enum Mode {
     #[default]
     Summary,
     Routes,
+    Contributions,
     Dex,
     Resolve,
     Habits,
@@ -39,10 +42,7 @@ pub struct FormMarker {
 
 pub struct RouteVisit {
     pub form: usize,
-    pub produced: bool,
     pub discontinuity: bool,
-    start: u64,
-    end: Option<u64>,
 }
 pub struct RouteTrace {
     pub task: i64,
@@ -56,6 +56,7 @@ pub struct State {
     pub snapshot: records::Snapshot,
     pub habits: super::habits::State,
     pub pairings: super::pairings::State,
+    pub contributions: contributions::State,
     pub local: Vec<LocalIntent>,
     pub restoring: bool,
     pub mode: Mode,
@@ -114,6 +115,7 @@ impl Default for State {
             },
             habits: Default::default(),
             pairings: Default::default(),
+            contributions: Default::default(),
             local: vec![],
             restoring: false,
             mode: Mode::Summary,
@@ -275,18 +277,6 @@ impl State {
         }
     }
     fn rebuild_routes(&mut self) {
-        let mut outputs: BTreeMap<_, Vec<u64>> = BTreeMap::new();
-        for view in &self.snapshot.artifacts {
-            if let Some(owner) = &view.artifact.producer {
-                outputs
-                    .entry((view.artifact.task_id, owner.partner, owner.form))
-                    .or_default()
-                    .push(view.artifact.ordinal);
-            }
-        }
-        for ordinals in outputs.values_mut() {
-            ordinals.sort_unstable();
-        }
         let mut grouped: BTreeMap<_, Vec<usize>> = BTreeMap::new();
         for (index, route) in self.snapshot.routes.iter().enumerate() {
             grouped
@@ -300,42 +290,23 @@ impl State {
             let mut visits: Vec<RouteVisit> = Vec::with_capacity(receipts.len() + 1);
             for index in &receipts {
                 let route = &self.snapshot.routes[*index];
-                if let Some(previous) = visits.last_mut() {
-                    previous.end = Some(route.ordinal);
+                if let Some(previous) = visits.last() {
                     if previous.form != route.from {
-                        let start = previous.start;
                         visits.push(RouteVisit {
                             form: route.from,
-                            produced: false,
                             discontinuity: true,
-                            start,
-                            end: Some(route.ordinal),
                         });
                     }
                 } else {
                     visits.push(RouteVisit {
                         form: route.from,
-                        produced: false,
                         discontinuity: false,
-                        start: 0,
-                        end: Some(route.ordinal),
                     });
                 }
                 visits.push(RouteVisit {
                     form: route.to,
-                    produced: false,
                     discontinuity: false,
-                    start: route.ordinal,
-                    end: None,
                 });
-            }
-            for visit in &mut visits {
-                visit.produced = outputs
-                    .get(&(task, partner, visit.form))
-                    .and_then(|ordinals| {
-                        ordinals.get(ordinals.partition_point(|ordinal| *ordinal <= visit.start))
-                    })
-                    .is_some_and(|ordinal| visit.end.is_none_or(|end| *ordinal < end));
             }
             let name = self.snapshot.routes[*receipts.last().expect("nonempty route group")]
                 .owner
@@ -1178,6 +1149,15 @@ impl App {
         if key.kind != KeyEventKind::Press {
             return true;
         }
+        if !key
+            .modifiers
+            .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+            && self.width >= 60
+            && self.height >= 18
+            && self.contribution_key(key)
+        {
+            return true;
+        }
         if key.code == KeyCode::Esc {
             if self.records.mode == Mode::Discard {
                 self.record_stay();
@@ -1297,6 +1277,11 @@ impl App {
     pub fn record_selection_count(&self) -> usize {
         match self.records.mode {
             Mode::Summary => self.records.snapshot.summaries.len(),
+            Mode::Contributions => self
+                .records
+                .contributions
+                .entries(&self.records.snapshot)
+                .count(),
             Mode::Dex => self.records.snapshot.signatures.len(),
             Mode::Habits => self
                 .records
@@ -1784,7 +1769,7 @@ mod tests {
         assert!(app.records.failed.is_some());
     }
     #[test]
-    fn route_visits_use_frozen_owner_and_exclusive_intervals_without_inventing_edges() {
+    fn route_visits_never_infer_output_links_from_ordinals_or_proximity() {
         let route = |ordinal, from, to| records::Route {
             id: format!("route-{ordinal}"),
             task_id: 7,
@@ -1839,20 +1824,14 @@ mod tests {
         assert_eq!(
             visits
                 .iter()
-                .map(|visit| (visit.form, visit.produced, visit.discontinuity))
+                .map(|visit| (visit.form, visit.discontinuity))
                 .collect::<Vec<_>>(),
-            vec![
-                (0, false, false),
-                (1, true, false),
-                (3, false, false),
-                (0, true, true),
-                (2, true, false),
-            ]
+            vec![(0, false), (1, false), (3, false), (0, true), (2, false),]
         );
         assert!(state.routes_for_task(8).is_empty());
         state.snapshot.artifacts.push(artifact(7, 1, 3, 41));
         state.rebuild_routes();
-        assert!(state.routes_for_task(7)[0].visits[2].produced);
+        assert_eq!(state.routes_for_task(7)[0].visits[2].form, 3);
     }
 
     fn ribbon(

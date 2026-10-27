@@ -6,9 +6,9 @@ Only unfinished work belongs here. Completed specifications and stable dependenc
 
 - **Released:** [v0.1.32](https://github.com/kimmandoo/eevee/releases/tag/v0.1.32) (source `24083ee`; native run 40298177253, release run 40300882851). Previous: [v0.1.31](https://github.com/kimmandoo/eevee/releases/tag/v0.1.31), source `1b83cc4`, passed Check/all five native targets, all public asset byte identities,24 installation groups,34 installed terminal scenarios/56 zero-output idle windows and all11 coding/recovery/wave runtime reports.0.1.30 assets remain unchanged.
 - **Included milestones:** A08 → UX04A → S04 and P04A → P04B → T01B shipped: actionable connection diagnostics, persistent text density, reviewed portable workflows, reviewed updates/safe rollback and exact local context comparison. Specifications remain in [COMPLETED.md](tasks/COMPLETED.md).
-- **Compatibility:** Unreleased0.1.32 source retains SQL19/TM1/formation2/SDK bridge10 but admits new same-name historical moves and stale approved-memory references. Genuine0.1.31 refused both tested states with database bytes unchanged; current startup preserved identity/history without replay. Equal SQL schema never bypasses conservative build-derived rollback checks. Back up the whole data directory.
-- **Remaining:** **21 tasks**. All16 Wave1–5 contracts passed implementation/actual acceptance and moved intact to the completed archive. Wave5 is accepted unreleased0.1.32 source; public installers remain0.1.31.
-- **Current request:** English-only UX changes and local verification were pushed. The user deferred release and requested push only; no v0.1.32 tag/publication was performed. Native CI passed Check/Linux but failed macOS/Windows Rust tests; failure diagnostics and the exact continuation are in the checkpoint. Resolve those failures before any later authorized release. No Wave6–8 or paid/live call is authorized.
+- **Compatibility:** Source0.1.33 retains SQL19/TM1/formation2/SDK bridge10 and adds strict optional parked-draft/landmark workflow metadata. Equal SQL schema does not guarantee older-reader admission or lifecycle rollback. Published0.1.32 remains unchanged; back up the whole data directory before opening it with new source.
+- **Remaining:** **16 tasks**. All21 Wave1–6 contracts passed implementation/actual acceptance and moved intact to the completed archive. Wave6 is unreleased0.1.33 source.
+- **Current request:** Wave6 GP05/PK09/RX04/RX05/RX06 was implemented; exact source/runtime qualification and handoff are recorded in the checkpoint. No Waves7–8, publication or paid/live call is authorized.
 
 ## Completed Pokémon milestone
 
@@ -22,18 +22,16 @@ Party, formations, portable TMs, moves, summary, Dex, held references, ribbons, 
 |---|---|---:|
 | [F — Context and tools](tasks/F-context-tools.md) | Paired optimization quality benchmark | 1 |
 | [H — Acceptance](tasks/H-provider-acceptance.md) | Live-provider rows, composed quality/resource measurements and native distribution evidence | 6 |
-| [I — Product capabilities](tasks/I-product-capabilities.md) | Retained-task search, screenshot input and selected local Git commit | 3 |
-| [J — Eevee workflows](tasks/J-eevee-workflows.md) | Retained partner contribution drill-down | 1 |
-| [K — Reference adaptations](tasks/K-reference-capabilities.md) | Parked drafts, external editing and response landmarks | 3 |
+| [I — Product capabilities](tasks/I-product-capabilities.md) | Screenshot input and selected local Git commit | 2 |
 | [R — Structure](tasks/R-code-structure.md) | Responsibility-based, just-in-time extractions | 7 |
 
-A/B/C/D/E/G are entirely completed and archived; F/H/I/J/K/R contain unfinished work.
+A/B/C/D/E/G/J/K are entirely completed and archived; F/H/I/R contain unfinished work.
 
 ### Next order
 
-1. Release/cleanup prerequisites are complete; do not restart archived Wave1–4 tasks. The checkpoint records the external evidence archive and preserved public0.1.31 binary.
-2. Wave5 MV09/PK08/PT12 is accepted and archived; no implementation task remains active. On a new request, Wave6 contains GP05, PK09, RX04, RX05 and RX06.
-3. [Wave plan](docs/WAVES.md) assigns21 unfinished tasks; Waves6–8 and conditional structure lanes do not start automatically.
+1. Public v0.1.32 and prior release/cleanup prerequisites are complete; do not restart archived Wave1–6 tasks.
+2. Wave6 GP05/PK09/RX04/RX05/RX06 is accepted source0.1.33. On a new request, Wave7 contains GP06/GP07; GP07 first requires its intentional design-contract amendment.
+3. [Wave plan](docs/WAVES.md) assigns16 unfinished tasks; Waves7–8 and conditional structure lanes do not start automatically.
 4. Local Q01/Q02/P03 evidence remains independently actionable; authenticated rows and Q03 live trials require separate permission. Existing published assets stay unchanged.
 
 ## Execution rules

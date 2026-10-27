@@ -38,8 +38,10 @@ impl App {
                 self.formations.invalidate();
                 self.workflow.authoring.invalidate();
                 self.updates.invalidate();
+                self.external_editor.invalidate();
                 self.tool_catalog.invalidate();
                 self.tool_plans.invalidate();
+                self.parked_drafts.invalidate();
                 self.artifacts.review_visible = false;
                 self.formations.apply_pending = false;
                 self.height = height;
@@ -94,7 +96,18 @@ impl App {
                 false
             }
             Event::Paste(_) if self.reset_after_save || self.confirmation.is_some() => false,
-            Event::Paste(_) if self.overlay == Some(Overlay::Updates) => false,
+            Event::Paste(_)
+                if matches!(
+                    self.overlay,
+                    Some(Overlay::Updates | Overlay::ExternalEditor)
+                ) =>
+            {
+                false
+            }
+            Event::Paste(text) if self.overlay == Some(Overlay::Retained) => {
+                self.retained.paste(&text);
+                true
+            }
             Event::Paste(text) if self.overlay == Some(Overlay::ToolCatalog) => {
                 self.tool_catalog.paste(&text);
                 true
@@ -103,6 +116,7 @@ impl App {
                 self.artifacts.paste(&text)
             }
             Event::Paste(_) if self.overlay == Some(Overlay::Receipts) => false,
+            Event::Paste(_) if self.overlay == Some(Overlay::ParkedDrafts) => false,
             Event::Paste(text) if self.overlay == Some(Overlay::ToolPlans) => {
                 if let Some(editor) = &mut self.tool_plans.editor
                     && editor.len() + text.len() <= 64 * 1024
@@ -866,6 +880,8 @@ impl App {
             || self.moves.editing()
             || self.overlay == Some(Overlay::Formations) && self.formations.editing()
             || self.overlay == Some(Overlay::Artifacts) && self.artifacts.editor.is_some()
+            || self.overlay == Some(Overlay::Retained)
+                && (self.retained.editor.is_some() || self.retained.mode == retained::Mode::Search)
             || self.overlay == Some(Overlay::ToolCatalog)
                 && matches!(
                     self.tool_catalog.mode,
@@ -1023,6 +1039,8 @@ impl App {
             return true;
         }
         match self.overlay {
+            Some(Overlay::Retained) => return self.retained_key(key),
+            Some(Overlay::ParkedDrafts) => return self.parked_draft_key(key),
             Some(Overlay::ToolPlans) => return self.tool_plan_key(key),
             Some(Overlay::EvolutionPreview) => {
                 if key.code == KeyCode::Esc {
@@ -1032,6 +1050,7 @@ impl App {
                 return self.scroll_key(key.code);
             }
             Some(Overlay::Updates) => return self.lifecycle_key(key),
+            Some(Overlay::ExternalEditor) => return self.external_editor_key(key),
             Some(Overlay::Artifacts | Overlay::ToolCatalog | Overlay::Receipts) => {
                 return self.context_tool_key(key);
             }

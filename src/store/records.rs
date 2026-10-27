@@ -719,6 +719,9 @@ fn snapshot(
             unknown_producer_artifacts: unknown,
         });
     }
+    let (artifacts, foreign_artifacts): (Vec<_>, Vec<_>) = artifacts
+        .into_iter()
+        .partition(|artifact| task.is_some_and(|task| artifact.task_id == task.id));
     let mut views = Vec::new();
     let mut resolution_choices = Vec::new();
     let mut comparison_runs = Vec::new();
@@ -732,7 +735,7 @@ fn snapshot(
             runs: &runs,
             current: current.unwrap_or(&unknown),
         };
-        for artifact in artifacts.into_iter().filter(|a| a.task_id == task.id) {
+        for artifact in artifacts {
             let (mut status, mut explanation) = freshness(&artifact, &view);
             match artifact.kind {
                 ArtifactKind::Review => {
@@ -741,6 +744,13 @@ fn snapshot(
                     let guard = task.workflows.review_guard(&criteria, &view);
                     if let Some(review) = &task.workflows.review {
                         if task.workflows.review_stale
+                            || artifact
+                                .reference
+                                .parse::<u64>()
+                                .ok()
+                                .is_some_and(|generation| {
+                                    generation != task.workflows.review_generation
+                                })
                             || !review
                                 .criteria
                                 .iter()
@@ -757,8 +767,11 @@ fn snapshot(
                         status = Freshness::Unavailable;
                     }
                     explanation = format!(
-                        "Current effective review {:?}; {}",
-                        guard.verdict, explanation
+                        "Retained review generation {}; current generation {} / effective review {:?}; {}",
+                        artifact.reference,
+                        task.workflows.review_generation,
+                        guard.verdict,
+                        explanation
                     );
                 }
                 ArtifactKind::Refactor => {
@@ -919,6 +932,53 @@ fn snapshot(
             }
         }
         comparison_runs = runs;
+    }
+    // Other tasks remain inspectable without restoring them or pretending the
+    // front task's source observation establishes their current freshness.
+    let mut foreign = std::collections::BTreeMap::<i64, Vec<Artifact>>::new();
+    for artifact in foreign_artifacts {
+        foreign.entry(artifact.task_id).or_default().push(artifact);
+    }
+    for (task_id, artifacts) in foreign {
+        let retained = load_task(connection, project, task_id)?;
+        let captures = excerpts(connection, task_id)?;
+        // Metadata-only foreign inspection does not hash every other task's
+        // spools or mistake the front task's observation for their freshness.
+        let runs = runs_for(connection, task_id)?;
+        let unknown = runner::InputSnapshot::default();
+        let evidence = workflows::EvidenceView {
+            task_id,
+            excerpts: &captures,
+            runs: &runs,
+            current: &unknown,
+        };
+        for artifact in artifacts {
+            let missing = retained.as_ref().is_none_or(|task| task.redacted)
+                || artifact.evidence.iter().any(|reference| {
+                    evidence.status(reference) == workflows::EvidenceStatus::Unavailable
+                });
+            let superseded = artifact.kind == ArtifactKind::Review
+                && artifact
+                    .reference
+                    .parse::<u64>()
+                    .ok()
+                    .is_some_and(|generation| {
+                        retained
+                            .as_ref()
+                            .is_some_and(|task| generation != task.workflows.review_generation)
+                    });
+            views.push(ArtifactView {
+                artifact,
+                freshness: if missing { Freshness::Unavailable } else if superseded { Freshness::Stale } else { Freshness::Ambiguous },
+                explanation: if missing {
+                    "Retained source is missing, purged or unavailable; attribution is historical."
+                } else if superseded {
+                    "Historical review generation has been superseded. Other task's current source freshness has not been observed."
+                } else {
+                    "Other retained task; current freshness has not been observed. Explicitly navigate to inspect its current evidence."
+                }.into(),
+            });
+        }
     }
     let mut habits: Vec<Habit> = rows(connection, "instruction_candidates", project)?;
     for habit in &mut habits {

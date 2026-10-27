@@ -173,6 +173,16 @@ impl State {
         {
             return Err("Draft owner is no longer in the party; reload the committed task".into());
         }
+        if snapshot
+            .workflows
+            .parked_drafts
+            .iter()
+            .any(|entry| !roster.iter().any(|member| member.id == entry.partner))
+        {
+            return Err(
+                "Parked draft owner is no longer in the party; reload the committed task".into(),
+            );
+        }
         let criteria =
             serde_json::to_string(&snapshot.criteria).map_err(|error| error.to_string())?;
         let partner_drafts = bounded_json(&snapshot.partner_drafts, MAX_PARTNER_DRAFTS_BYTES)?;
@@ -632,6 +642,9 @@ pub(super) fn redact_snapshot(snapshot: &mut Snapshot) {
     snapshot.redacted |= redact_field(&mut snapshot.command);
     snapshot.redacted |= redact_json(&mut snapshot.memory_draft);
     snapshot.redacted |= redact_json(&mut snapshot.workflow_draft);
+    for entry in &mut snapshot.workflows.parked_drafts {
+        snapshot.redacted |= redact_field(&mut entry.text);
+    }
     for criterion in &mut snapshot.criteria {
         snapshot.redacted |= redact_field(&mut criterion.text);
     }

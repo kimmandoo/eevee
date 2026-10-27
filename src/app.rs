@@ -9,6 +9,7 @@ pub(crate) mod cooperation_journal;
 pub mod cooperation_ui;
 pub mod execution;
 pub mod execution_relays;
+pub mod external_editor;
 pub mod formations;
 pub mod habits;
 pub mod handoff;
@@ -16,10 +17,12 @@ pub mod held;
 pub mod memory;
 pub mod moves;
 pub mod pairings;
+pub mod parked_drafts;
 pub mod party;
 pub mod planning;
 pub mod records;
 pub mod relays;
+pub mod retained;
 pub mod sources;
 pub mod suggestions;
 pub mod tool_catalog;
@@ -84,11 +87,14 @@ pub enum Overlay {
     Held,
     Formations,
     Updates,
+    ExternalEditor,
     Artifacts,
     ToolCatalog,
     Receipts,
     EvolutionPreview,
     ToolPlans,
+    ParkedDrafts,
+    Retained,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -277,9 +283,12 @@ pub struct App {
     pub workflows: crate::workspace::workflows::State,
     pub workflow: workflows::State,
     pub updates: updates::State,
+    pub external_editor: external_editor::State,
     pub artifacts: artifacts::State,
     pub tool_catalog: tool_catalog::State,
     pub tool_plans: tool_plans::State,
+    pub parked_drafts: parked_drafts::State,
+    pub retained: retained::State,
     pub memory: memory::State,
     pub moves: moves::State,
     pub records: records::State,
@@ -326,9 +335,12 @@ impl App {
             party_inflight: false,
             formations: formations::State::default(),
             updates: updates::State::default(),
+            external_editor: external_editor::State::default(),
             artifacts: artifacts::State::default(),
             tool_catalog: tool_catalog::State::default(),
             tool_plans: tool_plans::State::default(),
+            parked_drafts: parked_drafts::State::default(),
+            retained: retained::State::default(),
             nickname_editor: None,
             nickname_pending: None,
             selected: 0,

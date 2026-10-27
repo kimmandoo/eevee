@@ -1829,3 +1829,155 @@ fn legacy_handoff_without_typed_revision_remains_unknown_despite_retained_detail
 
 #[path = "ribbons_tests.rs"]
 mod ribbons;
+
+#[test]
+fn contribution_projection_keeps_foreign_tasks_frozen_producers_unknown_and_purge_truthful() {
+    let fixture = Fixture::new();
+    fs::write(
+        fixture.root.join("project/source.rs"),
+        "first\n한글 second\n",
+    )
+    .unwrap();
+    let mut state = fixture.open();
+    let mut first = fixture.task(&mut state);
+    state.add_partner().unwrap();
+    state.nickname_partner(2, Some("Original".into())).unwrap();
+    let second = fixture.task(&mut state);
+    let mut producer = owner(&state, 2);
+    producer.form = 1;
+    let capture = fixture.capture(&mut state, second.id, Some(producer.clone()), 1, 1);
+    fixture.capture(&mut state, second.id, None, 2, 2);
+    terminal(
+        &mut state,
+        first.id,
+        "contribution",
+        "source",
+        true,
+        b"retained run\n",
+    );
+    first.form = 7;
+    first.workflows.review_generation = 1;
+    first.workflows.review = Some(workflows::Review {
+        requested: workflows::Verdict::Inconclusive,
+        criteria: vec![],
+    });
+    let mut reviewer = owner(&state, 1);
+    reviewer.form = 7;
+    first.local_records.push(LocalIntent::Artifact {
+        id: "contribution-review".into(),
+        owner: reviewer,
+        kind: ArtifactKind::Review,
+        reference: "1".into(),
+        current: None,
+    });
+    first.revision += 1;
+    first = state.save(first).unwrap();
+    state.nickname_partner(2, Some("Renamed".into())).unwrap();
+    let snapshot = load(&mut state, first.id, Some(observed("source")));
+    let foreign = snapshot
+        .artifacts
+        .iter()
+        .find(|view| {
+            view.artifact.kind == ArtifactKind::Capture
+                && view.artifact.reference == capture.id.to_string()
+        })
+        .unwrap();
+    assert_eq!(foreign.artifact.task_id, second.id);
+    assert_eq!(foreign.artifact.producer.as_ref(), Some(&producer));
+    assert_ne!(foreign.freshness, Freshness::Current);
+    assert!(
+        snapshot
+            .artifacts
+            .iter()
+            .any(|view| view.artifact.kind == ArtifactKind::Run)
+    );
+    assert!(
+        snapshot
+            .artifacts
+            .iter()
+            .any(|view| view.artifact.kind == ArtifactKind::Review)
+    );
+    assert!(
+        snapshot
+            .artifacts
+            .iter()
+            .any(|view| view.artifact.task_id == second.id && view.artifact.producer.is_none())
+    );
+    state.release_partner(2).unwrap();
+    let released = load(&mut state, first.id, None);
+    assert!(
+        !released
+            .summaries
+            .iter()
+            .any(|summary| summary.partner.id == 2)
+    );
+    assert!(
+        released
+            .artifacts
+            .iter()
+            .any(|view| view.artifact.producer.as_ref() == Some(&producer))
+    );
+    state
+        .context(ContextRequest {
+            task_id: second.id,
+            producer: None,
+            operation: ContextOperation::Purge(vec![capture.id]),
+        })
+        .unwrap();
+    let purged = load(&mut state, first.id, None);
+    assert!(
+        !purged
+            .artifacts
+            .iter()
+            .any(|view| view.artifact.kind == ArtifactKind::Capture
+                && view.artifact.reference == capture.id.to_string())
+    );
+    assert!(
+        purged
+            .artifacts
+            .iter()
+            .any(|view| view.artifact.task_id == second.id && view.artifact.producer.is_none())
+    );
+}
+
+#[test]
+fn contribution_historical_review_generation_is_not_current_when_support_is_identical() {
+    let fixture = Fixture::new();
+    let mut state = fixture.open();
+    let mut task = fixture.task(&mut state);
+    task.form = 7;
+    let mut reviewer = owner(&state, 1);
+    reviewer.form = 7;
+    for generation in 1..=2 {
+        task.workflows.review_generation = generation;
+        task.workflows.review = Some(workflows::Review {
+            requested: workflows::Verdict::Inconclusive,
+            criteria: vec![],
+        });
+        task.local_records = vec![LocalIntent::Artifact {
+            id: format!("review-generation-{generation}"),
+            owner: reviewer.clone(),
+            kind: ArtifactKind::Review,
+            reference: generation.to_string(),
+            current: None,
+        }];
+        task.revision += 1;
+        task = state.save(task).unwrap();
+    }
+    let current = load(&mut state, task.id, None);
+    let old = current
+        .artifacts
+        .iter()
+        .find(|view| view.artifact.kind == ArtifactKind::Review && view.artifact.reference == "1")
+        .unwrap();
+    assert_eq!(old.freshness, Freshness::Stale);
+    assert_eq!(old.artifact.producer.as_ref(), Some(&reviewer));
+    let other = fixture.task(&mut state);
+    let foreign = load(&mut state, other.id, None);
+    let old = foreign
+        .artifacts
+        .iter()
+        .find(|view| view.artifact.kind == ArtifactKind::Review && view.artifact.reference == "1")
+        .unwrap();
+    assert_eq!(old.freshness, Freshness::Stale);
+}

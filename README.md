@@ -137,6 +137,22 @@ ev --data-dir /abs/path   # separate, isolated storage
 ev --help
 ```
 
+### Retained work and long requests (unreleased source 0.1.33)
+
+The public installers above currently provide0.1.32. Source builds additionally support:
+
+| Want to… | Use |
+| --- | --- |
+| Search saved work in this project, offline | `/project-search <literal>`; **Tab** includes archived tasks |
+| Inspect a partner's attributed outputs | `/partner-summary` or `/routes` → **c** |
+| Keep separate unsent follow-ups | `/park-draft` · `/drafts`; restore never sends |
+| Label a retained response | `/retained-responses` → **Enter** → **l**; revisit with `/landmarks` |
+| Edit the current Request externally | `/external-edit`; review launch, then review returned text |
+
+External editing waits for all work and saves to settle. Set `VISUAL` (preferred) or `EDITOR` to one executable, or a JSON argv array such as `["code","--wait"]`. No shell syntax or placeholders are expanded. Configure the editor to save in place: replaced files, links, unsafe/oversized output and cleanup failures are refused. The Request is exported as plaintext and may contain secrets; the unsandboxed editor inherits your environment, which may contain credentials, and may retain its own copies. Importing text does not send it.
+
+Parked drafts and landmarks advance the durable-reader contract despite unchanged SQL19. Back up the whole data directory before opening it with the new source; older binaries may refuse the new records.
+
 ## Providers
 
 | Connection | How |

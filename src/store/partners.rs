@@ -221,6 +221,10 @@ impl State {
                 let removed_draft = task.partner_drafts.remove(&partner).is_some();
                 let command_relays = task.workflows.command_relays.len();
                 let draft_relays = task.workflows.draft_relays.len();
+                let parked_drafts = task.workflows.parked_drafts.len();
+                task.workflows
+                    .parked_drafts
+                    .retain(|entry| entry.partner != partner);
                 task.workflows
                     .command_relays
                     .retain(|relay| relay.partner != partner);
@@ -231,6 +235,7 @@ impl State {
                     && !removed_draft
                     && command_relays == task.workflows.command_relays.len()
                     && draft_relays == task.workflows.draft_relays.len()
+                    && parked_drafts == task.workflows.parked_drafts.len()
                 {
                     continue;
                 }
@@ -401,6 +406,24 @@ pub(super) fn inspect_partners(connection: &Connection, auto_form: bool) -> Resu
         .map_err(|error| error.to_string())?;
     for text in drafts {
         valid_partner_drafts(&text.map_err(|error| error.to_string())?)?;
+    }
+    let mut statement = connection
+        .prepare("SELECT workflows FROM tasks")
+        .map_err(|e| e.to_string())?;
+    let workflows = statement
+        .query_map([], |row| {
+            json_column::<crate::workspace::workflows::State>(row, 0, MAX_WORKFLOW_BYTES)
+        })
+        .map_err(|e| e.to_string())?;
+    for state in workflows {
+        let state = state.map_err(|e| e.to_string())?;
+        if state
+            .parked_drafts
+            .iter()
+            .any(|entry| !rows.iter().any(|partner| partner.id == entry.partner))
+        {
+            return Err("A parked draft refers to a missing partner".into());
+        }
     }
     Ok(())
 }

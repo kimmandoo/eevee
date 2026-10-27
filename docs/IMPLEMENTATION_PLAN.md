@@ -1,8 +1,19 @@
 # Eevee Implementation Plan
 
-Updated2026-10-26. English-only UX changes passed local source/runtime/installation verification and were pushed. The user deferred release; public installers remainv0.1.31. macOS/Windows native CI failures remain unresolved; bounded failure annotations are available on subsequent runs. Wave5 remains source0.1.32, all16 wave assignments are archived and21 tasks remain. Waves6–8 remain planning only; no paid/live calls were made.
+Updated2026-10-27. Public v0.1.32 was published from `24083ee` after Check/all-five-native qualification and release run40300882851. Wave6 GP05/PK09/RX04/RX05/RX06 passed implementation/actual acceptance as unreleased0.1.33 source;16 tasks remain. Final qualification and handoff are recorded in WORK_CHECKPOINT.md. Waves7–8, publication and paid/live calls are not part of this request.
 
 Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPATIBILITY.md). Live-provider conformance remains distinct from implemented transports and deterministic runtime proof.
+
+## Completed implementation — Wave6 retained-work navigation and composition
+
+1. Completed GP05/RX06: project-private bounded literal search and durable immutable-journal landmarks passed compact/wide actual command/controlled-peer, archive/restart, other-owner streaming, purge/unavailable, draft/caret and paused-output journeys.
+2. Completed PK09: paged task/producer/form contribution navigation passed real capture/run/review, rename/release, no-output visits, purge and explicit guarded cross-task journeys. Removed unsupported visit-production inference.
+3. Completed RX04: bounded unsent drafts passed acknowledged parking during a real request, no draining/replay, exact neutral/obscured replacement, real writer contention/storage-only recovery and explicit fresh connection/Send.
+4. Completed RX05: exact launch/plaintext and returned-candidate reviews passed real disposable editor, UTF-8/CRLF/trailing-newline, native Ctrl+C, unsafe/error/cleanup and terminal-restoration journeys. Reused extracted existing authentication native process ownership.
+5. Integrated ownership repairs include post-navigation review binding, suspended post-archive task editors and full hidden-review invalidation. Source gates, frozen-binary identities, Windows compile limits, genuine older-reader refusal and bounded native-profile evidence are recorded in the checkpoint.
+6. Archived only the five accepted specifications, updated design/user documentation and retained all success/failure reports. The final checkpoint/conventional commit owns this query's handoff; no release, push, live-provider trial or strategy change is authorized.
+
+English-only UI remains authoritative; Unicode text/paths, including Korean content, remain supported. Historical bilingual requirements were verified as Unicode-data and compact/wide behavior, not by restoring removed language selection. RF06/RF07 remain pending: sharing existing auth/editor native child ownership did not perform their complete specified runner/provider responsibility extractions.
 
 ## English-only UX — push-only handoff; release deferred
 

@@ -1,5 +1,20 @@
 # Changelog
 
+## 2026-10-27
+
+- feat(search): added bounded cancellable project-private literal retrieval of retained task facts, approved notes, provider journals and run summaries, with archived filtering, truthful time/coverage and freshly validated original-evidence inspection.
+- feat(party): added paged task/form contribution drill-down from partner summaries and route context, retaining immutable producer attribution across rename/release/purge and guarded cross-task navigation; removed unsupported route-visit production inference.
+- feat(drafts): added bounded durable per-task/partner unsent Request parking, exact acknowledged composer clearing, neutral replacement/discard reviews and storage-only recovery without scheduling or replay.
+- feat(editor): added separately reviewed external Request editing with literal executable/argv configuration, private identity-checked in-place temporary files, existing terminal lending and exact UTF-8/CRLF candidate import without sending.
+- feat(navigation): added bounded durable named landmarks on existing provider-journal identities with rename/remove, Unicode-position jumps and unavailable-target handling rather than transcript reconstruction.
+- fix(approvals): revoked parked-draft replacement/discard review when navigation or another surface obscured its scope, and prevented hidden rendering from accumulating consent.
+- fix(drafts): allowed explicit text-only tray actions during owned provider work and restored retained Requests through exact text/caret review even when the composer was suspended.
+- fix(editor): bound review after its own navigation save and reused native foreground process/job ownership so editor Ctrl+C could not terminate Eevee.
+- fix(tasks): suspended the restored Request before presenting the post-archive task picker, preventing picker keys from submitting an unsent draft.
+- fix(navigation): ignored repeated landmark-removal keys so a held key could not delete successive labels.
+- docs(storage): recorded genuine0.1.32 refusal of the new parked-draft/landmark states without database mutation despite unchanged SQL19, and required complete data-directory backups rather than same-schema downgrade assumptions.
+- chore(version): advanced unreleased source to0.1.33 without publishing a tag or release.
+
 ## 2026-10-26
 
 - fix(files): restored case- and Unicode-normalization alias refusal on macOS and Windows for large write scopes by deriving comparison candidates from resolved directory identities and equal folded prefixes that are spelled differently, not only from equal or prefix paths.
