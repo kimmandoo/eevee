@@ -4,11 +4,11 @@ Only unfinished work belongs here. Completed specifications and stable dependenc
 
 ## Current state
 
-- **Released:** [v0.1.33](https://github.com/kimmandoo/eevee/releases/tag/v0.1.33), source `3c2db8f`, native40554638962 attempt1 and release40558169688. Check/all five native jobs passed; all eight public assets matched GitHub/checksum identities and all five qualified archives. Downloaded installation passed24 groups including34 actual installed native terminal scenarios. Previous [v0.1.32](https://github.com/kimmandoo/eevee/releases/tag/v0.1.32) and every older public asset remained unchanged.
+- **Released:** [v0.1.34](https://github.com/kimmandoo/eevee/releases/tag/v0.1.34), source `4faced3`, native40579811277 attempt1 and release40583845470. Check/all five native jobs passed. All eight public assets/five qualified archives matched; downloaded installation passed24 groups/34 installed native terminal scenarios, WS20/disconnect20/full-native24 journeys passed on the exact public host bytes. [v0.1.33](https://github.com/kimmandoo/eevee/releases/tag/v0.1.33) shipped the unassigned tasks and real terminal screenshot; every earlier public asset remained unchanged.
 - **Included milestones:** A08 → UX04A → S04 and P04A → P04B → T01B shipped: actionable connection diagnostics, persistent text density, reviewed portable workflows, reviewed updates/safe rollback and exact local context comparison. Specifications remain in [COMPLETED.md](tasks/COMPLETED.md).
-- **Compatibility:** Source0.1.34 retains SQL20 and complete SDK bridge11 introduced by0.1.33, with TM1/formation2 unchanged. Strict auto effort, adopted progress, parked-draft/landmark and selected-commit metadata remain data-dependent reader contracts, not restored authority. Replace sidecar source/policy/dependencies together; bridge10 mixes refuse before dispatch. Public0.1.32 refused tested new data without changing database bytes; back up the whole directory before opening it with new source. Matching version numbers do not guarantee reader admission or lifecycle rollback.
+- **Compatibility:** Public0.1.34 retains SQL20 and complete SDK bridge11 introduced by0.1.33, with TM1/formation2 unchanged. Strict auto effort, adopted progress, parked-draft/landmark and selected-commit metadata remain data-dependent reader contracts, not restored authority. Replace sidecar source/policy/dependencies together; bridge10 mixes refuse before dispatch. Public0.1.32 refused tested new data without changing database bytes; back up the whole directory before upgrading. Matching version numbers do not guarantee reader admission or lifecycle rollback.
 - **Remaining:** **14 tasks**, all assigned to Wave8 or conditional structure lanes. All23 Wave1–7 contracts and unassigned GP10→GP08/GP09 plus P05 passed scoped acceptance and were archived, then shipped in0.1.33. The separately authorized follow-up is not another implementation wave.
-- **Current request:** All four unassigned tasks, CI repairs and real graphics-terminal README capture are published. The separately authorized0.1.34 follow-up passed strict source gates and all new WS/disconnect/outcome paths. Frozen-source native CI may overlap final independent retained-progress/route regressions; complete matching-hash local coverage and same-attempt Check/all-five success are still mandatory before its additional release. Public-history reconciliation preserved every existing asset; Wave8 and paid/live calls remain outside scope.
+- **Current request completed:** All four unassigned tasks, CI repairs, actual graphics-terminal README capture, native Run-owned WebSocket retention and concrete agent-usability improvements were implemented, qualified and published in0.1.33–34. Exact downloaded/runtime/checksum/history evidence is in the checkpoint. No implementation task is active; Wave8, conditional structure lanes and paid/live calls were not started.
 
 ## Completed Pokémon milestone
 
@@ -28,9 +28,9 @@ A/B/C/D/E/G/I/J/K are entirely completed and archived; only F/H/R contain unfini
 
 ### Next order
 
-1. Public v0.1.32 and prior release/cleanup prerequisites are complete; do not restart archived Wave1–7 tasks.
-2. Wave6 GP05/PK09/RX04/RX05/RX06, Wave7 GP06/GP07 and unassigned GP10→GP08/GP09/P05 passed scoped acceptance. Source0.1.33 now requires SQL20 and complete SDK bridge11; exact local/reader/protocol proof is in the checkpoint.
-3. [Wave plan](docs/WAVES.md) assigns all14 remaining tasks. Wave8 and conditional structure lanes remain pending; the current active step is exact-source native qualification and release, not another implementation wave.
+1. Public v0.1.34 and this query's implementation/CI/graphics/additional-release delivery are complete; do not restart archived Wave1–7 or unassigned tasks.
+2. Wave6 GP05/PK09/RX04/RX05/RX06, Wave7 GP06/GP07 and unassigned GP10→GP08/GP09/P05 shipped in0.1.33. Version0.1.34 retained SQL20/complete SDK bridge11 and added the separately qualified transport/outcome/diagnostic follow-up.
+3. [Wave plan](docs/WAVES.md) assigns all14 remaining tasks. Wave8 and conditional structure lanes remain pending; select new implementation only on a subsequent authorized request.
 4. Local Q01/Q02/P03 evidence remains independently actionable; authenticated rows and Q03 live trials require separate permission. Existing published assets stay unchanged.
 
 ## Execution rules

@@ -19,6 +19,7 @@
 - fix(verification): used explicit active-input capture for held Windows conversation requests and released the fixture-owned HTTP gate after failure, preserving exact dispatch/partial/draft/caret/outcome predicates and idle defaults elsewhere.
 - docs(verification): qualified the corrected0.1.34 candidate with1,841 Rust tests,20 TLS-environment WebSocket journeys,20 disconnect journeys, four retained-outcome cases,24 full native journeys,38 effort requests,16 progress rows and66 distinct route/model/geometry identities, retaining separate composed account limits.
 - fix(verification): preserved bounded HTTP fixture byte positions across interrupted socket system calls, retaining exact round-limit refusal and effect assertions without replaying provider requests or changing production behavior.
+- docs(release): published v0.1.34 from `4faced3` after same-attempt Check/all-five-native40579811277, with release40583845470/public425985427; verified all eight public digests/seven checksum rows/five qualified archive byte identities and15 package-member reference exclusions, then passed complete downloaded installation24/installed-native34/full-native24/WebSocket20/disconnect20 on exact public host SHA256 `b7735d710bd9b810d342b6349a188cb7046c3b9229c26bd605b725710e15eb2e`, updated released-state docs and removed owned verifier/worktree scaffolding without changing earlier release assets or user files.
 
 ## 2026-10-27
 

@@ -78,11 +78,11 @@ Pin a version:
 
 ```sh
 curl -fsSLo install-ev.sh https://github.com/kimmandoo/eevee/releases/latest/download/install.sh
-sh ./install-ev.sh --version v0.1.33
+sh ./install-ev.sh --version v0.1.34
 ```
 
 ```powershell
-& ([scriptblock]::Create((irm https://github.com/kimmandoo/eevee/releases/latest/download/install.ps1))) -Version v0.1.33
+& ([scriptblock]::Create((irm https://github.com/kimmandoo/eevee/releases/latest/download/install.ps1))) -Version v0.1.34
 ```
 
 Offline: download the matching archive, `SHA256SUMS` and installer from one release, then:
@@ -113,7 +113,7 @@ ev
 
 The folder you launch from is the project boundary. Git is optional. No `/init` is required; `/init` only drafts an `AGENTS.md` guide for the project if you want one.
 
-### Native connections and conversation context (source0.1.34)
+### Native connections and conversation context
 
 Native Responses uses one WebSocket connection across a Run's model/tool rounds on the official public OpenAI API. Other native routes keep HTTP by default. Use `ev --native-transport http` to select HTTP explicitly, or `ev --native-transport websocket` for a supported Responses route; unsupported routes refuse rather than switching transports.
 
@@ -155,7 +155,7 @@ ev --help
 
 ### Retained work and long requests
 
-Public0.1.33 includes:
+Public0.1.34 includes:
 
 | Want to… | Use |
 | --- | --- |
