@@ -24,9 +24,9 @@
 ---
 
 <p align="center">
-  <img src="docs/assets/screenshot.png" width="900" alt="ev at 120×36: the agent created snake.py, ran its self-test under auto-approve, and reported the result; the partner panel shows an Eevee evolving into Jolteon">
+  <img src="docs/assets/screenshot.png" width="900" alt="The real ev terminal app in Ghostty, with Eevee displayed as a full-color native pixel sprite in the partner panel">
   <br>
-  <sub>The real <code>ev</code> binary at 120×36 with <code>/auto-approve</code> on, driven by a scripted local model: it writes <code>snake.py</code>, runs its self-test and reports back.</sub>
+  <sub>Actual <code>ev 0.1.33</code> in Ghostty 1.3.1 on macOS: Eevee is rendered as native pixels, not text or a composited overlay. This isolated first-launch capture made no provider/model request. <a href="docs/ASSET_LICENSES.md">Artwork attribution and rights limits.</a></sub>
 </p>
 
 `ev` is a single native binary that turns any folder into an agent workspace. Type a request; the model you connected reads your project, writes files, runs builds and tests, reads the real errors and fixes them — the same loop you know from Codex or Claude Code, with any provider and with every effect shown to you first.
@@ -267,6 +267,6 @@ Issues and pull requests are welcome.
 
 Original code, prose and the geometric wordmark are licensed under **[Apache-2.0](LICENSE)**. See [NOTICE](NOTICE) and [asset attribution](docs/ASSET_LICENSES.md). The wordmark has an editable [SVG source](docs/assets/wordmark.svg).
 
-Pokémon sprites are third-party artwork from a [pinned PokéAPI revision](https://github.com/PokeAPI/sprites/tree/0dc105d5b12416932f29b594078282ab4be045f5); its [notice](https://github.com/PokeAPI/sprites/blob/0dc105d5b12416932f29b594078282ab4be045f5/LICENCE.txt) attributes image copyright to **The Pokémon Company**. No franchise image bytes are bundled in this repository or native packages. Remote display/downloads and the software license grant no image, trademark or commercial-use rights.
+Pokémon sprites are third-party artwork from a [pinned PokéAPI revision](https://github.com/PokeAPI/sprites/tree/0dc105d5b12416932f29b594078282ab4be045f5); its [notice](https://github.com/PokeAPI/sprites/blob/0dc105d5b12416932f29b594078282ab4be045f5/LICENCE.txt) attributes image copyright to **The Pokémon Company**. Native packages contain no franchise image bytes. The documentation screenshot shows rendered third-party artwork, excluded from Apache-2.0; see [capture provenance and rights limits](docs/ASSET_LICENSES.md). Display, downloads and the software license grant no image, trademark or commercial-use rights.
 
 **Independent and unofficial; no affiliation or endorsement.**

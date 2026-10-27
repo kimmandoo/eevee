@@ -1,5 +1,12 @@
 # Troubleshooting
 
+### [2026-10-28] Real Ghostty capture initially showed setup or monochrome cell art
+
+- **Context / Symptom:** A fresh isolated Ghostty1.3.1 launch first showed `No image / Images: setup`; after artwork installation it showed a monochrome character approximation rather than native pixels. The old README screenshot had explicitly disabled images and reconstructed text cells.
+- **Root Cause:** The isolated HOME had no pinned artwork cache. Automation color/locale/multiplexer environment settings also retained the launch's monochrome/ASCII graphics guards even inside a genuinely graphics-capable terminal.
+- **Solution:** Used the normal explicit artwork downloader into the isolated cache, which SHA256-verified all nine pinned originals. Launched the actual binary in a separate real Ghostty window with its own `xterm-ghostty`/truecolor environment, removed automation-only NO_COLOR/locale/multiplexer overrides and selected UTF-8. Visually inspected the actual native Eevee pixels and captured only that owned window with macOS `screencapture`; no program guard was disabled and no image overlay was fabricated.
+- **Prevention / Reference:** A text-only PTY parser cannot prove graphics. Check actual artwork setup, native protocol/cell metrics and the terminal's real color/locale settings; document screenshot artwork separately from image-free software packages.
+
 ### [2026-10-28] Complete Codex plan snapshots lost their public suffix
 
 - **Context / Symptom:** All four controlled Codex progress journeys reached the malformed-plan transcript check but could never inspect its final marker. Evidence is `target/unassigned-progress-d2-codex-native/codex-120x36-en/en-malformed-transcript-screens.json`.

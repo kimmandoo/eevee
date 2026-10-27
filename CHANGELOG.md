@@ -6,6 +6,7 @@
 - fix(sdk): admitted taskless empty model inspection while retaining positive task ownership and frozen-root requirements for every actual prompt.
 - fix(forms): excluded negated `without` tails from writing intent while preserving positive leading requests and later independent clauses.
 - fix(codex): finalized complete plan-snapshot text through the existing redactor without marking progress complete or weakening ordinary message credential-tail protection.
+- docs(readme): replaced the text-only reconstructed screenshot with a direct Ghostty window capture showing native Eevee pixels, and recorded separate third-party-artwork provenance and rights limits.
 
 ## 2026-10-27
 
