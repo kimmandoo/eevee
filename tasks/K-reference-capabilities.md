@@ -1,10 +1,8 @@
 # K — Reference-derived capabilities
 
-All six reference-derived capabilities completed in Waves2–3/6 and moved intact to [COMPLETED.md](COMPLETED.md). They adapted useful behavior from a read-only external reference; pinned links remain attribution to the inspected reference, not copied implementation or prompts.
+All six reference-derived capabilities completed in Waves2–3/6 and moved intact to [COMPLETED.md](COMPLETED.md). They adapted useful behavior from a read-only external reference without copying implementation or prompts.
 
 Existing [F](F-context-tools.md), [I](I-product-capabilities.md) and [completed work](COMPLETED.md) retain their scopes. Do not rebuild shipped symbol/context/catalog/artifact/party workflows or the accepted reference adaptations. Screenshot/Git features remain in I; retained search and contribution navigation are archived. [Design rules](../docs/DESIGN_RULES.md) remain binding; use focused behavior regressions and actual runtime proof rather than another blanket platform cross-product.
-
-Reference inspection did not copy implementation or prompts. The reference root MIT license requires retained notices for copied substantial portions; any later code reuse must check the actual component and dependency licenses separately.
 
 ## Deliberately not imported
 
