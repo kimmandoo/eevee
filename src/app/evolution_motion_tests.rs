@@ -172,6 +172,7 @@ fn rapid_changes_replace_the_single_timer_and_priority_loss_never_replays_it() {
         complete: false,
         request: Arc::clone(&app.planning.submitted_request),
         owner: None,
+        status: None,
     });
     assert!(app.tick_evolution(now + STEP));
     assert!(app.evolution.motion.is_none());

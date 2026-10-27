@@ -78,11 +78,11 @@ Pin a version:
 
 ```sh
 curl -fsSLo install-ev.sh https://github.com/kimmandoo/eevee/releases/latest/download/install.sh
-sh ./install-ev.sh --version v0.1.32
+sh ./install-ev.sh --version v0.1.33
 ```
 
 ```powershell
-& ([scriptblock]::Create((irm https://github.com/kimmandoo/eevee/releases/latest/download/install.ps1))) -Version v0.1.32
+& ([scriptblock]::Create((irm https://github.com/kimmandoo/eevee/releases/latest/download/install.ps1))) -Version v0.1.33
 ```
 
 Offline: download the matching archive, `SHA256SUMS` and installer from one release, then:
@@ -113,6 +113,14 @@ ev
 
 The folder you launch from is the project boundary. Git is optional. No `/init` is required; `/init` only drafts an `AGENTS.md` guide for the project if you want one.
 
+### Native connections and conversation context (source0.1.34)
+
+Native Responses uses one WebSocket connection across a Run's model/tool rounds on the official public OpenAI API. Other native routes keep HTTP by default. Use `ev --native-transport http` to select HTTP explicitly, or `ev --native-transport websocket` for a supported Responses route; unsupported routes refuse rather than switching transports.
+
+Each new explicit Send opens a fresh request and carries only the existing completed public conversation. A retained socket is not a durable provider session, and partial/unknown output is not admitted as completed context. There is no automatic reconnect, retry or replay. WebSocket transport conservatively refuses ambient proxy/custom TLS configuration; choose HTTP explicitly when required.
+
+Responses retain their own outcome and context-admission status after later requests. An external agent process disconnect opens the existing diagnostics path without resending the request or exposing raw process output.
+
 ### Everyday controls
 
 | Want to… | Use |
@@ -129,7 +137,7 @@ The folder you launch from is the project boundary. Git is optional. No `/init` 
 | Start a fresh chat / new task | `/chat-new` · `/reset` · `/tasks` |
 | Cancel / quit safely | `/cancel` · `/cancel-all` · `/quit` |
 
-### One request flow across connections (source 0.1.33)
+### One request flow across connections
 
 `/journey` shows the same model/effort → Request → preview → Send → stream → approvals → progress → follow-up → cancel → resume/new → handoff path for every connection. Missing capabilities stay visible in place; changing a model never silently switches routes, sends a draft or restores approval. Requested effort and provider acknowledgment are separate; missing usage stays unknown.
 
@@ -145,9 +153,9 @@ ev --data-dir /abs/path   # separate, isolated storage
 ev --help
 ```
 
-### Retained work and long requests (unreleased source 0.1.33)
+### Retained work and long requests
 
-The public installers above currently provide0.1.32. Source builds additionally support:
+Public0.1.33 includes:
 
 | Want to… | Use |
 | --- | --- |
@@ -159,9 +167,9 @@ The public installers above currently provide0.1.32. Source builds additionally 
 
 External editing waits for all work and saves to settle. Set `VISUAL` (preferred) or `EDITOR` to one executable, or a JSON argv array such as `["code","--wait"]`. No shell syntax or placeholders are expanded. Configure the editor to save in place: replaced files, links, unsafe/oversized output and cleanup failures are refused. The Request is exported as plaintext and may contain secrets; the unsandboxed editor inherits your environment, which may contain credentials, and may retain its own copies. Importing text does not send it.
 
-Parked drafts, landmarks, adopted progress and typed auto effort use strict reader admission. Source0.1.33 migrates admitted SQL0–19 data to SQL20 for retained screenshots and requires complete SDK bridge11 for structured todo events; replace sidecar source/policy/dependencies together. TM1/formation2 remain unchanged. Back up the whole data directory before opening it with new source. Public0.1.32 refuses SQL20; a matching version number is not a reader/rollback compatibility guarantee.
+Parked drafts, landmarks, adopted progress and typed auto effort use strict reader admission. Since0.1.33, admitted SQL0–19 data migrates to SQL20 for retained screenshots, and structured todo events require complete SDK bridge11; replace sidecar source/policy/dependencies together. TM1/formation2 remain unchanged. Back up the whole data directory before upgrading. Public0.1.32 refuses SQL20; a matching version number is not a reader/rollback compatibility guarantee.
 
-### Reviewed images and selected local commits (unreleased source 0.1.33)
+### Reviewed images and selected local commits
 
 `/screenshot` asks for one literal project-relative PNG/JPEG path. Read every disclosure page, then **Enter** attaches it locally without sending. The Request title shows the selected image and compressed byte count; the next ordinary explicit Send includes its original bytes. `/screenshot-show` inspects metadata, `/screenshot-remove` deselects but retains bytes, and `/screenshot-purge` reviews deletion of the retained capture. Storage failure blocks Send; `/screenshot-retry` retries storage only.
 A different capture requires purging the retained one first; removal alone does not replace its bytes.

@@ -291,6 +291,7 @@ impl State {
             task.clone()
         };
         self.pending = Some(Request::Preview(Box::new(Input {
+            native_transport: self.native_transport,
             prior_plan: if !inspect_models
                 && !inspect_sessions
                 && self.operation == Operation::Implement

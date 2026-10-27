@@ -7,6 +7,10 @@ pub(super) struct Flow {
     pub(super) fresh_intent: bool,
     pub(super) fresh_prepared: bool,
     public_request_partner: Option<i64>,
+    public_pairs: usize,
+    pub(super) transport: Option<crate::providers::NativeWire>,
+    pub(super) agent: Option<Agent>,
+    pub(super) operation: Option<Operation>,
 }
 
 impl State {
@@ -17,9 +21,24 @@ impl State {
 
     pub(super) fn freeze_chat_intent(&mut self, task: &store::Snapshot, fresh: bool) {
         self.conversation_flow.fresh_prepared = fresh;
+        self.conversation_flow.transport = None;
+        self.conversation_flow.agent = Some(self.agent);
+        self.conversation_flow.operation = Some(self.operation);
         self.conversation_flow.public_request_partner = (self.agent == Agent::Codex
             && self.operation == Operation::Implement)
             .then_some(task.lead_partner);
+        self.conversation_flow.public_pairs = if !fresh && self.operation != Operation::Review {
+            self.native_histories
+                .get(&(self.agent, self.operation))
+                .map_or(0, |history| history.messages.len() / 2)
+        } else {
+            0
+        };
+    }
+
+    /// Count frozen for this preparation, not inferred from visible partial text.
+    pub fn prepared_public_pairs(&self) -> usize {
+        self.conversation_flow.public_pairs
     }
 
     pub(super) fn dispatch_chat_intent(&mut self) {
@@ -136,7 +155,7 @@ impl State {
         self.native_candidate = Some(conversation);
     }
 
-    pub(super) fn finish_native(&mut self, completed: bool) {
+    pub(super) fn finish_native(&mut self, completed: bool) -> bool {
         let candidate = self.native_candidate.take();
         if completed
             && self.active
@@ -147,7 +166,9 @@ impl State {
         {
             self.native_histories
                 .insert((self.agent, self.operation), conversation);
+            return true;
         }
+        false
     }
 
     pub(super) fn reset_native_chat(&mut self) {
@@ -190,6 +211,10 @@ mod tests {
             panic!("Native preparation must freeze an input");
         };
         state.event(Event::Preview(Preview {
+            transport: state
+                .agent
+                .is_direct()
+                .then_some(crate::providers::NativeWire::Http),
             comparison_scope: None,
             arrival: crate::providers::approval_arrival(),
             destination: None,
@@ -418,6 +443,100 @@ mod tests {
     }
 
     #[test]
+    fn terminal_public_admission_requires_candidate_and_survives_owned_followup() {
+        for (outcome, candidate, admitted) in [
+            (Outcome::Completed, true, true),
+            (Outcome::Completed, false, false),
+            (Outcome::Cancelled, true, false),
+            (Outcome::Failed, true, false),
+            (Outcome::Unknown, true, false),
+        ] {
+            let mut state = native();
+            state.selection.model = Some("original-model".into());
+            state.front = Some(store::Attribution {
+                partner: task("owner").lead_partner,
+                name: "Original owner".into(),
+                form: 0,
+            });
+            let input = start(&mut state, &task("Original request"), 1);
+            state.event(Event::Item {
+                generation: 1,
+                task_id: 7,
+                thread_id: String::new(),
+                turn_id: "original".into(),
+                item_id: "original".into(),
+                kind: ItemKind::Message,
+                text: "Original partial 界e\u{301}".into(),
+                // Complete display alone must never admit public history.
+                complete: !candidate,
+            });
+            if candidate {
+                state.event(Event::NativeCompleted {
+                    generation: 1,
+                    task_id: 7,
+                    conversation: conversation(&input, "Canonical completed answer"),
+                });
+            }
+            finish(&mut state, 1, outcome);
+            let old = Arc::clone(state.items[0].status.as_ref().unwrap());
+            let owner = state.items[0].owner.clone();
+            assert_eq!(old.outcome, Some(outcome));
+            assert_eq!(old.public_context, Some(admitted));
+            assert_eq!(old.generation, 1);
+            assert_eq!(old.task_id, 7);
+            assert_eq!(old.model.as_deref(), Some("original-model"));
+            assert_eq!(old.transport, Some(crate::providers::NativeWire::Http));
+            assert_eq!(state.items[0].complete, !candidate);
+            assert_eq!(state.native_histories.is_empty(), !admitted);
+
+            let next = start(&mut state, &task("Explicit follow-up"), 2);
+            assert_eq!(next.conversation.is_some(), admitted);
+            assert_eq!(state.prepared_public_pairs(), usize::from(admitted));
+            if let Some(history) = &next.conversation {
+                assert_eq!(history.messages.len(), 2);
+                assert_eq!(history.messages[0].text.as_ref(), "Original request");
+                assert_eq!(
+                    history.messages[1].text.as_ref(),
+                    "Canonical completed answer"
+                );
+            }
+            // A newer generation cannot rewrite a retained request's identity,
+            // outcome, original owner, or model, even with the same request text.
+            state.event(Event::Finished {
+                generation: 1,
+                task_id: 7,
+                outcome: Outcome::Completed,
+                message: "stale success".into(),
+            });
+            finish(&mut state, 2, Outcome::Completed);
+            state.selection.model = Some("later-model".into());
+            state.front.as_mut().unwrap().name = "Later owner".into();
+            assert!(Arc::ptr_eq(state.items[0].status.as_ref().unwrap(), &old));
+            assert_eq!(state.items[0].owner, owner);
+            assert_eq!(state.items[0].text, "Original partial 界e\u{301}");
+            state.response_rows(120, 100, false).count();
+            state.home_response_key(KeyCode::Home);
+            let view = state
+                .response_rows(120, 100, false)
+                .collect::<Vec<_>>()
+                .join("\n");
+            assert!(
+                view.contains("Original owner") && view.contains("original-model"),
+                "{view}"
+            );
+            assert!(
+                view.contains(old.outcome_label().unwrap()) && view.contains(&old.reason),
+                "{view}"
+            );
+            assert!(
+                !view.contains("stale success") && !view.contains("later-model"),
+                "{view}"
+            );
+            assert_eq!(state.outcome_unknown(), outcome == Outcome::Unknown);
+        }
+    }
+
+    #[test]
     fn unknown_ownership_kind_follows_frozen_request_not_selected_provider() {
         for agent in [Agent::Compatible, Agent::Codex] {
             let mut state = State::new();
@@ -431,6 +550,11 @@ mod tests {
                 Agent::Compatible
             };
             finish(&mut state, 1, Outcome::Unknown);
+            let status = state.items[0].status.as_ref().unwrap();
+            assert_eq!(status.agent, agent);
+            assert_eq!(status.operation, Operation::Plan);
+            assert_eq!(status.generation, 1);
+            assert_eq!(status.public_context, agent.is_direct().then_some(false));
             assert!(state.outcome_unknown());
             assert_eq!(state.unknown_effects(), !agent.is_direct());
             assert_eq!(state.owns_work(), !agent.is_direct());
@@ -636,6 +760,7 @@ mod tests {
         };
         state.send_after_prepare = true;
         state.event(Event::Preview(Preview {
+            transport: None,
             comparison_scope: None,
             arrival: crate::providers::approval_arrival(),
             destination: None,
@@ -774,6 +899,7 @@ mod tests {
             &old
         ));
         state.event(Event::Preview(Preview {
+            transport: None,
             comparison_scope: None,
             arrival: crate::providers::approval_arrival(),
             destination: None,
@@ -1010,6 +1136,13 @@ mod tests {
             form: 0,
         });
         let input = start(&mut state, &task("Original model request"), 1);
+        state.event(Event::Thread {
+            generation: 1,
+            task_id: 7,
+            thread_id: "original-model-thread".into(),
+            model: "original-model".into(),
+            account: "controlled observation".into(),
+        });
         state.event(Event::Item {
             generation: 1,
             task_id: 7,
@@ -1021,11 +1154,12 @@ mod tests {
             complete: true,
         });
         finish(&mut state, 1, Outcome::Completed);
-        state.thread_id = Some("original-model-thread".into());
-        state.observed_model = Some("original-model".into());
         let owner = state.items[0].owner.clone();
         assert!(owner.is_some());
         let request = state.items[0].request.clone();
+        let status = Arc::clone(state.items[0].status.as_ref().unwrap());
+        assert_eq!(status.model.as_deref(), Some("original-model"));
+        assert_eq!(status.public_context, None);
         state.apply_selection(
             ModelSelection {
                 model: Some("new-model".into()),
@@ -1038,9 +1172,24 @@ mod tests {
         assert_eq!(state.items[0].text, "Original attributed public output");
         assert_eq!(state.items[0].owner, owner);
         assert!(Arc::ptr_eq(&state.items[0].request, &request));
+        assert!(Arc::ptr_eq(
+            state.items[0].status.as_ref().unwrap(),
+            &status
+        ));
         assert!(!state.reviewed && !state.affirmative && state.pending.is_none());
         let next = start(&mut state, &task("New model request"), 2);
         assert!(next.resume.is_none() && next.public_context.is_none());
         assert_eq!(input.instruction(), "Original model request");
+        state.response_rows(120, 50, true).count();
+        state.home_response_key(KeyCode::Home);
+        let view = state
+            .response_rows(120, 50, true)
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            view.contains("original-model") && view.contains("Original partner"),
+            "{view}"
+        );
+        assert!(!view.contains("new-model"), "{view}");
     }
 }

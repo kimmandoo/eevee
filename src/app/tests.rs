@@ -1312,6 +1312,7 @@ fn partner_status_tracks_live_request_and_approval_states() {
     let lead = app.lead().clone();
     // A provider preview awaiting the user's review is a waiting status.
     app.planning.preview = Some(crate::providers::Preview {
+        transport: None,
         comparison_scope: None,
         arrival: crate::providers::approval_arrival(),
         destination: None,
@@ -1570,6 +1571,7 @@ fn lead_switch_keeps_live_work_and_its_approval_on_the_owning_partner() {
     app.planning.pending.take();
     app.planning.event(crate::providers::Event::Preview(
         crate::providers::Preview {
+            transport: None,
             comparison_scope: None,
             arrival: crate::providers::approval_arrival(),
             destination: None,
@@ -1797,6 +1799,7 @@ fn finish_catalogue(app: &mut App, task_id: i64, blockers: Vec<String>) {
     assert!(input.inspect_models && input.resume.is_none());
     app.planning.event(crate::providers::Event::Preview(
         crate::providers::Preview {
+            transport: None,
             comparison_scope: None,
             arrival: crate::providers::approval_arrival(),
             destination: None,
@@ -2128,6 +2131,7 @@ fn request_preview(app: &mut App) {
     ));
     app.planning.event(crate::providers::Event::Preview(
         crate::providers::Preview {
+            transport: None,
             comparison_scope: None,
             arrival: crate::providers::approval_arrival(),
             destination: None,
@@ -2174,6 +2178,7 @@ fn composer_enter_dispatches_the_committed_request_once_without_a_popup() {
     assert!(app.overlay.is_none());
     app.planning.event(crate::providers::Event::Preview(
         crate::providers::Preview {
+            transport: None,
             comparison_scope: None,
             arrival: crate::providers::approval_arrival(),
             generation: 91,
@@ -2287,6 +2292,7 @@ fn native_missing_model_opens_local_picker_and_retains_request_without_retry() {
             app.provider_event(
                 1,
                 ProviderEvent::Preview(Preview {
+                    transport: None,
                     comparison_scope: None,
                     arrival: crate::providers::approval_arrival(),
                     generation: 91,
@@ -2339,6 +2345,7 @@ fn native_missing_model_opens_local_picker_and_retains_request_without_retry() {
             app.provider_event(
                 1,
                 ProviderEvent::Preview(Preview {
+                    transport: None,
                     comparison_scope: None,
                     arrival: crate::providers::approval_arrival(),
                     generation: 92,
@@ -2427,6 +2434,7 @@ fn terminal_native_unknown_allows_explicit_followup_and_task_switch_but_cli_unkn
         app.provider_event(
             1,
             ProviderEvent::Preview(Preview {
+                transport: None,
                 comparison_scope: None,
                 arrival: crate::providers::approval_arrival(),
                 generation: 91,
@@ -2545,6 +2553,7 @@ fn terminal_native_unknown_allows_explicit_followup_and_task_switch_but_cli_unkn
         app.provider_event(
             1,
             ProviderEvent::Preview(Preview {
+                transport: None,
                 comparison_scope: None,
                 arrival: crate::providers::approval_arrival(),
                 generation: 92,
@@ -2625,6 +2634,7 @@ fn followup_draft_isolated_and_blocked_preparation_never_sends() {
         }
         app.planning.event(crate::providers::Event::Preview(
             crate::providers::Preview {
+                transport: None,
                 comparison_scope: None,
                 arrival: crate::providers::approval_arrival(),
                 generation: 92,
@@ -2743,6 +2753,7 @@ fn running_request_keeps_claimed_admission_while_followup_saves_and_releases_exa
     app.provider_event(
         1,
         crate::providers::Event::Preview(crate::providers::Preview {
+            transport: None,
             comparison_scope: None,
             arrival: crate::providers::approval_arrival(),
             destination: None,
@@ -3666,6 +3677,7 @@ fn return_to_eevee_waits_for_explicit_provider_cancellation_and_known_outcome() 
         app.planning.pending.take();
         app.planning
             .event(crate::providers::Event::Preview(Preview {
+                transport: None,
                 comparison_scope: None,
                 arrival: crate::providers::approval_arrival(),
                 destination: None,
@@ -3973,6 +3985,7 @@ fn response_scroll_app() -> App {
             complete: true,
             request: std::sync::Arc::from("original request"),
             owner: None,
+            status: None,
         });
     }
     app.planning.selected = 1;

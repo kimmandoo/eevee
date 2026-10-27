@@ -16,6 +16,7 @@ impl State {
 
     pub fn new_partner(&self, owner: store::Attribution, task: i64) -> Self {
         let mut state = Self::new();
+        state.native_transport = self.native_transport;
         state.task = task;
         state.front = Some(owner);
         let (agent, selection) = self.global_route();

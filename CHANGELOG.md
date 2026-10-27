@@ -9,6 +9,12 @@
 - docs(readme): replaced the text-only reconstructed screenshot with a direct Ghostty window capture showing native Eevee pixels, and recorded separate third-party-artwork provenance and rights limits.
 - fix(verification): removed the context-only send wrapper that forced idle settling inside inherited active-request paths, retaining exact protocol/response/lease settlement checks.
 - fix(verification): waited for the rendered Request return after durable source attachment, preventing a stale-drawer Escape from opening draft discard without weakening confirmation guards.
+- feat(providers): added explicit native transport selection and Run-owned Responses WebSocket continuations with frozen first-frame receipts, actual incremental tool results and no retry, fallback or cross-request private context.
+- feat(ux): retained request-owned terminal outcomes and truthful public-context admission after later requests, and represented zero-output outcomes as explicitly local cards.
+- fix(agents): classified real external process pipe loss, EOF and unexpected exit as transport diagnostics without exposing raw process text or replaying requests.
+- fix(providers): admitted sparse ordered streamed output indices while retaining duplicate, lifecycle, response-identity and final-snapshot consistency checks.
+- docs(release): published v0.1.33 from `3c2db8f` after Check/all-five-native qualification, verified all eight public assets/five exact qualified archives and passed24 downloaded installation groups including34 installed native terminal scenarios.
+- docs(verification): passed20 actual WebSocket journeys,20 external-disconnect journeys and four native/Codex retained-outcome journeys at both terminal sizes, preserving exact receipts, original status/context, future drafts/carets and no-replay boundaries.
 
 ## 2026-10-27
 
@@ -252,6 +258,15 @@
 - docs(release): published v0.1.19 from source `c4ce4a2` after exact-source Check/all-five-native qualification and immutable promotion, retaining Schema 16 and complete SDK bridge 8.
 - test(terminal): acknowledged the new one-time evolution receipt before checking preserved goal/edit/discard behavior in the actual compact installed runtime without changing the published executable.
 - docs(verification): verified all public assets, sixteen bilingual automatic-review/file-progress journeys/64 groups, 24 file journeys/126 groups, evolution popups and preserved typing, scrolling/tooltips, native 176 groups, cooperation 24, six genuine schema upgrade/refusal/resume cases and 23 installation groups/all 34 installed terminal scenarios.
+
+## 0.1.34
+
+- feat(providers): added `--native-transport auto|http|websocket`, defaulted exact official public Responses requests to WebSocket, and retained HTTP for other native routes.
+- feat(providers): retained one Run-owned connection across model/tool rounds, sent actual incremental tool results against completed response IDs, and froze the actual initial frame/destination through existing receipts.
+- fix(providers): preserved attribution, bounded streaming and approved effect controls through protocol errors, disconnects and cancellation without automatic reconnect, fallback or replay; kept new explicit Sends limited to completed public history.
+- feat(ux): retained per-request outcome and context-admission status after later requests, distinguished connection reuse from provider sessions and showed local no-output outcomes without fabricating provider text.
+- fix(agents): routed concrete Codex/ACP/SDK process disconnects through owner-bound transport diagnostics while preserving cancellation, protocol, policy, deadline and storage classifications.
+- docs(storage): retained SQL20, TM1, formation2 and complete SDK bridge11 without adding durable transport/session/status authority.
 
 ## 0.1.33
 

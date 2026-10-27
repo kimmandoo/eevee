@@ -45,6 +45,7 @@ impl Drop for TestDirectory {
 
 fn config(path: &Path) -> Config {
     Config {
+        native_transport: crate::providers::NativeTransport::Auto,
         ascii: false,
         no_animation: false,
         animation_override: None,

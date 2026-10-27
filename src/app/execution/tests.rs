@@ -109,6 +109,7 @@ fn global_deny_resolves_only_the_current_owned_host_command_callback() {
                 Some(Request::Preview(_))
             ));
             app.planning.event(providers::Event::Preview(Preview {
+                transport: None,
                 comparison_scope: None,
                 arrival: 1,
                 generation: 7,
@@ -1547,6 +1548,7 @@ fn agent_command_review_opens_itself_but_arriving_keys_cannot_answer() {
         Some(Request::Preview(_))
     ));
     app.planning.event(providers::Event::Preview(Preview {
+        transport: None,
         comparison_scope: None,
         arrival: 1,
         generation: 7,
@@ -1682,6 +1684,7 @@ fn task_auto_approval_reserves_agent_commands_without_review() {
         Some(Request::Preview(_))
     ));
     app.planning.event(providers::Event::Preview(Preview {
+        transport: None,
         comparison_scope: None,
         arrival: 1,
         generation: 7,
@@ -1814,6 +1817,7 @@ fn selected_commit_root_review_pages_to_consent_at_supported_sizes_and_refuses_b
     use crate::config::{ColorMode, Config, ImageMode, LayoutMode, Theme};
     use ratatui::{Terminal, backend::TestBackend};
     let config = Config {
+        native_transport: crate::providers::NativeTransport::Auto,
         ascii: true,
         no_animation: true,
         animation_override: Some(false),

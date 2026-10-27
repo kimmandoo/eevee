@@ -1191,3 +1191,102 @@ fn sdk_host_command_schema_requires_exact_identity_and_literal_scope() {
         assert!(command_request(&changed).is_err(), "{field}");
     }
 }
+
+#[cfg(unix)]
+fn controlled_sdk_pipe(script: &str) -> (SdkTestDirectory, Pipe) {
+    use crate::workspace::runner::{CommandSpec, Event as RunnerEvent, InputSnapshot, Worker};
+    let directory = SdkTestDirectory::new();
+    let runner = Worker::start().unwrap();
+    runner
+        .prepare(
+            7,
+            CommandSpec::Direct {
+                program: "/bin/sh".into(),
+                args: vec!["-c".into(), script.into()],
+            },
+            directory.path().to_path_buf(),
+            InputSnapshot::default(),
+        )
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        match runner.try_event() {
+            Some(RunnerEvent::Prepared(prepared)) => {
+                let pipe = Pipe::spawn(&prepared).unwrap();
+                return (directory, pipe);
+            }
+            Some(event) => panic!("Unexpected controlled pipe preparation: {event:?}"),
+            None => {
+                assert!(
+                    Instant::now() < deadline,
+                    "Controlled pipe preparation timed out"
+                );
+                thread::sleep(Duration::from_millis(2));
+            }
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn sdk_actual_pipe_disconnect_is_distinct_from_provider_and_protocol_errors() {
+    for script in [
+        "printf '%s\\n' '{\"protocol\":1,\"type\":\"fatal\"}'",
+        "printf '%s\\n' '{\"protocol\":1,\"type\":\"status\"}' '{malformed'",
+        "printf '%s' '{\"protocol\":1'",
+    ] {
+        let (_directory, mut pipe) = controlled_sdk_pipe(script);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut messages = Vec::new();
+        while let Ok(frames) = pipe.pump(None) {
+            messages.extend(frames);
+            if pipe.eof {
+                break;
+            }
+            assert!(Instant::now() < deadline, "Controlled stdout did not close");
+            thread::sleep(Duration::from_millis(2));
+        }
+        // EOF is separately classified by the owning consumer only after
+        // processing valid terminal/fatal frames. Neither a provider fatal
+        // nor a JSON/protocol fault is itself evidence of failed pipe I/O.
+        assert!(!pipe.io_failed);
+        if script.contains("fatal") {
+            assert_eq!(messages.len(), 1);
+            assert_eq!(messages[0]["type"], "fatal");
+        } else if script.contains("status") {
+            assert_eq!(messages.len(), 1);
+            assert_eq!(messages[0]["type"], "status");
+        } else {
+            assert!(pipe.eof && !pipe.frame.is_empty());
+        }
+        assert!(pipe.teardown());
+    }
+
+    let (_directory, mut pipe) = controlled_sdk_pipe(
+        "exec 0<&-; printf '%s\\n' '{\"protocol\":1,\"type\":\"ready\"}'; sleep 2",
+    );
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        if pipe
+            .pump(None)
+            .unwrap()
+            .iter()
+            .any(|frame| frame["type"] == "ready")
+        {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "Closed stdin peer never became ready"
+        );
+        thread::sleep(Duration::from_millis(2));
+    }
+    pipe.send(json!({"protocol":1,"type":"run","generation":31,"task_id":7}))
+        .unwrap();
+    assert!(pipe.pump(None).is_err());
+    assert!(
+        pipe.io_failed,
+        "Actual broken stdin must remain typed transport evidence"
+    );
+    assert!(pipe.teardown());
+}

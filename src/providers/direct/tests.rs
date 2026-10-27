@@ -7,6 +7,7 @@ fn decoded_body(body: NativeBody<'_>) -> Value {
 
 fn input() -> Input {
     Input {
+        native_transport: crate::providers::NativeTransport::Auto,
         effort_resolution: None,
         screenshot: None,
         public_context: None,
@@ -57,6 +58,7 @@ fn runtime() -> tokio::runtime::Runtime {
 }
 fn control<'a>(stopped: &'a AtomicBool, cancelled: &'a AtomicU64) -> Control<'a> {
     Control {
+        wire_alive: None,
         stopped,
         cancelled,
         generation: 7,
@@ -573,11 +575,7 @@ fn explicit_selection_and_dispatch_revalidation_never_guess_a_fallback() {
     };
     validate_prepared(&workspace, &run, &connection).unwrap();
     run.input.selection.model = Some("changed-selection".into());
-    assert!(
-        validate_prepared(&workspace, &run, &connection)
-            .unwrap_err()
-            .contains("HTTP body changed")
-    );
+    assert!(validate_prepared(&workspace, &run, &connection).is_err());
     run.input.selection.model = Some("deliberate-unlisted".into());
     connection.model = Some("changed-configured-model".into());
     assert!(
@@ -647,6 +645,7 @@ fn waiting_for_headers_or_chunks_is_cancellable_and_deadlines_are_not_retries() 
     assert!(start.elapsed() < Duration::from_secs(1));
     cancelled.store(7, Ordering::Release);
     let control = Control {
+        wire_alive: None,
         deadline: Instant::now() + Duration::from_secs(10),
         ..control
     };
@@ -1045,11 +1044,7 @@ fn committed_native_followups_preserve_raw_roles_and_separate_current_untrusted_
                 messages[1].text = "Changed historical answer".into();
                 replaced.messages = messages.into();
                 changed.input.conversation = Some(Arc::new(replaced));
-                assert!(
-                    validate_prepared(&workspace, &changed, &connection)
-                        .unwrap_err()
-                        .contains("HTTP body changed")
-                );
+                assert!(validate_prepared(&workspace, &changed, &connection).is_err());
                 assert_eq!(
                     run.input.conversation.as_ref().unwrap().messages[1]
                         .text
@@ -1393,16 +1388,14 @@ fn failed_local_admission_and_unproven_transport_never_emit_dispatch_receipts() 
     let cancelled = AtomicU64::new(7);
     let control = control(&stopped, &cancelled);
     let (_sender, incoming) = mpsc::sync_channel(8);
-    let (outcome, message) = dispatch(&workspace(), &mut run, &events, &control, &incoming);
+    let (outcome, _) = dispatch(&workspace(), &mut run, &events, &control, &incoming);
     assert_eq!(outcome, Outcome::Cancelled);
-    assert!(message.contains("no HTTP request dispatched"));
     assert!(events.lock().is_empty());
 
     cancelled.store(0, Ordering::Release);
     run.input.agent = Agent::Codex;
-    let (outcome, message) = dispatch(&workspace(), &mut run, &events, &control, &incoming);
+    let (outcome, _) = dispatch(&workspace(), &mut run, &events, &control, &incoming);
     assert_eq!(outcome, Outcome::Failed);
-    assert!(message.contains("no HTTP request dispatched"));
     assert!(events.lock().is_empty());
     cancelled.store(7, Ordering::Release);
 

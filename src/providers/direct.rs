@@ -1,7 +1,8 @@
-//! Reviewed native HTTP requests with request-local, explicitly scoped file tools.
+//! Reviewed native HTTP/Responses WebSocket requests with request-local file tools.
 mod coding;
 pub(crate) mod config;
 mod tools;
+mod websocket;
 
 use std::collections::{HashSet, VecDeque};
 use std::io;
@@ -304,10 +305,10 @@ fn worker(
                 generation = generation.saturating_add(1);
                 current.store(generation, Ordering::Release);
                 owner = Some((generation, input.task.id));
-                let mut preview = Preview { comparison_scope: None, arrival: super::approval_arrival(), destination: None, requires_connection_review: false, generation, task_id: input.task.id, thread_id: None, trust: vec![
-                    "Native HTTPS request; no provider executable, project hooks, shell commands, MCP, or automatic retries. Canonical chat is bounded public user/assistant memory in the current task/partner state, cleared on task change or app restart; /chat-new resets it locally.".into(),
-                    "The initial HTTP JSON body below is frozen. Bounded derived continuations contain complete provider file-tool calls and actual results: Plan/Review are read/list only; Implement mutations require exact one-shot approval. Credentials are scoped request headers, never prompt context or persisted.".into(),
-                    "Cancellation closes the local response reader; remote completion is not confirmed stopped. Each HTTP round has a bounded deadline; file permission has a separate five-minute expiry.".into(),
+                let mut preview = Preview { transport: None, comparison_scope: None, arrival: super::approval_arrival(), destination: None, requires_connection_review: false, generation, task_id: input.task.id, thread_id: None, trust: vec![
+                    "Native request; no provider executable, project hooks, shell commands, MCP, retries or transport fallback. Canonical chat is bounded completed public user/assistant memory, not a provider thread; /chat-new resets it locally.".into(),
+                    "The actual initial wire packet and destination below are frozen. HTTP continuations carry the bounded full transcript; WebSocket continuations carry only actual acknowledged tool outputs with the completed response ID on this Run's single connection. Implement effects require exact one-shot approval; credentials stay scoped headers.".into(),
+                    "Cancellation retires the request-owned connection; remote completion is not confirmed stopped. Each model round has a bounded deadline; file permission has a separate five-minute expiry. No connection or private response chain survives this logical Run.".into(),
                 ], payload: String::new(), blockers: Vec::new() };
                 if native_writing(&input) {
                     preview.trust.push(if input.edit_paths.is_empty() {
@@ -338,15 +339,28 @@ fn worker(
                                 .disclosure(),
                         );
                     }
+                    let wire = if input.inspect_models {
+                        crate::providers::NativeWire::Http
+                    } else {
+                        connection.native_wire(input.native_transport)?
+                    };
+                    preview.transport = Some(wire);
                     preview.destination = Some(if input.inspect_models {
                         connection.models_url()
+                    } else if wire == crate::providers::NativeWire::WebSocket {
+                        connection.websocket_url()?
                     } else {
                         connection.inference_url(selected_model(&input, &connection)?)
                     });
                     if !input.inspect_models {
                         preview.trust.push(format!(
-                            "POST {}",
-                            connection.inference_url(selected_model(&input, &connection)?)
+                            "{} {}",
+                            if wire == crate::providers::NativeWire::WebSocket {
+                                "WebSocket response.create"
+                            } else {
+                                "HTTP POST"
+                            },
+                            preview.destination.as_deref().unwrap_or_default(),
                         ));
                     }
                     let writes = capture_writes(&workspace, &input)?;
@@ -407,6 +421,7 @@ fn worker(
                 }
                 owner = None;
                 let control = Control {
+                    wire_alive: None,
                     stopped: &stopped,
                     cancelled: &cancelled,
                     generation: requested,
@@ -635,10 +650,13 @@ fn payload(
             input.tool_catalog.as_ref(),
         );
     }
+    if connection.native_wire(input.native_transport)? == crate::providers::NativeWire::WebSocket {
+        websocket::initial_frame(&mut body)?;
+    }
     let text = serde_json::to_string_pretty(&body).map_err(|_| "Cannot encode native request")?;
     if text.len() > BODY_LIMIT {
         return Err(format!(
-            "Native HTTP body exceeds {} MiB; use /chat-new to reset local history or reduce the current task/source context. Nothing was truncated or sent",
+            "Native initial packet exceeds {} MiB; use /chat-new to reset local history or reduce the current task/source context. Nothing was truncated or sent",
             BODY_LIMIT / (1024 * 1024)
         ));
     }
@@ -979,11 +997,22 @@ struct Control<'a> {
     cancelled: &'a AtomicU64,
     generation: u64,
     deadline: Instant,
+    wire_alive: Option<&'a AtomicBool>,
 }
 impl Control<'_> {
     fn cancelled(&self) -> bool {
         self.stopped.load(Ordering::Acquire)
             || self.cancelled.load(Ordering::Acquire) == self.generation
+    }
+    fn connection_check(&self) -> Result<(), String> {
+        if self
+            .wire_alive
+            .is_some_and(|alive| !alive.load(Ordering::Acquire))
+        {
+            Err("Request-owned WebSocket closed or overflowed; no further effect, continuation or replay".into())
+        } else {
+            Ok(())
+        }
     }
     fn check(&self) -> Result<(), String> {
         if self.cancelled() {
@@ -1082,7 +1111,9 @@ fn validate_prepared(
         writes.verify()?;
     }
     if payload(workspace, &run.input, connection, run.writes.as_ref())? != run.payload {
-        return Err("Reviewed task/context or HTTP body changed; review a fresh preview".into());
+        return Err(
+            "Reviewed task/context or native packet changed; review a fresh preview".into(),
+        );
     }
     Ok(())
 }
@@ -1096,7 +1127,7 @@ fn dispatch(
     if run.input.local_only {
         return (
             Outcome::Failed,
-            "Local context inspection cannot dispatch; no HTTP request or file operation".into(),
+            "Local context inspection cannot dispatch; no native request or file operation".into(),
         );
     }
     let runtime = match tokio::runtime::Builder::new_current_thread()
@@ -1107,7 +1138,7 @@ fn dispatch(
         Err(_) => {
             return (
                 Outcome::Failed,
-                "Cannot initialize native HTTP runtime; no request dispatched".into(),
+                "Cannot initialize native transport runtime; no request dispatched".into(),
             );
         }
     };
@@ -1140,7 +1171,7 @@ async fn dispatch_async(
                 } else {
                     Outcome::Failed
                 },
-                format!("{error}; no HTTP request dispatched"),
+                format!("{error}; no native request dispatched"),
             );
         }
     };
@@ -1568,7 +1599,7 @@ impl Stream {
                 .and_then(|id| checked_identity(id).ok());
         }
     }
-    /// Every native usage object is a cumulative snapshot of this one HTTP
+    /// Every native usage object is a cumulative snapshot of this model
     /// response, not a delta or a total for the retained conversation.
     /// Omitted/null/invalid counters do not erase previously reported fields.
     fn observe_usage(&mut self, value: Option<&Value>) {
@@ -1629,6 +1660,9 @@ impl Stream {
             return Err("Provider ended stream without an authoritative successful finish".into());
         }
         let value = tools::frame(data)?;
+        self.event_value(event, &value)
+    }
+    fn event_value(&mut self, event: &str, value: &Value) -> Result<(), String> {
         let kind = value.get("type").and_then(Value::as_str).unwrap_or(event);
         // Terminal errors can still report consumed tokens (for example an
         // output limit). Retain them before any outcome/error handling;
@@ -1817,7 +1851,7 @@ impl Stream {
                 }
             }
         }
-        self.calls.observe(kind, &value)?;
+        self.calls.observe(kind, value)?;
         Ok(())
     }
     fn responses_output(&mut self, response: &Value) -> Result<(), String> {

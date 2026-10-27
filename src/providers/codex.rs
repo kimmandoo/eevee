@@ -324,6 +324,7 @@ fn worker(
                 generation = generation.saturating_add(1);
                 preview_owner = Some((generation, input.task.id));
                 let mut preview = Preview {
+                    transport: None,
                     comparison_scope: None,
                     arrival: super::approval_arrival(),
                     destination: None,
@@ -1151,18 +1152,17 @@ fn run_transport(
             if let Some(result) = engine.terminal.take() {
                 return Ok(result);
             }
-            engine.flush()?;
+            engine.flush(true)?;
             let mut buffer = [0u8; 8192];
             for _ in 0..32 {
                 match engine.process.read(0, &mut buffer) {
                     Ok(0) => {
                         if engine.terminal.is_none() {
-                            return Err(if engine.framer.partial() {
+                            return Err(engine.transport_error(if engine.framer.partial() {
                                 "Protocol layer: EOF inside a JSONL frame"
                             } else {
                                 "Process layer: provider EOF without authoritative turn completion"
-                            }
-                            .into());
+                            }));
                         }
                         break;
                     }
@@ -1185,7 +1185,11 @@ fn run_transport(
                     }
                     Err(error) if error.kind() == io::ErrorKind::WouldBlock => break,
                     Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
-                    Err(_) => return Err("Process layer: provider stdout capture failed".into()),
+                    Err(_) => {
+                        return Err(
+                            engine.transport_error("Process layer: provider stdout capture failed")
+                        );
+                    }
                 }
             }
             if let Some(result) = engine.terminal.take() {
@@ -1212,7 +1216,11 @@ fn run_transport(
                     {
                         break;
                     }
-                    Err(_) => return Err("Process layer: provider stderr capture failed".into()),
+                    Err(_) => {
+                        return Err(
+                            engine.transport_error("Process layer: provider stderr capture failed")
+                        );
+                    }
                 }
             }
             if let Some(result) = engine.terminal.take() {
@@ -1241,10 +1249,9 @@ fn run_transport(
             {
                 let exited = engine.process_exit.get_or_insert_with(Instant::now);
                 if exited.elapsed() >= Duration::from_millis(500) {
-                    return Err(
-                        "Process layer: app-server exited without authoritative turn completion"
-                            .into(),
-                    );
+                    return Err(engine.transport_error(
+                        "Process layer: app-server exited without authoritative turn completion",
+                    ));
                 }
             }
             thread::sleep(Duration::from_millis(5));
@@ -1354,6 +1361,24 @@ fn revalidate(
 }
 
 impl Engine<'_> {
+    fn transport_error(&self, message: &'static str) -> String {
+        if self.terminal.is_none()
+            && self.cancelling.is_none()
+            && !self.stop.load(Ordering::Acquire)
+            && self.cancelled.load(Ordering::Acquire) != self.run.generation
+        {
+            let _ = emit(
+                self.events,
+                Event::ConnectionFailed {
+                    generation: self.run.generation,
+                    task_id: self.run.input.task.id,
+                    agent: self.run.input.agent,
+                    failure: super::diagnostics::Failure::Transport,
+                },
+            );
+        }
+        message.into()
+    }
     fn status(&self, text: &str) -> Result<(), String> {
         emit(
             self.events,
@@ -1408,7 +1433,7 @@ impl Engine<'_> {
         });
         Ok(())
     }
-    fn flush(&mut self) -> Result<(), String> {
+    fn flush(&mut self, report_disconnect: bool) -> Result<(), String> {
         for _ in 0..32 {
             if self.cancelling.is_none()
                 && self.cancelled.load(Ordering::Acquire) == self.run.generation
@@ -1426,7 +1451,14 @@ impl Engine<'_> {
                 return Err("Process layer: stdin write deadline exceeded".into());
             }
             match self.process.write_stdin(&bytes[self.offset..]) {
-                Ok(0) => return Err("Process layer: provider stdin closed".into()),
+                Ok(0) => {
+                    let message = "Process layer: provider stdin closed";
+                    return Err(if report_disconnect {
+                        self.transport_error(message)
+                    } else {
+                        message.into()
+                    });
+                }
                 Ok(n) => {
                     self.offset += n;
                     if self.offset == bytes.len() {
@@ -1443,7 +1475,14 @@ impl Engine<'_> {
                 }
                 Err(error) if error.kind() == io::ErrorKind::WouldBlock => break,
                 Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
-                Err(_) => return Err("Process layer: provider stdin write failed".into()),
+                Err(_) => {
+                    let message = "Process layer: provider stdin write failed";
+                    return Err(if report_disconnect {
+                        self.transport_error(message)
+                    } else {
+                        message.into()
+                    });
+                }
             }
         }
         Ok(())
@@ -2752,7 +2791,8 @@ impl Engine<'_> {
         // Give an explicit refusal a bounded chance to reach the server before closing the pipe.
         let deadline = Instant::now() + Duration::from_millis(100);
         while !self.wire.is_empty() && Instant::now() < deadline {
-            if self.flush().is_err() {
+            // Cleanup after a settled result is not an unexpected disconnect.
+            if self.flush(false).is_err() {
                 break;
             }
             thread::sleep(Duration::from_millis(5));

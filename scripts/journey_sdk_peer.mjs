@@ -22,7 +22,7 @@ export function query({ prompt, options }) {
       const { value: submission } = await prompt.next();
       assert.ok(submission, 'production host must release correlated user submission');
       const session_id = options.resume || '00000000-0000-4000-8000-000000000002';
-      record('submitted', { model: options.model, prompt: submission.message.content });
+      record('submitted', { model: options.model, prompt: submission.message.content, resume: options.resume ?? null, session_id });
       const implement = options.tools.includes('Write');
       yield { type: 'system', subtype: 'init', session_id, model: options.model || 'journey-rich', claude_code_version: version, permissionMode: 'default', apiKeySource: 'ANTHROPIC_API_KEY', tools: [...options.tools, 'mcp__eevee_source__discover', ...(implement ? ['mcp__eevee_command__run_command'] : [])], mcp_servers: [{ name: 'eevee_source', status: 'connected' }, ...(implement ? [{ name: 'eevee_command', status: 'connected' }] : [])], plugins: [], skills: [] };
       if (!existsSync(process.env.EEVEE_JOURNEY_RELEASE)) {
@@ -43,6 +43,9 @@ export function query({ prompt, options }) {
       assert.match(content, /JOURNEY_SOURCE_한글/);
       record('actual_read', { content });
       yield { type: 'user', session_id, message: { content: [{ type: 'tool_result', tool_use_id: 'source-read', content }] } };
+      if (JSON.stringify(submission.message.content).includes('GP10_HOLD')) {
+        yield { type: 'assistant', session_id, message: { id: 'held-partial', content: [{ type: 'text', text: 'CANCELLED_PUBLIC_PARTIAL_한글界\n' }] } };
+      }
       while (JSON.stringify(submission.message.content).includes('GP10_HOLD') && !interrupted) await new Promise(resolve => setTimeout(resolve, 25));
       if (!interrupted) yield { type: 'assistant', session_id, message: { id: 'answer', content: [{ type: 'text', text: 'Controlled actual source read completed.' }] } };
       record('finished', { interrupted });

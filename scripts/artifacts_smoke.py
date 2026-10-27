@@ -280,7 +280,14 @@ def run_case(binary, output, root, size, ):
             journey.workspace()
             session.command('response')
             session.send(ESC + '[1;3H')  # Explicitly inspect the actual transcript start.
-            wait_for(session, 'ARTIFACT_ROUND_TRIP_DONE')
+            def final_answer_visible():
+                if 'ARTIFACT_ROUND_TRIP_DONE' in session.display():
+                    return True
+                session.send(PAGE_DOWN)
+                return 'ARTIFACT_ROUND_TRIP_DONE' in session.display()
+
+            until(session, final_answer_visible,
+                  'the retained transcript could not reach its final artifact answer')
             tool_messages = [message for message in peer.snapshot('POST')[-1]['body']['messages']
                              if message.get('role') == 'tool']
             selected = [str(message['content']) for message in tool_messages]

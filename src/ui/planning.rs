@@ -384,24 +384,14 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             value,
             "Task {} / {}\n",
             preview.task_id,
-            if state.inspect_models {
-                "MODEL CATALOGUE ONLY / no task prompt or resumed history".into()
-            } else if state.inspect_sessions {
-                "SESSION METADATA ONLY / no thread creation or model turn".into()
-            } else {
-                preview
-                    .thread_id
-                    .as_ref()
-                    .map(|id| format!("RESUME provider thread {id}"))
-                    .unwrap_or_else(|| "NEW provider thread".into())
-            }
+            preview_continuity(state, preview)
         );
         value.push_str("EXECUTABLE TRUST AND PROVIDER EFFECTS\n");
         for line in &preview.trust {
             let _ = writeln!(value, "{line}");
         }
         value.push_str(if state.agent.is_direct() {
-            paint.hint(Message::ProvidersPlanningEeveeSendsTheExactHttpPayloadBelow)
+            "Eevee sends the exact prepared native payload below; transport and destination are frozen, not proof of connection."
         } else {
             paint.hint(Message::ProvidersPlanningEeveeSendsTheExactPayloadBelowIt)
         });
@@ -416,7 +406,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             if state.inspect_models {
                 paint.hint(Message::ProvidersPlanningRunAuthorizesScopedHttpModelMetadataInspection)
             } else {
-                paint.hint(Message::ProvidersPlanningRunAuthorizesThisExactHttpRequestAnd)
+                "Run authorizes this exact native request and its disclosed effects; no reconnect, fallback or replay."
             }
         } else if state.inspect_models {
             paint.hint(Message::ProvidersPlanningRunAuthorizesOnlyTheDisclosedExecutableProvider)
@@ -784,6 +774,48 @@ fn write_scope_summary(state: &State, paint: &Paint) -> String {
     }
 }
 
+fn preview_continuity(state: &State, preview: &crate::providers::Preview) -> String {
+    if state.inspect_models {
+        return "MODEL CATALOGUE ONLY / no task prompt or resumed history".into();
+    }
+    if state.inspect_sessions {
+        return "SESSION METADATA ONLY / no thread creation or model turn".into();
+    }
+    if state.agent.is_direct() {
+        let context = if state.operation == Operation::Review {
+            "fresh independent Review context".into()
+        } else if state.prepared_public_pairs() == 0 {
+            "fresh public context".into()
+        } else {
+            format!(
+                "completed public context: {} pairs",
+                state.prepared_public_pairs()
+            )
+        };
+        let transport = match preview.transport {
+            Some(crate::providers::NativeWire::Http) => "HTTP",
+            Some(crate::providers::NativeWire::WebSocket) => "WebSocket",
+            None => "unresolved transport",
+        };
+        return format!(
+            "Native {transport} prepared / {context} / no provider thread; connection not yet observed"
+        );
+    }
+    if state.agent == crate::providers::Agent::Codex
+        && state.operation == Operation::Implement
+        && preview.thread_id.is_none()
+    {
+        return format!(
+            "NEW controlled Codex thread / {} completed public pairs / no resumed tool authority; process connection not yet observed",
+            state.prepared_public_pairs(),
+        );
+    }
+    preview.thread_id.as_ref().map_or_else(
+        || format!("NEW {} provider session / opaque context; process connection not yet observed", state.agent.label()),
+        |id| format!("RESUME owned {} session {id} / opaque context; process connection not yet observed", state.agent.label()),
+    )
+}
+
 fn review_summary(state: &State, paint: &Paint) -> Vec<String> {
     if let Some(preview) = &state.preview {
         if !preview.blockers.is_empty() {
@@ -812,7 +844,7 @@ fn review_summary(state: &State, paint: &Paint) -> Vec<String> {
             effort,
             approvals,
             todo,
-            session,
+            _session,
             artifacts,
             usage,
             outcome,
@@ -836,7 +868,7 @@ fn review_summary(state: &State, paint: &Paint) -> Vec<String> {
             todo,
             format!("Context: {} exact outgoing bytes / {usage} / {outcome}", preview.payload.len()),
             format!("Write scope: {scope} / {approvals}"),
-            format!("{session} / {artifacts} / d Details · /journey capabilities"),
+            format!("{} / {artifacts} / d Details · /journey capabilities", preview_continuity(state, preview)),
             "Provider network/billing and retained history; no retries or inherited grants; cancellation may not prove remote stop.".into(),
         ];
         return lines;
@@ -1055,30 +1087,44 @@ fn response(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
         }
     });
     let metadata = if let Some(item) = state.items.get(state.selected) {
+        let outcome = item
+            .status
+            .as_ref()
+            .and_then(|status| status.outcome_label());
         let mut metadata = if let ItemKind::File(phase) = item.kind {
             format!(
-                "{} {}",
+                "{}{}{} {}",
+                outcome.unwrap_or(""),
+                if outcome.is_some() { " · " } else { "" },
                 paint.hint(Message::ProvidersPlanningFileLabel),
                 paint.hint(file_phase_message(phase)),
             )
         } else {
             format!(
-                "{}{} {}/{} · {}{}",
+                "{}{}{}{} {}/{} · {}{}",
+                outcome.unwrap_or(""),
+                if outcome.is_some() { " · " } else { "" },
                 if previous {
                     paint.hint(Message::ProvidersPlanningPrevious)
                 } else {
                     ""
                 },
-                match item.kind {
-                    ItemKind::Message => paint.hint(Message::ProvidersPlanningResponse),
-                    ItemKind::Plan => paint.hint(Message::ProvidersPlanningPlan),
-                    ItemKind::Tool => paint.hint(Message::ProvidersPlanningToolOutput),
-                    ItemKind::File(_) => paint.hint(Message::ProvidersPlanningFilePreview),
+                if item.text.is_empty() && outcome.is_some() {
+                    "Request outcome"
+                } else {
+                    match item.kind {
+                        ItemKind::Message => paint.hint(Message::ProvidersPlanningResponse),
+                        ItemKind::Plan => paint.hint(Message::ProvidersPlanningPlan),
+                        ItemKind::Tool => paint.hint(Message::ProvidersPlanningToolOutput),
+                        ItemKind::File(_) => paint.hint(Message::ProvidersPlanningFilePreview),
+                    }
                 },
                 state.selected + 1,
                 state.items.len(),
                 if let ItemKind::File(phase) = item.kind {
                     paint.hint(file_phase_message(phase))
+                } else if item.text.is_empty() && outcome.is_some() {
+                    "no provider output"
                 } else if !previous && state.request.is_some() {
                     paint.hint(Message::ProvidersPlanningWaitingForReview)
                 } else if item.complete {
@@ -1095,7 +1141,16 @@ fn response(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
                 },
             )
         };
-        if !previous && let Some(model) = state.observed_model.as_deref() {
+        let model = item
+            .status
+            .as_ref()
+            .and_then(|status| status.model.as_deref())
+            .or_else(|| {
+                (!previous)
+                    .then_some(state.observed_model.as_deref())
+                    .flatten()
+            });
+        if let Some(model) = model {
             let _ = write!(metadata, " · {model}");
         }
         let _ = write!(
@@ -1977,6 +2032,7 @@ mod tests {
 
     fn config() -> Config {
         Config {
+            native_transport: crate::providers::NativeTransport::Auto,
             ascii: true,
             no_animation: true,
             animation_override: Some(false),
@@ -2004,6 +2060,7 @@ mod tests {
             Some(Request::Preview(_))
         ));
         app.planning.event(Event::Preview(Preview {
+            transport: None,
             comparison_scope: None,
             arrival: crate::providers::approval_arrival(),
             destination: None,
@@ -2318,6 +2375,7 @@ mod tests {
                         complete: phase != FilePhase::Generating,
                         request: "".into(),
                         owner: None,
+                        status: None,
                     });
                     let buffer = draw_response(&mut state, width, height, &paint);
                     let file = screen(&buffer);
@@ -2448,6 +2506,7 @@ mod tests {
             complete: false,
             request: "Earlier request".into(),
             owner: None,
+            status: None,
         });
         let screen = draw_home(&mut app);
         assert!(screen.contains("Earlier interrupted answer"), "{screen}");
@@ -2468,6 +2527,7 @@ mod tests {
             complete: true,
             request: "earlier request".into(),
             owner: None,
+            status: None,
         });
         app.planning.notice.clear();
         let config = config();
@@ -2709,6 +2769,7 @@ mod tests {
             complete: true,
             request: "original request".into(),
             owner: None,
+            status: None,
         });
         let mut terminal = Terminal::new(TestBackend::new(120, 36)).unwrap();
         terminal
@@ -3135,6 +3196,7 @@ mod tests {
         app.planning.command("new", true, &task, &[], None);
         app.planning.pending.take();
         app.planning.event(Event::Preview(Preview {
+            transport: None,
             comparison_scope: None,
             arrival: crate::providers::approval_arrival(),
             destination: None,
@@ -3529,6 +3591,7 @@ mod tests {
                 writing: false,
             });
             app.planning.event(Event::Preview(Preview {
+                transport: None,
                 comparison_scope: None,
                 arrival: crate::providers::approval_arrival(),
                 destination: None,

@@ -1,5 +1,44 @@
 # Troubleshooting
 
+### [2026-10-28] External uncertainty was confused with a live durable transport lease
+
+- **Context / Symptom:** New postdispatch disconnect verification reported `opaque external effects were silently released` after real Unknown settlement.
+- **Root Cause:** The fixture required the durable active-work row to remain byte-identical. Existing settlement correctly drained that transport lease while retaining the separate process-local unknown-effect admission barrier.
+- **Solution:** Awaited actual lease settlement, then deliberately attempted Send with the retained future Request and proved refusal, zero new process/query/submission/lease, unchanged draft/caret and local-only diagnostic remediation. Both sizes across all five external routes passed20/20 in `target/followup-disconnect-final-d`; production lease policy did not change.
+
+### [2026-10-28] Transport verification addressed the wrong terminal owner
+
+- **Context / Symptom:** Advanced preflight remained on home, cancellation keys were consumed by neutral file review, independent hazards were blocked by retained diagnostics, and compact streaming inspection could be hidden by an evolution receipt or a later Plan.
+- **Root Cause:** Fixtures assumed global key ownership, editable focus and latest-item visibility across distinct surfaces. A rendered file-diff card also used a semantic Failed outcome with a presentation-specific `[FILE]` label; matching the card word instead of its outcome rejected correct state.
+- **Solution:** Explicitly opened prepared Review, Esc-deferred without answering before global cancellation, focused Request through the existing helper, dismissed only the known neutral receipt, paged to the actual public partial, isolated independent hazards without clearing diagnostics and explicitly reviewed ALL-owned-work shutdown. Outcome assertions read the semantic terminal status independent of card decoration. All20 WS and20 disconnect journeys plus four original-outcome continuations passed on frozen B; no timeout, privacy rule, grant or production outcome classification changed.
+
+### [2026-10-28] Downloaded package verification used newer private source metadata
+
+- **Context / Symptom:** Public0.1.33 assets and the first11 installation groups passed, then `installation_smoke.py` rejected its lifecycle fixture at `assert f'version = "{current}"' in manifest`.
+- **Root Cause:** The downloaded executable was correctly0.1.33, while the private follow-up checkout had advanced Cargo metadata to0.1.34. The driver compiles a real older-version lifecycle fixture and correctly requires its source to match the package under test.
+- **Solution:** Ran the complete public installation driver from the explicit detached qualified0.1.33 commit, without modifying its assertion or the package. All24 groups, including34 installed native terminal scenarios, passed in `target/release-033-install-matched`; removed the owned source worktree afterward.
+- **Prevention / Reference:** Pin public-package lifecycle verification to the package's qualified source commit; do not substitute mutable follow-up metadata or manufacture a version string.
+
+### [2026-10-28] Outcome cards changed transcript geometry and compact paging
+
+- **Context / Symptom:** New local outcome cards caused `response header missing`; wide extraction dropped leading public characters, and compact artifact inspection at transcript start could no longer see a later final answer.
+- **Root Cause:** The old helper derived the body column from the word Response inside metadata, assumed only provider-response card kinds and included mutable notice/partner chrome. The artifact fixture also assumed its final answer fit on the first page despite explicitly navigating to the start.
+- **Solution:** Read semantic card kinds, navigation-owned terminal-cell bounds, the actual displayed row range and observed partner edge; reconstructed retained rows by absolute index without overlap or notice contamination. The artifact journey explicitly paged to the real final answer while retaining all source/receipt assertions. Both-size B artifact journeys passed, and native outcome ownership/reason/context/draft assertions reached their final safe-exit review. Exact source evidence remains under `target/followup-native-final-b`.
+- **Prevention / Reference:** Terminal columns are cells, not string offsets; a word inside metadata is not a layout anchor. Explicit start-page inspection must not imply that a later answer is already visible.
+
+### [2026-10-28] Valid streamed tool calls used sparse output indices
+
+- **Context / Symptom:** Integrated WebSocket consumer regression `native_websocket_registered_item_lane_streams_real_tool_arguments` settled Unknown with `WebSocket duplicate/interleaved output item refused` before the actual tool continuation.
+- **Root Cause:** The lane validator equated the next added index with the number of observed added events. A valid function call at index1 was rejected when index0 reasoning appeared only in the authoritative completion snapshot.
+- **Solution:** Allowed sparse strictly increasing added indices while retaining bounded indices, duplicate identities/indices, registered lanes, response/sequence identity and authoritative snapshot checks. Extended the actual argument-delta→arguments-done→item-done→completion consumer path and rejection boundaries; all20 WebSocket regressions passed (`artifact://197`).
+- **Prevention / Reference:** Observation order is not a complete output array. Validate lifecycle/identity against the final snapshot without requiring every nonpublic output to have streamed an added event.
+
+### [2026-10-28] Partial-output fixtures expected an unbounded terminal token
+
+- **Context / Symptom:** New abrupt-loss and cancellation regressions waited for an entire unterminated final word, so a correct credential-tail holdback prevented the expected observation and cancellation.
+- **Root Cause:** The fixture treated transport chunk boundaries as safe public token boundaries. Ordinary streaming deliberately withholds an unresolved terminal token.
+- **Solution:** Kept the required complete public-prefix assertions and supplied a bounded public line followed by an unresolved credential canary. Both interruption paths now also assert that the credential is never displayed, no completed public history is admitted and no additional request is sent. The20-case WebSocket suite passed without changing the production redactor or deadlines.
+
 ### [2026-10-28] Attachment persistence preceded the Request return frame
 
 - **Context / Symptom:** Native run40547662468 passed Check/macOS×2/Linux-arm64/Windows. Linux-x86_64 compact context failed after the second source attachment with `refusing to dismiss unknown popup`, showing `Review draft discard`.

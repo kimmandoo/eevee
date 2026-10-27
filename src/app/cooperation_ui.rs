@@ -358,6 +358,7 @@ mod tests {
 
     fn config() -> Config {
         Config {
+            native_transport: crate::providers::NativeTransport::Auto,
             ascii: true,
             no_animation: true,
             animation_override: Some(false),
@@ -426,6 +427,7 @@ mod tests {
             state.pending.take();
             if partner.id != 1 {
                 state.event(providers::Event::Preview(providers::Preview {
+                    transport: None,
                     comparison_scope: None,
                     arrival: providers::approval_arrival(),
                     destination: None,

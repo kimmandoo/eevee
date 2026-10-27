@@ -1164,6 +1164,7 @@ mod tests {
     #[test]
     fn full_connection_sheet_displays_every_disclosure_cell() {
         let config = Config {
+            native_transport: crate::providers::NativeTransport::Auto,
             ascii: true,
             no_animation: true,
             animation_override: Some(false),

@@ -165,6 +165,7 @@ fn run(config: Config) -> io::Result<()> {
         let size = terminal.size()?;
         let mut app = App::new(cwd.clone(), size.width, size.height);
         app.motion_override = config.animation_override;
+        app.planning.native_transport = config.native_transport;
         app.planning.set_startup_provider(
             providers::direct::config::preferred_agent(),
             std::env::var_os("EV_PROVIDER").is_some(),

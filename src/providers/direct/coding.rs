@@ -14,6 +14,7 @@ fn validate_active(
     if control.cancelled() {
         return Err("Native request cancelled locally; no further write or continuation".into());
     }
+    control.connection_check()?;
     if connection.fingerprint() != run.fingerprint
         || native_tools(&run.input) != run.writes.is_some()
         || run
@@ -80,7 +81,29 @@ async fn inference_rounds(
         .map_err(|error| (Outcome::Failed, error))?
         .to_owned();
     let mut body: Value = serde_json::from_str(&run.payload)
-        .map_err(|_| (Outcome::Failed, "Frozen native HTTP body is invalid".into()))?;
+        .map_err(|_| (Outcome::Failed, "Frozen native packet is invalid".into()))?;
+    let websocket = connection
+        .native_wire(run.input.native_transport)
+        .map_err(|error| (Outcome::Failed, error))?
+        == crate::providers::NativeWire::WebSocket;
+    let mut socket = if websocket {
+        Some(
+            websocket::Session::start(connection, http, run, events)
+                .map_err(|error| (Outcome::Failed, error))?,
+        )
+    } else {
+        None
+    };
+    let health = socket.as_ref().map(|socket| socket.alive.clone());
+    let control = &Control {
+        stopped: control.stopped,
+        cancelled: control.cancelled,
+        generation: control.generation,
+        deadline: control.deadline,
+        wire_alive: health.as_deref(),
+    };
+    let mut next_wire = None;
+    let mut logical_bytes = 0usize;
     let mut body_bytes = 0usize;
     let mut stream_bytes = 0usize;
     let mut public = String::new();
@@ -104,17 +127,34 @@ async fn inference_rounds(
                 error,
             )
         })?;
+        // Preserve full logical transcript bounds even when WS sends smaller deltas.
+        if websocket {
+            let logical_size = if round == 1 {
+                run.payload.len()
+            } else {
+                tools::encoded_len(&body).map_err(|error| (Outcome::Failed, error))?
+            };
+            logical_bytes = charge_request_bytes(logical_bytes, logical_size)
+                .map_err(|error| (Outcome::Failed, error))?;
+        }
         let wire = if round == 1 {
             run.payload.clone()
+        } else if websocket {
+            next_wire.take().ok_or_else(|| {
+                (
+                    Outcome::Failed,
+                    "WebSocket continuation was not acknowledged".into(),
+                )
+            })?
         } else {
             serde_json::to_string(&body)
                 .map_err(|_| (Outcome::Failed, "Cannot encode native continuation".into()))?
         };
         body_bytes = charge_request_bytes(body_bytes, wire.len())
             .map_err(|error| (Outcome::Failed, error))?;
-        // HTTP deadlines start anew only when a new bounded round is dispatched.
-        // Approval waiting never consumes this deadline.
+        // Approval waiting never consumes the model-round deadline.
         let round_control = Control {
+            wire_alive: control.wire_alive,
             stopped: control.stopped,
             cancelled: control.cancelled,
             generation: control.generation,
@@ -123,72 +163,90 @@ async fn inference_rounds(
         emit(events, Event::Status {
             generation: run.generation,
             task_id: run.input.task.id,
-            message: format!("Native HTTP round {round}/{ROUND_LIMIT}; requested model {model}; {}",
+            message: format!("Native {} round {round}/{ROUND_LIMIT}; requested model {model}; {}",
+                if websocket { "WebSocket" } else { "HTTP" },
                 if native_writing(&run.input) { "file effects and eevee_run_command require separate exact one-shot approval" } else { "read/list only; no mutations or commands" }),
         }).map_err(|error| (Outcome::Failed, error))?;
-        // No retry, resend, redirect, model/account substitution or second dispatch receipt.
-        let response = connection
-            .request(http, "POST", &connection.inference_url(&model))
-            .header("Content-Type", "application/json")
-            .header("Accept", "text/event-stream")
-            .body(wire)
-            .send();
-        let mut response = if round == 1 {
-            wait_inference(response, run, events, &round_control).await
-        } else {
-            wait_http(response, &round_control).await
-        }
-        .map_err(|error| {
-            if round > 1 && !round_control.cancelled() {
-                connection_failure(events, run, super::super::diagnostics::Failure::Transport);
-            }
-            (
-                Outcome::Unknown,
-                format!("{error}; remote outcome unknown after dispatch; no retry"),
-            )
-        })?;
-        if !response.status().is_success() {
-            let status = response.status().as_u16();
-            if round > 1 {
-                connection_failure(
-                    events,
-                    run,
-                    super::super::diagnostics::Failure::Http(status),
-                );
-            }
-            return Err((
-                if (400..500).contains(&status) {
-                    Outcome::Failed
-                } else {
-                    Outcome::Unknown
-                },
-                http_status(status),
-            ));
-        }
         let mut stream = Stream::new(connection.protocol);
         stream.calls.select_catalog(run.input.tool_catalog.as_ref());
         stream.round = round;
         stream.prefix = std::mem::take(&mut public);
         stream.wire_limit = STREAM_LIMIT - stream_bytes;
-        if let Err(error) = stream
-            .read(&mut response, &round_control, |stream| {
-                stream.publish(events, run)
-            })
-            .await
-        {
+        let read = if let Some(socket) = socket.as_mut() {
+            socket
+                .round(wire, &mut stream, run, events, &round_control)
+                .await
+        } else {
+            let response = connection
+                .request(http, "POST", &connection.inference_url(&model))
+                .header("Content-Type", "application/json")
+                .header("Accept", "text/event-stream")
+                .body(wire)
+                .send();
+            let mut response = if round == 1 {
+                wait_inference(response, run, events, &round_control).await
+            } else {
+                wait_http(response, &round_control).await
+            }
+            .map_err(|error| {
+                if round > 1 && !round_control.cancelled() {
+                    connection_failure(events, run, super::super::diagnostics::Failure::Transport);
+                }
+                (
+                    Outcome::Unknown,
+                    format!("{error}; remote outcome unknown after dispatch; no retry"),
+                )
+            })?;
+            if !response.status().is_success() {
+                let status = response.status().as_u16();
+                if round > 1 {
+                    connection_failure(
+                        events,
+                        run,
+                        super::super::diagnostics::Failure::Http(status),
+                    );
+                }
+                return Err((
+                    if (400..500).contains(&status) {
+                        Outcome::Failed
+                    } else {
+                        Outcome::Unknown
+                    },
+                    http_status(status),
+                ));
+            }
+            stream
+                .read(&mut response, &round_control, |stream| {
+                    stream.publish(events, run)
+                })
+                .await
+        };
+        if let Err(error) = read {
             if stream.transport_failed {
                 connection_failure(events, run, super::super::diagnostics::Failure::Transport);
             }
             let _ = stream.publish_partial(events, run);
+            let unsubmitted =
+                websocket && socket.as_ref().is_some_and(|socket| !socket.submitted());
             return Err((
                 if stream.failed {
                     Outcome::Failed
+                } else if unsubmitted {
+                    if control.cancelled() {
+                        Outcome::Cancelled
+                    } else {
+                        Outcome::Failed
+                    }
                 } else {
                     Outcome::Unknown
                 },
-                format!(
-                    "{error}; local reader settled; remote completion/cancellation is not confirmed; no automatic retry"
-                ),
+                if unsubmitted {
+                    format!("{error}; no model frame attempted; no retry or fallback")
+                } else {
+                    format!(
+                        "{error}; local reader settled; remote completion/cancellation is not confirmed; no automatic retry"
+                    )
+                },
             ));
         }
         stream_bytes += stream.wire_bytes;
@@ -208,7 +266,8 @@ async fn inference_rounds(
                 .publish_final(events, run, &connection.conversation_scope())
                 .map_err(|error| (Outcome::Failed, error))?;
             return Ok(format!(
-                "Native response completed after {round} HTTP round(s); requested model {model}; observed model {}. {}",
+                "Native response completed after {round} {} round(s); requested model {model}; observed model {}. {}",
+                if websocket { "WebSocket" } else { "HTTP" },
                 stream
                     .model
                     .as_deref()
@@ -229,7 +288,7 @@ async fn inference_rounds(
             return Err((
                 Outcome::Failed,
                 format!(
-                    "Native HTTP round limit of {ROUND_LIMIT} reached; terminal call set not executed and no continuation sent. Earlier completed file effects remain; no rollback."
+                    "Native model round limit of {ROUND_LIMIT} reached; terminal call set not executed and no continuation sent. Earlier completed file effects remain; no rollback."
                 ),
             ));
         }
@@ -516,6 +575,25 @@ async fn inference_rounds(
             .calls
             .append_results(&mut body, &results)
             .map_err(|error| (Outcome::Failed, error))?;
+        if websocket {
+            let all = body["input"]
+                .as_array()
+                .ok_or_else(|| (Outcome::Failed, "Logical Responses input missing".into()))?;
+            let outputs = all[all.len() - results.len()..].to_vec();
+            next_wire = Some(
+                websocket::continuation(
+                    &body,
+                    stream.response_id.as_deref().ok_or_else(|| {
+                        (
+                            Outcome::Failed,
+                            "Completed WebSocket response ID missing".into(),
+                        )
+                    })?,
+                    outputs,
+                )
+                .map_err(|error| (Outcome::Failed, error))?,
+            );
+        }
         public = stream.prefix;
         if !stream.text.is_empty() {
             if !public.is_empty() {
@@ -530,13 +608,13 @@ async fn inference_rounds(
             ));
         }
     }
-    Err((Outcome::Failed, "Native HTTP round limit reached".into()))
+    Err((Outcome::Failed, "Native model round limit reached".into()))
 }
 
 fn charge_request_bytes(total: usize, next: usize) -> Result<usize, String> {
     if next > BODY_LIMIT {
         return Err(format!(
-            "Native HTTP body exceeds {} bytes; no further continuation sent. Earlier completed file effects remain; no rollback.",
+            "Native logical transcript or wire frame exceeds {} bytes; no further continuation sent. Earlier completed file effects remain; no rollback.",
             BODY_LIMIT
         ));
     }
@@ -544,7 +622,7 @@ fn charge_request_bytes(total: usize, next: usize) -> Result<usize, String> {
         .checked_add(next)
         .filter(|charged| *charged <= REQUEST_BYTES_LIMIT)
         .ok_or_else(|| format!(
-            "Native aggregate HTTP bodies exceed {} bytes; no further continuation sent. Earlier completed file effects remain; no rollback.",
+            "Native aggregate logical transcripts or wire frames exceed {} bytes; no further continuation sent. Earlier completed file effects remain; no rollback.",
             REQUEST_BYTES_LIMIT
         ))?;
     Ok(charged)
@@ -562,6 +640,9 @@ fn wait_command_reply<T>(
         if control.cancelled() {
             return Err("Owned command wait cancelled; no continuation".into());
         }
+        control
+            .connection_check()
+            .map_err(|error| format!("Owned command outcome unknown: {error}"))?;
         match incoming.try_recv() {
             Ok(Request::Cancel { generation }) if generation == run.generation => {
                 control.cancelled.store(run.generation, Ordering::Release);
@@ -593,6 +674,7 @@ fn wait_store_reply<T>(
         if control.cancelled() {
             return Err("Owned artifact wait cancelled locally".into());
         }
+        control.connection_check()?;
         if Instant::now() >= deadline {
             return Err("Owned artifact storage acknowledgment expired".into());
         }
@@ -765,6 +847,7 @@ fn permission(
         if control.cancelled() {
             break Err("Native write permission cancelled; no write authorized".into());
         }
+        control.connection_check()?;
         if Instant::now() >= deadline {
             break Err("Native write permission expired; no write authorized".into());
         }

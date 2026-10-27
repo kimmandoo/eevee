@@ -243,9 +243,26 @@ pub struct NativeConversation {
     pub messages: Arc<[ConversationMessage]>,
 }
 
+/// Launch/request choice; external stdio adapters do not consume it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum NativeTransport {
+    #[default]
+    Auto,
+    Http,
+    WebSocket,
+}
+
+/// Resolved and frozen native inference wire, not a provider session.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NativeWire {
+    Http,
+    WebSocket,
+}
+
 #[derive(Clone, Debug)]
 pub struct Input {
     pub task: crate::store::Snapshot,
+    pub native_transport: NativeTransport,
     /// Durable ownership of this immutable submitted request; never a tool permission.
     pub work: Option<crate::store::WorkClaim>,
     /// Receipt-only preparation: no work claim and never eligible for Run.
@@ -786,7 +803,8 @@ pub struct Preview {
     pub generation: u64,
     pub task_id: i64,
     pub thread_id: Option<String>,
-    /// Immutable HTTP destination; external agents retain their launch trust.
+    pub transport: Option<NativeWire>,
+    /// Immutable actual HTTP/WS destination; external agents retain launch trust.
     pub destination: Option<String>,
     /// Project-supplied executables and unmanaged tool/helper effects still need consent.
     pub requires_connection_review: bool,
@@ -1209,6 +1227,7 @@ mod tests {
 
     fn review(agent: Agent) -> Input {
         Input {
+            native_transport: NativeTransport::Auto,
             screenshot: None,
             public_context: None,
             tool_catalog: None,

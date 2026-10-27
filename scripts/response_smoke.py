@@ -182,18 +182,50 @@ class StreamingPeer(Peer):
 def response_view(session):
     rows = session.display().splitlines()
     surface = session.surface
-    header_pattern = rf"(?:{re.escape(surface['previous'])}|{re.escape(surface['response'])}) \d+/\d+"
+    header_pattern = (
+        rf"(?:{re.escape(surface['previous'])}|{re.escape(surface['response'])}"
+        rf"|(?:Previous )?Request outcome|(?:Previous )?Plan|(?:Previous )?Tool output) \d+/\d+"
+    )
     header = next((index for index, row in enumerate(rows)
                    if re.search(header_pattern, row)), None)
     assert header is not None, "response header missing\n" + session.display()
     status_pattern = (rf"(?:{re.escape(surface['following'])}|{re.escape(surface['paused'])})"
-                      rf"(?: {re.escape(surface['unread'])})? \d+-\d+/\d+")
+                      rf"(?: {re.escape(surface['unread'])})? (?P<start>\d+)-(?P<end>\d+)/(?P<total>\d+)")
     status = next((index for index in range(header + 1, len(rows))
                    if re.search(status_pattern, rows[index])), None)
     assert status is not None and status > header + 1, "response body not visible\n" + session.display()
-    column = re.search(header_pattern, rows[header]).start()
-    return {"body": [row[column:] for row in rows[header + 1:status]],
-            "point": (column + 1, header + 1), "status": rows[status][column:]}
+    # Outcomes prefix metadata independently of the observation kind. The
+    # navigation footer starts at the actual body edge; a label inside the
+    # metadata line does not (and would clip source/request/reason prefixes).
+    position = re.search(status_pattern, rows[status])
+    column = position.start()
+    first, last, total = (int(position[name]) for name in ('start', 'end', 'total'))
+    # The status range counts actual transcript rows. The mutable notice
+    # between body and navigation is chrome, not retained request evidence.
+    visible = max(1, last - first + 1)
+    assert header + visible < status, 'transcript range overlaps navigation chrome'
+    screen = session.screen
+    right = screen.columns - column
+    rail = next((y for y in range(header) if 'PARTNER' in rows[y]
+                 and any(screen.buffer[y][x].data in ('┌', '╔', '+')
+                         for x in range(screen.columns))), None)
+    if rail is not None:
+        edge = min(x for x in range(screen.columns)
+                   if screen.buffer[rail][x].data in ('┌', '╔', '+'))
+        right = min(right, edge - 2)  # Actual panel edge plus its workspace gutter.
+
+    def cells(y):
+        from wcwidth import wcswidth
+        value, x = [], column
+        while x < right:
+            data = screen.buffer[y][x].data
+            value.append(data or ' ')
+            x += max(1, wcswidth(data)) if data else 1
+        return unicodedata.normalize('NFC', ''.join(value))
+
+    return {"body": [cells(y) for y in range(header + 1, header + 1 + visible)],
+            "point": (column + 1, header + 1), "status": cells(status),
+            "range": (first, last, total)}
 
 
 def wheel(session, direction, point, count=1):

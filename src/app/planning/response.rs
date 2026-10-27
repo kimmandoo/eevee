@@ -120,6 +120,13 @@ impl Layout {
         }
     }
 
+    pub(super) fn settlement_changed(&mut self, index: usize) {
+        if let Some(segment) = self.segments.get_mut(index) {
+            segment.valid = false;
+            segment.header_valid = false;
+        }
+    }
+
     pub(super) fn remove(&mut self, index: usize) {
         if index < self.segments.len() {
             self.segments.remove(index);
@@ -193,14 +200,28 @@ impl Layout {
                             Message::ProvidersPlanningFileLabel.text(),
                             super::file_phase_message(phase).text(),
                         );
-                    } else if attributed {
-                        let kind = (match item.kind {
-                            ItemKind::Message => Message::ProvidersPlanningResponse,
-                            ItemKind::Plan => Message::ProvidersPlanningPlan,
-                            ItemKind::Tool => Message::ProvidersPlanningToolOutput,
-                            ItemKind::File(phase) => super::file_phase_message(phase),
-                        })
-                        .text();
+                    } else if attributed
+                        || item
+                            .status
+                            .as_ref()
+                            .is_some_and(|status| status.outcome.is_some())
+                    {
+                        let kind = if item.text.is_empty()
+                            && item
+                                .status
+                                .as_ref()
+                                .is_some_and(|status| status.outcome.is_some())
+                        {
+                            "Request outcome"
+                        } else {
+                            (match item.kind {
+                                ItemKind::Message => Message::ProvidersPlanningResponse,
+                                ItemKind::Plan => Message::ProvidersPlanningPlan,
+                                ItemKind::Tool => Message::ProvidersPlanningToolOutput,
+                                ItemKind::File(phase) => super::file_phase_message(phase),
+                            })
+                            .text()
+                        };
                         let owner = crate::store::Attribution::label(item.owner.as_ref());
                         // Labels are bounded display previews, never outgoing input.
                         let redacted = crate::workspace::privacy::redact(item.request.as_ref());
@@ -227,11 +248,50 @@ impl Layout {
                             ])
                             .expect("validated transcript template");
                     }
-                    if verbose && !matches!(item.kind, ItemKind::File(_)) {
+                    if let Some(status) = &item.status
+                        && let Some(outcome) = status.outcome_label()
+                    {
+                        let context = match status.public_context {
+                            Some(true) => {
+                                "Public context: admitted at settlement (bounded completed pairs)"
+                            }
+                            Some(false) => "Public context: excluded from follow-up",
+                            None => "Provider context: opaque; retention unknown",
+                        };
                         let _ = write!(
                             segment.header,
-                            "\nSource: {agent}\nThread: {}\nTurn: {}\nItem: {}\n",
-                            item.thread_id, item.turn_id, item.item_id
+                            "\nRequest outcome: {outcome}\nReason: {}\n{context}\nOrigin: {} {:?} / task {} / worker generation {} / model {}\n",
+                            status.reason,
+                            status.agent.label(),
+                            status.operation,
+                            status.task_id,
+                            status.generation,
+                            status
+                                .model
+                                .as_deref()
+                                .unwrap_or("provider default / unknown"),
+                        );
+                        if let Some(wire) = status.transport {
+                            let wire = match wire {
+                                crate::providers::NativeWire::Http => "HTTP",
+                                crate::providers::NativeWire::WebSocket => "WebSocket",
+                            };
+                            let _ = writeln!(
+                                segment.header,
+                                "Prepared native transport: {wire}; connection/retention not inferred; no provider thread",
+                            );
+                        }
+                    }
+                    if verbose && !item.text.is_empty() && !matches!(item.kind, ItemKind::File(_)) {
+                        let _ = write!(
+                            segment.header,
+                            "\nSource: {}\nThread: {}\nTurn: {}\nItem: {}\n",
+                            item.status
+                                .as_ref()
+                                .map_or(agent, |status| status.agent.label()),
+                            item.thread_id,
+                            item.turn_id,
+                            item.item_id
                         );
                     }
                     segment.kind = item.kind;
@@ -359,6 +419,103 @@ impl Layout {
 }
 
 impl State {
+    pub(super) fn request_status(
+        &self,
+        generation: u64,
+        task_id: i64,
+    ) -> Arc<super::RequestStatus> {
+        self.items
+            .iter()
+            .filter(|item| Arc::ptr_eq(&item.request, &self.submitted_request))
+            .filter_map(|item| item.status.as_ref())
+            .find(|status| status.generation == generation && status.task_id == task_id)
+            .cloned()
+            .unwrap_or_else(|| {
+                Arc::new(super::RequestStatus {
+                    generation,
+                    task_id,
+                    agent: self.conversation_flow.agent.unwrap_or(self.agent),
+                    operation: self.conversation_flow.operation.unwrap_or(self.operation),
+                    model: self.request_selection.model.clone(),
+                    transport: self.conversation_flow.transport,
+                    outcome: None,
+                    reason: String::new(),
+                    public_context: None,
+                })
+            })
+    }
+
+    pub(super) fn retain_terminal(
+        &mut self,
+        generation: u64,
+        task_id: i64,
+        outcome: super::Outcome,
+        message: &str,
+        public_admitted: bool,
+    ) {
+        let origin = self.request_status(generation, task_id);
+        let mut status = origin.as_ref().clone();
+        status.outcome = Some(outcome);
+        status.model = self.observed_model.clone().or(status.model);
+        status.reason = crate::workspace::handoff::sanitize(message);
+        if self.unknown_effects() {
+            status.reason.push_str(" Local effects remain unknown; inspect the owning journal before starting more work.");
+        }
+        const REASON_BYTES: usize = 1024;
+        if status.reason.len() > REASON_BYTES {
+            let mut boundary = REASON_BYTES - " [truncated]".len();
+            while !status.reason.is_char_boundary(boundary) {
+                boundary -= 1;
+            }
+            status.reason.truncate(boundary);
+            status.reason.push_str(" [truncated]");
+        }
+        status.public_context = (status.agent.is_direct()
+            || (status.agent == super::Agent::Codex
+                && status.operation == super::Operation::Implement))
+            .then_some(public_admitted);
+        let status = Arc::new(status);
+        let mut found = false;
+        for (index, item) in self.items.iter_mut().enumerate() {
+            if Arc::ptr_eq(&item.request, &self.submitted_request)
+                && item.status.as_ref().is_some_and(|origin| {
+                    origin.generation == generation && origin.task_id == task_id
+                })
+            {
+                item.status = Some(Arc::clone(&status));
+                self.response_cache.settlement_changed(index);
+                found = true;
+            }
+        }
+        if !found {
+            // A local terminal-only card preserves failures before the first
+            // provider item. Its empty text is never a synthetic assistant turn.
+            if self.items.len() == super::ITEM_LIMIT {
+                let removed = usize::from(
+                    self.selected == 0 && (!self.following || !self.response_surface()),
+                );
+                self.items.remove(removed);
+                if self.selected > removed {
+                    self.selected -= 1;
+                }
+                self.response_cache.remove(removed);
+                self.omitted += 1;
+            }
+            self.items.push(Item {
+                thread_id: "local-request-outcome".into(),
+                turn_id: generation.to_string(),
+                item_id: "request-outcome".into(),
+                kind: ItemKind::Message,
+                text: String::new(),
+                complete: false,
+                request: Arc::clone(&self.submitted_request),
+                owner: self.owner().cloned(),
+                status: Some(status),
+            });
+            self.response_arrived(self.items.len() - 1);
+        }
+    }
+
     /// The selected observation owns its original request even while a newer
     /// request is connecting or has failed without producing any output.
     pub fn response_request(&self) -> (&str, bool) {

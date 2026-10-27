@@ -1753,6 +1753,77 @@ mod tests {
     }
 
     #[test]
+    fn external_disconnect_diagnostics_survive_owned_settlement_without_replay_or_draft_changes() {
+        use providers::{Agent, Outcome, diagnostics::Failure};
+        for agent in [
+            Agent::Codex,
+            Agent::Claude,
+            Agent::OpenCode,
+            Agent::Gemini,
+            Agent::Devin,
+        ] {
+            for outcome in [Outcome::Failed, Outcome::Unknown] {
+                let mut app = app();
+                app.agents.pending.take();
+                app.planning.agent = agent;
+                start(&mut app, 1, 1);
+                start(&mut app, 2, 2);
+                app.open_editor(store::EditorField::Request);
+                app.input = "Future 한글界e\u{301} draft".into();
+                app.cursor = "Future 한글".len();
+                let kept = (app.lead.id, app.input.clone(), app.cursor, app.overlay);
+                let failure = |generation, task_id, route| providers::Event::ConnectionFailed {
+                    generation,
+                    task_id,
+                    agent: route,
+                    failure: Failure::Transport,
+                };
+                for (partner, generation, task, route) in [
+                    (99, 7, 7, agent),
+                    (2, 8, 7, agent),
+                    (2, 7, 8, agent),
+                    (2, 7, 7, Agent::OpenAI),
+                ] {
+                    assert!(!app.provider_event(partner, failure(generation, task, route)));
+                    assert_eq!(app.agents.failure(agent.index()), None);
+                }
+                assert!(app.provider_event(2, failure(7, 7, agent)));
+                assert_eq!(app.agents.failure(agent.index()), Some(Failure::Transport));
+                assert!(
+                    app.provider_event(
+                        2,
+                        providers::Event::Finished {
+                            generation: 7,
+                            task_id: 7,
+                            outcome,
+                            message:
+                                "Owned stdio peer closed before authoritative completion; no replay"
+                                    .into(),
+                        }
+                    )
+                );
+                let state = app.planning_state(2).unwrap();
+                assert!(state.pending.is_none());
+                assert_eq!(state.outcome_unknown(), outcome == Outcome::Unknown);
+                // External opaque effects keep today's conservative blocking
+                // settlement; a connection diagnostic cannot release them.
+                assert_eq!(state.unknown_effects(), outcome == Outcome::Unknown);
+                if outcome == Outcome::Unknown {
+                    assert!(app.work_capacity_reason(3).is_some());
+                }
+                assert!(!app.planning.outcome_unknown());
+                assert!(!app.provider_event(2, failure(7, 7, agent)));
+                assert_eq!(app.agents.failure(agent.index()), Some(Failure::Transport));
+                assert_eq!(
+                    (app.lead.id, app.input.clone(), app.cursor, app.overlay),
+                    kept
+                );
+                assert!(app.agents.pending.is_none() && app.agents.pending_auth.is_none());
+            }
+        }
+    }
+
+    #[test]
     fn only_owned_inference_success_retires_a_connection_failure() {
         use crate::providers::diagnostics::Failure;
         for metadata in [false, true] {
@@ -1813,6 +1884,7 @@ mod tests {
             Some(providers::Request::Preview(_))
         ));
         state.event(providers::Event::Preview(providers::Preview {
+            transport: None,
             comparison_scope: None,
             arrival,
             generation: 7,
@@ -2586,6 +2658,7 @@ mod tests {
         use ratatui::{Terminal, backend::TestBackend};
 
         let config = Config {
+            native_transport: crate::providers::NativeTransport::Auto,
             ascii: true,
             no_animation: true,
             animation_override: Some(false),

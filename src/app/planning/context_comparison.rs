@@ -467,6 +467,7 @@ mod tests {
         app.provider_event(
             app.lead.id,
             Event::Preview(Preview {
+                transport: None,
                 comparison_scope: crate::providers::ComparisonScope::from_identity(
                     &"fixed local connection",
                 ),
@@ -784,6 +785,7 @@ mod correlation_tests {
         });
         let preview = |arrival| {
             Event::Preview(crate::providers::Preview {
+                transport: None,
                 comparison_scope: None,
                 arrival,
                 generation: 1,
@@ -841,6 +843,7 @@ mod inspection_behavior_tests {
             complete: true,
             request: Arc::from("previous authored request"),
             owner: None,
+            status: None,
         });
         let history = Arc::new(NativeConversation {
             owner: ConversationOwner {
@@ -868,6 +871,7 @@ mod inspection_behavior_tests {
         assert!(input.work.is_none());
         state.context_inspection_only = true;
         state.event(Event::Preview(crate::providers::Preview {
+            transport: None,
             comparison_scope: None,
             arrival: crate::providers::approval_arrival(),
             generation: 56,

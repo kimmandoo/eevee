@@ -1,6 +1,6 @@
 # Implementation waves
 
-Updated2026-10-28. Waves1–7 passed all23 assigned tasks; all four separately authorized unassigned tasks GP10→GP08/GP09 and P05 also passed scoped acceptance. Waves1–5 shipped in public v0.1.32; accepted0.1.33 source awaits exact-commit native/release qualification. Wave8 remains pending. Exact specifications remain in the [task index](../task.md); wave order is delivery priority, not an invented technical dependency.
+Updated2026-10-28. Waves1–7 passed all23 assigned tasks; all four separately authorized unassigned tasks GP10→GP08/GP09 and P05 passed scoped acceptance. They shipped in public v0.1.33 after exact-commit Check/all-five-native qualification and downloaded public package/install proof. Wave8 remains pending; the separately authorized native-transport/agent-usability follow-up is not another implementation wave. Exact specifications remain in the [task index](../task.md); wave order is delivery priority, not an invented technical dependency.
 
 | Wave | Outcome | Assigned tasks | Exit proof |
 |---|---|---|---|

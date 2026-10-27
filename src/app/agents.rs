@@ -2993,6 +2993,43 @@ mod tests {
     }
 
     #[test]
+    fn every_external_transport_remediation_opens_only_existing_local_setup() {
+        use crate::providers::diagnostics::Failure;
+        for agent in [
+            Agent::Codex,
+            Agent::Claude,
+            Agent::OpenCode,
+            Agent::Gemini,
+            Agent::Devin,
+        ] {
+            let mut state = discovered();
+            state.selected = agent.index();
+            state.active = agent.index();
+            state.connection_failed(agent, Failure::Transport);
+            let authentication = state.auth_outcome(agent.index());
+            assert!(state.show_failure(agent));
+            press(&mut state, KeyCode::Char('n'));
+            assert_eq!(state.failure(agent.index()), Some(Failure::Transport));
+            assert_eq!(state.auth_outcome(agent.index()), authentication);
+            assert!(state.pending_auth.is_none() && state.use_for_task.is_none());
+            assert!(state.openai_intent.is_none());
+            assert!(!state.preview && !state.affirmative);
+            if let Some(request) = state.pending.take() {
+                assert!(
+                    matches!(request, Request::PrepareAuth { profile, .. } if profile == agent.index())
+                );
+            }
+            assert!(state.auth_preview.is_none());
+            // Methods, local policy guidance, or a pending preparation are
+            // inspections only. None is an executable login/turn approval.
+            assert!(matches!(
+                state.page,
+                Page::Methods | Page::Diagnostics | Page::Install
+            ));
+        }
+    }
+
+    #[test]
     fn discovery_and_version_success_never_erase_real_auth_refusal() {
         use crate::providers::diagnostics::Failure;
         let mut state = discovered();

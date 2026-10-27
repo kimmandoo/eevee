@@ -1311,6 +1311,7 @@ fn worker(
                 generation = generation.saturating_add(1);
                 preview_owner = Some((generation, input.task.id));
                 let mut preview = Preview {
+                    transport: None,
                     comparison_scope: None,
                     arrival: super::approval_arrival(),
                     destination: None,
@@ -1509,6 +1510,7 @@ struct Pipe {
     deadline: Option<Instant>,
     eof: bool,
     fault: Option<String>,
+    io_failed: bool,
 }
 impl Pipe {
     fn spawn(prepared: &crate::workspace::runner::Prepared) -> Result<Self, String> {
@@ -1523,6 +1525,7 @@ impl Pipe {
             deadline: None,
             eof: false,
             fault: None,
+            io_failed: false,
         })
     }
     fn cancel(&mut self, generation: u64) -> Result<(), String> {
@@ -1563,7 +1566,10 @@ impl Pipe {
                 return Err("Claude IPC write deadline exceeded".into());
             }
             match self.process.write_stdin(&front[self.offset..]) {
-                Ok(0) => return Err("Claude sidecar stdin closed".into()),
+                Ok(0) => {
+                    self.io_failed = true;
+                    return Err("Claude sidecar stdin closed".into());
+                }
                 Ok(n) => {
                     self.offset += n;
                     if self.offset == front.len() {
@@ -1577,7 +1583,10 @@ impl Pipe {
                         error.kind(),
                         io::ErrorKind::WouldBlock | io::ErrorKind::Interrupted
                     ) => {}
-                Err(_) => return Err("Claude IPC write failed".into()),
+                Err(_) => {
+                    self.io_failed = true;
+                    return Err("Claude IPC write failed".into());
+                }
             }
         }
         let mut messages = Vec::new();
@@ -1645,6 +1654,7 @@ impl Pipe {
                         break;
                     }
                     Err(_) => {
+                        self.io_failed = true;
                         return preserve_observations(
                             messages,
                             &mut self.fault,
@@ -1929,6 +1939,20 @@ impl SdkFilePreviews {
     }
 }
 
+fn connection_lost(run: &Prepared, events: &Events, stop: &AtomicBool, cancelled: &AtomicU64) {
+    if !stop.load(Ordering::Acquire) && cancelled.load(Ordering::Acquire) != run.generation {
+        let _ = emit(
+            events,
+            Event::ConnectionFailed {
+                generation: run.generation,
+                task_id: run.input.task.id,
+                agent: run.input.agent,
+                failure: super::diagnostics::Failure::Transport,
+            },
+        );
+    }
+}
+
 fn transport(
     workspace: &Workspace,
     run: &Prepared,
@@ -1976,7 +2000,11 @@ fn transport(
                 && !stop.load(Ordering::Acquire)
                 && cancelled.load(Ordering::Acquire) != run.generation
             {
-                let messages = probe.pump(None)?;
+                let messages = probe.pump(None).inspect_err(|_| {
+                    if probe.io_failed {
+                        connection_lost(run, events, stop, cancelled);
+                    }
+                })?;
                 if messages.len() > 1 {
                     return Err("SDK inspect emitted unexpected additional frames".into());
                 }
@@ -2020,6 +2048,7 @@ fn transport(
                     return Err("Installed SDK identity/bridge capability inspection failed".into());
                 }
                 if probe.eof {
+                    connection_lost(run, events, stop, cancelled);
                     return Err("SDK inspection ended without loaded capability evidence".into());
                 }
                 thread::sleep(Duration::from_millis(10));
@@ -2188,7 +2217,14 @@ fn transport(
                         }
                     }
                 }
-                for value in pipe.pump(Some((cancelled, run.generation)))? {
+                for value in pipe
+                    .pump(Some((cancelled, run.generation)))
+                    .inspect_err(|_| {
+                        if pipe.io_failed {
+                            connection_lost(run, events, stop, cancelled);
+                        }
+                    })?
+                {
                     if value["generation"].as_u64() != Some(run.generation)
                         || value["task_id"].as_i64() != Some(run.input.task.id)
                     {
@@ -2299,6 +2335,7 @@ fn transport(
                     }
                 }
                 if pipe.eof {
+                    connection_lost(run, events, stop, cancelled);
                     return Err(
                         "Claude sidecar EOF without terminal SDK result; outcome unknown".into(),
                     );

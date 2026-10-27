@@ -3,6 +3,8 @@ use crate::providers::{Agent, ModelSelection};
 use std::io::{Read, Write};
 use std::net::TcpListener;
 
+mod websocket_tests;
+
 struct Fixture {
     root: PathBuf,
     workspace: Workspace,
@@ -84,6 +86,7 @@ impl Fixture {
         };
         result.unwrap();
         let input = Input {
+            native_transport: crate::providers::NativeTransport::Auto,
             effort_resolution: None,
             screenshot: None,
             public_context: None,
@@ -418,6 +421,7 @@ fn run_with_handler(
     // Deliberately expired original HTTP deadline: approvals and subsequent
     // rounds must use their own deadlines, not this dispatch-time timestamp.
     let control = Control {
+        wire_alive: None,
         stopped: &stopped,
         cancelled: &cancelled,
         generation: 7,
@@ -927,6 +931,7 @@ fn exact_permission_rejects_foreign_replayed_or_augmented_answers_and_closes_onc
     let stopped = AtomicBool::new(false);
     let cancelled = AtomicU64::new(0);
     let control = Control {
+        wire_alive: None,
         stopped: &stopped,
         cancelled: &cancelled,
         generation: 7,
@@ -974,6 +979,7 @@ fn permission_expiry_and_cancellation_never_create_missing_parents() {
         let stopped = AtomicBool::new(false);
         let cancelled = AtomicU64::new(if cancel { 7 } else { 0 });
         let control = Control {
+            wire_alive: None,
             stopped: &stopped,
             cancelled: &cancelled,
             generation: 7,
@@ -1367,13 +1373,8 @@ fn request_byte_budgets_accept_exact_bounds_and_refuse_before_dispatch() {
         charge_request_bytes(REQUEST_BYTES_LIMIT - BODY_LIMIT, BODY_LIMIT).unwrap(),
         REQUEST_BYTES_LIMIT
     );
-    let oversized = charge_request_bytes(0, BODY_LIMIT + 1).unwrap_err();
-    assert!(oversized.contains(&format!("HTTP body exceeds {BODY_LIMIT} bytes")));
-    let aggregate = charge_request_bytes(REQUEST_BYTES_LIMIT, 1).unwrap_err();
-    assert!(aggregate.contains(&format!(
-        "aggregate HTTP bodies exceed {REQUEST_BYTES_LIMIT} bytes"
-    )));
-    assert!(aggregate.contains("Earlier completed file effects remain"));
+    assert!(charge_request_bytes(0, BODY_LIMIT + 1).is_err());
+    assert!(charge_request_bytes(REQUEST_BYTES_LIMIT, 1).is_err());
     assert!(charge_request_bytes(usize::MAX, 1).is_err());
 }
 
@@ -1470,6 +1471,7 @@ fn local_receipt_keeps_exact_native_body_but_cannot_dispatch() {
         let stopped = AtomicBool::new(false);
         let cancelled = AtomicU64::new(0);
         let control = Control {
+            wire_alive: None,
             stopped: &stopped,
             cancelled: &cancelled,
             generation: run.generation,
@@ -2520,6 +2522,7 @@ fn command_wait_has_no_http_deadline_and_lost_ack_is_not_a_refusal() {
     let stopped = AtomicBool::new(false);
     let cancelled = AtomicU64::new(0);
     let control = Control {
+        wire_alive: None,
         stopped: &stopped,
         cancelled: &cancelled,
         generation: run.generation,

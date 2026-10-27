@@ -1156,7 +1156,7 @@ impl Calls {
     }
 }
 
-fn encoded_len(value: &(impl serde::Serialize + ?Sized)) -> Result<usize, String> {
+pub(super) fn encoded_len(value: &(impl serde::Serialize + ?Sized)) -> Result<usize, String> {
     // Count without allocating a second serialized transcript.
     struct Counter(usize);
     impl std::io::Write for Counter {

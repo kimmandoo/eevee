@@ -574,6 +574,7 @@ fn model_modalities_follow_installed_protocol_default_without_accepting_malforme
 #[test]
 fn model_inspection_has_no_task_prompt_or_source_or_edit_lookup() {
     let mut input = Input {
+        native_transport: crate::providers::NativeTransport::Auto,
         effort_resolution: None,
         public_context: None,
         tool_catalog: None,
@@ -1293,6 +1294,7 @@ fn outbound_task_facts_do_not_leak_generated_provider_session_provenance() {
     };
     let handoff = crate::workspace::handoff::from_task(&saved, &[], &[]).unwrap();
     let input = Input {
+        native_transport: crate::providers::NativeTransport::Auto,
         effort_resolution: None,
         public_context: None,
         tool_catalog: None,

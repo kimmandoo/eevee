@@ -52,6 +52,102 @@ impl std::fmt::Debug for Connection {
 }
 
 impl Connection {
+    pub fn native_wire(
+        &self,
+        choice: crate::providers::NativeTransport,
+    ) -> Result<crate::providers::NativeWire, String> {
+        use crate::providers::{NativeTransport, NativeWire};
+        match choice {
+            NativeTransport::Http => Ok(NativeWire::Http),
+            NativeTransport::Auto => Ok(if self.provider == Agent::OpenAI
+                && self.protocol == Protocol::Responses
+                && self.base_url == "https://api.openai.com/v1"
+            {
+                NativeWire::WebSocket
+            } else {
+                NativeWire::Http
+            }),
+            NativeTransport::WebSocket
+                if matches!(self.protocol, Protocol::Responses | Protocol::Codex) =>
+            {
+                Ok(NativeWire::WebSocket)
+            }
+            NativeTransport::WebSocket => Err(
+                "Explicit WebSocket requires a native Responses or separately opted-in Codex endpoint; no HTTP fallback was attempted".into(),
+            ),
+        }
+    }
+
+    pub fn websocket_url(&self) -> Result<String, String> {
+        if !matches!(self.protocol, Protocol::Responses | Protocol::Codex) {
+            return Err("This native protocol cannot use Responses WebSocket".into());
+        }
+        let endpoint = self.inference_url("");
+        validate_base(&self.base_url)?;
+        if let Some(rest) = endpoint.strip_prefix("https://") {
+            Ok(format!("wss://{rest}"))
+        } else if let Some(rest) = endpoint.strip_prefix("http://") {
+            Ok(format!("ws://{rest}"))
+        } else {
+            Err("Validated WebSocket destination is unavailable".into())
+        }
+    }
+
+    /// Build credentials from the exact HTTP scope, then change only its wire scheme.
+    /// The WS connector neither follows redirects nor imports arbitrary headers.
+    pub fn websocket_request(
+        &self,
+        http: &reqwest::Client,
+        frozen_destination: &str,
+    ) -> Result<tokio_tungstenite::tungstenite::http::Request<()>, String> {
+        use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+        if self.websocket_url()? != frozen_destination {
+            return Err("WebSocket destination changed since review".into());
+        }
+        // This connector has no proxy implementation. Refuse rather than bypass
+        // reqwest's ambient proxy routing or accept a different TLS trust policy.
+        if [
+            "HTTP_PROXY",
+            "HTTPS_PROXY",
+            "ALL_PROXY",
+            "http_proxy",
+            "https_proxy",
+            "all_proxy",
+        ]
+        .iter()
+        .any(|key| env::var_os(key).is_some_and(|value| !value.is_empty()))
+        {
+            return Err("Native WebSocket refuses configured proxy routing; select HTTP explicitly or remove proxy settings deliberately; no direct-connect bypass or fallback".into());
+        }
+        if ["SSL_CERT_FILE", "SSL_CERT_DIR"]
+            .iter()
+            .any(|key| env::var_os(key).is_some())
+        {
+            return Err("Native WebSocket refuses custom ambient TLS trust; no trust-policy bypass or fallback".into());
+        }
+        let authenticated = self
+            .request(http, "GET", &self.inference_url(""))
+            .build()
+            .map_err(|_| "Cannot construct scoped WebSocket authentication")?;
+        let mut request = frozen_destination
+            .into_client_request()
+            .map_err(|_| "Cannot construct frozen WebSocket destination")?;
+        for (name, value) in authenticated.headers() {
+            if name != "accept" {
+                request.headers_mut().insert(name.clone(), value.clone());
+            }
+        }
+        if self.protocol == Protocol::Codex {
+            request.headers_mut().insert(
+                "OpenAI-Beta",
+                "responses_websockets=2026-02-06"
+                    .parse()
+                    .expect("constant WS dialect"),
+            );
+        }
+        Ok(request)
+    }
+
     /// Auth is attached only to this connection's exact API endpoints. The caller must
     /// supply a client with redirects disabled; no alternate origin receives a token.
     pub fn request(
@@ -160,7 +256,7 @@ impl Connection {
             return Err("Screenshot refused: requires native Responses at https://api.openai.com/v1 or an explicitly configured loopback Responses endpoint, with exact model gpt-6-astra, gpt-4.1, gpt-4.1-2025-04-14, gpt-4o, gpt-4o-2024-08-06 or gpt-4o-2024-11-20; unknown models/protocols and other adapters are not qualified".into());
         }
         Ok(format!(
-            "Screenshot: exact PNG/JPEG data URL in current user input_image, detail auto; Responses POST {}; model {model}. {} Image tokens and billing are unknown until reported; compressed and serialized image bytes are not token estimates.",
+            "Screenshot: exact PNG/JPEG data URL in current user input_image, detail auto; Responses endpoint {}; model {model}; actual HTTP/WebSocket wire is disclosed by the frozen request preview. {} Image tokens and billing are unknown until reported; compressed and serialized image bytes are not token estimates.",
             self.inference_url(model),
             if official {
                 "Official documented image-input route."
@@ -910,6 +1006,18 @@ pub(super) fn test_connection(
     }
 }
 
+#[cfg(test)]
+pub(super) fn test_authenticated_connection(
+    protocol: Protocol,
+    base_url: &str,
+    model: Option<&str>,
+    secret: &str,
+) -> Connection {
+    let mut connection = test_connection(protocol, base_url, model);
+    connection.secret = Some(secret.into());
+    connection
+}
+
 /// Check only existence, without copying or decoding credential bytes.
 fn environment_exists(name: &str) -> bool {
     #[cfg(unix)]
@@ -1275,6 +1383,96 @@ mod tests {
             "e30.{}.signature",
             base64_simd::URL_SAFE_NO_PAD.encode_to_string(value.to_string().as_bytes())
         )
+    }
+
+    #[test]
+    fn native_websocket_selection_never_infers_custom_or_subscription_support() {
+        use crate::providers::{NativeTransport, NativeWire};
+        for (agent, values, auto) in [
+            (
+                Agent::OpenAI,
+                vec![("OPENAI_API_KEY", "fixture-key")],
+                NativeWire::WebSocket,
+            ),
+            (
+                Agent::OpenAI,
+                vec![
+                    ("OPENAI_API_KEY", "fixture-key"),
+                    ("OPENAI_BASE_URL", "https://custom.example/v1"),
+                ],
+                NativeWire::Http,
+            ),
+            (
+                Agent::Compatible,
+                vec![
+                    ("EV_API_BASE_URL", "http://127.0.0.1:9876/v1"),
+                    ("EV_API_PROTOCOL", "responses"),
+                    ("EV_API_KEYLESS", "1"),
+                ],
+                NativeWire::Http,
+            ),
+            (
+                Agent::ChatGPT,
+                vec![("CODEX_ACCESS_TOKEN", "fixture-account")],
+                NativeWire::Http,
+            ),
+        ] {
+            let connection = resolve_with(agent, &input(&values)).unwrap();
+            assert_eq!(connection.native_wire(NativeTransport::Auto).unwrap(), auto);
+            assert_eq!(
+                connection.native_wire(NativeTransport::Http).unwrap(),
+                NativeWire::Http
+            );
+            assert_eq!(
+                connection.native_wire(NativeTransport::WebSocket).unwrap(),
+                NativeWire::WebSocket
+            );
+            let destination = connection.websocket_url().unwrap();
+            assert_eq!(
+                destination
+                    .strip_prefix("wss://")
+                    .or_else(|| destination.strip_prefix("ws://")),
+                connection
+                    .inference_url("")
+                    .split_once("://")
+                    .map(|(_, path)| path)
+            );
+        }
+        for protocol in [
+            Protocol::ChatCompletions,
+            Protocol::Messages,
+            Protocol::Gemini,
+        ] {
+            let connection = test_connection(protocol, "http://127.0.0.1:9876/v1", Some("model"));
+            assert_eq!(
+                connection.native_wire(NativeTransport::Auto).unwrap(),
+                NativeWire::Http
+            );
+            assert!(connection.native_wire(NativeTransport::WebSocket).is_err());
+            assert!(connection.websocket_url().is_err());
+        }
+    }
+
+    #[test]
+    fn native_websocket_authentication_refuses_any_destination_scope_change() {
+        let connection = test_authenticated_connection(
+            Protocol::Responses,
+            "http://127.0.0.1:9876/v1",
+            Some("model"),
+            "fixture-bearer",
+        );
+        let http = super::super::http_client().unwrap();
+        for destination in [
+            "ws://127.0.0.1:9877/v1/responses",
+            "ws://localhost:9876/v1/responses",
+            "ws://127.0.0.1:9876/other/responses",
+            "ws://127.0.0.1:9876/v1/responses?redirect=1",
+            "ws://127.0.0.1:9876/v1/responses#fragment",
+            "ws://user@127.0.0.1:9876/v1/responses",
+            "wss://127.0.0.1:9876/v1/responses",
+        ] {
+            assert!(connection.websocket_request(&http, destination).is_err());
+        }
     }
 
     #[test]

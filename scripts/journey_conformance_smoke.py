@@ -25,7 +25,7 @@ import traceback
 import file_creation_smoke as files
 from agent_coding_smoke import decode_result
 from native_connection_smoke import Peer, until
-from response_smoke import SurfaceSession, SURFACE
+from response_smoke import SurfaceSession, SURFACE, saved_request, ALT_HOME, ALT_END, PAGE_DOWN, PAGE_UP
 from terminal_smoke import terminal_environment, permission_run_available, inspect_permission_scope, confirm_exit
 from workbench_smoke import wait_for
 
@@ -63,7 +63,7 @@ def protocol_peer(route):
             value = dict(jsonrpc='2.0', **value)
         record('wire', direction='peer', packet=value)
         print(json.dumps(value, ensure_ascii=False), flush=True)
-    session, turn, waiting, prompt_id, hold = 'journey-owned-session', 'journey-turn', False, None, False
+    session, turn, waiting, prompt_id, hold = 'journey-owned-session', 'journey-turn-' + str(os.getpid()), False, None, False
     project = Path.cwd()
     def stream_gate():
         release = Path(os.environ['EEVEE_JOURNEY_RELEASE'])
@@ -159,10 +159,14 @@ def protocol_peer(route):
             if route == 'codex':
                 emit(dict(id=identity, result=dict(turn=dict(id=turn, status='inProgress', items=[]))))
                 stream_gate()
+                if hold:
+                    emit(dict(method='item/completed', params=dict(threadId=session, turnId=turn, item=dict(id='held-partial', type='agentMessage', text='CANCELLED_PUBLIC_PARTIAL_한글界\n'))))
                 if selected == MODELS[0]:
                     emit(dict(method='turn/plan/updated', params=dict(threadId=session, turnId=turn, plan=[dict(step='Read source / 한글', status='in_progress')])))
                 emit(dict(id='source-read', method='item/tool/call', params=dict(threadId=session, turnId=turn, itemId='source', callId='source', tool='eevee_read_file', arguments=dict(path='source.txt', start_line=1, end_line=0))))
             else:
+                if hold:
+                    emit(dict(method='session/update', params=dict(sessionId=session, update=dict(sessionUpdate='agent_message_chunk', content=dict(type='text', text='CANCELLED_PUBLIC_PARTIAL_한글界\n')))))
                 stream_gate()
                 if selected == MODELS[0]:
                     emit(dict(method='session/update', params=dict(sessionId=session, update=dict(sessionUpdate='plan', entries=[dict(content='Read source / 한글', status='in_progress', priority='medium')]))))
@@ -230,7 +234,7 @@ class Journey:
             'Todo progress': [('Todo progress',), ('Provider status',), ('edit',), ('adopt',), ('Esc',)],
             'Follow-up / continue': [('Request',), ('Continue explaining',), ('Ctrl+S',)],
             'Cancel': [('cancel', 'interrupt', 'unknown', 'Local work idle'), ('Enter Send', '/response', 'Esc')],
-            'Resume / new session': [('Route:',), ('Session:',), ('Cancel',), ('Details',), ('Esc',)],
+            'Resume / new session': [('Route:',), ('Cancel',), ('Details',), ('Esc',)],
             'Handoff': [('Portable task handoff',), ('export-json',), ('import-handoff',), ('Esc',)],
             'Receipt': [('Outgoing receipts',), ('Route:',), ('Model:',), ('Effort:',), ('Todo:',), ('Usage:',), ('Outcome:',), ('s source',), ('p purge',), ('r retry',), ('Esc',)],
         }[name]
@@ -486,11 +490,40 @@ def row(binary, node, sidecar, output, route, protocol, model, size, account_wir
                     else:
                         assert not progress or not progress['steps'], 'invented todo source'
                     result['actual_progress'] = progress
+                    owned_session = None
+                    if not native:
+                        if route == 'claude':
+                            initial = [item for item in rows() if item['kind'] == 'submitted']
+                            assert len(initial) == 1 and initial[0]['resume'] is None
+                            owned_session = initial[0]['session_id']
+                        else:
+                            method = 'thread/start' if route == 'codex' else 'session/new'
+                            observed = rows()
+                            started = max(index for index, item in enumerate(observed)
+                                if item.get('direction') == 'client' and item.get('packet', {}).get('method') == method)
+                            identity = observed[started]['packet']['id']
+                            reply = next(item['packet']['result'] for item in observed[started + 1:]
+                                if item.get('direction') == 'peer' and item.get('packet', {}).get('id') == identity
+                                and 'result' in item['packet'])
+                            owned_session = reply['thread']['id'] if route == 'codex' else reply['sessionId']
+                        result['observed_owned_session'] = owned_session
+                    resume_start = len(rows())
                     app.request('Continue explaining. 계속 설명해줘.'); app.state('Follow-up / continue')
                     queue_native(); before = submitted(); session.send('\r', settle=False)
                     app.approve_until(lambda: submitted() > before)
                     app.read_until(lambda: not app.claims(), project / 'source.txt')
                     assert len(read_results) == 2 if native else sum(item['kind'] == 'actual_read' for item in rows()) == 2
+                    if not native:
+                        if route == 'claude':
+                            followup = [item for item in rows()[resume_start:] if item['kind'] == 'submitted']
+                            assert len(followup) == 1 and followup[0]['resume'] == owned_session
+                        else:
+                            method = 'thread/resume' if route == 'codex' else 'session/load'
+                            followup = [item['packet'] for item in rows()[resume_start:]
+                                if item.get('direction') == 'client' and item.get('packet', {}).get('method') == method]
+                            key = 'threadId' if route == 'codex' else 'sessionId'
+                            assert len(followup) == 1 and followup[0]['params'][key] == owned_session
+                        result['actual_owned_resume'] = True
                     app.request('Read source.txt without changing files. GP10_HOLD 취소 확인')
                     reads_before = sum(item['kind'] == 'actual_read' for item in rows())
                     queue_native(hold=True); before = submitted(); session.send('\r', settle=False)
@@ -498,6 +531,21 @@ def row(binary, node, sidecar, output, route, protocol, model, size, account_wir
                     app.read_until(lambda: gate.ready.is_set() if native else sum(item['kind'] == 'actual_read' for item in rows()) > reads_before, project / 'source.txt')
                     assert app.claims(), 'held request completed before cancellation'
                     assert len(read_results) == 3 if native else sum(item['kind'] == 'actual_read' for item in rows()) == 3
+                    future = 'Future cancel draft 界e\u0301Z-end'
+                    app.request(future)
+                    session.send((ESC + '[D') * 3 + '\x13')
+                    future_cursor = len(future[:-3].encode())
+                    until(session, lambda: saved_request(app, future, future_cursor),
+                          'future draft/caret retained while cancellation pending')
+                    if not native:
+                        def held_partial_visible():
+                            if 'CANCELLED_PUBLIC_PARTIAL_' in session.display():
+                                return True
+                            session.send(PAGE_UP)
+                            return 'CANCELLED_PUBLIC_PARTIAL_' in session.display()
+
+                        until(session, held_partial_visible,
+                              'held public partial was not inspectable before cancellation', timeout=8)
                     app.workspace(); session.command('cancel')
                     gate.release.set()
                     until(session, lambda: not app.claims(), 'actual cancellation did not release ownership', timeout=75)
@@ -506,6 +554,51 @@ def row(binary, node, sidecar, output, route, protocol, model, size, account_wir
                         assert len(finished) == 3 and finished[-1]['interrupted'], 'SDK interrupt was not actually consumed'
                     app.state('Cancel')
                     app.workspace()
+                    if not native:
+                        views = []
+                        session.send(ALT_HOME)
+                        for _ in range(1024):
+                            views.append(session.display())
+                            before_view = session.display()
+                            session.send(PAGE_DOWN)
+                            if session.display() == before_view:
+                                break
+                        observed = ''.join(''.join(views).translate(str.maketrans('', '', '│║┃|')).split())
+                        assert 'CANCELLED_PUBLIC_PARTIAL_한글界' in observed
+                        if route != 'claude':
+                            assert 'Requestoutcome:Cancelled' in observed, observed
+                        assert 'Providercontext:opaque;retentionunknown' in observed
+                        assert saved_request(app, future, future_cursor), 'outcome inspection moved future caret'
+                        session.send('!\x13')
+                        future = future[:-3] + '!' + future[-3:]
+                        future_cursor = len((future[:-3]).encode())
+                        until(session, lambda: saved_request(app, future, future_cursor),
+                              'post-cancel insertion uses exact original future caret')
+                        assert submitted() == 3, 'cancel/inspection/draft edit sent automatically'
+                        session.send(ALT_END)
+                        # Explicitly resume the actually owned provider identity,
+                        # never infer opaque context from completed public pairs.
+                        app.request('Continue explaining after explicit cancellation. 계속 설명해줘.')
+                        session.send('\r', settle=False)
+                        app.approve_until(lambda: submitted() == 4)
+                        app.read_until(lambda: not app.claims(), project / 'source.txt')
+                        assert sum(item['kind'] == 'actual_read' for item in rows()) == 4
+                        session.send(ALT_HOME)
+                        retained = []
+                        for _ in range(1024):
+                            retained.append(session.display())
+                            before_view = session.display()
+                            session.send(PAGE_DOWN)
+                            if session.display() == before_view:
+                                break
+                        retained = ''.join(''.join(retained).translate(str.maketrans('', '', '│║┃|')).split())
+                        assert 'CANCELLED_PUBLIC_PARTIAL_한글界' in retained
+                        if route != 'claude':
+                            assert 'Requestoutcome:Cancelled' in retained
+                        assert 'Providercontext:opaque;retentionunknown' in retained
+                        result['historical_terminal_after_explicit_followup'] = True
+                        session.capture('owned-resume-retained-cancelled-partial')
+                        session.send(ALT_END)
                     session.command('session-new')
                     def new_review_ready():
                         view = session.display()
@@ -522,7 +615,7 @@ def row(binary, node, sidecar, output, route, protocol, model, size, account_wir
                     session.command('handoff'); app.state('Handoff'); app.workspace()
                     session.command('receipts'); app.state('Receipt')
                     records = [json.loads(value[0]) for value in app.db('SELECT record FROM outgoing_receipts ORDER BY rowid')]
-                    assert len(records) == 3, records
+                    assert len(records) == (3 if native else 4), records
                     assert all(record['selection']['model'] == model and record['selection']['effort'] == {'mode': 'auto'} for record in records), records
                     assert [*dict.fromkeys(app.states)] == list(STATES), app.states
                     result.update(states=app.states, receipt_fields=sorted(records[0]), actual_source_sha256=hashlib.sha256((project / 'source.txt').read_bytes()).hexdigest())
@@ -538,7 +631,7 @@ def row(binary, node, sidecar, output, route, protocol, model, size, account_wir
                     assert all(packet['body'].get('model', model) == model for packet in peer.snapshot('POST')), 'requested native identity changed'
                     assert peer.plans.empty(), 'planned tool/read round was never consumed'
                 elif route != 'chatgpt':
-                    assert submitted() == 3, 'hidden or missing explicit agent request'
+                    assert submitted() == 4, 'hidden or missing explicit agent request'
                     assert all(packet['model'] == model for packet in rows() if packet['kind'] == 'submitted'), 'requested agent identity changed'
                 result['observations'] = app.observations
                 result['status'] = 'composed' if route == 'chatgpt' else 'passed'

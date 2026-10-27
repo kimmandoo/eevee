@@ -251,6 +251,7 @@ fn worker(
                         }
                     }
                     let preview = Preview {
+                        transport: None,
                         comparison_scope: trust.comparison_scope(
                             input
                                 .credential
@@ -1312,12 +1313,11 @@ fn transport(
                         if engine.terminal.is_some() {
                             break;
                         }
-                        return Err(if engine.framer.line.is_empty() {
+                        return Err(engine.transport_error(if engine.framer.line.is_empty() {
                             "ACP stdout closed without authoritative prompt completion"
                         } else {
                             "ACP stdout closed inside a JSONL frame"
-                        }
-                        .into());
+                        }));
                     }
                     Ok(count) => {
                         engine.received += count;
@@ -1344,7 +1344,7 @@ fn transport(
                     {
                         break;
                     }
-                    Err(_) => return Err("ACP stdout transport failed".into()),
+                    Err(_) => return Err(engine.transport_error("ACP stdout transport failed")),
                 }
             }
             // Provider stderr is drained but never copied into snapshots/logs: it may contain credentials.
@@ -1360,7 +1360,7 @@ fn transport(
                     {
                         break;
                     }
-                    Err(_) => return Err("ACP stderr capture failed".into()),
+                    Err(_) => return Err(engine.transport_error("ACP stderr capture failed")),
                 }
             }
             if let Some(result) = engine.terminal.take() {
@@ -1388,7 +1388,9 @@ fn transport(
                 .map_err(|_| "ACP process status unavailable")?
                 .is_some()
             {
-                return Err("ACP peer exited without authoritative completion".into());
+                return Err(
+                    engine.transport_error("ACP peer exited without authoritative completion")
+                );
             }
             thread::sleep(Duration::from_millis(5));
         }
@@ -1446,6 +1448,24 @@ fn transport(
     }
 }
 impl Engine<'_> {
+    fn transport_error(&self, message: &'static str) -> String {
+        if self.terminal.is_none()
+            && self.cancelling.is_none()
+            && !self.stop.load(Ordering::Acquire)
+            && self.cancelled.load(Ordering::Acquire) != self.run.generation
+        {
+            let _ = emit(
+                self.events,
+                Event::ConnectionFailed {
+                    generation: self.run.generation,
+                    task_id: self.run.input.task.id,
+                    agent: self.run.input.agent,
+                    failure: super::diagnostics::Failure::Transport,
+                },
+            );
+        }
+        message.into()
+    }
     fn status(&self, text: &str) -> Result<(), String> {
         emit(
             self.events,
@@ -1497,7 +1517,7 @@ impl Engine<'_> {
             let bytes = &frame.bytes;
             self.write_started.get_or_insert_with(Instant::now);
             match self.process.write_stdin(&bytes[self.wire_offset..]) {
-                Ok(0) => return Err("ACP stdin closed".into()),
+                Ok(0) => return Err(self.transport_error("ACP stdin closed")),
                 Ok(count) => {
                     self.wire_offset += count;
                     if self.wire_offset == bytes.len() {
@@ -1513,7 +1533,7 @@ impl Engine<'_> {
                 }
                 Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
                 Err(error) if error.kind() == io::ErrorKind::WouldBlock => break,
-                Err(_) => return Err("ACP stdin transport failed".into()),
+                Err(_) => return Err(self.transport_error("ACP stdin transport failed")),
             }
         }
         if self

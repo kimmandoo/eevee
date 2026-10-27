@@ -656,6 +656,7 @@ fn accepting_unchanged_model_cannot_reuse_an_armed_request_review() {
     command(&mut state, "new", true);
     assert!(matches!(state.pending.take(), Some(Request::Preview(_))));
     state.event(Event::Preview(Preview {
+        transport: None,
         comparison_scope: None,
         arrival: crate::providers::approval_arrival(),
         destination: None,
@@ -1009,6 +1010,7 @@ fn authentication_change_cancels_stale_resume_previews_without_fresh_fallback() 
         };
         assert_eq!(input.resume.as_deref(), Some("old-account-thread"));
         let preview = Preview {
+            transport: None,
             comparison_scope: None,
             arrival: crate::providers::approval_arrival(),
             generation: 11,
@@ -1079,6 +1081,7 @@ fn active_account_change_preserves_submitted_bytes_and_revokes_every_terminal_se
         state.committed_input = Some(Box::new(input.task.clone()));
         let committed_address = state.committed_input.as_deref().unwrap() as *const store::Snapshot;
         state.event(Event::Preview(Preview {
+            transport: None,
             comparison_scope: None,
             arrival: crate::providers::approval_arrival(),
             generation: 11,
@@ -1418,6 +1421,7 @@ fn custom_id_is_exact_local_and_invalidates_previous_review_and_effort() {
     command(&mut state, "new", true);
     state.pending.take();
     state.event(Event::Preview(Preview {
+        transport: None,
         comparison_scope: None,
         arrival: crate::providers::approval_arrival(),
         destination: None,
@@ -1541,6 +1545,7 @@ fn refresh_failure_retains_last_successful_rows_and_retry_replaces_them() {
     assert!(state.catalogues.contains_key(&Agent::Codex));
     state.pending.take();
     state.event(Event::Preview(Preview {
+        transport: None,
         comparison_scope: None,
         arrival: crate::providers::approval_arrival(),
         destination: None,
@@ -1594,6 +1599,7 @@ fn first_fetch_failure_remains_retryable_and_empty_success_is_not_fake_failure()
     state.start_automatic_catalogue(&task(), &[], None);
     state.pending.take();
     state.event(Event::Preview(Preview {
+        transport: None,
         comparison_scope: None,
         arrival: crate::providers::approval_arrival(),
         destination: None,
@@ -1657,6 +1663,7 @@ fn model_picker_is_local_and_refresh_requires_preview_run_without_journal() {
     assert!(input.inspect_models && !input.inspect_sessions && input.resume.is_none());
     assert_eq!(input.selection, ModelSelection::default());
     state.event(Event::Preview(Preview {
+        transport: None,
         comparison_scope: None,
         arrival: crate::providers::approval_arrival(),
         destination: None,
@@ -1768,6 +1775,7 @@ fn advertised_effort_and_model_are_snapshotted_and_preview_change_revokes_consen
     assert_eq!(input.selection.model.as_deref(), Some("advertised-model"));
     assert_eq!(input.selection.effort.as_deref(), Some("high"));
     state.event(Event::Preview(Preview {
+        transport: None,
         comparison_scope: None,
         arrival: crate::providers::approval_arrival(),
         destination: None,
@@ -1915,6 +1923,7 @@ fn start_catalogue(state: &mut State, task: &store::Snapshot, generation: u64) {
     state.start_automatic_catalogue(task, &[], None);
     assert!(matches!(state.pending.take(), Some(Request::Preview(_))));
     state.event(Event::Preview(Preview {
+        transport: None,
         comparison_scope: None,
         arrival: crate::providers::approval_arrival(),
         destination: None,
@@ -2043,6 +2052,7 @@ fn blocked_preview_and_preview_error_retain_reason_without_automatic_manual_run(
             });
         } else {
             state.event(Event::Preview(Preview {
+                transport: None,
                 comparison_scope: None,
                 arrival: crate::providers::approval_arrival(),
                 destination: None,
@@ -2078,6 +2088,7 @@ fn blocked_preview_and_preview_error_retain_reason_without_automatic_manual_run(
         state.command("models-refresh", true, &task, &[], None);
         assert!(matches!(state.pending.take(), Some(Request::Preview(_))));
         state.event(Event::Preview(Preview {
+            transport: None,
             comparison_scope: None,
             arrival: crate::providers::approval_arrival(),
             destination: None,
@@ -2200,6 +2211,7 @@ fn preview() -> State {
     command(&mut state, "new", true);
     assert!(matches!(state.pending.take(), Some(Request::Preview(_))));
     state.event(Event::Preview(Preview {
+        transport: None,
         comparison_scope: None,
         arrival: crate::providers::approval_arrival(),
         destination: None,
@@ -2242,6 +2254,7 @@ fn missing_model_recovery_does_not_replace_cancellation_or_unrelated_blockers() 
             assert!(state.cancel());
         }
         state.event(Event::Preview(Preview {
+            transport: None,
             comparison_scope: None,
             arrival: crate::providers::approval_arrival(),
             destination: None,
@@ -2274,6 +2287,7 @@ fn preview_shows_local_receipt() {
     command(&mut state, "new", true);
     state.pending.take();
     state.event(Event::Preview(Preview {
+        transport: None,
         comparison_scope: None,
         arrival: crate::providers::approval_arrival(),
         destination: None,
@@ -2573,6 +2587,7 @@ fn message() -> Item {
         complete: true,
         request: "Original request".into(),
         owner: None,
+        status: None,
     }
 }
 
@@ -2714,6 +2729,7 @@ fn prior_unknown_outcome_survives_later_completion_and_authentication_reset() {
     command(&mut state, "sessions", true);
     state.pending.take();
     state.event(Event::Preview(Preview {
+        transport: None,
         comparison_scope: None,
         arrival: crate::providers::approval_arrival(),
         destination: None,
@@ -2999,6 +3015,7 @@ fn run_request(state: &mut State, generation: u64, request: &str) {
     command(state, "new", true);
     assert!(matches!(state.pending.take(), Some(Request::Preview(_))));
     state.event(Event::Preview(Preview {
+        transport: None,
         comparison_scope: None,
         arrival: crate::providers::approval_arrival(),
         destination: None,
@@ -3040,6 +3057,12 @@ fn retained_output_keeps_request_ownership_during_startup_failure_and_navigation
         outcome: Outcome::Failed,
         message: "No output".into(),
     });
+    assert_eq!(state.response_request(), ("Second question", false));
+    assert_eq!(
+        state.items[1].status.as_ref().unwrap().outcome,
+        Some(Outcome::Failed)
+    );
+    reply_key(&mut state, KeyCode::Up);
     assert_eq!(state.response_request(), ("First question", true));
     assert!(state.failed_request);
 
@@ -3066,19 +3089,81 @@ fn retained_output_keeps_request_ownership_during_startup_failure_and_navigation
     assert_eq!(state.response_request(), ("First question", true));
     assert!(state.new_output && !state.following);
     assert!(Arc::ptr_eq(
-        &state.items[1].request,
-        &state.items[2].request
+        &state.items[2].request,
+        &state.items[3].request
     ));
     assert!(Arc::ptr_eq(
-        &state.items[1].request,
+        &state.items[2].request,
         &state.submitted_request
     ));
     press(&mut state, KeyCode::End, true);
     assert_eq!(state.response_request(), ("First question", false));
     reply_key(&mut state, KeyCode::Up);
     reply_key(&mut state, KeyCode::Up);
+    reply_key(&mut state, KeyCode::Up);
     assert_eq!(state.response_request(), ("First question", true));
     assert_eq!(state.items[state.selected].text, "First answer");
+}
+
+#[test]
+fn repeated_worker_generation_and_instruction_keep_distinct_terminal_requests() {
+    let mut state = active();
+    state.submitted_request = "Identical instruction".into();
+    streamed(&mut state, "answer", "Original partial answer", false);
+    state.event(Event::Finished {
+        generation: 11,
+        task_id: 7,
+        outcome: Outcome::Failed,
+        message: "Original failure reason".into(),
+    });
+    let original = Arc::clone(state.items[0].status.as_ref().unwrap());
+    let original_request = Arc::clone(&state.items[0].request);
+    // Generations are worker-local, not a global request counter. A replacement
+    // worker may reuse the same generation for the same literal instruction.
+    run_request(&mut state, 11, "Identical instruction");
+    state.event(Event::Item {
+        generation: 11,
+        task_id: 7,
+        thread_id: "thread".into(),
+        turn_id: "distinct-provider-turn".into(),
+        item_id: "answer".into(),
+        kind: ItemKind::Message,
+        text: "Later partial answer".into(),
+        complete: false,
+    });
+    assert!(!Arc::ptr_eq(&original_request, &state.items[1].request));
+    state.event(Event::Finished {
+        generation: 11,
+        task_id: 7,
+        outcome: Outcome::Cancelled,
+        message: "Later cancellation reason".into(),
+    });
+    assert!(Arc::ptr_eq(
+        state.items[0].status.as_ref().unwrap(),
+        &original
+    ));
+    let later = Arc::clone(state.items[1].status.as_ref().unwrap());
+    assert!(!Arc::ptr_eq(&original, &later));
+    assert_eq!(original.generation, later.generation);
+    assert_eq!(original.outcome, Some(Outcome::Failed));
+    assert_eq!(later.outcome, Some(Outcome::Cancelled));
+    assert_eq!(original.reason, "Original failure reason");
+    assert_eq!(later.reason, "Later cancellation reason");
+    assert!(!state.items[0].complete && !state.items[1].complete);
+    state.response_rows(120, 100, false).count();
+    press(&mut state, KeyCode::Home, true);
+    let view = state
+        .response_rows(120, 100, false)
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        view.contains(&original.reason) && view.contains(&later.reason),
+        "{view}"
+    );
+    assert!(
+        view.contains("Original partial answer") && view.contains("Later partial answer"),
+        "{view}"
+    );
 }
 
 #[test]
@@ -3110,6 +3195,9 @@ fn request_ownership_follows_provider_role_sessions_and_retained_turn_replays() 
         outcome: Outcome::Completed,
         message: "Complete".into(),
     });
+    assert_eq!(state.items[1].status.as_ref().unwrap().generation, 11);
+    assert_eq!(state.items[2].status.as_ref().unwrap().generation, 12);
+    reply_key(&mut state, KeyCode::Up);
     state.set_operation(Operation::Review);
     assert_eq!(state.response_request(), ("", false));
     state.set_operation(Operation::Plan);
@@ -3279,11 +3367,19 @@ fn terminal_outcomes_stop_activity_and_preserve_partial_scroll() {
         });
         assert_eq!(state.activity_label(), None);
         assert!(!state.active && !state.cancelling);
+        let status = state.items[0].status.as_ref().unwrap();
+        assert_eq!(status.outcome, Some(outcome));
+        assert_eq!(status.generation, 11);
+        assert_eq!(status.task_id, 7);
+        assert!(status.reason.starts_with("terminal"));
+        assert_eq!(
+            status.public_context, None,
+            "opaque provider context is not inferred from completion"
+        );
         assert_eq!(
             state.response_rows(40, 1, false).collect::<Vec<_>>(),
             ["one"]
         );
-        assert_eq!(state.scroll, 0);
         assert!(
             !state.items[0].complete,
             "completion must not fabricate a complete item"
@@ -3291,6 +3387,53 @@ fn terminal_outcomes_stop_activity_and_preserve_partial_scroll() {
         streamed(&mut state, "late", "ignored", false);
         assert_eq!(state.items.len(), 1);
     }
+}
+
+#[test]
+fn terminal_without_provider_item_keeps_safe_bounded_request_evidence() {
+    let mut state = active();
+    state.submitted_request = "No-output original request".into();
+    state.request_selection.model = Some("original-request-model".into());
+    state.event(Event::Finished {
+        generation: 11,
+        task_id: 7,
+        outcome: Outcome::Failed,
+        message: format!(
+            "Provider refused sk-secret123456 \u{1b}[2J {}",
+            "한글".repeat(1000)
+        ),
+    });
+    assert!(state.failed_request && !state.active && state.pending.is_none());
+    assert_eq!(state.items.len(), 1);
+    assert!(state.items[0].text.is_empty() && !state.items[0].complete);
+    let terminal = Arc::clone(state.items[0].status.as_ref().unwrap());
+    assert_eq!(terminal.outcome, Some(Outcome::Failed));
+    assert_eq!(terminal.public_context, None);
+    assert!(terminal.reason.len() <= 1024);
+    assert!(!terminal.reason.contains("sk-secret123456") && !terminal.reason.contains('\u{1b}'));
+    run_request(&mut state, 12, "Explicit future request");
+    assert!(Arc::ptr_eq(
+        state.items[0].status.as_ref().unwrap(),
+        &terminal
+    ));
+    assert_eq!(
+        state.items[0].request.as_ref(),
+        "No-output original request"
+    );
+    state.response_rows(60, 100, false).count();
+    press(&mut state, KeyCode::Home, true);
+    let view = state
+        .response_rows(60, 100, false)
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        view.contains("Failed") && view.contains("original-request-model"),
+        "{view}"
+    );
+    assert!(
+        !view.contains("sk-secret123456") && !view.contains("Explicit future request"),
+        "{view}"
+    );
 }
 
 #[test]
@@ -3653,6 +3796,7 @@ fn cancelling_connection_review_does_not_reopen_a_hidden_model_picker() {
     command(&mut state, "models-refresh", true);
     state.pending.take();
     state.event(Event::Preview(Preview {
+        transport: None,
         comparison_scope: None,
         arrival: crate::providers::approval_arrival(),
         destination: None,
@@ -3696,6 +3840,7 @@ fn journal_records_carry_the_partner_bound_when_the_request_was_prepared() {
     command(&mut state, "new", true);
     state.pending.take();
     state.event(Event::Preview(Preview {
+        transport: None,
         comparison_scope: None,
         arrival: crate::providers::approval_arrival(),
         destination: None,
@@ -3759,6 +3904,7 @@ fn journal_event(generation: u64, id: &str) -> Event {
 fn prepared_at(state: &mut State, generation: u64) {
     state.pending.take();
     state.event(Event::Preview(Preview {
+        transport: None,
         comparison_scope: None,
         arrival: crate::providers::approval_arrival(),
         destination: None,
@@ -3969,6 +4115,7 @@ fn restored_session_reanchors_to_its_selected_response_instead_of_foreign_rows()
         complete: true,
         request: Arc::from(id),
         owner: None,
+        status: None,
     };
     let mut state = State::new();
     state.reset(7);

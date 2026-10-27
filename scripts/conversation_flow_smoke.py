@@ -12,10 +12,12 @@ import json
 from pathlib import Path
 import tempfile
 import traceback
+import threading
+import unicodedata
 
 from file_creation_smoke import codex_case
 from native_connection_smoke import Peer, decoded_payload, until
-from response_smoke import SurfaceJourney
+from response_smoke import SurfaceJourney, saved_request, response_view, ALT_HOME, ALT_END, PAGE_DOWN
 from terminal_smoke import confirm_exit
 from workbench_smoke import wait_for
 
@@ -81,6 +83,7 @@ def native_case(binary, output, size, ):
                 # fresh boundary as /new, but deliberately does not dispatch it.
                 journey.write_request('UNSENT_FRESH_PREPARATION_947')
                 before = len(peer.snapshot('POST'))
+                before_network = len(peer.snapshot())
                 session.command('session-new')
                 def prepared_review():
                     view = session.display()
@@ -94,6 +97,20 @@ def native_case(binary, output, size, ):
                       'fresh unsent native preparation reached real permission review')
                 journey.capture('fresh-preparation-before-neutral-cancel')
                 assert len(peer.snapshot('POST')) == before, 'preparation dispatched without consent'
+                session.send('d')
+                disclosure = []
+                for _ in range(128):
+                    disclosure.append(session.display())
+                    before_view = session.display()
+                    session.send(PAGE_DOWN)
+                    if session.display() == before_view:
+                        break
+                disclosure = ''.join(''.join(disclosure).translate(str.maketrans('', '', '│║┃|')).split())
+                for required in ('NativeHTTPprepared', 'freshpubliccontext', 'noproviderthread'):
+                    assert required in disclosure, (required, disclosure)
+                assert 'NEWproviderthread' not in disclosure
+                assert len(peer.snapshot()) == before_network, 'native context inspection performed network work'
+                journey.capture('native-fresh-public-context-not-provider-thread')
                 session.command('cancel')
                 until(session, lambda: not journey.snapshot()['claims'], 'cancelled unsent reservation settled')
                 journey.workspace()
@@ -110,9 +127,124 @@ def native_case(binary, output, size, ):
                 assert 'UNSENT_FRESH_PREPARATION_947' not in encoded
                 history = send('E_AFTER_NEW_739', history, 'E_PUBLIC_ANSWER_853',
                                'ordinary-enter-after-new-retains-only-D')
+                def inspect_history(label):
+                    session.send(ALT_HOME)
+                    views = {}
+                    for _ in range(1024):
+                        current = response_view(session)
+                        first, last, total = current['range']
+                        assert len(current['body']) == last - first + 1
+                        for index, line in enumerate(current['body'], first):
+                            if index in views:
+                                assert views[index] == line, 'settled transcript changed during inspection'
+                            views[index] = line
+                        before = session.display()
+                        session.send(PAGE_DOWN)
+                        if session.display() == before:
+                            break
+                    else:
+                        raise AssertionError('bounded outcome inspection did not reach transcript end')
+                    journey.capture(label)
+                    assert set(views) == set(range(1, total + 1)), 'inspection omitted retained transcript rows'
+                    return ''.join(''.join(views[index] for index in range(1, total + 1)).split())
+
+                def request_terminal(observed, request):
+                    # Scope outcome/reason/admission to this exact originating
+                    # request, not another completed/failed card in the history.
+                    tail = observed.split('Request:' + request, 1)[1]
+                    outcome, tail = tail.split('Requestoutcome:', 1)[1].split('Reason:', 1)
+                    reason, tail = tail.split('Publiccontext:', 1)
+                    context = tail.split('Origin:', 1)[0]
+                    return outcome, reason, context
+
+                for mode, outcome, reason in (
+                        ('failed', 'Failed', 'Provider reported an inference error'),
+                        ('unknown', 'Unknown', 'local reader settled'),
+                        ('cancel', 'Unknown', 'local reader settled')):
+                    request = 'Interrupted-' + mode + '-original-request'
+                    partial = 'PARTIAL_' + mode + '_界e\u0301_NOT_CANONICAL\n'
+                    shown_partial = 'Fixture partial output,' if mode == 'cancel' else partial
+                    shown_partial = ''.join(unicodedata.normalize('NFC', shown_partial).split())
+                    release, ready = threading.Event(), threading.Event()
+                    if mode == 'cancel':
+                        peer.cancel_started.clear()
+                        peer.cancel_closed.clear()
+                        peer.plans.put(('cancel', ''))
+                    else:
+                        def interrupted(handler, event, packet, mode=mode, partial=partial,
+                                        ready=ready, release=release):
+                            event({'model': peer.expected_model, 'choices': [{'index': 0,
+                                   'delta': {'content': partial}, 'finish_reason': None}]})
+                            ready.set()
+                            assert release.wait(12), 'controlled partial settlement gate expired'
+                            if mode == 'failed':
+                                event({'error': {'message': 'synthetic private diagnostic'}})
+                            # Unknown closes after real bytes without a terminal frame.
+                        peer.plans.put(('custom', interrupted))
+                    journey.write_request(request)
+                    before = len(peer.snapshot('POST'))
+                    session.send('\r')
+                    until(session, lambda: len(peer.snapshot('POST')) == before + 1,
+                          'one explicit interrupted request')
+                    _, actual = decoded_payload('chat_completions', peer.snapshot('POST')[-1]['body'])
+                    assert actual == history + [('user', request)], actual
+                    until(session, peer.cancel_started.is_set if mode == 'cancel' else ready.is_set,
+                          'actual partial bytes before future editing')
+                    future = 'Future界e\u0301Z-end'
+                    journey.write_request(future)
+                    session.send((ESC + '[D') * 3)
+                    session.send('\x13')
+                    cursor = len(future[:-3].encode())
+                    until(session, lambda: saved_request(journey, future, cursor),
+                          'future Unicode draft and nonterminal caret saved')
+                    if mode == 'cancel':
+                        session.command('cancel')
+                        until(session, peer.cancel_closed.is_set, 'actual cancel closed reader')
+                    else:
+                        release.set()
+                    until(session, lambda: not journey.snapshot()['claims']
+                          and outcome + ' · ' in session.display(),
+                          'request-bound terminal outcome remained visible')
+                    observed = inspect_history(mode + '-original-terminal')
+                    original_outcome, original_reason, original_context = request_terminal(observed, request)
+                    assert original_outcome == outcome, (original_outcome, outcome)
+                    assert reason.replace(' ', '') in original_reason, original_reason
+                    assert original_context == 'excludedfromfollow-up', original_context
+                    assert shown_partial in observed, 'admissible partial display was lost at settlement'
+                    session.send('!')
+                    expected = future[:-3] + '!' + future[-3:]
+                    expected_cursor = len((future[:-3] + '!').encode())
+                    session.send('\x13')
+                    until(session, lambda: saved_request(journey, expected, expected_cursor),
+                          'terminal/history inspection preserved future insertion caret')
+                    assert len(peer.snapshot('POST')) == before + 1, 'inspection or typing sent automatically'
+                    if mode == 'unknown':
+                        # Observed EOF requires explicit existing local remediation.
+                        session.command('connect')
+                        session.command('diagnostics')
+                        wait_for(session, 'Transport failed')
+                        session.send('n')
+                        wait_for(session, 'Ctrl+S Local')
+                        journey.workspace()
+                        assert saved_request(journey, expected, expected_cursor)
+                        assert len(peer.snapshot('POST')) == before + 1, 'diagnostics reconnected/resubmitted'
+                    session.send(ALT_END)
+                    history = send(expected, history, 'FOLLOWUP_' + mode + '_COMPLETE',
+                                   mode + '-explicit-followup-excludes-partial')
+                    observed = inspect_history(mode + '-historical-terminal-after-followup')
+                    retained_outcome, retained_reason, retained_context = request_terminal(observed, request)
+                    assert (retained_outcome, retained_reason, retained_context) == (
+                        original_outcome, original_reason, original_context), 'new request rewrote old terminal evidence'
+                    assert shown_partial in observed, 'explicit follow-up erased the retained partial display'
+                    assert 'Publiccontext:admittedatsettlement' in observed
+                    assert partial not in json.dumps(peer.snapshot('POST')[-1]['body'], ensure_ascii=False)
+                    assert len(peer.snapshot('POST')) == before + 2, 'hidden retry or automatic follow-up'
+                    result['cases'].append(mode + '-retained-terminal-exact-exclusions-future-caret-no-replay')
+                    session.send(ALT_END)
+
                 peer.assert_clean()
                 session.command('quit')
-                confirm_exit(session)
+                confirm_exit(session, owned_work=True)
                 assert session.wait_exit() == 0
                 result['status'] = 'passed'
             except Exception as error:

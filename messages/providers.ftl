@@ -149,11 +149,6 @@ providers-planning-session-metadata-not-a-selectable-decision-or = { "SESSION ME
 
 providers-planning-immutable-request-unavailable-inspect-exact-payload-details = { "Immutable request unavailable; inspect exact payload Details." }
 
-providers-planning-eevee-sends-the-exact-http-payload-below =
-    { "" }
-    { "Eevee sends the exact initial HTTP payload below with scoped credential headers. Coding tools may discover and read bounded safe project files; requested changes require separate exact content/parent approval. Optional /paths restricts write targets; [] clears only that restriction. Native/Codex writes allow 1024 files up to 4 MiB each; SDK writes separately allow 256 files up to 256 KiB. Explicit Plan/Review and metadata remain non-writing. No automatic whole-project upload, shell, project hooks/MCP or code execution is added. This is not a universal OS sandbox. The service owns authentication, charges, retention and internal behavior; cancellation does not guarantee remote stop. No automatic retry." }
-    { "" }
-
 providers-planning-eevee-sends-the-exact-payload-below-it =
     { "" }
     { "Eevee sends the exact payload below. It is NOT the complete effective provider prompt: provider configuration, instructions, tools/MCP, hooks and resumed history may add context or effects. Provider owns authentication, usage charges and retained thread history. Read-only policy is agent-controlled, not proof of OS isolation. No always-allow grant or automatic replay." }
@@ -161,10 +156,6 @@ providers-planning-eevee-sends-the-exact-payload-below-it =
 
 providers-planning-run-authorizes-scoped-http-model-metadata-inspection =
     { "Run authorizes scoped HTTP model metadata inspection only; no inference. Stay sends nothing." }
-    { "" }
-
-providers-planning-run-authorizes-this-exact-http-request-and =
-    { "Run authorizes this initial HTTP request, scoped credentials and bounded continuations once. Each create/replace still needs exact one-shot permission. Stay sends nothing." }
     { "" }
 
 providers-planning-run-authorizes-only-the-disclosed-executable-provider =

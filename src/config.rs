@@ -44,6 +44,7 @@ pub struct Config {
     pub storage_policy: crate::store::Policy,
     pub context_exclusions: Vec<PathBuf>,
     pub capture_capacity: u64,
+    pub native_transport: crate::providers::NativeTransport,
 }
 
 #[derive(Debug)]
@@ -117,6 +118,7 @@ Options:
   --retention-days N   Archived purge eligibility age (default: 30; explicit purge only)
   --exclude-context PATH Exclude a repository-relative prefix (repeatable, conservative case-insensitive)
   --spool-kib N        Per-command capture reservation (default: 64; range: 1..16384 KiB)
+  --native-transport auto|http|websocket Native inference wire (default: auto; external agents unchanged)
   -h, --help           Show this help
   -V, --version        Show the version
 
@@ -219,6 +221,7 @@ fn parse_with(
     let mut storage_policy = crate::store::Policy::default();
     let mut context_exclusions = Vec::new();
     let mut capture_capacity = 64 * 1024;
+    let mut native_transport = crate::providers::NativeTransport::Auto;
     let mut download = false;
     let mut action = None;
     while let Some(argument) = args.next() {
@@ -341,6 +344,14 @@ fn parse_with(
                 }
                 context_exclusions.push(path);
             }
+            "--native-transport" => {
+                native_transport = match value(flag, attached, &mut args)?.as_ref() {
+                    "auto" => crate::providers::NativeTransport::Auto,
+                    "http" => crate::providers::NativeTransport::Http,
+                    "websocket" => crate::providers::NativeTransport::WebSocket,
+                    _ => return Err("--native-transport requires auto, http or websocket".into()),
+                };
+            }
             "--spool-kib" => {
                 let amount = value(flag, attached, &mut args)?
                     .parse::<u64>()
@@ -430,6 +441,7 @@ fn parse_with(
         storage_policy,
         context_exclusions,
         capture_capacity,
+        native_transport,
     };
     Ok(if download {
         Command::Download(config)
@@ -591,6 +603,37 @@ mod tests {
         match parse(args, variables).unwrap() {
             Command::Run(config) => config,
             _ => panic!("expected runnable configuration"),
+        }
+    }
+
+    #[test]
+    fn native_transport_launch_selection_is_explicit_and_strict() {
+        use crate::providers::NativeTransport;
+        assert_eq!(config(&[], &[]).native_transport, NativeTransport::Auto);
+        for (value, expected) in [
+            ("auto", NativeTransport::Auto),
+            ("http", NativeTransport::Http),
+            ("websocket", NativeTransport::WebSocket),
+        ] {
+            assert_eq!(
+                config(&["--native-transport", value], &[]).native_transport,
+                expected
+            );
+        }
+        assert_eq!(
+            config(
+                &["--native-transport=http", "--native-transport=websocket"],
+                &[]
+            )
+            .native_transport,
+            NativeTransport::WebSocket,
+        );
+        for args in [
+            vec!["--native-transport"],
+            vec!["--native-transport", "ws"],
+            vec!["--native-transport=HTTP"],
+        ] {
+            assert!(parse(&args, &[]).is_err());
         }
     }
 

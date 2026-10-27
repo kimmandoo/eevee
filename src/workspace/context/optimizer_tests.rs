@@ -669,6 +669,7 @@ fn selected_note_edits_revision_provenance_and_selection_invalidate_frozen_input
     assert_eq!(original.memories, task.approved_memories);
     let plan = optimize(&report, &[], original.clone(), 8_000, &[]);
     let input = crate::providers::Input {
+        native_transport: crate::providers::NativeTransport::Auto,
         task: task.clone(),
         work: None,
         local_only: true,

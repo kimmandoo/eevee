@@ -1200,6 +1200,7 @@ mod tests {
             complete: true,
             request: app.planning.submitted_request.clone(),
             owner: Some(app.attribution()),
+            status: None,
         });
         app.planning.thread_id = Some("planning-thread".into());
         app.planning.plan_completed = true;

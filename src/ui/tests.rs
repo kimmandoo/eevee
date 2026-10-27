@@ -44,6 +44,7 @@ fn project_header_escapes_controls_without_changing_task_identity() {
 fn all_true_color_forms_keep_readable_text_and_selection() {
     for theme in [Theme::Dark, Theme::Light] {
         let config = Config {
+            native_transport: crate::providers::NativeTransport::Auto,
             ascii: false,
             no_animation: false,
             animation_override: None,
@@ -199,6 +200,7 @@ fn compact_palette_shows_blocker_and_keys_without_mutating_draft() {
     use ratatui::{Terminal, backend::TestBackend};
 
     let config = Config {
+        native_transport: crate::providers::NativeTransport::Auto,
         ascii: true,
         no_animation: false,
         animation_override: None,
@@ -258,6 +260,7 @@ fn compact_palette_shows_blocker_and_keys_without_mutating_draft() {
 
 fn home_config() -> Config {
     Config {
+        native_transport: crate::providers::NativeTransport::Auto,
         ascii: true,
         no_animation: true,
         animation_override: Some(false),
@@ -557,6 +560,7 @@ fn provider_response_and_request_share_home_at_supported_sizes() {
             complete: true,
             request: "Original request".into(),
             owner: None,
+            status: None,
         });
         app.planning.following = false;
         app.planning.new_output = true;
@@ -635,6 +639,7 @@ fn suggestion_wraps_without_replacing_response_or_composer() {
                     complete: true,
                     request: "Original request".into(),
                     owner: None,
+                    status: None,
                 });
             }
             let mut artwork = Artwork::load(&config);
@@ -711,6 +716,7 @@ fn completed_response_keeps_body_below_manual_transition_and_advisory() {
             complete: true,
             request: app.planning.submitted_request.clone(),
             owner: None,
+            status: None,
         });
         app.planning.notice = "Native response completed after 1 HTTP round(s).".into();
         app.input = "Future draft 界e\u{301}Z-end".into();
@@ -822,6 +828,7 @@ fn first_file_output_reclaims_compact_rows_without_dismissing_transition_or_draf
         complete: false,
         request: Arc::clone(&app.planning.submitted_request),
         owner: None,
+        status: None,
     });
     app.input = "Future draft 한글".into();
     app.cursor = 7;
@@ -922,6 +929,7 @@ fn carry_over_home(width: u16, height: u16) -> App {
         complete: true,
         request: "Original request".into(),
         owner: None,
+        status: None,
     });
     app.planning.following = false;
     app.planning.new_output = true;
@@ -2280,6 +2288,7 @@ fn evolution_popup_waits_for_safe_surface_and_live_file_code_without_being_consu
         complete: false,
         request: Arc::clone(&app.planning.submitted_request),
         owner: None,
+        status: None,
     });
     terminal
         .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
@@ -2566,6 +2575,7 @@ fn held_optional_strip_yields_to_real_live_file_output_without_hiding_draft() {
             complete: false,
             request: Arc::clone(&app.planning.submitted_request),
             owner: None,
+            status: None,
         });
         let mut artwork = Artwork::load(&config);
         let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();

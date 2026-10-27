@@ -3063,6 +3063,7 @@ mod tests {
                 assert!(frozen.contains("Frozen 界 request\nexact spacing  "));
                 app.planning
                     .event(crate::providers::Event::Preview(Preview {
+                        transport: None,
                         comparison_scope: None,
                         arrival: crate::providers::approval_arrival(),
                         destination: None,

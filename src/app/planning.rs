@@ -65,6 +65,35 @@ pub struct Item {
     pub request: Arc<str>,
     /// Origin snapshot, never inferred from the currently fronted partner.
     pub owner: Option<store::Attribution>,
+    /// Process-local request identity and terminal evidence, never provider input.
+    pub status: Option<Arc<RequestStatus>>,
+}
+
+#[derive(Clone, Debug)]
+pub struct RequestStatus {
+    pub generation: u64,
+    pub task_id: i64,
+    pub agent: Agent,
+    pub operation: Operation,
+    pub model: Option<String>,
+    /// Resolved, reviewed wire choice; never evidence of a live connection.
+    pub transport: Option<crate::providers::NativeWire>,
+    pub outcome: Option<Outcome>,
+    pub reason: String,
+    /// Admission at settlement, not a promise of unlimited future retention.
+    /// None means provider-owned/opaque context; completeness cannot decide it.
+    pub public_context: Option<bool>,
+}
+
+impl RequestStatus {
+    pub fn outcome_label(&self) -> Option<&'static str> {
+        self.outcome.map(|outcome| match outcome {
+            Outcome::Completed => "Completed",
+            Outcome::Cancelled => "Cancelled",
+            Outcome::Failed => "Failed",
+            Outcome::Unknown => "Unknown",
+        })
+    }
 }
 
 #[derive(Default)]
@@ -151,6 +180,7 @@ pub struct State {
     pub context_plan: Option<context::optimizer::Plan>,
     pub screenshot: Option<context::screenshot::Attachment>,
     pub tool_catalog: Option<crate::providers::catalog::Selection>,
+    pub native_transport: crate::providers::NativeTransport,
     pub(super) plan_completed: bool,
     pub(super) failed_request: bool,
     /// An explicitly abandoned blocked generation; keep its local Request
@@ -292,6 +322,7 @@ impl State {
             context_plan: None,
             screenshot: None,
             tool_catalog: None,
+            native_transport: crate::providers::NativeTransport::Auto,
             plan_completed: false,
             failed_request: false,
             connection_recovery: None,
@@ -439,7 +470,9 @@ impl State {
             let front = self.front.take();
             let agent = self.agent;
             let (auto_models, auto_picker) = (self.auto_models, self.auto_picker);
+            let native_transport = self.native_transport;
             *self = Self::new();
+            self.native_transport = native_transport;
             self.auto_models = auto_models;
             self.auto_picker = auto_picker;
             self.task = task_id;
@@ -925,6 +958,7 @@ impl State {
                 }
                 self.receipt = crate::workspace::receipt::receipt(&preview.payload).lines();
                 if !self.inspect_models && !self.inspect_sessions {
+                    self.conversation_flow.transport = preview.transport;
                     self.receipt.push(format!("Route: {}", self.agent.label()));
                     self.receipt.push(format!(
                         "Model: {} / requested; observed unknown in outgoing receipt",
@@ -1039,7 +1073,7 @@ impl State {
                 self.activity = "Waiting for response";
                 self.observed_model = Some(model.clone());
                 self.notice = format!(
-                    "Provider acknowledged model {model}; fresh HTTP request, not a resumable session."
+                    "Provider acknowledged model {model}; native requests have no resumable provider session."
                 );
             }
             Event::Thread {
@@ -1130,6 +1164,12 @@ impl State {
                         .iter()
                         .find(|item| item.thread_id == thread_id && item.turn_id == turn_id)
                         .map_or_else(|| self.owner().cloned(), |item| item.owner.clone());
+                    let status = self
+                        .items
+                        .iter()
+                        .find(|item| item.thread_id == thread_id && item.turn_id == turn_id)
+                        .and_then(|item| item.status.clone())
+                        .or_else(|| Some(self.request_status(generation, task_id)));
                     if self.items.len() == ITEM_LIMIT {
                         // Keep an explicitly inspected item even when the bounded
                         // display fills; discard the oldest other observation.
@@ -1152,6 +1192,7 @@ impl State {
                         complete,
                         request,
                         owner,
+                        status,
                     });
                     self.items.len() - 1
                 };
@@ -1225,7 +1266,7 @@ impl State {
                     },
                     matches!(outcome, Outcome::Completed),
                 );
-                self.finish_native(
+                let public_admitted = self.finish_native(
                     matches!(outcome, Outcome::Completed) && !self.unknown_effects(),
                 );
                 self.failed_request = self.connection_recovery != Some(generation)
@@ -1237,6 +1278,9 @@ impl State {
                         .items
                         .iter()
                         .any(|item| Arc::ptr_eq(&item.request, &self.submitted_request));
+                if self.active && !self.inspect_models && !self.inspect_sessions {
+                    self.retain_terminal(generation, task_id, outcome, &message, public_admitted);
+                }
                 self.plan_completed = self.operation == Operation::Plan
                     && matches!(outcome, Outcome::Completed)
                     && !self.unknown_effects();

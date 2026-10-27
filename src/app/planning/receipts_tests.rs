@@ -11,6 +11,7 @@ fn claim() -> store::WorkClaim {
 }
 fn preview() -> providers::Preview {
     providers::Preview {
+        transport: None,
         arrival: 1,
         generation: 11,
         task_id: 7,
