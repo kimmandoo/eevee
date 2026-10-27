@@ -7,7 +7,7 @@ Only unfinished work belongs here. Completed specifications and stable dependenc
 - **Released:** [v0.1.32](https://github.com/kimmandoo/eevee/releases/tag/v0.1.32) (source `24083ee`; native run 40298177253, release run 40300882851). Previous: [v0.1.31](https://github.com/kimmandoo/eevee/releases/tag/v0.1.31), source `1b83cc4`, passed Check/all five native targets, all public asset byte identities,24 installation groups,34 installed terminal scenarios/56 zero-output idle windows and all11 coding/recovery/wave runtime reports.0.1.30 assets remain unchanged.
 - **Included milestones:** A08 → UX04A → S04 and P04A → P04B → T01B shipped: actionable connection diagnostics, persistent text density, reviewed portable workflows, reviewed updates/safe rollback and exact local context comparison. Specifications remain in [COMPLETED.md](tasks/COMPLETED.md).
 - **Compatibility:** Source0.1.33 retains SQL19/TM1/formation2/SDK bridge10 and adds strict optional parked-draft/landmark workflow metadata. Equal SQL schema does not guarantee older-reader admission or lifecycle rollback. Published0.1.32 remains unchanged; back up the whole data directory before opening it with new source.
-- **Remaining:** **17 tasks** (16 wave-assigned plus unassigned GP08). All21 Wave1–6 contracts passed implementation/actual acceptance and moved intact to the completed archive. Wave6 is unreleased0.1.33 source.
+- **Remaining:** **18 tasks** (16 wave-assigned plus unassigned GP08/GP09). All21 Wave1–6 contracts passed implementation/actual acceptance and moved intact to the completed archive. Wave6 is unreleased0.1.33 source.
 - **Current request:** Wave6 GP05/PK09/RX04/RX05/RX06 was implemented; exact source/runtime qualification and handoff are recorded in the checkpoint. No Waves7–8, publication or paid/live call is authorized.
 
 ## Completed Pokémon milestone
@@ -22,7 +22,7 @@ Party, formations, portable TMs, moves, summary, Dex, held references, ribbons, 
 |---|---|---:|
 | [F — Context and tools](tasks/F-context-tools.md) | Paired optimization quality benchmark | 1 |
 | [H — Acceptance](tasks/H-provider-acceptance.md) | Live-provider rows, composed quality/resource measurements and native distribution evidence | 6 |
-| [I — Product capabilities](tasks/I-product-capabilities.md) | Screenshot input, selected local Git commit and per-request reasoning-effort analysis | 3 |
+| [I — Product capabilities](tasks/I-product-capabilities.md) | Screenshot input, selected local Git commit, per-request reasoning-effort analysis and todo-driven form selection | 4 |
 | [R — Structure](tasks/R-code-structure.md) | Responsibility-based, just-in-time extractions | 7 |
 
 A/B/C/D/E/G/J/K are entirely completed and archived; F/H/I/R contain unfinished work.
