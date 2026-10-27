@@ -114,6 +114,8 @@ class SurfaceJourney(Journey):
         wait_for(session, self.surface["search"] + MODEL)
         self.capture("model-metadata-search")
         session.send("\r")
+        if 'Reasoning · ' in session.display():
+            session.send('\r')
         self.workspace()
         assert len(self.peer.snapshot("GET")) == expected_metadata, "unrequested metadata fetch/retry"
 

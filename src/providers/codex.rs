@@ -34,6 +34,7 @@ const REQUESTS_LIMIT: usize = 256;
 const EVENT_RESERVE: usize = 16;
 const RPC_TIMEOUT: Duration = Duration::from_secs(20);
 const CANCEL_TIMEOUT: Duration = Duration::from_secs(3);
+const TURN_PLAN_ITEM: &str = "eevee-turn-plan";
 
 fn capture_writes(
     root: &Path,
@@ -1820,39 +1821,10 @@ impl Engine<'_> {
                 self.full_item(item, complete)
             }
             "turn/plan/updated" => {
-                let plan = params
-                    .get("plan")
-                    .and_then(Value::as_array)
-                    .ok_or("Protocol plan missing steps")?;
-                if plan.len() > 64 {
-                    return Err("Plan step bound exceeded".into());
-                }
-                let mut text = params
-                    .get("explanation")
-                    .and_then(Value::as_str)
-                    .unwrap_or("")
-                    .to_owned();
-                for step in plan {
-                    text.push('\n');
-                    text.push_str(
-                        step.get("status")
-                            .and_then(Value::as_str)
-                            .unwrap_or("unknown"),
-                    );
-                    text.push_str(": ");
-                    text.push_str(
-                        step.get("step")
-                            .and_then(Value::as_str)
-                            .ok_or("Plan step missing text")?,
-                    );
-                }
-                self.item(
-                    "eevee-turn-plan".into(),
-                    ItemKind::Plan,
-                    &text,
-                    false,
-                    false,
-                )
+                let (text, progress) =
+                    plan_observation(self.run.generation, self.run.input.task.id, params);
+                self.item(TURN_PLAN_ITEM.into(), ItemKind::Plan, &text, false, false)?;
+                emit(self.events, progress)
             }
             // Private reasoning, raw response events and user echoes never enter the
             // display or decision-selection stream. Tool finals use explicit public coverage.
@@ -1980,7 +1952,7 @@ impl Engine<'_> {
         item.complete = complete;
         // Cumulative context protects credentials split across arbitrary deltas;
         // ordinary words become visible without waiting for a newline.
-        let visible = safe_stream(&item.raw, complete || !delta && kind == ItemKind::Tool);
+        let visible = public_item_text(&id, kind, &item.raw, complete, delta);
         if visible.is_empty() && !complete {
             return Ok(());
         }
@@ -3071,12 +3043,125 @@ fn safe_stream(text: &str, complete: bool) -> String {
         })
         .collect()
 }
+
+fn public_item_text(id: &str, kind: ItemKind, raw: &str, complete: bool, delta: bool) -> String {
+    // A turn/plan/updated notification is a whole structured snapshot, not a
+    // text delta. Flush its public suffix through the ordinary final redactor
+    // without marking the evolving plan item (or any step claim) complete.
+    let snapshot =
+        !delta && (kind == ItemKind::Tool || kind == ItemKind::Plan && id == TURN_PLAN_ITEM);
+    safe_stream(raw, complete || snapshot)
+}
 fn bounded(text: &str, limit: usize) -> &str {
     let mut end = text.len().min(limit);
     while !text.is_char_boundary(end) {
         end -= 1;
     }
     &text[..end]
+}
+
+fn plan_observation(generation: u64, task_id: i64, params: &Value) -> (String, Event) {
+    let steps = crate::workspace::progress::normalize("codex", &params["plan"]);
+    // Keep the existing readable plan transcript. Invalid shapes retain their
+    // original payload instead of turning a progress parse error into stream failure.
+    let text = if steps.is_err() {
+        params.to_string()
+    } else {
+        let mut text = params["explanation"].as_str().unwrap_or("").to_owned();
+        if let Some(plan) = params["plan"].as_array() {
+            for step in plan {
+                text.push('\n');
+                text.push_str(step["status"].as_str().unwrap_or("unknown"));
+                text.push_str(": ");
+                text.push_str(step["step"].as_str().unwrap_or(""));
+            }
+        }
+        text
+    };
+    (
+        text,
+        Event::Progress {
+            generation,
+            task_id,
+            source: "codex".into(),
+            steps,
+        },
+    )
+}
+
+#[cfg(test)]
+mod progress_tests {
+    use super::*;
+
+    #[test]
+    fn observed_plan_keeps_transcript_and_uses_common_steps() {
+        let params = json!({"explanation":"진행 계획","plan":[
+            {"step":"내용 확인","status":"completed"},
+            {"step":"수정 적용","status":"in_progress"},
+            {"step":"결과 정리","status":"pending"}
+        ]});
+        let (text, event) = plan_observation(7, 3, &params);
+        assert_eq!(
+            text,
+            "진행 계획\ncompleted: 내용 확인\nin_progress: 수정 적용\npending: 결과 정리"
+        );
+        let Event::Progress {
+            generation,
+            task_id,
+            source,
+            steps,
+        } = event
+        else {
+            panic!("Expected structured progress");
+        };
+        assert_eq!((generation, task_id, source.as_str()), (7, 3, "codex"));
+        assert_eq!(
+            steps.unwrap(),
+            crate::workspace::progress::normalize("codex", &params["plan"]).unwrap()
+        );
+    }
+
+    #[test]
+    fn malformed_plan_retains_payload_and_reports_error_separately() {
+        for plan in [
+            json!([{"step":"내용 확인","status":"unknown"}]),
+            json!([{"status":"pending"}]),
+            json!({"not":"an array"}),
+            Value::Array(vec![json!({"step":"내용 확인","status":"pending"}); 65]),
+            Value::Null,
+        ] {
+            let params = json!({"explanation":"원문 유지","plan":plan});
+            let (text, event) = plan_observation(7, 3, &params);
+            assert_eq!(serde_json::from_str::<Value>(&text).unwrap(), params);
+            assert!(matches!(event, Event::Progress { steps: Err(_), .. }));
+        }
+    }
+
+    #[test]
+    fn whole_plan_snapshots_publish_public_suffix_without_exposing_credentials() {
+        let secret = "sk-secret123456";
+        let params = json!({
+            "explanation": format!("Observed metadata {secret}"),
+            "plan":[{"step":"Malformed progress marker","status":"unknown"}]
+        });
+        let (raw, event) = plan_observation(7, 3, &params);
+        assert!(matches!(event, Event::Progress { steps: Err(_), .. }));
+        let public = public_item_text(TURN_PLAN_ITEM, ItemKind::Plan, &raw, false, false);
+        assert!(public.contains("Malformed progress marker"));
+        assert!(public.ends_with("}"));
+        assert!(!public.contains(secret));
+        assert_eq!(public, safe_stream(&raw, true));
+
+        let params = json!({"explanation":"진행 계획","plan":[{"step":"마지막 공개 단계","status":"pending"}]});
+        let (raw, _) = plan_observation(7, 3, &params);
+        let public = public_item_text(TURN_PLAN_ITEM, ItemKind::Plan, &raw, false, false);
+        assert!(public.ends_with("마지막 공개 단계"));
+        // Ordinary streaming text still holds an undecided trailing token.
+        assert_eq!(
+            public_item_text("message", ItemKind::Message, "public tail", false, true),
+            "public "
+        );
+    }
 }
 
 #[cfg(test)]

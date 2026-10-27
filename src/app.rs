@@ -20,6 +20,7 @@ pub mod pairings;
 pub mod parked_drafts;
 pub mod party;
 pub mod planning;
+pub mod progress;
 pub mod records;
 pub mod relays;
 pub mod retained;
@@ -92,6 +93,7 @@ pub enum Overlay {
     ToolCatalog,
     Receipts,
     EvolutionPreview,
+    Journey,
     ToolPlans,
     ParkedDrafts,
     Retained,

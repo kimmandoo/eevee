@@ -386,6 +386,8 @@ class Journey:
         self.lead(3)
         self.form('espeon', 4)
         self.session.command('model ' + MODEL)
+        if 'Reasoning level' in self.session.display():
+            self.session.send('\r')
         wait_for(self.session, '/save-pairing', timeout=35)
         self.session.command('save-pairing')
         self.wait(lambda: any(row['partner'] == 3 and row['form'] == 4 for row in self.state()['partner_pairings']),

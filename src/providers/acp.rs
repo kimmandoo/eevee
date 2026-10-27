@@ -2056,15 +2056,12 @@ impl Engine<'_> {
             Some("plan") => {
                 self.message_id = None;
                 let id = format!("acp-plan-{}", self.run.generation);
-                let text = safe(
-                    &serde_json::to_string_pretty(update.get("entries").unwrap_or(&Value::Null))
-                        .map_err(|_| "ACP plan encoding failed")?,
-                );
-                let mut item = Item::new(ItemKind::Plan);
-                item.text = text;
+                let (item, progress) =
+                    plan_observation(self.run.generation, self.run.input.task.id, update)?;
                 self.items.insert(id.clone(), item);
                 self.check_items()?;
                 self.emit_item(&id)?;
+                emit(self.events, progress)?;
             }
             Some("agent_thought_chunk" | "user_message_chunk") => {} // Never show or journal private reasoning/user replay.
             Some("current_mode_update") => {
@@ -2261,6 +2258,76 @@ fn bounded(text: &str, limit: usize) -> &str {
         end -= 1;
     }
     &text[..end]
+}
+
+fn plan_observation(
+    generation: u64,
+    task_id: i64,
+    update: &Value,
+) -> Result<(Item, Event), String> {
+    let entries = &update["entries"];
+    let mut item = Item::new(ItemKind::Plan);
+    item.text =
+        safe(&serde_json::to_string_pretty(entries).map_err(|_| "ACP plan encoding failed")?);
+    let progress = Event::Progress {
+        generation,
+        task_id,
+        source: "acp".into(),
+        steps: crate::workspace::progress::normalize("acp", entries),
+    };
+    Ok((item, progress))
+}
+
+#[cfg(test)]
+mod progress_tests {
+    use super::*;
+
+    #[test]
+    fn observed_plan_preserves_entries_and_uses_common_steps() {
+        let update = json!({"sessionUpdate":"plan","entries":[
+            {"content":"내용 확인","status":"completed","priority":"high"},
+            {"content":"수정 적용","status":"in_progress","priority":"medium"},
+            {"content":"결과 정리","status":"pending","priority":"low"}
+        ]});
+        let (item, event) = plan_observation(7, 3, &update).unwrap();
+        assert_eq!(
+            serde_json::from_str::<Value>(&item.text).unwrap(),
+            update["entries"]
+        );
+        let Event::Progress {
+            generation,
+            task_id,
+            source,
+            steps,
+        } = event
+        else {
+            panic!("Expected structured progress");
+        };
+        assert_eq!((generation, task_id, source.as_str()), (7, 3, "acp"));
+        assert_eq!(
+            steps.unwrap(),
+            crate::workspace::progress::normalize("acp", &update["entries"]).unwrap()
+        );
+    }
+
+    #[test]
+    fn malformed_entries_are_transcript_not_stream_failure() {
+        for entries in [
+            json!([{"content":"내용 확인","status":"unknown","priority":"high"}]),
+            json!([{"status":"pending"}]),
+            json!("not an array"),
+            Value::Array(vec![
+                json!({"content":"내용 확인","status":"pending"});
+                65
+            ]),
+            Value::Null,
+        ] {
+            let update = json!({"sessionUpdate":"plan","entries":entries});
+            let (item, event) = plan_observation(7, 3, &update).unwrap();
+            assert_eq!(serde_json::from_str::<Value>(&item.text).unwrap(), entries);
+            assert!(matches!(event, Event::Progress { steps: Err(_), .. }));
+        }
+    }
 }
 
 #[cfg(test)]

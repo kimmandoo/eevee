@@ -74,6 +74,33 @@ fn gemini(calls: &mut Calls, parts: Vec<Value>, stop: bool) -> Result<(), String
     }
     calls.observe("", &json!({"candidates":[candidate]}))
 }
+#[test]
+fn todo_metadata_success_and_refusal_use_the_existing_result_envelope() {
+    for status in ["success", "refused"] {
+        let mut calls = Calls::new(Protocol::Responses);
+        completed(
+            &mut calls,
+            vec![json!({
+                "type":"function_call","id":"item-progress","call_id":"progress",
+                "name":"todo","arguments":"{\"operation\":\"view\",\"label\":\"\",\"steps\":[]}",
+                "status":"completed"
+            })],
+        )
+        .unwrap();
+        let decoded = calls.finish(true).unwrap();
+        assert_eq!(decoded.len(), 1);
+        assert!(!decoded[0].tool.mutating());
+        assert!(decoded[0].tool.artifact_operation().is_none());
+        let mut body = json!({"input":[]});
+        calls.append_results(&mut body, &[json!({
+            "status":status,"path":"","message":"Task progress claims only; no execution evidence or file effects","steps":[]
+        })]).unwrap();
+        let result: Value =
+            serde_json::from_str(body["input"][1]["output"].as_str().unwrap()).unwrap();
+        assert_eq!(result["status"], status);
+        assert_eq!(result["path"], "");
+    }
+}
 
 #[test]
 fn advertisements_are_exact_native_function_declarations() {

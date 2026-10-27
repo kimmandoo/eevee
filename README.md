@@ -129,6 +129,14 @@ The folder you launch from is the project boundary. Git is optional. No `/init` 
 | Start a fresh chat / new task | `/chat-new` · `/reset` · `/tasks` |
 | Cancel / quit safely | `/cancel` · `/cancel-all` · `/quit` |
 
+### One request flow across connections (source 0.1.33)
+
+`/journey` shows the same model/effort → Request → preview → Send → stream → approvals → progress → follow-up → cancel → resume/new → handoff path for every connection. Missing capabilities stay visible in place; changing a model never silently switches routes, sends a draft or restores approval. Requested effort and provider acknowledgment are separate; missing usage stays unknown.
+
+`/effort auto` chooses reasoning effort locally for each explicit Send from how open-ended the request is, not its length. `/evolution-preview` shows the resolved effort and rule before sending. Ordinary automatic choices stop one advertised tier below the top; a standalone lowercase prose `ultrathink` requests the top for that request only. Code, quoted text, paths and identifiers do not trigger it. Fixed effort selections keep their existing behavior; unsupported effort control is disclosed, not fabricated.
+
+`/todo` opens the task's structured provider progress. **e** edits bounded step JSON; **a** or `/todo-adopt` adopts the inspected revision. A later provider revision needs review and re-adoption. In automatic form mode, an ambiguous explicit follow-up such as `continue` can follow the adopted active step; an explicit request, read-only policy or pinned form wins. Progress is a provider claim, never verification or completed criteria. Nothing continues automatically. `/todo-eager on` optionally adds a disclosed phased-list instruction to native requests; it is off by default.
+
 ```sh
 ev --theme light          # light palette
 ev --ascii --color mono   # plain terminals
@@ -151,7 +159,7 @@ The public installers above currently provide0.1.32. Source builds additionally 
 
 External editing waits for all work and saves to settle. Set `VISUAL` (preferred) or `EDITOR` to one executable, or a JSON argv array such as `["code","--wait"]`. No shell syntax or placeholders are expanded. Configure the editor to save in place: replaced files, links, unsafe/oversized output and cleanup failures are refused. The Request is exported as plaintext and may contain secrets; the unsandboxed editor inherits your environment, which may contain credentials, and may retain its own copies. Importing text does not send it.
 
-Parked drafts and landmarks added strict durable-reader metadata in Wave6. Current source also migrates admitted SQL0–19 data to SQL20 for retained screenshots; TM1/formation2/SDK bridge10 remain. Back up the whole data directory before opening it with new source. Public0.1.32 refuses SQL20; a matching version number is not a reader/rollback compatibility guarantee.
+Parked drafts, landmarks, adopted progress and typed auto effort use strict reader admission. Source0.1.33 migrates admitted SQL0–19 data to SQL20 for retained screenshots and requires complete SDK bridge11 for structured todo events; replace sidecar source/policy/dependencies together. TM1/formation2 remain unchanged. Back up the whole data directory before opening it with new source. Public0.1.32 refuses SQL20; a matching version number is not a reader/rollback compatibility guarantee.
 
 ### Reviewed images and selected local commits (unreleased source 0.1.33)
 

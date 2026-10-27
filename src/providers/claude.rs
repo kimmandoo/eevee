@@ -577,7 +577,7 @@ fn inspection_matches(value: &Value, versions: &SdkVersions) -> bool {
     value["type"] == "capabilities"
         && value["sdk_version"].as_str() == Some(versions.sdk.as_str())
         && value["cli_version"].as_str() == Some(versions.cli.as_str())
-        && value["bridge_revision"] == 10
+        && value["bridge_revision"] == 11
         && value["query"] == true
         && value["policy"]
             == json!({
@@ -1727,6 +1727,23 @@ impl SdkItems {
             })
             .into_mut())
     }
+    fn progress(&self, generation: u64, task_id: i64, value: &Value) -> Result<Event, String> {
+        // The sidecar forwards actual root, non-replayed TodoWrite arguments
+        // after the original tool Item. Invalid lists are data, not stream faults.
+        let item = value["item_id"]
+            .as_str()
+            .and_then(|id| self.items.get(id))
+            .ok_or("SDK progress lacks an observed tool item")?;
+        if value["tool"] != "TodoWrite" || item.kind != ItemKind::Tool || item.complete {
+            return Err("SDK progress is not a current TodoWrite observation".into());
+        }
+        Ok(Event::Progress {
+            generation,
+            task_id,
+            source: "claude".into(),
+            steps: crate::workspace::progress::normalize("claude", &value["input"]["todos"]),
+        })
+    }
     fn journal(
         &self,
         events: &Events,
@@ -2053,7 +2070,7 @@ fn transport(
                 .as_nanos()
         };
         let mut usage = SdkTurnUsage::begin(&run.input, sessions)?;
-        pipe.send(json!({"protocol":1,"bridge_revision":10,"type":"run","generation":run.generation,"task_id":run.input.task.id,"cwd":project,"state_dir":run.trust.state_dir,
+        pipe.send(json!({"protocol":1,"bridge_revision":11,"type":"run","generation":run.generation,"task_id":run.input.task.id,"cwd":project,"state_dir":run.trust.state_dir,
             "request_id":if run.input.inspect_models { None } else { run.input.work.as_ref().map(|work| work.request_id.as_str()) },
             "prompt":if run.input.inspect_models { "" } else { run.text.as_str() },
             "operation":if run.input.inspect_models { "plan" } else { sdk_tool_policy(run.input.operation) },
@@ -2210,6 +2227,10 @@ fn transport(
                             if thread_id.is_empty() || value["session_id"].as_str() != Some(thread_id.as_str()) { return Err("Claude item precedes/widens qualified session".into()); }
                             let item = items.observe(&value)?;
                             emit(events, Event::Item { generation: run.generation, task_id: run.input.task.id, thread_id: thread_id.clone(), turn_id: turn.clone(), item_id: value["item_id"].as_str().unwrap().into(), kind: item.kind, text: item.text.clone(), complete: item.complete })?;
+                        }
+                        "progress" => {
+                            if thread_id.is_empty() || value["session_id"].as_str() != Some(thread_id.as_str()) { return Err("Claude progress precedes/widens qualified session".into()); }
+                            emit(events, items.progress(run.generation, run.input.task.id, &value)?)?;
                         }
                         "bridge_command" => {
                             if run.input.inspect_models || run.input.operation != Operation::Implement || thread_id.is_empty() ||
@@ -2604,5 +2625,112 @@ fn provider_answer(kind: &PromptKind, answer: Value) -> Result<Value, String> {
         _ => Err("Unsupported SDK response kind".into()),
     }
 }
+#[cfg(test)]
+mod progress_tests {
+    use super::*;
+
+    fn observed_todo() -> (SdkItems, Value) {
+        let mut items = SdkItems::default();
+        let item = json!({"item_id":"todo-1","kind":"tool",
+            "text":"TodoWrite argument metadata retained","complete":false});
+        items.observe(&item).unwrap();
+        (items, item)
+    }
+
+    #[test]
+    fn observed_todos_normalize_without_replacing_tool_transcript() {
+        let (items, item) = observed_todo();
+        let frame = json!({"item_id":"todo-1","tool":"TodoWrite","input":{"todos":[
+            {"content":"내용 확인","status":"completed","activeForm":"내용 확인 중"},
+            {"content":"수정 적용","status":"in_progress","activeForm":"수정 적용 중"},
+            {"content":"결과 정리","status":"pending","activeForm":"결과 정리 중"}
+        ]}});
+        let event = items.progress(7, 3, &frame).unwrap();
+        let Event::Progress {
+            generation,
+            task_id,
+            source,
+            steps,
+        } = event
+        else {
+            panic!("Expected structured progress");
+        };
+        assert_eq!((generation, task_id, source.as_str()), (7, 3, "claude"));
+        let steps = steps.unwrap();
+        let expected = vec![
+            crate::workspace::progress::Step {
+                label: "내용 확인".into(),
+                phase: None,
+                status: crate::workspace::progress::Status::Done,
+            },
+            crate::workspace::progress::Step {
+                label: "수정 적용".into(),
+                phase: None,
+                status: crate::workspace::progress::Status::Active,
+            },
+            crate::workspace::progress::Step {
+                label: "결과 정리".into(),
+                phase: None,
+                status: crate::workspace::progress::Status::Pending,
+            },
+        ];
+        assert_eq!(steps, expected);
+        assert_eq!(
+            steps,
+            crate::workspace::progress::normalize(
+                "codex",
+                &json!([
+                    {"step":"내용 확인","status":"completed"},
+                    {"step":"수정 적용","status":"in_progress"},
+                    {"step":"결과 정리","status":"pending"}
+                ])
+            )
+            .unwrap()
+        );
+        assert_eq!(
+            steps,
+            crate::workspace::progress::normalize("acp", &frame["input"]["todos"]).unwrap()
+        );
+        assert_eq!(items.items["todo-1"].text, item["text"].as_str().unwrap());
+        assert!(!items.items["todo-1"].complete);
+    }
+
+    #[test]
+    fn malformed_todos_preserve_transcript_and_do_not_fail_transport() {
+        let (items, item) = observed_todo();
+        for todos in [
+            json!([{"content":"내용 확인","status":"unknown"}]),
+            json!([{"status":"pending"}]),
+            json!({"not":"an array"}),
+            Value::Array(vec![
+                json!({"content":"내용 확인","status":"pending"});
+                65
+            ]),
+            Value::Null,
+        ] {
+            let frame = json!({"item_id":"todo-1","tool":"TodoWrite","input":{"todos":todos}});
+            assert!(matches!(
+                items.progress(7, 3, &frame).unwrap(),
+                Event::Progress { steps: Err(_), .. }
+            ));
+            assert_eq!(items.items["todo-1"].text, item["text"].as_str().unwrap());
+        }
+    }
+
+    #[test]
+    fn progress_requires_an_actual_current_tool_observation() {
+        let (mut items, _) = observed_todo();
+        let mut frame = json!({"item_id":"todo-1","tool":"TodoWrite","input":{"todos":[]}});
+        frame["item_id"] = json!("unobserved");
+        assert!(items.progress(7, 3, &frame).is_err());
+        frame["item_id"] = json!("todo-1");
+        frame["tool"] = json!("Write");
+        assert!(items.progress(7, 3, &frame).is_err());
+        frame["tool"] = json!("TodoWrite");
+        items.observe(&json!({"item_id":"todo-1","kind":"tool","text":"TodoWrite result","complete":true})).unwrap();
+        assert!(items.progress(7, 3, &frame).is_err());
+    }
+}
+
 #[cfg(test)]
 mod tests;

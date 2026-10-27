@@ -105,7 +105,7 @@ def tool_arguments(call):
     return {'path': call['path'], 'content': call['content']}
 
 
-def response_plan(peer, *, calls=(), text='', number=0, gate=None):
+def response_plan(peer, *, calls=(), text='', number=0, gate=None, model=MODEL):
     """Produce real terminal SSE, with no provider response ID on purpose."""
     protocol = peer.protocol
     calls = list(calls)
@@ -140,15 +140,15 @@ def response_plan(peer, *, calls=(), text='', number=0, gate=None):
                 if gate and not gate.hold(peer):
                     return
                 emit({'type': 'response.completed', 'response': {
-                    'model': MODEL, 'status': 'completed', 'output': output,
+                    'model': model, 'status': 'completed', 'output': output,
                     'usage': {'input_tokens': 100 + number, 'output_tokens': 10 + number}}})
             elif protocol == 'chat_completions':
                 if text:
-                    emit({'model': MODEL, 'choices': [{'index': 0, 'delta': {'content': text},
+                    emit({'model': model, 'choices': [{'index': 0, 'delta': {'content': text},
                                                        'finish_reason': None}]})
                 for index, call in enumerate(calls):
                     args = json.dumps(tool_arguments(call))
-                    emit({'model': MODEL, 'choices': [{'index': 0, 'delta': {'tool_calls': [
+                    emit({'model': model, 'choices': [{'index': 0, 'delta': {'tool_calls': [
                         {'index': index, 'id': call['id'], 'type': 'function',
                          'function': {'name': call.get('name', TOOL), 'arguments': ''}}]},
                         'finish_reason': None}]})
@@ -158,16 +158,16 @@ def response_plan(peer, *, calls=(), text='', number=0, gate=None):
                             'finish_reason': None}]})
                 if gate and not gate.hold(peer):
                     return
-                emit({'model': MODEL, 'choices': [{'index': 0, 'delta': {},
+                emit({'model': model, 'choices': [{'index': 0, 'delta': {},
                       'finish_reason': 'stop'}]})
                 # Duplicate snapshots are one report, not extra consumption.
                 usage = {'prompt_tokens': 100 + number, 'completion_tokens': 10 + number}
                 for _ in range(2):
-                    emit({'model': MODEL, 'choices': [], 'usage': usage})
+                    emit({'model': model, 'choices': [], 'usage': usage})
                 handler.wfile.write(b'data: [DONE]\n\n')
                 handler.wfile.flush()
             elif protocol == 'messages':
-                emit({'type': 'message_start', 'message': {'model': MODEL,
+                emit({'type': 'message_start', 'message': {'model': model,
                       'usage': {'input_tokens': 100 + number, 'output_tokens': 0}}}, 'message_start')
                 offset = 0
                 if text:
@@ -199,11 +199,11 @@ def response_plan(peer, *, calls=(), text='', number=0, gate=None):
                                       'args': tool_arguments(call)},
                      'thoughtSignature': SIGNATURE}
                     for call in calls]
-                emit({'modelVersion': MODEL, 'candidates': [{'index': 0,
+                emit({'modelVersion': model, 'candidates': [{'index': 0,
                       'content': {'role': 'model', 'parts': parts}}]})
                 if gate and not gate.hold(peer):
                     return
-                emit({'modelVersion': MODEL, 'candidates': [{'index': 0, 'finishReason': 'STOP'}],
+                emit({'modelVersion': model, 'candidates': [{'index': 0, 'finishReason': 'STOP'}],
                       'usageMetadata': {'promptTokenCount': 100 + number,
                                         'candidatesTokenCount': 10 + number}})
         except (OSError, BrokenPipeError, ConnectionResetError):
@@ -347,7 +347,7 @@ class CreationJourney(SurfaceJourney):
         body = self.peer.snapshot('POST')[before]['body']
         expected = {'eevee_list_files', 'eevee_read_file', 'eevee_structural_search',
                     'eevee_artifact_list', 'eevee_artifact_read', 'eevee_artifact_search',
-                    'eevee_artifact_locations'}
+                    'eevee_artifact_locations', 'todo'}
         if writing:
             expected |= {'eevee_write_file', 'eevee_edit_file', 'eevee_delete_file',
                          'eevee_rename_file', 'eevee_run_command'}
@@ -1057,6 +1057,8 @@ def codex_case(binary, output, size, *, mutations=False):
         journey.session.command('model fixture-replacement')
         journey.until(lambda: 'fixture-replacement' in journey.session.display(),
                       'exact model replacement review not reachable')
+        if 'Reasoning level' in journey.session.display():
+            journey.session.send('\r')
         journey.session.capture('model-switch-retains-old-response-review')
         journey.session.send('\t\r')
         journey.workspace()

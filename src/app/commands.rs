@@ -77,6 +77,9 @@ impl Popup {
                 | "tools"
                 | "tool-setup"
                 | "tool-plan"
+                | "todo"
+                | "todo-edit"
+                | "todo-eager"
         ) && !argument.is_empty())
         .then_some((name, argument))
     }
@@ -713,6 +716,10 @@ impl App {
                 "evolution-preview",
                 "Explain next evolution and operation; nothing sent",
             ),
+            (
+                "journey",
+                "Inspect canonical request steps and route disclosures",
+            ),
             ("party", "Party roster"),
             (
                 "formation",
@@ -769,6 +776,13 @@ impl App {
             ("goal", "Edit goal"),
             ("criteria", "Acceptance criteria"),
             ("criteria-edit", "Edit acceptance criteria"),
+            ("todo", "Task card / proposed and adopted progress"),
+            ("todo-adopt", "Adopt the inspected current todo revision"),
+            ("todo-edit", "Edit proposed todo JSON steps"),
+            (
+                "todo-eager",
+                "Native phased todo prelude on|off (default off)",
+            ),
             ("next", "Edit next action"),
             ("complete", "Review task completion"),
             ("diff", "Repository diff / change evidence"),
@@ -1415,6 +1429,9 @@ impl App {
             Some((name, argument)) => (name, argument.trim()),
             None => (query, ""),
         };
+        if self.progress_command(name, argument) {
+            return true;
+        }
         if matches!(name, "project-search" | "landmarks" | "retained-responses") {
             self.command_popup = None;
             return self.retained_command(name, argument);
@@ -1516,6 +1533,9 @@ impl App {
             return true;
         }
         self.command_popup = None;
+        if self.progress_command(name, "") {
+            return true;
+        }
         if self.retained_command(name, "") {
             return true;
         }
@@ -1612,6 +1632,10 @@ impl App {
                 return true;
             }
             _ => {}
+        }
+        if name == "journey" {
+            self.open_overlay(Overlay::Journey);
+            return true;
         }
         if name == "evolution-preview" {
             self.open_evolution_preview();
@@ -2105,6 +2129,8 @@ mod tests {
 
             key(&mut app, KeyCode::Char('/'));
             query(&mut app, "model provider");
+            key(&mut app, KeyCode::Enter);
+            assert!(app.planning.picker == Some(super::super::planning::Picker::Effort));
             key(&mut app, KeyCode::Enter);
             assert_eq!(app.planning.selection.model.as_deref(), Some("provider"));
             assert!(app.planning.selection.effort.is_none());

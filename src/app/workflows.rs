@@ -49,6 +49,16 @@ pub enum Chooser {
 #[serde(default)]
 pub struct State {
     pub tab: Tab,
+    #[serde(skip)]
+    pub todo_view: bool,
+    #[serde(skip)]
+    pub todo_reviewed: bool,
+    #[serde(skip)]
+    pub todo_revision: Option<u64>,
+    #[serde(skip)]
+    pub todo_editor: Option<String>,
+    #[serde(skip)]
+    pub todo_cursor: usize,
     pub selected: usize,
     pub hypothesis: usize,
     pub finding: usize,
@@ -445,6 +455,12 @@ fn actions(tab: Tab) -> &'static [(Action, &'static str)] {
 
 impl App {
     pub fn workflow_open(&mut self) {
+        // The task progress card is inert metadata, not a specialist-evidence
+        // desk. Opening it must not enqueue unrelated execution-history reads,
+        // which would themselves make adoption/editing appear busy.
+        if self.workflow.todo_view {
+            return;
+        }
         if !self.workflow.opened
             || (self.workflow.last_form != Some(self.form()) && matches!(self.form(), 5..=7))
         {
@@ -563,6 +579,9 @@ impl App {
         if self.workflow.impact.active || self.width < 60 || self.height < 18 {
             return true;
         }
+        if self.workflow.todo_view {
+            return self.progress_paste(text);
+        }
         self.workflow.paste(text)
     }
 
@@ -616,12 +635,14 @@ impl App {
                 .any(|(action, _)| action.command() == name)
         };
         if self.workflow.editor.is_some()
+            || self.workflow.todo_editor.is_some()
             || self.workflow.preview
             || self.workflow.authoring.active
             || !available
         {
             return false;
         }
+        self.workflow.todo_view = false;
         if self.width < 60 || self.height < 18 {
             self.workflow.affirmative = false;
             self.workflow.reviewed = false;
@@ -674,6 +695,9 @@ impl App {
     pub fn workflow_key(&mut self, mut key: KeyEvent) -> bool {
         if key.kind == KeyEventKind::Release {
             return false;
+        }
+        if self.workflow.todo_view {
+            return self.progress_key(key);
         }
         if self.impact_key(key) {
             return true;

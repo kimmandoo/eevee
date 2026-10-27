@@ -67,7 +67,9 @@ impl State {
             self.notice = "Use an exact model ID: 1–256 UTF-8 bytes, no whitespace, control, bidi or credential-like text. Nothing was changed.".into();
             return false;
         }
-        let effort = if self.selection.model.as_deref() == Some(id) {
+        let effort = if self.selection.model.as_deref() == Some(id)
+            || self.selection.effort.as_deref() == Some("auto")
+        {
             self.selection.effort.clone()
         } else {
             None
@@ -91,8 +93,9 @@ impl State {
         let effort = match effort {
             Some(effort) => Some(effort.clone()),
             None if value == "default" => None,
+            None if value == "auto" => Some("auto".into()),
             None => {
-                self.notice = "Unsupported reasoning level. Choose an advertised value or default; nothing was changed.".into();
+                self.notice = "Unsupported reasoning level. Choose auto, an advertised value or default; nothing was changed.".into();
                 return false;
             }
         };
@@ -291,6 +294,7 @@ impl State {
 
     /// Model and reasoning are one local transaction; browsing never writes preferences.
     pub(super) fn choose_model(&mut self, selection: ModelSelection) {
+        self.invalidate_review();
         if selection == self.selection {
             self.choose_selection(selection);
             return;
@@ -307,23 +311,15 @@ impl State {
             None
         };
         self.pending_model = Some(selection);
-        if self
-            .effort_model()
-            .is_some_and(|model| !model.efforts.is_empty())
-        {
-            self.picker = Some(Picker::Effort);
-            self.review_details = false;
-            self.scroll = 0;
-            self.picker_selected = self.picker_current().unwrap_or(0);
-            self.notice = if self.can_back_to_models() {
-                "Choose reasoning level. Enter accepts; Left returns to models; Esc keeps current settings."
-            } else {
-                "Choose reasoning level. Enter accepts; Esc keeps current settings."
-            }.into();
+        self.picker = Some(Picker::Effort);
+        self.review_details = false;
+        self.scroll = 0;
+        self.picker_selected = self.picker_current().unwrap_or(0);
+        self.notice = if self.can_back_to_models() {
+            "Choose reasoning level. Enter accepts; Left returns to models; Esc keeps current settings."
         } else {
-            let selection = self.pending_model.take().expect("candidate model");
-            self.choose_selection(selection);
-        }
+            "Choose reasoning level. Enter accepts; Esc keeps current settings."
+        }.into();
     }
 
     pub(super) fn choose_selection(&mut self, selection: ModelSelection) {
@@ -363,6 +359,9 @@ impl State {
             }
             Picker::Effort => match self.selection.effort.as_ref() {
                 None => Some(0),
+                Some(effort) if effort == "auto" => {
+                    Some(1 + self.effort_model().map_or(0, |model| model.efforts.len()))
+                }
                 Some(effort) => self
                     .effort_model()
                     .and_then(|model| model.efforts.iter().position(|value| value == effort))
@@ -375,7 +374,7 @@ impl State {
         match self.picker {
             Some(Picker::Model) => 3 + self.picker_models.len().max(1),
             Some(Picker::Effort) => {
-                1 + self
+                2 + self
                     .effort_model()
                     .map(|model| model.efforts.len())
                     .unwrap_or(0)
@@ -435,6 +434,11 @@ impl State {
                     )
                 }
             }
+            Picker::Effort
+                if index == 1 + self.effort_model().map_or(0, |model| model.efforts.len()) =>
+            {
+                Choice::new("effort-select", "auto")
+            }
             Picker::Effort => {
                 if let Some(effort) = self
                     .effort_model()
@@ -471,5 +475,34 @@ impl State {
             self.selection.model.as_deref().unwrap_or("Default"),
             self.selection.effort.as_deref().unwrap_or("Default"),
         );
+    }
+}
+
+#[cfg(test)]
+mod neutral_tests {
+    use super::*;
+    #[test]
+    fn every_route_and_unknown_model_keeps_the_effort_step_and_auto_without_dispatch() {
+        for agent in crate::providers::Agent::ALL {
+            let mut state = State::new();
+            state.agent = agent;
+            for model in ["journey-rich", "journey-fixed", "unknown-한글"] {
+                assert!(state.select_model_id(model));
+                assert_eq!(state.picker_selection().model.as_deref(), Some(model));
+                assert!(state.picker == Some(Picker::Effort));
+                let choices: Vec<_> = (0..state.picker_len())
+                    .map(|index| state.picker_choice(index).unwrap())
+                    .collect();
+                assert!(
+                    choices
+                        .iter()
+                        .any(|choice| choice.label == "auto" && choice.reason.is_none())
+                );
+                assert!(state.select_effort_value("auto"));
+                assert_eq!(state.selection.model.as_deref(), Some(model));
+                assert_eq!(state.selection.effort.as_deref(), Some("auto"));
+                assert!(state.pending.is_none() && !state.active);
+            }
+        }
     }
 }

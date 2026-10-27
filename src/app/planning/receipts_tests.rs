@@ -76,6 +76,7 @@ fn preview_and_wrong_dispatch_never_create_durable_work_but_actual_submission_do
             &claim(),
             providers::Agent::Codex,
             providers::Operation::Plan,
+            Metadata::default(),
         )
         .unwrap();
     assert!(!state.pending());
@@ -158,6 +159,7 @@ fn failed_write_keeps_exact_bytes_for_storage_only_retry_and_blocks_release() {
             &claim(),
             providers::Agent::Codex,
             providers::Operation::Plan,
+            Metadata::default(),
         )
         .unwrap();
     state.dispatched(11, 7, "actual-ui-request");
@@ -309,6 +311,7 @@ fn failed_receipt(error: &str) -> State {
             &claim(),
             providers::Agent::Codex,
             providers::Operation::Plan,
+            Metadata::default(),
         )
         .unwrap();
     state.dispatched(11, 7, "actual-ui-request");
@@ -475,4 +478,69 @@ fn receipt_app_overlay_round_trip_preserves_committed_middle_caret_and_full_draf
         assert_eq!(app.input, expected);
         assert_eq!(app.cursor, expected_cursor + 1);
     }
+}
+
+#[test]
+fn automatic_effort_and_adopted_step_receipt_freeze_without_changing_payload_bytes() {
+    use providers::effort::{Application, Bucket, Reason, Resolution, Source};
+    let mut state = State::default();
+    let wire_selection = providers::ModelSelection {
+        model: Some("fixture-model".into()),
+        effort: Some("high".into()),
+    };
+    let resolution = Resolution {
+        bucket: Some(Bucket::Hard),
+        resolved: Some("high".into()),
+        reason: Reason::OpenCause,
+        source: Source::AdoptedActiveStep,
+        application: Application::RequestedNotAcknowledged,
+    };
+    let preview = preview();
+    state
+        .stage(
+            &preview,
+            &claim(),
+            providers::Agent::Codex,
+            providers::Operation::Plan,
+            Metadata {
+                selection: Some(&wire_selection),
+                effort: Some(&resolution),
+                progress: Some("adopted revision 4 / investigate stale cache"),
+            },
+        )
+        .unwrap();
+    assert!(
+        !state.pending(),
+        "preparation alone must never persist a dispatched receipt"
+    );
+    state.dispatched(11, 7, "actual-ui-request");
+    let Request {
+        operation: Operation::Put(outgoing),
+        ..
+    } = state.queue.pop_front().unwrap()
+    else {
+        panic!("missing actual receipt");
+    };
+    assert_eq!(outgoing.source.as_deref(), Some(preview.payload.as_str()));
+    assert_eq!(outgoing.record.effort.as_ref(), Some(&resolution));
+    assert_eq!(
+        outgoing
+            .record
+            .selection
+            .as_ref()
+            .unwrap()
+            .effort
+            .as_deref(),
+        Some("auto")
+    );
+    assert_eq!(
+        outgoing.record.progress.as_deref(),
+        Some("adopted revision 4 / investigate stale cache")
+    );
+    assert!(outgoing.record.validate().is_ok());
+    let serialized = serde_json::to_vec(&outgoing.record).unwrap();
+    assert_eq!(
+        serde_json::from_slice::<crate::workspace::receipt::Durable>(&serialized).unwrap(),
+        outgoing.record
+    );
 }

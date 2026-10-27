@@ -144,7 +144,7 @@ async function run(command: z.infer<typeof RunSchema>) {
     process.env.CLAUDE_CODE_USE_VERTEX === '1' ? 'vertex' : 'firstParty';
   cleanEnvironment(command.state_dir, expectedProvider !== 'firstParty' && process.env.EEVEE_CLAUDE_CLOUD_AUTH === 'provider-chain', profile);
   controller = new AbortController();
-  const tools = command.inspect_models ? [] : [...READ_TOOLS, DISCOVERY_TOOL, ...(command.operation === 'implement' ? ['Edit', 'Write', COMMAND_TOOL] : [])];
+  const tools = command.inspect_models ? [] : [...READ_TOOLS, 'TodoWrite', DISCOVERY_TOOL, ...(command.operation === 'implement' ? ['Edit', 'Write', COMMAND_TOOL] : [])];
   const writePolicy = new SDKWritePolicy(command.cwd, command.write_scope,
     [realpathSync(command.state_dir), realpathSync(fileURLToPath(new URL('.', import.meta.url))), dirname(sdkEntry), nativePackage, cli]);
   const filePreviews = new SDKFilePreviews(!command.inspect_models && command.operation === 'implement');
@@ -386,6 +386,12 @@ async function run(command: z.infer<typeof RunSchema>) {
             if (toolCalls.has(block.id) || toolCalls.size >= 128 || Buffer.byteLength(JSON.stringify(block.input)) > FRAME_LIMIT / 2) throw new Error('SDK tool input retention bound');
             toolCalls.set(block.id, { tool: block.name, input: block.input });
             await emit({ type: 'item', ...meta(), session_id: message.session_id, item_id: block.id, kind: 'tool', text: JSON.stringify({ provider: 'Claude Agent SDK', sdk_version: sdkVersion, tool: block.name, observation: 'Argument metadata only; exact input is reviewed separately for consent', input: inputMetadata(block.input), status: 'requested' }), complete: false });
+            // Observe complete provider arguments, never permission callbacks,
+            // partial JSON, resumed replay, or a delegated agent's task list.
+            if (block.name === 'TodoWrite' && message.parent_tool_use_id == null &&
+              !('isReplay' in message && message.isReplay === true)) {
+              await emit({ type: 'progress', ...meta(), session_id: message.session_id, item_id: block.id, tool: block.name, input: block.input });
+            }
           }
         }
       } else if (message.type === 'user' && Array.isArray(message.message.content)) {
@@ -450,7 +456,7 @@ function fatal(_error: unknown) {
   void emit({ type: 'fatal', ...meta(), message: 'Claude SDK sidecar failed; raw diagnostics withheld; outcome unknown' }).finally(() => { current?.close(); process.exitCode = 1; process.stdin.pause(); }).catch(() => process.exit(1));
 }
 if (process.argv.includes('--inspect')) {
-  await emit({ type: 'capabilities', bridge_revision: 10, policy: BRIDGE_POLICY, sdk_version: sdkVersion, cli_version: cliVersion, node_version: process.versions.node, node_executable: realpathSync(process.execPath), sdk_entry: sdkEntry, cli,
+  await emit({ type: 'capabilities', bridge_revision: 11, policy: BRIDGE_POLICY, sdk_version: sdkVersion, cli_version: cliVersion, node_version: process.versions.node, node_executable: realpathSync(process.execPath), sdk_entry: sdkEntry, cli,
     query: typeof query === 'function', approvals: 'canUseTool with exact once/deny answers; no persistent rules', questions: 'AskUserQuestion single-select/free text',
     elicitation: 'distinct onElicitation; external MCP disabled so decline/cancel only', resume: 'explicit same-task session ID only',
     usage: 'UUID-correlated main-loop turn and cumulative model-pipeline snapshots; owned completed baselines retained by host, unobserved resumed baseline unknown', confinement: 'agent policy; not OS sandbox', credential_route: credentialRoute(process.env) ?? 'unavailable' });

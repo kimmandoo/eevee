@@ -241,7 +241,16 @@ def native_case(binary, compiler, output, size, manual):
                         results = files.tool_results('chat_completions', row['body'])
                         value = assert_result(previous, results[previous['id']], journey.project)
                         result['tool_results'].append({'call': previous['id'], 'result': value})
+                        if index == 1:
+                            progress = decode_result(results['coding-progress'])
+                            assert progress['status'] == 'success' and progress['path'] == '', progress
+                            result['todo_before_reviewed_file'] = progress
                     selected = [calls[index]] if index < len(calls) else []
+                    if index == 0:
+                        selected.insert(0, {'id': 'coding-progress', 'name': 'todo', 'arguments': {
+                            'operation': 'init', 'label': '', 'steps': [
+                                {'label': 'Build the program', 'phase': 'Implement', 'status': 'active'}
+                            ]}})
                     return files.response_plan(peer, calls=selected,
                         text='Actual compiler/program evidence received.' if not selected else '', number=index)[1](handler, event, row)
                 return ('custom', reply)

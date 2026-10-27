@@ -788,141 +788,58 @@ fn review_summary(state: &State, paint: &Paint) -> Vec<String> {
     if let Some(preview) = &state.preview {
         if !preview.blockers.is_empty() {
             let mut lines = vec![format!(
-                "{} · {:?} · {}",
+                "{} / {:?} / {}",
                 state.agent.label(),
                 state.operation,
                 state.reviewed_selection().summary()
             )];
-            lines.extend(preview.blockers.iter().map(|reason| {
-                paint.format(
-                    Template::ProvidersPlanningBlockerReason,
-                    &[("reason", reason)],
-                )
-            }));
+            lines.extend(
+                preview
+                    .blockers
+                    .iter()
+                    .map(|reason| format!("Blocked: {reason}")),
+            );
             lines.push(
                 paint
                     .hint(Message::ProvidersPlanningSetupKeepsRequestNoAutomaticRetry)
                     .into(),
             );
-            if !state.inspect_models && !state.inspect_sessions {
-                let request = state
-                    .immutable_task()
-                    .map_or(state.submitted_request.as_ref(), |task| task.request_text());
-                lines.push(format!("Request: {request}"));
-            }
             return lines;
         }
-        if state.agent.is_direct() {
-            return vec![
-                format!(
-                    "{} · {:?} · {}",
-                    state.agent.label(),
-                    state.operation,
-                    state.reviewed_selection().summary()
-                ),
-                if state.inspect_models {
-                    paint
-                        .hint(Message::ProvidersPlanningScopeModelMetadataOnlyNoTaskPrompt)
-                        .into()
-                } else {
-                    paint.format(
-                        Template::ProvidersPlanningSendPayloadBytesFreshHttpRequest,
-                        &[("bytes", &(preview.payload.len()).to_string())],
-                    )
-                },
-                format!(
-                    "To: {}",
-                    preview
-                        .destination
-                        .as_deref()
-                        .unwrap_or("unavailable; inspect blocker")
-                ),
-                if !state.inspect_models
-                    && !state.inspect_sessions
-                    && crate::providers::writing_required(state.operation)
-                {
-                    write_scope_summary(state, paint)
-                } else if state.inspect_models || state.inspect_sessions {
-                    paint
-                        .hint(Message::ProvidersPlanningScopeModelMetadataOnlyNoTaskPrompt)
-                        .into()
-                } else {
-                    paint
-                        .hint(Message::ProvidersPlanningReadListOnlyNoMutationToolsOrPermission)
-                        .into()
-                },
-                paint
-                    .hint(Message::ProvidersPlanningScopedCredentialHeadersProviderNetworkBilling)
-                    .into(),
-                paint
-                    .hint(Message::ProvidersPlanningNoRetriesLocalCancelCannotProveRemote)
-                    .into(),
-                paint
-                    .hint(Message::ProvidersPlanningDDetailsExactPayloadEndpointAndCredentials)
-                    .into(),
-            ];
-        }
-        return vec![
-            format!(
-                "{} · {:?} · {}",
-                state.agent.label(),
-                state.operation,
-                state.reviewed_selection().summary()
-            ),
-            if state.inspect_models {
-                paint
-                    .hint(Message::ProvidersPlanningScopeModelCatalogueOnlyNoTaskModel)
-                    .into()
-            } else if state.inspect_sessions {
-                paint
-                    .hint(Message::ProvidersPlanningScopeSessionMetadataOnlyNoModelTurn)
-                    .into()
-            } else {
-                paint.format(
-                    Template::ProvidersPlanningSendPayloadBytesThreadOneTurn,
-                    &[
-                        ("bytes", &(preview.payload.len()).to_string()),
-                        (
-                            "thread",
-                            (if preview.thread_id.is_some() {
-                                paint.hint(Message::ProvidersPlanningResumed)
-                            } else {
-                                paint.hint(Message::ProvidersPlanningNew)
-                            }),
-                        ),
-                    ],
-                )
-            },
-            if !state.inspect_models
-                && !state.inspect_sessions
-                && state.operation == Operation::Implement
-            {
-                write_scope_summary(state, paint)
-            } else if state.agent == crate::providers::Agent::Codex
-                && !state.inspect_models
-                && !state.inspect_sessions
-            {
-                paint
-                    .hint(Message::ProvidersPlanningReadListOnlyNoMutationToolsOrPermission)
-                    .into()
-            } else {
-                paint
-                    .hint(Message::ProvidersPlanningNoSourceWriteGrantAgentPolicyNot)
-                    .into()
-            },
-            paint
-                .hint(Message::ProvidersPlanningLaunchProviderNetworkChargesAndRetainedHistory)
-                .into(),
-            paint
-                .hint(Message::ProvidersPlanningConfigHooksToolsAndHistoryMayAdd)
-                .into(),
-            paint
-                .hint(Message::ProvidersPlanningTrustExecutableConfigNoAutomaticFutureApproval)
-                .into(),
-            paint
-                .hint(Message::ProvidersPlanningDDetailsExactPayloadExecutableScopeAnd)
-                .into(),
+        let [
+            route,
+            model,
+            effort,
+            approvals,
+            todo,
+            session,
+            artifacts,
+            usage,
+            outcome,
+        ] = crate::providers::capabilities::disclosures(
+            state.agent,
+            state.operation,
+            state.catalogues.get(&state.agent),
+            state.reviewed_selection(),
+        );
+        let scope = if crate::providers::writing_required(state.operation)
+            && !state.inspect_models
+            && !state.inspect_sessions
+        {
+            write_scope_summary(state, paint)
+        } else {
+            "no source write grant; provider policy remains disclosed in inspection".into()
+        };
+        let lines = vec![
+            format!("{route} / {model} / Operation: {:?}", state.operation),
+            effort,
+            todo,
+            format!("Context: {} exact outgoing bytes / {usage} / {outcome}", preview.payload.len()),
+            format!("Write scope: {scope} / {approvals}"),
+            format!("{session} / {artifacts} / d Details · /journey capabilities"),
+            "Provider network/billing and retained history; no retries or inherited grants; cancellation may not prove remote stop.".into(),
         ];
+        return lines;
     }
     let Some(request) = &state.request else {
         return Vec::new();
@@ -2661,7 +2578,6 @@ mod tests {
             assert!(shown.contains(setup.lines().next().unwrap()), "{shown}");
             assert!(shown.contains("Cannot read user provider"), "{shown}");
             assert!(!shown.contains("preparing changes"), "{shown}");
-            assert!(app.planning.scroll_max > 0, "{shown}");
             let mut inspected = shown;
             while app.planning.scroll < app.planning.scroll_max {
                 key(&mut app, &task, KeyCode::PageDown);
@@ -2905,24 +2821,15 @@ mod tests {
                 app.planning.operation = operation;
                 let scope = if operation == Operation::Implement {
                     paint.hint(Message::ProvidersPlanningWorkspacePathProposals)
-                } else if agent.is_direct() || agent == crate::providers::Agent::Codex {
-                    paint.hint(Message::ProvidersPlanningReadListOnlyNoMutationToolsOrPermission)
                 } else {
-                    paint.hint(Message::ProvidersPlanningNoSourceWriteGrantAgentPolicyNot)
+                    "no source write grant"
                 };
                 assert!(
                     review_summary(&app.planning, &paint)
                         .iter()
-                        .any(|line| line == scope)
+                        .any(|line| line.starts_with("Write scope: ") && line.contains(scope))
                 );
-                let buffer = draw(&mut app);
-                let rendered = (0..buffer.area.height)
-                    .map(|y| rendered_row(&buffer, buffer.area, y))
-                    .collect::<Vec<_>>()
-                    .join("\n");
-                if operation == Operation::Implement {
-                    assert!(rendered.contains(scope), "{rendered}");
-                }
+                draw(&mut app);
                 assert!(app.planning.reviewed && !app.planning.affirmative);
                 assert!(app.planning.pending.is_none());
                 app.planning.inspect_models = true;

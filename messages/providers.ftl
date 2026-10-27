@@ -192,31 +192,7 @@ providers-planning-end-of-answers-send-responds-only-to =
 
 providers-planning-hidden = { "[hidden]" }
 
-providers-planning-scope-model-metadata-only-no-task-prompt = { "Scope: model metadata only; no task prompt." }
-
 providers-planning-workspace-path-proposals = { "Workspace path proposals; exact one-shot approval (d)." }
-
-providers-planning-read-list-only-no-mutation-tools-or-permission = { "Bounded project read/list only; no mutation tools or permission." }
-
-providers-planning-scoped-credential-headers-provider-network-billing = { "Scoped credential headers; provider network/billing." }
-
-providers-planning-no-retries-local-cancel-cannot-prove-remote = { "No retries; local cancel cannot prove remote stop." }
-
-providers-planning-d-details-exact-payload-endpoint-and-credentials = { "d Details: exact payload, endpoint and credentials source." }
-
-providers-planning-scope-model-catalogue-only-no-task-model = { "Scope: model catalogue only; no task/model turn." }
-
-providers-planning-scope-session-metadata-only-no-model-turn = { "Scope: session metadata only; no model turn." }
-
-providers-planning-no-source-write-grant-agent-policy-not = { "No source-write grant; agent policy, not OS isolation." }
-
-providers-planning-launch-provider-network-charges-and-retained-history = { "Launch provider; network, charges and retained history." }
-
-providers-planning-config-hooks-tools-and-history-may-add = { "Config, hooks, tools and history may add effects." }
-
-providers-planning-trust-executable-config-no-automatic-future-approval = { "Trust executable/config; no automatic future approval." }
-
-providers-planning-d-details-exact-payload-executable-scope-and = { "d Details: exact payload, executable, scope and risks." }
 
 providers-planning-d-details-complete-request-and-exact-options = { "d Exact content/options · once only, not a sandbox." }
 
@@ -631,11 +607,6 @@ providers-planning-selected-permission = { "Selected: " }{ $label }
 
 providers-planning-writes-selected-paths-inspect-exact-scope-d = { "Create/replace: " }{ $count }{ " paths; parents + exact content (d)." }
 
-providers-planning-send-payload-bytes-thread-one-turn = { "Send " }{ $bytes }{ " payload bytes · " }{ $thread }{ " thread · one turn." }
-
-
-providers-planning-send-payload-bytes-fresh-http-request = { "Send " }{ $bytes }{ " payload bytes · fresh HTTP request." }
-
 providers-planning-draft-answer-not-sent =
     { "" }
     { "Draft answer (not sent): " }{ $answer }
@@ -859,10 +830,6 @@ providers-planning-deny-cancel-turn-the-provider-offers-cancellation =
     { "" }
     { "Deny (cancel turn): the provider offers cancellation, not a continue-after-denial option." }
     { "" }
-
-providers-planning-resumed = { "resumed" }
-
-providers-planning-new = { "new" }
 
 providers-planning-previous = { "Previous " }
 

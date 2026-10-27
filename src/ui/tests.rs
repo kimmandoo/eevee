@@ -2916,3 +2916,65 @@ fn comfortable_task_rows_add_space_without_hiding_the_keyboard_selection() {
         }
     }
 }
+
+#[test]
+fn canonical_journey_and_preview_keep_unicode_drafts_for_all_routes_and_models() {
+    use ratatui::{Terminal, backend::TestBackend};
+    for (width, height) in [(60, 18), (120, 36)] {
+        for agent in crate::providers::Agent::ALL {
+            for model in ["journey-rich", "journey-fixed", "unknown-한글"] {
+                let mut app = App::new("/workspace".into(), width, height);
+                app.task_id = 7;
+                app.input = "Read source.txt. 한글 요청 界e\u{301}".into();
+                app.cursor = 4;
+                app.planning.agent = agent;
+                app.planning.selection.model = Some(model.into());
+                let before = (
+                    app.input.clone(),
+                    app.cursor,
+                    app.form(),
+                    app.criteria.clone(),
+                );
+                let config = home_config();
+                let paint = Paint::new(&config, &FORMS[0], 0);
+                app.command("journey");
+                assert_eq!(app.overlay, Some(Overlay::Journey));
+                let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+                terminal
+                    .draw(|frame| journey(frame, frame.area(), &mut app, &config, &paint))
+                    .unwrap();
+                let rendered = screen_text(&terminal);
+                assert!(
+                    rendered.contains("Connect") && rendered.contains("/connect"),
+                    "{rendered}"
+                );
+                assert!(
+                    rendered.contains("Model / effort") && rendered.contains("/effort"),
+                    "{rendered}"
+                );
+                assert_eq!(
+                    (
+                        app.input.clone(),
+                        app.cursor,
+                        app.form(),
+                        app.criteria.clone()
+                    ),
+                    before
+                );
+                app.update(Event::Paste("must not enter request".into()));
+                assert_eq!(app.input, before.0);
+                app.update(Event::Key(KeyEvent::new(
+                    KeyCode::Enter,
+                    KeyModifiers::NONE,
+                )));
+                assert!(
+                    app.planning.pending.is_none()
+                        && !app.planning.owns_work()
+                        && !app.execution.busy()
+                );
+                app.update(Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)));
+                assert_eq!((app.input, app.cursor), (before.0, before.1));
+            }
+        }
+    }
+}

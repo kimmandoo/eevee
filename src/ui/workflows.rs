@@ -81,6 +81,36 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
     let body = row(content, 3, content.height.saturating_sub(5));
     let footer = row(content, content.height.saturating_sub(2), 2);
     app.workflow.scroll_page = body.height.max(1);
+    if app.workflow.todo_view {
+        let revision = app
+            .workflows
+            .progress
+            .as_ref()
+            .map(|progress| progress.revision);
+        if app.workflow.todo_revision != revision {
+            app.workflow.todo_revision = revision;
+            app.workflow.todo_reviewed = false;
+        }
+        let max = selection_details(
+            frame,
+            body,
+            Paragraph::new(app.progress_card())
+                .style(paint.surface)
+                .wrap(Wrap { trim: false }),
+            app.workflow.scroll,
+        );
+        app.workflow.scroll_max = max;
+        app.workflow.scroll = app.workflow.scroll.min(max);
+        app.workflow.todo_reviewed |=
+            app.workflow.todo_editor.is_none() && body.height >= 3 && app.workflow.scroll >= max;
+        text(
+            frame,
+            footer,
+            "Todo / e edit / a adopt / PgUp PgDn inspect / Esc back",
+            paint.accent,
+        );
+        return;
+    }
     if app.workflow.relay.is_some() {
         let targets = app.relay_targets();
         let pending = app.workflow.relay.as_ref().unwrap();

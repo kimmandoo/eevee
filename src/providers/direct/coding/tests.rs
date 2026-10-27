@@ -84,6 +84,7 @@ impl Fixture {
         };
         result.unwrap();
         let input = Input {
+            effort_resolution: None,
             screenshot: None,
             public_context: None,
             tool_catalog: None,
@@ -2543,4 +2544,69 @@ fn command_wait_has_no_http_deadline_and_lost_ack_is_not_a_refusal() {
             .unwrap_err()
             .contains("cancelled")
     );
+}
+
+/// Composed with actual-binary account UI/no-dispatch proof. The existing
+/// test-only connection bypasses authentication, never the production endpoint.
+#[test]
+fn gp10_account_wire_matrix() {
+    for model in ["journey-rich", "journey-fixed", "journey-unknown"] {
+        let mut fixture = Fixture::new(&["journey/한글.txt"]);
+        fixture.input.agent = Agent::ChatGPT;
+        fixture.input.selection.model = Some(model.into());
+        fixture.input.selection.effort = (model == "journey-rich").then(|| "high".into());
+        let draft = &mut fixture
+            .input
+            .task
+            .partner_drafts
+            .get_mut(&fixture.input.task.lead_partner)
+            .unwrap()
+            .drafts[0];
+        draft.text = "Create the selected file. 한글 요청 界e\u{301}".into();
+        draft.cursor = draft.text.len();
+        let (url, server) = peer(vec![
+            wire(
+                Protocol::Codex,
+                &[(
+                    "journey-create",
+                    "journey/한글.txt",
+                    "actual reviewed Unicode bytes 한글\n",
+                )],
+                "Preparing exact file",
+            ),
+            wire(Protocol::Codex, &[], "Actual reviewed file settled"),
+        ]);
+        let (mut run, connection) = fixture.prepare(Protocol::Codex, &url);
+        let frozen = run.payload.clone();
+        let ((outcome, message), events) = run_with_answers(&fixture, &mut run, &connection, true);
+        assert_eq!(outcome, Outcome::Completed, "{message}");
+        assert_eq!(
+            std::fs::read_to_string(fixture.workspace.project.join("journey/한글.txt")).unwrap(),
+            "actual reviewed Unicode bytes 한글\n"
+        );
+        let requests = server.join().unwrap();
+        assert_eq!(requests[0]["model"], model);
+        assert_eq!(
+            requests[0]["reasoning"]["effort"].as_str(),
+            (model == "journey-rich").then_some("high")
+        );
+        assert_eq!(run.payload, frozen);
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| matches!(event, Event::Dispatched { .. }))
+                .count(),
+            1
+        );
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| matches!(event, Event::Prompt { .. }))
+                .count(),
+            1
+        );
+        println!(
+            "GP10_ACCOUNT_WIRE model={model} actual_reviewed_write=true production_override=false"
+        );
+    }
 }

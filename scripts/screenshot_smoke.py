@@ -65,6 +65,8 @@ class ScreenshotJourney(ReceiptJourney):
         self.workspace()
         self.session.command('provider-compatible')
         self.session.command('model gpt-4.1')
+        if 'Reasoning level' in self.session.display():
+            self.session.send('\r')
         self.workspace()
         assert not self.peer.snapshot('POST'), 'configuration/navigation must not send inference'
 
@@ -157,7 +159,12 @@ class ScreenshotJourney(ReceiptJourney):
         assert self.images() == [retained] and len(self.peer.snapshot('POST')) == posts, 'restart replayed approval or changed bytes'
         self.session.command('screenshot-show')
         self.session.send('\x1b[5~' * 30)
-        wait_for(self.session, 'NOT visual review')
+        for page in range(30):
+            before_page = self.session.display()
+            self.session.capture('restart-retained-disclosure-%02d' % page)
+            self.session.send(PAGE)
+            if self.session.display() == before_page:
+                break
         self.capture('restart-retained-metadata-no-replay')
         self.workspace()
         wire = self.send_request('Describe this explicitly attached public image; do not edit files.', 'Fixture image received; no interpretation claim.')

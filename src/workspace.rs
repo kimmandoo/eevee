@@ -7,6 +7,7 @@ pub mod locations;
 pub mod memory;
 pub mod moves;
 pub mod privacy;
+pub mod progress;
 pub mod receipt;
 pub mod records;
 pub mod repo;

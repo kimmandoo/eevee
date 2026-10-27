@@ -7,6 +7,7 @@ fn decoded_body(body: NativeBody<'_>) -> Value {
 
 fn input() -> Input {
     Input {
+        effort_resolution: None,
         screenshot: None,
         public_context: None,
         tool_catalog: None,
@@ -350,7 +351,7 @@ fn exact_protocol_bodies_preserve_custom_model_and_do_not_grant_tools() {
 }
 
 #[test]
-fn complete_catalogues_keep_configured_and_custom_models_without_generation_filters() {
+fn catalogues_keep_unadvertised_configured_ids_as_unknown_not_advertised_models() {
     let stopped = AtomicBool::new(false);
     let cancelled = AtomicU64::new(0);
     let control = control(&stopped, &cancelled);
@@ -386,22 +387,44 @@ fn complete_catalogues_keep_configured_and_custom_models_without_generation_filt
             }
         });
         let catalogue = runtime
-            .block_on(discover_pages(
-                &connection,
-                Some("deliberate-custom"),
-                &control,
-                |cursor| {
-                    cursors.push(cursor);
-                    std::future::ready(Ok(pages.pop_front().unwrap()))
-                },
-            ))
+            .block_on(discover_pages(&connection, &control, |cursor| {
+                cursors.push(cursor);
+                std::future::ready(Ok(pages.pop_front().unwrap()))
+            }))
             .unwrap();
-        assert_eq!(catalogue.models.len(), 4);
+        assert_eq!(catalogue.models.len(), 2);
         assert_eq!(
             catalogue.current.as_deref(),
             Some("configured-outside-list")
         );
-        assert!(catalogue.models.iter().any(|m| m.id == "deliberate-custom"));
+        assert!(
+            !catalogue
+                .models
+                .iter()
+                .any(|m| m.id == "configured-outside-list")
+        );
+        for id in ["configured-outside-list", "deliberate-custom"] {
+            let selection = ModelSelection {
+                model: Some(id.into()),
+                effort: None,
+            };
+            assert!(
+                crate::providers::capabilities::model_disclosure(Some(&catalogue), &selection)
+                    .starts_with("unknown model capabilities")
+            );
+            let mut state = crate::app::planning::State::new();
+            state.agent = Agent::Compatible;
+            state
+                .catalogues
+                .insert(Agent::Compatible, catalogue.clone());
+            assert!(state.select_model_id(id));
+            assert!(state.select_effort_value("default"));
+            assert_eq!(state.selection.model.as_deref(), Some(id));
+            assert!(
+                state.pending.is_none(),
+                "exact Custom selection stays local and selectable"
+            );
+        }
         assert!(
             catalogue
                 .models
@@ -423,14 +446,14 @@ fn catalogue_bounds_cycles_and_metadata_failures_are_errors_not_fallbacks() {
     let connection = config::test_connection(Protocol::Gemini, "https://example.invalid", None);
     let runtime = runtime();
     let error = runtime
-        .block_on(discover_pages(&connection, None, &control, |_| {
+        .block_on(discover_pages(&connection, &control, |_| {
             std::future::ready(Ok(json!({"models":[],"nextPageToken":"cycle"})))
         }))
         .unwrap_err();
     assert!(error.contains("repeated"));
     let mut index = 0;
     let error = runtime
-        .block_on(discover_pages(&connection, None, &control, |_| {
+        .block_on(discover_pages(&connection, &control, |_| {
             index += 1;
             std::future::ready(Ok(
                 json!({"models":[],"nextPageToken":format!("page-{index}")}),
@@ -443,7 +466,7 @@ fn catalogue_bounds_cycles_and_metadata_failures_are_errors_not_fallbacks() {
         .map(|i| json!({"id":format!("model-{i}")}))
         .collect();
     let catalogue = runtime
-        .block_on(discover_pages(&connection, None, &control, |_| {
+        .block_on(discover_pages(&connection, &control, |_| {
             std::future::ready(Ok(json!({"data":entries})))
         }))
         .unwrap();
@@ -453,14 +476,14 @@ fn catalogue_bounds_cycles_and_metadata_failures_are_errors_not_fallbacks() {
         .collect();
     assert!(
         runtime
-            .block_on(discover_pages(&connection, None, &control, |_| {
+            .block_on(discover_pages(&connection, &control, |_| {
                 std::future::ready(Ok(json!({"data":entries})))
             }))
             .is_err()
     );
     assert!(
         runtime
-            .block_on(discover_pages(&connection, None, &control, |_| {
+            .block_on(discover_pages(&connection, &control, |_| {
                 std::future::ready(Err("HTTP 503 metadata unavailable".into()))
             }))
             .unwrap_err()
@@ -468,7 +491,7 @@ fn catalogue_bounds_cycles_and_metadata_failures_are_errors_not_fallbacks() {
     );
     assert!(
         runtime
-            .block_on(discover_pages(&connection, None, &control, |_| {
+            .block_on(discover_pages(&connection, &control, |_| {
                 std::future::ready(Ok(json!({"unrelated":[]})))
             }))
             .is_err()
@@ -484,7 +507,7 @@ fn discovery_excludes_known_non_generating_models_without_losing_valid_rows() {
     let connection =
         config::test_connection(Protocol::Gemini, "https://example.invalid/v1beta", None);
     let catalogue = runtime()
-        .block_on(discover_pages(&connection, None, &control, |_| {
+        .block_on(discover_pages(&connection, &control, |_| {
             std::future::ready(Ok(json!({"models":[
                 {"name":"models/chat","supportedGenerationMethods":["generateContent"]},
                 {"name":"models/embedding","supportedGenerationMethods":["embedContent"]},
@@ -1942,7 +1965,6 @@ fn real_metadata_http_auth_refusal_publishes_content_free_diagnostic_without_dis
             discover(
                 &http_client().unwrap(),
                 &connection,
-                None,
                 &control,
                 &run,
                 &events,
@@ -2028,4 +2050,69 @@ fn diagnostic_and_terminal_outcome_survive_reserved_queue_pressure() {
         Event::ConnectionFailed { .. }
     ));
     assert!(matches!(retained[QUEUE_LIMIT - 1], Event::Finished { .. }));
+}
+
+#[test]
+fn automatic_effort_uses_frozen_wire_value_and_never_leaks_configured_fallback() {
+    use crate::providers::effort::{Application, Reason, Resolution, Source};
+    let mut connection = config::test_connection(
+        Protocol::Responses,
+        "https://example.invalid/v1",
+        Some("configured"),
+    );
+    connection.effort = Some("high".into());
+    let mut request = input();
+    request.inspect_models = false;
+    request.selection.effort = None;
+    assert_eq!(selected_effort(&request, &connection), Some("high"));
+    request.effort_resolution = Some(Resolution {
+        bucket: None,
+        resolved: None,
+        reason: Reason::ModelDefault,
+        source: Source::UserRequest,
+        application: Application::FixedByProviderNotApplied,
+    });
+    assert_eq!(selected_effort(&request, &connection), None);
+    let auto = inference_body(
+        Protocol::Responses,
+        "configured",
+        selected_effort(&request, &connection),
+        "policy",
+        None,
+        "request",
+    )
+    .unwrap();
+    assert!(decoded_body(auto).get("reasoning").is_none());
+    request.effort_resolution.as_mut().unwrap().resolved = Some("low".into());
+    request.effort_resolution.as_mut().unwrap().application = Application::RequestedNotAcknowledged;
+    request.selection.effort = Some("low".into());
+    let auto = serde_json::to_vec(
+        &inference_body(
+            Protocol::Responses,
+            "configured",
+            selected_effort(&request, &connection),
+            "policy",
+            None,
+            "request",
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    request.effort_resolution = None;
+    let fixed = serde_json::to_vec(
+        &inference_body(
+            Protocol::Responses,
+            "configured",
+            selected_effort(&request, &connection),
+            "policy",
+            None,
+            "request",
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        auto, fixed,
+        "fixed selection and the same resolved effort retain exact wire bytes"
+    );
 }

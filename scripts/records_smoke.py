@@ -506,6 +506,8 @@ class Journey(MovesJourney):
         self.form('eevee')
         self.connect()
         self.session.command('model ' + MODEL)
+        if 'Reasoning level' in self.session.display():
+            self.session.send('\r')
         self.workspace()
         post = self.send_request('Inspect only the explicitly selected public range.', 'fixture-range-reply')
         raw = bytes.fromhex(post['body_bytes_hex'])
@@ -604,6 +606,8 @@ class Journey(MovesJourney):
         wait_for(self.session, MODEL, timeout=35)
         self.wait_caption('1 matches', )
         self.session.send(MODEL + '\r')
+        if 'Reasoning level' in self.session.display():
+            self.session.send('\r')
         self.workspace()
         assert self.peer.snapshot('POST') == before, 'reconnecting sent hidden inference'
 
@@ -1153,6 +1157,8 @@ class Journey(MovesJourney):
     def pairings(self):
         self.form('eevee')
         self.session.command('model fixture-default')
+        if 'Reasoning level' in self.session.display():
+            self.session.send('\r')
         self.workspace()
         self.until(lambda: any(row['record'].get('provider') for row in self.state()['provider_preferences']),
                    'independent global provider/model default committed')
@@ -1161,6 +1167,8 @@ class Journey(MovesJourney):
             self.form(form)
             before = self.peer.snapshot()
             self.session.command('model ' + model)
+            if 'Reasoning level' in self.session.display():
+                self.session.send('\r')
             footer_prefixes = ('Type Request /', 'Type a request /', 'Enter Send /', 'Draft only /',
                                )
             self.until(lambda: self.session.display().rstrip().splitlines()[-1].strip().startswith(footer_prefixes),

@@ -263,6 +263,8 @@ def run(binary, output, root, size, ):
             journey.workspace()
             journey.connect()
             journey.session.command('model ' + records.MODEL)
+            if 'Reasoning level' in journey.session.display():
+                journey.session.send('\r')
             journey.workspace()
             post = journey.send_request('Summarize only the selected public fixture facts.', 'LOCAL_CONTEXT_REPLY')
             encoded = json.dumps(post['body'], ensure_ascii=False)

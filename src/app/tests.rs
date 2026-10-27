@@ -2068,8 +2068,10 @@ fn direct_custom_model_review_remains_owned_until_explicit_cancellation() {
     key(&mut app, KeyCode::Char('/'));
     type_text(&mut app, "model vendor/Unlisted.Exact");
     key(&mut app, KeyCode::Enter);
+    assert!(app.planning.picker == Some(planning::Picker::Effort));
+    key(&mut app, KeyCode::Enter);
     assert!(app.planning.selection_change.is_some());
-    assert!(app.planning.picker.is_none());
+    assert!(app.planning.picker == Some(planning::Picker::Effort));
     app.settle_planning();
     assert_eq!(app.overlay, Some(Overlay::Planning));
     assert!(app.planning.busy());
@@ -2077,6 +2079,8 @@ fn direct_custom_model_review_remains_owned_until_explicit_cancellation() {
     assert_eq!(app.overlay, Some(Overlay::Planning));
     assert_eq!(app.planning.thread_id.as_deref(), Some("owned-session"));
     assert!(app.planning.selection.model.is_none());
+    key(&mut app, KeyCode::Esc);
+    assert!(app.planning.picker == Some(planning::Picker::Effort));
     key(&mut app, KeyCode::Esc);
     assert!(app.overlay.is_none() && app.editing);
     assert_eq!(app.input, "retained future request");
@@ -2306,6 +2310,8 @@ fn native_missing_model_opens_local_picker_and_retains_request_without_retry() {
             assert!(app.pending_request.is_none() && app.planning.pending.is_none());
             key(&mut app, KeyCode::Enter); // Exact-ID editor, not implicit Default.
             app.update(Event::Paste("chosen/Exact:1".into()));
+            key(&mut app, KeyCode::Enter);
+            assert!(app.planning.picker == Some(planning::Picker::Effort));
             key(&mut app, KeyCode::Enter);
             let expected = if future_draft {
                 "future request"
@@ -2582,6 +2588,7 @@ fn idle_quit_waits_for_preferences_without_an_empty_cancel_all_review() {
     let mut app = request_app();
     app.planning.preference_event(Ok(None));
     assert!(app.planning.select_model_id("local-fixture-model"));
+    assert!(app.planning.select_effort_value("default"));
     assert!(app.planning.preferences_pending());
     assert!(!app.planning.owns_work() && !app.execution.busy());
     app.request_quit();
@@ -4054,4 +4061,74 @@ fn response_reading_arrows_scroll_lines_and_mouse_cannot_reach_occluded_output()
     assert_eq!(app.planning.scroll, held);
     assert_eq!(app.overlay, Some(Overlay::Help));
     assert!(app.pending_request.is_none() && app.planning.pending.is_none());
+}
+
+#[test]
+fn all_route_and_model_choices_preserve_task_owned_progress_criteria_and_unicode_draft() {
+    use crate::workspace::progress::{State as Progress, Status, Step};
+    for (width, height) in [(120, 36), (60, 18)] {
+        let mut app = request_app();
+        app.width = width;
+        app.height = height;
+        app.goal = "Owned task".into();
+        app.criteria.push(store::Criterion {
+            text: "Keep actual user criteria / 한글".into(),
+            met: false,
+        });
+        let mut progress = Progress::default();
+        progress
+            .propose(
+                "controlled proposal",
+                vec![Step {
+                    label: "Investigate source / 원인 조사".into(),
+                    phase: Some("Investigate".into()),
+                    status: Status::Active,
+                }],
+            )
+            .unwrap();
+        progress.adopt().unwrap();
+        app.workflows.progress = Some(progress.clone());
+        app.update(Event::Paste("Unsent future request 한글 界e\u{301}".into()));
+        app.cursor = 4;
+        modified_key(&mut app, KeyCode::Char('s'), KeyModifiers::CONTROL);
+        save_request(&mut app);
+        let before = (
+            app.input.clone(),
+            app.cursor,
+            app.form(),
+            app.criteria.clone(),
+        );
+        for agent in crate::providers::Agent::ALL {
+            app.command(agent.command());
+            assert_eq!(app.planning.agent, agent);
+            for model in ["journey-rich", "journey-fixed", "unknown-한글"] {
+                assert!(app.command_with_argument(&format!("model {model}")));
+                assert!(app.planning.picker == Some(planning::Picker::Effort));
+                for _ in 0..app.planning.picker_len() {
+                    if app
+                        .planning
+                        .picker_choice(app.planning.picker_selected)
+                        .is_some_and(|choice| choice.label == "auto")
+                    {
+                        break;
+                    }
+                    key(&mut app, KeyCode::Down);
+                }
+                key(&mut app, KeyCode::Enter);
+                assert_eq!(app.planning.selection.model.as_deref(), Some(model));
+                assert_eq!(app.planning.selection.effort.as_deref(), Some("auto"));
+                assert_eq!(
+                    (
+                        app.input.clone(),
+                        app.cursor,
+                        app.form(),
+                        app.criteria.clone()
+                    ),
+                    before
+                );
+                assert_eq!(app.workflows.progress.as_ref(), Some(&progress));
+                assert!(app.pending_request.is_none() && app.planning.pending.is_none());
+            }
+        }
+    }
 }

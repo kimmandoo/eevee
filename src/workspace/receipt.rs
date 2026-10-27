@@ -315,6 +315,13 @@ pub struct Durable {
     pub generation: u64,
     pub agent: crate::providers::Agent,
     pub operation: crate::providers::Operation,
+    /// Requested identity, not observed session configuration.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selection: Option<crate::providers::ModelSelection>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort: Option<crate::providers::effort::Resolution>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub progress: Option<String>,
     pub recorded_at: i64,
     pub estimator: String,
     pub sha256: [u8; 32],
@@ -391,6 +398,9 @@ impl Outgoing {
             generation,
             agent,
             operation,
+            selection: None,
+            effort: None,
+            progress: None,
             recorded_at,
             estimator: ESTIMATOR.into(),
             sha256: Sha256::digest(payload.as_bytes()).into(),
@@ -451,6 +461,46 @@ impl Durable {
             return Err(
                 "Outgoing receipt owner metadata contains a recognizable credential".into(),
             );
+        }
+        if let Some(selection) = &self.selection {
+            for value in [selection.model.as_deref(), selection.effort.as_deref()]
+                .into_iter()
+                .flatten()
+            {
+                if value.is_empty() || value.len() > 256
+                    || value.chars().any(|ch| ch.is_whitespace() || ch.is_control()
+                        || matches!(ch, '\u{061c}' | '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}'))
+                    || super::privacy::redact(value) != value
+                {
+                    return Err("Invalid requested receipt model/effort identity".into());
+                }
+            }
+        }
+        if let Some(effort) = &self.effort {
+            effort.validate()?;
+            if self
+                .selection
+                .as_ref()
+                .and_then(|selection| selection.effort.as_deref())
+                != Some("auto")
+            {
+                return Err("Automatic effort receipt lost its requested auto selection".into());
+            }
+        } else if self
+            .selection
+            .as_ref()
+            .and_then(|selection| selection.effort.as_deref())
+            == Some("auto")
+        {
+            return Err("Automatic effort receipt is missing its frozen resolution".into());
+        }
+        if self.progress.as_ref().is_some_and(|progress| {
+            progress.is_empty()
+                || progress.len() > 2048
+                || progress.chars().any(char::is_control)
+                || super::privacy::redact(progress).as_ref() != progress.as_str()
+        }) {
+            return Err("Invalid frozen todo receipt summary".into());
         }
         if self.task_id <= 0
             || self.generation == 0

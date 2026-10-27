@@ -1,8 +1,17 @@
 # Eevee Implementation Plan
 
-Updated2026-10-27. Public v0.1.32 was published from `9dc6696` after Check/all-five-native qualification and release run40300882851. Waves6–7 passed implementation/actual acceptance as unreleased0.1.33 source. Wave7 completed GP06/GP07;18 tasks remain (14 wave-assigned plus separately added unassigned GP08/GP09/GP10/P05). Those concurrent planning commits were preserved without starting their work. Wave8, publication, push and paid/live calls remain outside this request.
+Updated2026-10-28. Public v0.1.32 shipped Waves1–5. Waves6–7 and all four authorized unassigned tasks GP10→GP08/GP09 plus P05 passed scoped actual acceptance in source0.1.33; CI repair, push and a new qualified release remain the active delivery. Wave8 and paid/live calls remain outside scope. Published-history reconciliation was explicitly approved and every existing release asset was preserved.
 
 Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPATIBILITY.md). Live-provider conformance remains distinct from implemented transports and deterministic runtime proof.
+
+## Active implementation — Release qualification
+
+1. Completed the binding canonical-journey, explicit local-auto effort and adopted-progress amendment before implementation. Reused Schema20 writer, adapter events, approvals and receipts; strict SDK progress IPC advanced the complete bridge to11.
+2. Completed GP10→GP08/GP09. Frozen E passed66 route/model/geometry rows (60 actual transports plus six account UI/no-dispatch rows composed with three private-boundary wire/write proofs),38 effort requests and16 progress rows. Account/live-provider limits remain explicit.
+3. Completed P05 from observed refs, preserving/restoring a fresh all-refs backup, synchronizing28 stale local tags, reconciling32 public targets and verifying all256 original asset downloads without replacement. Caches/unreachable objects/forks are not claimed erased.
+4. Repaired confirmed Windows extended-path Git and macOS-arm64 context-driver failures without skipping coverage or weakening consent. Also repaired observed compact summary, native metadata-envelope, taskless SDK, negated intent and Codex complete-snapshot defects; concrete evidence is in troubleshooting/checkpoint.
+5. Passed Rust1.90.0 formatting/strict Clippy/1,811 tests/two ignored/release build,45 SDK tests,24 Python tests/four Windows-only skips and all final native/effort/coding/image/commit profiles. Archived only accepted specifications and updated current contracts/docs. **Exact next action: commit/push the qualified candidate.**
+6. Require same-commit Check and all five native jobs in one attempt before tagging0.1.33. Publish only qualified artifacts, verify public checksums/package identities and run the downloaded host package/install journey. Record exact evidence and commit the final release handoff.
 
 ## Completed implementation — Wave7 new input and repository effects
 

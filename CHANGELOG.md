@@ -1,7 +1,22 @@
 # Changelog
 
+## 2026-10-28
+
+- feat(sdk)!: advanced the complete SDK bridge to11 for structured progress events and refused older mixed components before dispatch.
+- fix(sdk): admitted taskless empty model inspection while retaining positive task ownership and frozen-root requirements for every actual prompt.
+- fix(forms): excluded negated `without` tails from writing intent while preserving positive leading requests and later independent clauses.
+- fix(codex): finalized complete plan-snapshot text through the existing redactor without marking progress complete or weakening ordinary message credential-tail protection.
+
 ## 2026-10-27
 
+- feat(workflow): unified route/model request navigation through one declarative capability table and `/journey`, keeping unsupported steps visible without fabricating acknowledgment, usage or authority.
+- feat(reasoning): added explicit request-local automatic effort resolution, preview/receipt reasons, strict typed persistence and prose-only highest-effort override while retaining fixed selections.
+- feat(progress): normalized native/Codex/ACP/SDK step claims into bounded revisioned task progress, required explicit adoption and used only adopted active labels for ambiguous automatic-form follow-ups.
+- fix(tools): gave native todo success/refusal replies the existing metadata-only outcome envelope so structured progress could continue into real source tools without weakening result validation.
+- fix(models): retained unadvertised configured/custom IDs without injecting fake catalogue rows, so unknown model capabilities remained unknown through the common model/effort flow.
+- chore(history): reconciled rewritten public tags and32 release targets, restored a verified backup, and verified all256 preserved public assets against their original SHA256 digests and checksum manifests.
+- fix(git): passed cwd-relative plumbing paths to Git while retaining canonical filesystem identities, repairing Windows extended-length-path selected-commit preparation.
+- fix(verification): synchronized active context-tool dispatch with actual protocol/response settlement rather than requiring an idle Connecting spinner, without increasing timeouts or skipping coverage.
 - docs(license): named the project copyright holder in LICENSE and NOTICE.
 - chore(history): rewrote local history and tags to remove external-reference traces and remapped recorded commit IDs.
 - feat(context): added explicitly reviewed bounded PNG/JPEG attachments on qualified native Responses routes, exact original-byte transport, visible selected-image state, honest image accounting and quota-owned retention/removal/purge without replay.
@@ -234,6 +249,21 @@
 - docs(release): published v0.1.19 from source `c4ce4a2` after exact-source Check/all-five-native qualification and immutable promotion, retaining Schema 16 and complete SDK bridge 8.
 - test(terminal): acknowledged the new one-time evolution receipt before checking preserved goal/edit/discard behavior in the actual compact installed runtime without changing the published executable.
 - docs(verification): verified all public assets, sixteen bilingual automatic-review/file-progress journeys/64 groups, 24 file journeys/126 groups, evolution popups and preserved typing, scrolling/tooltips, native 176 groups, cooperation 24, six genuine schema upgrade/refusal/resume cases and 23 installation groups/all 34 installed terminal scenarios.
+
+## 0.1.33
+
+- feat(workflow): added `/journey` and one route/model-neutral request flow with explicit capability gaps, separate effort acknowledgment and unknown usage rather than silent substitution.
+- feat(reasoning): added explicit `/effort auto`, bounded local English/Korean openness rules, a one-below-top ordinary ceiling, prose-only request-local `ultrathink`, and frozen preview/receipt resolution while preserving fixed effort behavior.
+- feat(progress): added bounded task-owned native/Codex/ACP/SDK todo proposals, editable revision inspection and explicit adoption, with adopted active steps informing automatic forms only on ambiguous explicit follow-ups.
+- feat(sdk)!: required complete bridge11 for strict structured progress events, refused bridge10 mixes before dispatch and admitted taskless metadata inspection without granting inference authority.
+- fix(forms): kept negated `without` review tails nonwriting while preserving affirmative requests and independent later actions.
+- fix(codex): retained complete public plan-snapshot text and credential redaction without fabricating item or task completion.
+- feat(navigation): added project-private retained search, immutable partner contributions, unsent parked drafts, separately reviewed external editing and durable response landmarks without replay.
+- feat(context): added explicitly reviewed bounded PNG/JPEG attachments on qualified native Responses routes, original-byte transport and honest image/retention/purge accounting.
+- feat(git): added selected-only raw-byte local commits through exact one-shot consent and the existing writer/runner, excluding hooks/filters/signing/helpers and preserving unselected work.
+- fix(platform): repaired Windows extended-length Git argument handling, native external-editor cancellation and compact complete-scope reviews; synchronized context smoke with real asynchronous completion.
+- chore(history): reconciled rewritten public tags/release targets and verified all256 existing public assets without replacement.
+- docs(storage)!: required whole-directory backup before SQL20 migration and strict progress/auto preference/pairing admission; older readers refused unsupported data without an in-place downgrade or restored grants.
 
 ## 0.1.32
 

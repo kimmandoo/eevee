@@ -3,12 +3,14 @@ pub mod acp;
 pub mod agent;
 pub(crate) mod artifacts;
 pub mod auth;
+pub mod capabilities;
 pub mod catalog;
 pub mod claude;
 pub mod codex;
 pub(crate) mod commands;
 pub mod diagnostics;
 pub mod direct;
+pub mod effort;
 pub(crate) mod file_preview;
 pub(crate) mod writes;
 
@@ -139,6 +141,7 @@ pub(crate) fn writing_required(operation: Operation) -> bool {
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ModelSelection {
     pub model: Option<String>,
+    #[serde(default, with = "effort::selection_serde")]
     pub effort: Option<String>,
 }
 
@@ -268,6 +271,8 @@ pub struct Input {
     pub inspect_sessions: bool,
     pub inspect_models: bool,
     pub selection: ModelSelection,
+    /// Local-only frozen auto resolution; never inserted into the model prompt.
+    pub effort_resolution: Option<effort::Resolution>,
     /// Frozen canonical native history, independent of display/journal retention.
     pub conversation: Option<Arc<NativeConversation>>,
     /// Public plan/request context only; never a resumed session or write grant.
@@ -581,6 +586,18 @@ impl Input {
         self.validate_work()?;
         self.validate_instruction_override()?;
         self.validate_screenshot()?;
+        if self.selection.effort.as_deref() == Some("auto") {
+            return Err("Automatic effort must be frozen at an explicit send boundary before provider preparation".into());
+        }
+        if let Some(resolution) = &self.effort_resolution {
+            resolution.validate()?;
+            if self.inspect_models
+                || self.inspect_sessions
+                || self.selection.effort != resolution.resolved
+            {
+                return Err("Automatic effort lost its frozen wire selection".into());
+            }
+        }
         if let Some(plan) = &self.prior_plan
             && (self.operation != Operation::Implement
                 || self.inspect_models
@@ -915,6 +932,13 @@ pub struct Prompt {
 #[derive(Clone, Debug)]
 pub enum Event {
     Preview(Preview),
+    /// Provider progress claims; never execution evidence or a continuation.
+    Progress {
+        generation: u64,
+        task_id: i64,
+        source: String,
+        steps: Result<Vec<crate::workspace::progress::Step>, String>,
+    },
     /// Content-free failure evidence from this exact owned request.
     ConnectionFailed {
         generation: u64,
@@ -1204,6 +1228,7 @@ mod tests {
             inspect_sessions: false,
             inspect_models: false,
             selection: ModelSelection::default(),
+            effort_resolution: None,
             conversation: None,
             credential: None,
         }

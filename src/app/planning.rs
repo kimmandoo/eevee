@@ -25,6 +25,7 @@ use crate::{
 mod context_comparison;
 mod conversation;
 mod cooperation;
+mod effort;
 pub(crate) mod journal;
 mod pairings;
 mod picker;
@@ -241,6 +242,10 @@ pub struct State {
     /// Why the automatic fetch stopped before running, shown after its cancel.
     auto_blocked: Option<String>,
     request_selection: ModelSelection,
+    request_effort: Option<crate::providers::effort::Resolution>,
+    request_effort_model: Option<String>,
+    request_progress: Option<String>,
+    effort_last: HashMap<(Agent, Option<String>), String>,
     session_selection: ModelSelection,
     pub observed_model: Option<String>,
     /// Website-OAuth session credential for Devin ACP launches; memory only.
@@ -324,6 +329,8 @@ impl State {
             selection_change: None, inspect_models: false,
             auto_models: false, auto_run: false, auto_picker: false, catalogue_dismissed: false, auto_blocked: None, send_after_prepare: false,
             request_selection: ModelSelection::default(), session_selection: ModelSelection::default(),
+            request_effort: None, request_effort_model: None, request_progress: None,
+            effort_last: HashMap::new(),
             observed_model: None,
             devin_credential: None,
             front: None,
@@ -426,6 +433,7 @@ impl State {
             let catalogues = std::mem::take(&mut self.catalogues);
             let catalogue_errors = std::mem::take(&mut self.catalogue_errors);
             let journal_recovery = std::mem::take(&mut self.journal_recovery);
+            let effort_last = std::mem::take(&mut self.effort_last);
             let selection = self.selection.clone();
             let credential = self.devin_credential.take();
             let front = self.front.take();
@@ -441,6 +449,7 @@ impl State {
             self.selection = selection;
             self.selections = selections;
             self.preferences = preferences;
+            self.effort_last = effort_last;
             self.catalogues = catalogues;
             self.catalogue_errors = catalogue_errors;
             self.devin_credential = credential;
@@ -853,6 +862,7 @@ impl State {
             {
                 self.usage_submitted();
                 self.dispatch_chat_intent();
+                self.commit_effort_resolution();
                 self.receipts.dispatched(generation, task_id, &request_id);
             }
             Event::Usage {
@@ -914,12 +924,51 @@ impl State {
                     slot.generation = Some(preview.generation);
                 }
                 self.receipt = crate::workspace::receipt::receipt(&preview.payload).lines();
+                if !self.inspect_models && !self.inspect_sessions {
+                    self.receipt.push(format!("Route: {}", self.agent.label()));
+                    self.receipt.push(format!(
+                        "Model: {} / requested; observed unknown in outgoing receipt",
+                        self.request_selection
+                            .model
+                            .as_deref()
+                            .unwrap_or("provider default")
+                    ));
+                    if let Some(effort) = &self.request_effort {
+                        self.receipt.push(effort.line());
+                    } else {
+                        self.receipt.push(format!(
+                            "Effort: {} / requested; not acknowledged",
+                            self.request_selection
+                                .effort
+                                .as_deref()
+                                .unwrap_or("provider default")
+                        ));
+                    }
+                    self.receipt.push(format!(
+                        "Todo: {}",
+                        self.request_progress
+                            .as_deref()
+                            .unwrap_or("no step list from this route")
+                    ));
+                    self.receipt.push("Usage: unknown in outgoing receipt; inspect provider-reported usage separately".into());
+                    self.receipt.push(
+                        "Outcome: unknown at dispatch; provider claims are not verification".into(),
+                    );
+                }
                 if !self.inspect_models
                     && !self.inspect_sessions
                     && let Some(claim) = &self.work
-                    && let Err(error) =
-                        self.receipts
-                            .stage(&preview, claim, self.agent, self.operation)
+                    && let Err(error) = self.receipts.stage(
+                        &preview,
+                        claim,
+                        self.agent,
+                        self.operation,
+                        receipts::Metadata {
+                            selection: Some(&self.request_selection),
+                            effort: self.request_effort.as_ref(),
+                            progress: self.request_progress.as_deref(),
+                        },
+                    )
                 {
                     preview.blockers.push(error);
                 }

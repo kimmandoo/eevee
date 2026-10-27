@@ -80,6 +80,8 @@ class Peer:
         # Opt-in records acceptance keeps exact public request bodies and emits
         # supplied Chat usage trailers; existing connection journeys are unchanged.
         self.retain_body_bytes = retain_body_bytes
+        self.catalogue = None  # Optional controlled metadata for conformance drivers.
+        self.expected_model = MODEL
         self.usage_plans = queue.Queue()
         self.stopped = threading.Event()
         self.cancel_started, self.cancel_closed = threading.Event(), threading.Event()
@@ -139,6 +141,8 @@ class Peer:
                                         'supportedGenerationMethods': ['generateContent']}]}
                 else:
                     body = {'data': [{'id': MODEL, 'name': MODEL}], 'has_more': False}
+                if fixture.catalogue is not None:
+                    body = fixture.catalogue
                 self.reply(200, body)
 
             def do_POST(self):
@@ -161,7 +165,7 @@ class Peer:
                     self.reply(409, {'error': 'usage plan protocol mismatch'})
                     return
                 endpoint = {'responses': 'responses', 'chat_completions': 'chat/completions',
-                            'messages': 'messages', 'gemini': 'models/' + MODEL + ':streamGenerateContent?alt=sse'}[protocol]
+                            'messages': 'messages', 'gemini': 'models/' + fixture.expected_model + ':streamGenerateContent?alt=sse'}[protocol]
                 if self.path not in ('/v1/' + endpoint, '/changed/v1/' + endpoint):
                     self.reply(404, {'error': 'unexpected fixture inference route'})
                     return
@@ -466,6 +470,8 @@ class Journey:
         wait_for(self.session, 'Search: ' + MODEL)
         self.capture('model-metadata-search')
         self.session.send('\r')
+        if 'Reasoning · ' in self.session.display():
+            self.session.send('\r')
         self.workspace()
         assert len(self.peer.snapshot('GET')) == expected_metadata, 'metadata selection performed an unrequested extra fetch/retry'
 

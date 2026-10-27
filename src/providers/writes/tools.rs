@@ -22,6 +22,7 @@ pub(crate) enum ToolKind {
     ArtifactSearch,
     ArtifactLocations,
     RunCommand,
+    Todo,
 }
 impl ToolKind {
     pub(crate) fn parse(name: &str) -> Result<Self, String> {
@@ -38,6 +39,7 @@ impl ToolKind {
             "eevee_artifact_search" => Ok(Self::ArtifactSearch),
             "eevee_artifact_locations" => Ok(Self::ArtifactLocations),
             "eevee_run_command" => Ok(Self::RunCommand),
+            "todo" => Ok(Self::Todo),
             _ => Err("Unsupported file tool name".into()),
         }
     }
@@ -55,6 +57,7 @@ impl ToolKind {
             Self::ArtifactSearch => "eevee_artifact_search",
             Self::ArtifactLocations => "eevee_artifact_locations",
             Self::RunCommand => "eevee_run_command",
+            Self::Todo => "todo",
         }
     }
 }
@@ -133,12 +136,19 @@ pub(crate) enum FileTool {
         cwd: PathBuf,
         command: crate::workspace::runner::CommandSpec,
     },
+    #[serde(rename = "todo")]
+    Todo { input: Value },
     #[serde(skip)]
     Invalid { kind: ToolKind },
 }
 impl FileTool {
     pub(crate) fn parse(name: &str, arguments: Value) -> Result<Self, String> {
         ToolKind::parse(name)?;
+        // Todo owns only inert task metadata. Keep malformed original arguments
+        // for a visible refusal rather than losing them in file-tool admission.
+        if name == "todo" {
+            return Ok(Self::Todo { input: arguments });
+        }
         let tool: Self = serde_json::from_value(json!({"tool":name,"arguments":arguments}))
             .map_err(|_| {
                 "File tool arguments must exactly match the advertised schema".to_owned()
@@ -168,6 +178,7 @@ impl FileTool {
             Self::ArtifactSearch { .. } => ToolKind::ArtifactSearch,
             Self::ArtifactLocations { .. } => ToolKind::ArtifactLocations,
             Self::RunCommand { .. } => ToolKind::RunCommand,
+            Self::Todo { .. } => ToolKind::Todo,
             Self::Invalid { kind } => *kind,
         }
     }
@@ -181,6 +192,7 @@ impl FileTool {
             Self::List { directory, .. } | Self::StructuralSearch { directory, .. } => directory,
             Self::Invalid { .. }
             | Self::RunCommand { .. }
+            | Self::Todo { .. }
             | Self::ArtifactList { .. }
             | Self::ArtifactRead { .. }
             | Self::ArtifactSearch { .. }

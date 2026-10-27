@@ -387,12 +387,15 @@ fn environment() -> Vec<(String, String)> {
     }
     result
 }
-fn args(root: &Path, tail: &[String]) -> Vec<String> {
+fn args(tail: &[String]) -> Vec<String> {
+    // The owned process always starts in the frozen repository cwd. Keep Git's
+    // path arguments relative: its config/index readers do not consistently
+    // accept Windows canonical verbatim (\\?\) paths as Rust's filesystem does.
     let mut args = vec![
         "--no-pager".into(),
         "--no-replace-objects".into(),
-        format!("--git-dir={}", root.join(".git").display()),
-        format!("--work-tree={}", root.display()),
+        "--git-dir=.git".into(),
+        "--work-tree=.".into(),
     ];
     for setting in [
         "core.hooksPath=/dev/null",
@@ -463,7 +466,7 @@ fn git(
     let mut launch = p.clone();
     launch.spec = CommandSpec::Direct {
         program: "git".into(),
-        args: args(&p.cwd, tail),
+        args: args(tail),
     };
     let mut child = native::Process::spawn_piped_clean_env(&launch, env)
         .map_err(|e| format!("Owned Git launch: {e}"))?;
@@ -665,7 +668,6 @@ fn config_identity(
     env: &[(String, String)],
     cancelled: &dyn Fn() -> bool,
 ) -> Result<(Vec<u8>, String, String), String> {
-    let path = p.cwd.join(".git/config");
     let bytes = plain(&p.cwd, Path::new(".git/config"), 1024 * 1024)?;
     // Parse the exact local file, without includes; config is data here, never an executable source.
     let raw = git(
@@ -675,7 +677,7 @@ fn config_identity(
             "--no-includes".into(),
             "--null".into(),
             "--list".into(),
-            format!("--file={}", path.display()),
+            "--file=.git/config".into(),
         ],
         &[],
         env,
@@ -1003,17 +1005,15 @@ pub(super) fn execute(p: &Prepared, cancelled: &dyn Fn() -> bool) -> Outcome {
         // Git's ref transaction must own HEAD.lock, including for --no-deref branch updates.
         // We own only index/config locks and revalidate frozen HEAD/ref before publication.
         let (_config_guard, _config_lock) = lock(p.cwd.join(".git/config.lock"))?;
-        let scratch = p.cwd.join(".git").join(format!("eevee-index-{}", p.run_id));
+        let scratch_relative = format!(".git/eevee-index-{}", p.run_id);
+        let scratch = p.cwd.join(&scratch_relative);
         if scratch.symlink_metadata().is_ok() {
             return Err("Isolated index already exists".into());
         }
         let _scratch_guard = OwnedPath(Some(scratch.clone()));
         let _scratch_lock_guard = OwnedPath(Some(scratch.with_extension("lock")));
         let mut env = f.environment.clone();
-        env.push((
-            "GIT_INDEX_FILE".into(),
-            scratch.to_str().ok_or("Non-Unicode isolated index")?.into(),
-        ));
+        env.push(("GIT_INDEX_FILE".into(), scratch_relative));
         git(
             p,
             &["read-tree".into(), r.head.clone()],

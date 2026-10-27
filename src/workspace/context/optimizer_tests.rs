@@ -686,6 +686,7 @@ fn selected_note_edits_revision_provenance_and_selection_invalidate_frozen_input
         inspect_sessions: false,
         inspect_models: false,
         selection: Default::default(),
+        effort_resolution: None,
         conversation: None,
         prior_plan: None,
         public_context: None,

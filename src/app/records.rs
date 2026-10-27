@@ -892,7 +892,9 @@ impl App {
                                 .selection
                                 .effort
                                 .as_ref()
-                                .is_none_or(|effort| model.efforts.contains(effort))
+                                .is_none_or(|effort| {
+                                    effort == "auto" || model.efforts.contains(effort)
+                                })
                         })
                 });
         self.planning.remembered_pairing().map(|_| {
@@ -1731,6 +1733,7 @@ mod tests {
             effort: None,
         };
         assert!(app.planning.select_model_id("explicit/new"));
+        assert!(app.planning.select_effort_value("default"));
         app.records_restore_pairing();
         app.records_restore_pairing();
         assert_eq!(app.planning.selection, newer);

@@ -647,7 +647,7 @@ test('the real bridge creates workspace proposals and preserves fatal failed-wri
       });
       const closed = once(child, 'close');
       child.stdin!.write(JSON.stringify({
-        protocol: 1, bridge_revision: 10, type: 'run', generation: 1, task_id: 1, request_id: 'submission',
+        protocol: 1, bridge_revision: 11, type: 'run', generation: 1, task_id: 1, request_id: 'submission',
         prompt: 'Deterministic source and write operations', cwd: root, state_dir: join(fixture, 'state'),
         operation: scenario === 'readonly' ? 'plan' : 'implement',
         write_scope: { ...(scenario === 'readonly' ? reviewedScope(root, []) : workspaceScope(root)), excluded_paths: ['excluded'], protected_paths: [join(root, 'host-state')] }, inspect_models: false,
@@ -808,11 +808,13 @@ test('catalogues reject duplicate identifiers, oversized fields and display cont
 });
 
 test('strict inspection commands cannot carry prompts, prior sessions, writes or unreviewed options', () => {
-  const command = { protocol: 1, bridge_revision: 10, type: 'run', generation: 1, task_id: 1, request_id: null, cwd: '/project', state_dir: '/state', prompt: '',
+  const command = { protocol: 1, bridge_revision: 11, type: 'run', generation: 1, task_id: 1, request_id: null, cwd: '/project', state_dir: '/state', prompt: '',
     operation: 'plan', write_scope: { mode: 'Selected', protected_paths: [], excluded_paths: [], root_identity: null, files: [] }, resume: null, inspect_models: true, selection: { model: null, effort: null } };
   assert.equal(RunSchema.safeParse(command).success, true);
+  assert.equal(RunSchema.safeParse({ ...command, task_id: 0 }).success, true);
+  assert.equal(RunSchema.safeParse({ ...command, task_id: -1 }).success, false);
   for (const changed of [{ request_id: 'claimed-inference' }, { prompt: 'must not send' }, { resume: '01234567-89ab-4cde-8123-456789abcdef' },
-    { bridge_revision: 9 }, { edit_paths: ['file.ts'] }, { operation: 'implement' }, { tools: ['Bash'] }, { selection: { model: null, effort: null, fallback: 'a' } }]) {
+    { bridge_revision: 10 }, { edit_paths: ['file.ts'] }, { operation: 'implement' }, { tools: ['Bash'] }, { selection: { model: null, effort: null, fallback: 'a' } }]) {
     assert.equal(RunSchema.safeParse({ ...command, ...changed }).success, false);
   }
   for (const field of ['mode', 'protected_paths', 'excluded_paths']) {
@@ -823,6 +825,7 @@ test('strict inspection commands cannot carry prompts, prior sessions, writes or
   const workspace = { ...command, inspect_models: false, operation: 'implement',
     write_scope: { ...command.write_scope, mode: 'Workspace', root_identity: '1:2' } };
   assert.equal(RunSchema.safeParse(workspace).success, true);
+  assert.equal(RunSchema.safeParse({ ...workspace, task_id: 0 }).success, false);
   assert.equal(RunSchema.safeParse({ ...workspace, write_scope: { ...workspace.write_scope, mode: 'Selected' } }).success, false);
   assert.equal(RunSchema.safeParse({ ...command, write_scope: { ...command.write_scope, mode: 'Workspace' } }).success, false);
   assert.equal(SelectionSchema.safeParse({ model: 'a\u001b', effort: null }).success, false);
@@ -1110,14 +1113,14 @@ test('unsafe recursive SDK discovery returns actionable actual safe filenames ra
 });
 
 test('noninspection SDK planning requires frozen observational root even without mutation targets', () => {
-  const command = { protocol: 1, bridge_revision: 10, type: 'run', generation: 1, task_id: 1,
+  const command = { protocol: 1, bridge_revision: 11, type: 'run', generation: 1, task_id: 1,
     request_id: 'owned-request', cwd: '/project', state_dir: '/state', prompt: 'Read project context',
     operation: 'plan', write_scope: { mode: 'Selected', protected_paths: ['/state'],
       excluded_paths: ['private'], root_identity: '1:2', files: [] },
     resume: null, inspect_models: false, selection: { model: null, effort: null } };
   assert.equal(RunSchema.safeParse(command).success, true);
   assert.equal(RunSchema.safeParse({ ...command, write_scope: { ...command.write_scope, root_identity: null } }).success, false);
-  assert.equal(RunSchema.safeParse({ ...command, bridge_revision: 9 }).success, false);
+  assert.equal(RunSchema.safeParse({ ...command, bridge_revision: 10 }).success, false);
 });
 
 test('file previews forward only actual correlated tool argument fragments and never grant write authority', () => {

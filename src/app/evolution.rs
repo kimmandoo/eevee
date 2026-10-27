@@ -22,6 +22,8 @@ pub struct Preview {
     pub selection: Selection,
     pub automatic: bool,
     pub restriction: Option<Operation>,
+    pub effort: Option<crate::providers::effort::Resolution>,
+    pub todo_step: Option<String>,
     input: String,
     task: i64,
     partner: i64,
@@ -599,9 +601,7 @@ const NEGATIVE: &[&str] = &[
     "never",
     "not",
     "avoid",
-    "without writing",
-    "without editing",
-    "without running",
+    "without",
     "하지 마",
     "하지마",
     "하지 않",
@@ -694,9 +694,13 @@ pub fn classify(text: &str) -> Option<Selection> {
         literal
             .split(". ")
             .flat_map(|part| part.split(" but "))
-            .flat_map(|part| part.split(" without "))
             .flat_map(|part| part.split("말고"))
             .flat_map(|part| part.split(['\n', ';', ',', '!', '?']))
+            .map(|clause| {
+                clause
+                    .split_once(" without ")
+                    .map_or(clause, |(request, _)| request)
+            })
             .filter(|clause| {
                 !any(clause, NEGATIVE)
                     && !any(
@@ -825,6 +829,19 @@ impl App {
     fn request_evolution(&self) -> Option<Selection> {
         let mut choice = classify(&self.input)
             .or_else(|| {
+                (self.lead.auto_form
+                    && self.planning.explicit_operation().is_none()
+                    && crate::providers::effort::ambiguous_followup(&self.input))
+                .then(|| {
+                    self.workflows
+                        .progress
+                        .as_ref()?
+                        .active_label()
+                        .and_then(classify)
+                })
+                .flatten()
+            })
+            .or_else(|| {
                 (self.planning.operation == Operation::Plan
                     && proceed_with_plan(&self.input)
                     && classify(&self.planning.submitted_request)
@@ -885,6 +902,14 @@ impl App {
             form: self.form(),
             operation: self.planning.operation,
             completed_plan: self.planning.has_completed_plan(),
+            effort: self.planning.effort_preview(
+                &self.input,
+                self.workflows
+                    .progress
+                    .as_ref()
+                    .and_then(|p| p.active_label()),
+            ),
+            todo_step: self.workflows.progress.as_ref().map(|p| p.summary()),
         });
         self.open_overlay(super::Overlay::EvolutionPreview);
     }
@@ -899,6 +924,15 @@ impl App {
                 && preview.automatic == self.lead.auto_form
                 && preview.restriction == self.planning.explicit_operation()
                 && preview.completed_plan == self.planning.has_completed_plan()
+                && preview.todo_step == self.workflows.progress.as_ref().map(|p| p.summary())
+                && preview.effort
+                    == self.planning.effort_preview(
+                        &self.input,
+                        self.workflows
+                            .progress
+                            .as_ref()
+                            .and_then(|p| p.active_label()),
+                    )
         })
     }
 
@@ -918,6 +952,17 @@ impl App {
                 fresh,
             });
             self.evolution.popup_shown = false;
+            if self.lead.auto_form
+                && self.planning.explicit_operation().is_none()
+                && crate::providers::effort::ambiguous_followup(&self.input)
+                && let Some(progress) = &self.workflows.progress
+                && let Some(step) = progress.active_label()
+            {
+                self.notice = format!(
+                    "Automatic form follows adopted todo revision {} / {step}",
+                    progress.revision
+                );
+            }
         }
         true
     }
@@ -940,6 +985,116 @@ mod tests {
         app.planning.reset(7);
         app.planning.preference_event(Ok(None));
         app
+    }
+    #[test]
+    fn adopted_progress_predicts_explicit_continuations_without_midrun_evolution() {
+        use crate::workspace::progress::{State, Status, Step};
+        for (width, height) in [(120, 36), (60, 18)] {
+            for (followup, labels) in [
+                (
+                    "continue",
+                    ["Investigate error", "Fix code", "Verify tests"],
+                ),
+                ("계속", ["오류 조사", "코드 수정", "테스트 실행"]),
+            ] {
+                let mut app = app();
+                app.width = width;
+                app.height = height;
+                app.open_editor(store::EditorField::Request);
+                app.input = followup.into();
+                let mut progress = State::default();
+                for active in 0..3 {
+                    let steps = labels
+                        .iter()
+                        .enumerate()
+                        .map(|(index, label)| Step {
+                            label: (*label).into(),
+                            phase: Some(["investigate", "fix", "verify"][index].into()),
+                            status: if index < active {
+                                Status::Done
+                            } else if index == active {
+                                Status::Active
+                            } else {
+                                Status::Pending
+                            },
+                        })
+                        .collect();
+                    progress.propose("fixture", steps).unwrap();
+                    app.workflows.progress = Some(progress.clone());
+                    let before = (
+                        app.form(),
+                        app.planning.operation,
+                        app.input.clone(),
+                        app.cursor,
+                    );
+                    assert!(
+                        app.workflows
+                            .progress
+                            .as_ref()
+                            .unwrap()
+                            .active_label()
+                            .is_none()
+                    );
+                    progress.adopt().unwrap();
+                    app.workflows.progress = Some(progress.clone());
+                    assert_eq!(
+                        (
+                            app.form(),
+                            app.planning.operation,
+                            app.input.clone(),
+                            app.cursor
+                        ),
+                        before
+                    );
+                    app.open_evolution_preview();
+                    let predicted = app.evolution_preview().unwrap();
+                    assert_eq!(predicted.selection.form, [5, 3, 2][active]);
+                    assert!(
+                        predicted
+                            .todo_step
+                            .as_deref()
+                            .unwrap()
+                            .contains(labels[active])
+                    );
+                    let selection = predicted.selection;
+                    app.close_overlay();
+                    assert!(app.evolve_request());
+                    assert_eq!(
+                        (app.form(), app.planning.operation),
+                        (selection.form, selection.operation)
+                    );
+                    assert!(app.pending_request.is_none() && app.planning.pending.is_none());
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn adopted_progress_never_overrides_manual_or_explicit_user_policy() {
+        use crate::workspace::progress::{State, Status, Step};
+        let mut app = app();
+        let mut progress = State::default();
+        progress
+            .propose(
+                "fixture",
+                vec![Step {
+                    label: "Fix code".into(),
+                    phase: None,
+                    status: Status::Active,
+                }],
+            )
+            .unwrap();
+        progress.adopt().unwrap();
+        app.workflows.progress = Some(progress);
+        app.input = "Review the code".into();
+        assert_eq!(app.request_evolution().unwrap().form, 7);
+        app.input = "continue".into();
+        app.planning.set_operation(Operation::Plan);
+        assert_eq!(app.request_evolution().unwrap().operation, Operation::Plan);
+        app.lead.auto_form = false;
+        assert_eq!(app.request_evolution().unwrap().form, app.form());
+        app.input = "Read src/main.rs; do not change files".into();
+        assert_eq!(app.request_evolution().unwrap().operation, Operation::Plan);
     }
 
     #[test]
@@ -1349,6 +1504,28 @@ mod tests {
                     "{text}"
                 );
             }
+        }
+    }
+
+    #[test]
+    fn negated_without_tail_cannot_authorize_changes() {
+        for text in [
+            "Review the code changes without implementing a fix.",
+            "Without implementing a fix, review the code changes.",
+            "코드를 수정하지 말고 검토해줘.",
+        ] {
+            let selected = classify(text).unwrap();
+            assert_eq!(selected.operation, Operation::Plan, "{text}");
+        }
+        for text in [
+            "Review the code changes without implementing a fix; implement the code fix afterwards.",
+            "Refactor this code without changing behavior.",
+        ] {
+            assert_eq!(
+                classify(text).unwrap().operation,
+                Operation::Implement,
+                "{text}"
+            );
         }
     }
 

@@ -43,8 +43,8 @@ def selected_packet(wire):
 
 
 class OptimizerSession(SurfaceSession):
-    def send(self, keys):
-        super().send(keys, settle=True)
+    def send(self, keys, *, settle=True):
+        super().send(keys, settle=settle)
 
 
 class Journey(RecordsJourney):
@@ -595,7 +595,9 @@ class Journey(RecordsJourney):
                           'end_line': capture['end_line']},
         }]))
         self.peer.plans.put(response_plan(self.peer, text=answer, number=1))
-        self.session.send('\r')
+        # Dispatch animates while the real read and continuation are in flight.
+        # The HTTP/owned-work predicates below, not terminal silence, settle it.
+        self.session.send('\r', settle=False)
         self.until(lambda: len(self.peer.snapshot('POST')) == before + 2,
                    'actual read tool executed and its real continuation reached loopback transport')
         self.session.command('response')

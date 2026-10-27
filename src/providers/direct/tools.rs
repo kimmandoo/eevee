@@ -38,6 +38,7 @@ pub(super) fn advertise_selected(
 ) {
     let mut declarations = definitions(writing);
     declarations.extend(crate::providers::artifacts::definitions());
+    declarations.push(crate::workspace::progress::definition());
     if let Some(selection) = selection {
         declarations.extend(selection.declarations());
     }

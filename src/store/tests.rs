@@ -1450,6 +1450,58 @@ fn state(directory: &Directory, project: &str, policy: Policy) -> State {
     assert!(matches!(reopened, Event::Loaded(_)), "{reopened:?}");
     state
 }
+#[test]
+fn adopted_progress_survives_restart_and_task_purge_without_criteria_completion() {
+    use crate::workspace::progress::{State as Progress, Status, Step};
+    let directory = Directory::new();
+    let mut store = state(&directory, "project", Policy::default());
+    let mut task = snapshot("project", 1);
+    let mut progress = Progress::default();
+    progress
+        .propose(
+            "codex",
+            vec![Step {
+                label: "오류 조사".into(),
+                phase: Some("investigate".into()),
+                status: Status::Active,
+            }],
+        )
+        .unwrap();
+    progress.adopt().unwrap();
+    progress.eager = true;
+    task.workflows.progress = Some(progress.clone());
+    let task = store.save(task).unwrap();
+    drop(store);
+    let mut store = state(&directory, "project", Policy::default());
+    let loaded = load_task(store.connection.as_ref().unwrap(), "project", task.id)
+        .unwrap()
+        .unwrap();
+    assert_eq!(loaded.workflows.progress, Some(progress.clone()));
+    assert!(!loaded.complete);
+    progress.operate("done", "오류 조사", Vec::new()).unwrap();
+    progress.adopt().unwrap();
+    let mut loaded = loaded;
+    let criteria = loaded.criteria.clone();
+    loaded.workflows.progress = Some(progress);
+    loaded.revision += 1;
+    let loaded = store.save(loaded).unwrap();
+    assert_eq!(loaded.criteria, criteria);
+    assert!(!loaded.complete);
+    store
+        .manage_at(
+            Management::Delete {
+                ids: vec![task.id],
+                expired_before: None,
+            },
+            100,
+        )
+        .unwrap();
+    assert!(
+        load_task(store.connection.as_ref().unwrap(), "project", task.id)
+            .unwrap()
+            .is_none()
+    );
+}
 
 #[test]
 fn management_queue_retains_ownership_on_backpressure_and_disconnect() {

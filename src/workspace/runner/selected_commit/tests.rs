@@ -88,6 +88,33 @@ impl Drop for Fixture {
 }
 
 #[test]
+fn canonical_unicode_repository_paths_reach_config_and_isolated_index() {
+    let mut f = Fixture::new();
+    let named =
+        f.0.with_file_name(format!("eevee-selected-commit 空 格 한글-{}", unique_id()));
+    fs::rename(&f.0, &named).unwrap();
+    f.0 = fs::canonicalize(named).unwrap();
+    #[cfg(windows)]
+    assert!(f.0.to_str().unwrap().starts_with(r"\\?\"));
+    let p = f.prepare();
+    let CommandSpec::SelectedCommit {
+        review: Some(review),
+        ..
+    } = &p.spec
+    else {
+        panic!("selected commit preparation omitted its review");
+    };
+    assert_eq!(review.author, "Selected Commit Fixture");
+    let selected = fs::read(f.0.join("selected space.txt")).unwrap();
+    let other = fs::read(f.0.join("unselected.txt")).unwrap();
+    let outcome = execute(&p, &|| false);
+    assert!(outcome.error.is_none(), "{outcome:?}");
+    assert!(outcome.ref_published && outcome.index_published && outcome.owned_tree_exited);
+    assert_eq!(f.git(&["show", "HEAD:selected space.txt"]), selected);
+    assert_eq!(fs::read(f.0.join("unselected.txt")).unwrap(), other);
+}
+
+#[test]
 fn only_selected_whole_file_commits_and_other_dirty_bytes_remain_exact() {
     let f = Fixture::new();
     let p = f.prepare();

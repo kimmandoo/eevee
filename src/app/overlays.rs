@@ -136,6 +136,7 @@ impl App {
                 | Overlay::Repository
                 | Overlay::Sources
                 | Overlay::EvolutionPreview
+                | Overlay::Journey
         ) {
             self.surface_scroll[ScrollSurface::Preview.index()] = 0;
         }
@@ -252,6 +253,7 @@ impl App {
             Overlay::Workflows => {
                 (back || key.code == KeyCode::Enter && was_specialist_editor)
                     && self.workflow.editor.is_none()
+                    && self.workflow.todo_editor.is_none()
                     && !self.workflow.authoring.active
                     && self.workflow.chooser.is_none()
                     && !self.workflow.preview
@@ -448,6 +450,7 @@ impl App {
             Some(
                 Overlay::Preview
                 | Overlay::EvolutionPreview
+                | Overlay::Journey
                 | Overlay::Tasks
                 | Overlay::Criteria
                 | Overlay::Repository

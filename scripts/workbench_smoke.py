@@ -473,6 +473,8 @@ def main():
                     wait_for(native, "CUSTOM MODEL ID")
                     native.paste(custom_model)
                     native.send("\r")
+                    if "Reasoning level" in native.display():
+                        native.send("\r")
                     wait_for(native, first_request)
                     native.command("model")
                     wait_for(native, "Current: " + custom_model)

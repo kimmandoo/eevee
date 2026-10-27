@@ -125,7 +125,14 @@ impl App {
                 }
                 true
             }
-            Event::Paste(_) if self.overlay == Some(Overlay::EvolutionPreview) => false,
+            Event::Paste(_)
+                if matches!(
+                    self.overlay,
+                    Some(Overlay::EvolutionPreview | Overlay::Journey)
+                ) =>
+            {
+                false
+            }
             Event::Paste(text) if self.nickname_editor.is_some() => self.nickname_paste(&text),
             Event::Paste(text)
                 if self.overlay == Some(Overlay::Agents) && self.agents.connection_editing() =>
@@ -875,6 +882,7 @@ impl App {
             || self.planning.custom_model.is_some()
             || self.planning.editing
             || self.workflow.editor.is_some()
+            || self.workflow.todo_editor.is_some()
             || self.workflow.authoring.editing()
             || self.memory.editing()
             || self.moves.editing()
@@ -1042,7 +1050,7 @@ impl App {
             Some(Overlay::Retained) => return self.retained_key(key),
             Some(Overlay::ParkedDrafts) => return self.parked_draft_key(key),
             Some(Overlay::ToolPlans) => return self.tool_plan_key(key),
-            Some(Overlay::EvolutionPreview) => {
+            Some(Overlay::EvolutionPreview | Overlay::Journey) => {
                 if key.code == KeyCode::Esc {
                     self.close_overlay();
                     return true;

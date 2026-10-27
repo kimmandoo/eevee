@@ -1,5 +1,96 @@
 # Troubleshooting
 
+### [2026-10-28] Complete Codex plan snapshots lost their public suffix
+
+- **Context / Symptom:** All four controlled Codex progress journeys reached the malformed-plan transcript check but could never inspect its final marker. Evidence is `target/unassigned-progress-d2-codex-native/codex-120x36-en/en-malformed-transcript-screens.json`.
+- **Root Cause:** `turn/plan/updated` delivers a whole structured snapshot, but its reserved plan item used the ordinary incomplete-message redactor path. That path correctly holds a possible credential suffix for future bytes; no final plan-item event flushed the already-complete snapshot.
+- **Solution:** Routed only the reserved complete plan snapshot through the existing final text redactor. Kept its evolving item incomplete, ordinary message-delta holds unchanged and provider progress unverified. Added a consumer regression covering the public closing suffix, secret removal, Korean final-step text and continued holdback for an ordinary message; a new frozen candidate and full feature matrices are required.
+- **Prevention / Reference:** Distinguish a complete notification's text boundary from task/item completion. Do not relax redaction or fabricate completion merely to expose a tail.
+
+### [2026-10-28] Taskless SDK discovery was rejected before model metadata
+
+- **Context / Symptom:** The controlled fresh-connection SDK journey loaded the module but never reached `accountInfo` or created the metadata query; `unassigned-journey-claude-fixed-debug-c/wire.json` retained the failure.
+- **Root Cause:** Fresh model inspection has no persisted task and correctly supplies task_id0, but the strict shared run schema required a positive ID even for empty, nonwriting metadata inspection.
+- **Solution:** Admitted nonnegative task IDs at the shape boundary, then required a positive owner and frozen root for every noninspection request. Existing inspection guards still forbid prompts, previous sessions, write scopes and unreviewed options. Consumer boundary assertions cover taskless inspection, negative IDs and zero-owner inference refusal.
+- **Prevention / Reference:** Metadata discovery must not manufacture a task or acquire inference/write authority simply to satisfy a shared schema.
+
+### [2026-10-28] Strict progress IPC required a complete bridge revision
+
+- **Context / Symptom:** Source integration found that adding a structured `progress` event while retaining bridge10 would admit older frontends which reject unknown events during an active turn.
+- **Root Cause:** The sidecar event protocol is strict; additive JSON event shapes are not backward-compatible merely because existing fields remain unchanged.
+- **Solution:** Advanced host admission, outgoing run schema and sidecar inspection together to bridge11, with older revision refusal covered before dispatch. Documented complete sidecar source/policy/dependency replacement; no compatibility alias or mid-turn fallback was added.
+- **Prevention / Reference:** Check strict event consumers whenever adding a producer event, not only producer-side parsing.
+
+### [2026-10-28] A negated review tail was treated as implementation intent
+
+- **Context / Symptom:** The actual controlled progress preview for `Review the code changes without implementing a fix.` rendered Glaceon with Implement instead of a nonwriting review; evidence is `target/unassigned-progress-f/codex-120x36-en/en-explicit-review-guard-preview.txt`.
+- **Root Cause:** Intent classification split `without` into an independent clause and interpreted the negated implementation verb as a positive request.
+- **Solution:** Kept the positive clause before `without` and excluded its negated tail from action matching. Later punctuation-separated positive requests still participate. English/Korean regressions cover nonwriting review and positive refactoring/independent implementation; the actual progress journey retains the original negated review sentence.
+- **Prevention / Reference:** Keep operation authority bound to affirmative user intent, never provider steps or isolated verbs inside negation.
+
+### [2026-10-27] Unadvertised configured models appeared to have known capabilities
+
+- **Context / Symptom:** The actual candidate-B unknown-model journey rendered `effort fixed by provider; not applied` as model-capability disclosure even though the controlled metadata response omitted that model.
+- **Root Cause:** Native discovery appended configured/custom IDs to `catalogue.models` as synthetic entries. The common capability view could not distinguish those local configuration facts from advertised model metadata.
+- **Solution:** Stopped injecting synthetic advertised rows, removed the now-obsolete discovery argument and migrated callers. Kept `catalogue.current`, exact configured selection and the Custom-model/effort flow. The native metadata regression covers all five dialects and verifies that omitted configured/custom IDs remain selectable without dispatch while capability disclosure stays unknown.
+- **Prevention / Reference:** Preserve source provenance instead of branching on human-readable sentinel descriptions or treating configuration as provider acknowledgment.
+
+### [2026-10-27] Command popup discarded todo command arguments
+
+- **Context / Symptom:** The controlled progress journey reached adopted forms and revision/manual-mode checks, but `/todo-eager on` opened the bare toggle action without enabling the requested prelude.
+- **Root Cause:** The existing command popup's argument allowlist omitted `todo`, `todo-edit` and `todo-eager`, so it recognized the command label while discarding its argument.
+- **Solution:** Added these commands to the same bounded argument path used by existing commands. A real popup consumer regression covers enabling eager mode without preparing or sending a provider request; no parser, grant or dispatch guard was relaxed.
+- **Prevention / Reference:** Exercise slash commands through the actual popup rather than only calling the reducer's argument handler directly.
+
+### [2026-10-27] Native todo results could not continue the shared tool loop
+
+- **Context / Symptom:** The corrected rich-model canonical journey emitted a todo proposal but no source read or second HTTP round. Actual TUI diagnostics reported `Tool result is not an actual structured local outcome`; later queued fixture responses then produced misleading transport failures.
+- **Root Cause:** Todo success and refusal results omitted the required string `path` field from the existing shared local-outcome envelope.
+- **Solution:** Added `path: ""` for this metadata-only tool to both success/refusal envelopes, preserving the existing status/message contract. Kept result parsing, approval, writer and nonmutation rules unchanged; a consumer regression feeds both outcomes through the real continuation validator. A new frozen candidate and complete native/feature qualification are required after this source change.
+- **Prevention / Reference:** Qualify new tools through the actual continuation consumer and a real multi-tool request, not just event normalization or a single returned JSON value. Failed candidate-A reports remain retained.
+
+### [2026-10-27] Older smoke callers skipped the newly common effort step
+
+- **Context / Symptom:** The first frozen-candidate native profile passed catalog/artifact/source/conversation journeys but receipts/context refused an unknown popup and controlled Codex retained the old model. Captures showed the legitimate Reasoning level picker, not failed transport or missing file authority.
+- **Root Cause:** Separate legacy model-selection helpers assumed unsupported/custom models finished immediately; the canonical journey now keeps the effort step visible even when only Default/auto is available.
+- **Solution:** Updated the records reconnect helper and controlled model-replacement journey to explicitly accept the displayed effort step before workspace/session review. No model, policy, consent, timeout or expected filesystem effect was substituted. The same frozen candidate then passed all seven full-profile drivers/24 journeys in `target/unassigned-native-b`, including the repaired macOS context path.
+- **Prevention / Reference:** Migrate every consumer of a changed UI transaction. Do not silently dismiss an unfamiliar sheet or remove exact next-request model assertions to make a smoke pass.
+
+### [2026-10-27] Canonical request summary prevented compact dispatch
+
+- **Context / Symptom:** The first integrated feature run compiled1,810 Rust tests but failed28; compact request consent never became reviewed, later permission fixtures still showed the generic local preview, and response landmarks were unavailable.
+- **Root Cause:** The common summary consumed eight rows before the frozen Request was injected, exceeding the actual compact review body's eight-row capacity. Dispatch was correctly refused, so later provider events did not belong to active work.
+- **Solution:** Fitted the canonical essential summary and frozen Request into the real eight-row body, retained full capability disclosures in `/journey` and exact details, and restored blocker-first presentation. Kept consent/exposure/scrolling guards unchanged. Unknown/custom model consumers now explicitly complete the common effort step; unchanged-model selection remains a no-op that cannot reuse armed consent.
+- **Prevention / Reference:** Count dynamically injected scope as well as base summary rows. A capability disclosure must not crowd out effect-specific consent, the actual request or the actionable blocker. Final integrated/runtime outcomes are recorded in the checkpoint.
+
+### [2026-10-27] Todo inspection queued unrelated specialist execution work
+
+- **Context / Symptom:** Adoption returned no active label and the todo JSON editor did not open even after inspecting the proposed list. The next integrated run exposed Request/caret loss after cancelling that editor.
+- **Root Cause:** `/todo` opened the complete specialist desk before establishing todo mode, queuing execution-history reads that made the existing busy guard refuse adoption/editing. It also retained/cleared the underlying Request even though the card owns a separate JSON editor.
+- **Solution:** Established progress mode first and kept its card inert without initializing specialist evidence/history or clearing the underlying Request. Explicit specialist commands leave progress mode normally and still cannot bypass its editor. Retained current-revision/visible-inspection adoption and duplicate-label guards; regressions assert no unrelated execution work and exact Request/caret preservation after editor/card cancellation.
+- **Prevention / Reference:** Read-only navigation must not manufacture work ownership or permission. Do not repair this class of bug by bypassing global busy guards.
+
+### [2026-10-27] Git plumbing rejected Windows extended-length canonical paths
+
+- **Context / Symptom:** Native run40484420922 passed Check/Linux/macOS-x86_64 but Windows failed16 selected-commit preparation tests because Git could not read the canonical `\\?\C:\…\project\.git\config` path.
+- **Root Cause:** Native filesystem canonicalization and external Git path parsing have different accepted path spellings. The selected-commit runner passed the Windows extended-length spelling into Git arguments.
+- **Solution:** Kept frozen canonical filesystem identities for containment/revalidation, but passed `.git`, `.`, `.git/config` and the isolated index relative to the already-owned frozen process cwd. No PATH lookup, inherited Git configuration or authority fallback was added. Added a real canonical Unicode-repository selected-commit regression.
+- **Prevention / Reference:** Filesystem-valid paths are not automatically valid external-tool arguments. Final native Windows qualification, not a Unix pass or cross-compilation, owns Windows execution proof.
+
+### [2026-10-27] Context smoke waited for idle output while a request was connecting
+
+- **Context / Symptom:** The same run's macOS-arm64 `platform-tools-context` journey failed at Enter with `native console output did not settle within the bounded capture window`; retained captures showed an active Connecting spinner.
+- **Root Cause:** The driver applied the idle-output capture contract to asynchronous dispatch, before the existing HTTP/answer/work-settlement predicates.
+- **Solution:** Marked that explicit Send as asynchronous with `settle=False` while retaining exact HTTP continuation, rendered answer and released-work assertions. No retry, timeout increase, coverage skip or product consent change was introduced.
+- **Prevention / Reference:** Preserve strict idle capture for actual idle surfaces; synchronize active work with its observable protocol/state completion rather than an absent animation frame.
+
+### [2026-10-27] Local release tags retained pre-rewrite history
+
+- **Context / Symptom:** The checkpoint described a pending public rewrite, but the remote main and release tags were already rewritten while28 local tags still referenced old commits. An all-refs scan therefore included removed reference traces even though the current source tree was clean. The checkpoint's original backup path was absent on this workstation.
+- **Root Cause:** The prior rewrite/publication state and this local clone's tag refs had diverged; handoff prose alone did not establish current ref identity.
+- **Solution:** Created and verified a fresh all-refs bundle before mutation, restored it into a disposable mirror, then force-fetched the already-rewritten public tags under explicit user authorization. All32 tag object identities matched the remote. Reconciled32 GitHub release targets to their rewritten peeled commits without replacing assets, scanned complete history/tag contents, and validated documented commit ancestry. Asset integrity evidence remains separate from ref identity.
+- **Prevention / Reference:** Preserve external backups before tag synchronization. Rewriting refs does not erase unreachable local objects, GitHub caches, direct links or forks; optional server cache purge is not an asserted outcome.
+
 ### [2026-10-27] Compact selected-commit review rendered no scope rows
 
 - **Context / Symptom:** The actual60×18 Git journey displayed a blank review with `Reviewed 0/87 rows` and correctly refused approval. Its120×36 counterpart completed the selected-only commit and drift/writer/restart cases.

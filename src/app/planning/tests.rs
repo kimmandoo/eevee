@@ -460,6 +460,7 @@ fn direct_exact_model_and_effort_reuse_atomic_local_selection() {
     state.auto_models = true;
     state.auto_picker = true;
     assert!(state.select_model_id("vendor/Exact.Model:2026"));
+    assert!(state.select_effort_value("default"));
     assert_eq!(
         state.selection.model.as_deref(),
         Some("vendor/Exact.Model:2026")
@@ -467,6 +468,7 @@ fn direct_exact_model_and_effort_reuse_atomic_local_selection() {
     assert!(state.picker.is_none() && state.pending.is_none());
     assert!(!state.auto_models && !state.auto_picker && state.catalogue_dismissed);
     assert!(state.select_model_id("default"));
+    assert!(state.select_effort_value("default"));
     assert_eq!(state.selection.model.as_deref(), Some("default"));
     assert!(!state.select_effort_value("high"));
     assert!(state.pending.is_none() && !state.active);
@@ -495,17 +497,21 @@ fn direct_invalid_values_preserve_selection_and_session() {
 }
 
 #[test]
-fn direct_unknown_model_keeps_existing_session_review_without_a_phantom_picker() {
+fn direct_unknown_model_keeps_the_effort_step_and_existing_session_review() {
     let mut state = State::new();
     state.reset(7);
     state.thread_id = Some("owned-session".into());
     assert!(state.select_model_id("vendor/Exact.Custom"));
-    assert!(state.picker.is_none() && state.selection_change.is_some());
+    assert!(state.picker == Some(Picker::Effort));
+    assert!(state.select_effort_value("default"));
+    assert!(state.picker == Some(Picker::Effort) && state.selection_change.is_some());
     assert_eq!(state.selection, ModelSelection::default());
     press(&mut state, KeyCode::Esc, true);
-    assert!(state.picker.is_none() && state.selection_change.is_none());
+    assert!(state.picker == Some(Picker::Effort) && state.selection_change.is_none());
+    press(&mut state, KeyCode::Esc, true);
     assert_eq!(state.thread_id.as_deref(), Some("owned-session"));
     assert!(state.select_model_id("vendor/Exact.Custom"));
+    assert!(state.select_effort_value("default"));
     state.reviewed = true;
     press(&mut state, KeyCode::Tab, true);
     press(&mut state, KeyCode::Enter, true);
@@ -615,7 +621,7 @@ fn model_reasoning_flow_is_atomic_and_default_enter_accepts() {
 }
 
 #[test]
-fn accepting_current_model_retains_effort_and_session_without_another_picker() {
+fn accepting_current_model_retains_effort_and_session_without_repeating_a_completed_choice() {
     for model in [None, Some("advertised-model")] {
         for effort in [None, Some("high")] {
             let mut state = State::new();
@@ -689,6 +695,8 @@ fn exact_custom_id_uses_advertised_reasoning_but_unknown_models_finish_locally()
     command(&mut state, "model", true);
     custom_entry(&mut state);
     state.paste("org/Exact.Custom");
+    press(&mut state, KeyCode::Enter, true);
+    assert!(state.picker == Some(Picker::Effort));
     press(&mut state, KeyCode::Enter, true);
     assert!(state.picker.is_none());
     assert_eq!(state.selection.model.as_deref(), Some("org/Exact.Custom"));
@@ -1288,7 +1296,9 @@ fn unknown_effort_can_keep_default_and_metadata_picker_does_not_swallow_cancel()
     state.selection.model = Some("custom-model".into());
     command(&mut state, "effort", true);
     assert_eq!(state.picker_current(), Some(0));
-    assert!(state.picker_choice(1).unwrap().reason.is_some());
+    assert_eq!(state.picker_choice(1).unwrap().label, "auto");
+    assert!(state.picker_choice(1).unwrap().reason.is_none());
+    assert!(state.picker_choice(2).unwrap().reason.is_some());
     press(&mut state, KeyCode::Enter, true);
     assert!(state.picker.is_none() && state.selection.effort.is_none());
     state.active = true;
@@ -1363,6 +1373,8 @@ fn search_matches_name_and_exact_id_without_losing_filtered_row_identity() {
             .contains("vendor/EXACT-2026")
     );
     press(&mut state, KeyCode::Enter, true);
+    assert!(state.picker == Some(Picker::Effort));
+    press(&mut state, KeyCode::Enter, true);
     assert_eq!(state.selection.model.as_deref(), Some("vendor/EXACT-2026"));
     assert!(state.selection.effort.is_none() && state.pending.is_none());
     command(&mut state, "model", true);
@@ -1425,6 +1437,9 @@ fn custom_id_is_exact_local_and_invalidates_previous_review_and_effort() {
     assert!(state.custom_model.is_some());
     assert!(state.pending.is_none(), "paste never applies or dispatches");
     press(&mut state, KeyCode::Enter, true);
+    assert!(state.picker == Some(Picker::Effort));
+    assert!(state.selection.model.is_none());
+    press(&mut state, KeyCode::Enter, true);
     assert_eq!(
         state.selection.model.as_deref(),
         Some("vendor/Exact.Model:2026-10")
@@ -1447,15 +1462,21 @@ fn custom_id_uses_existing_owned_session_confirmation() {
     custom_entry(&mut state);
     state.paste("org/exact");
     press(&mut state, KeyCode::Enter, true);
+    assert!(state.picker == Some(Picker::Effort));
+    press(&mut state, KeyCode::Enter, true);
     assert!(state.selection.model.is_none());
     assert_eq!(
         state.selection_change.as_ref().unwrap().model.as_deref(),
         Some("org/exact")
     );
     press(&mut state, KeyCode::Esc, true);
+    press(&mut state, KeyCode::Left, true);
+    assert!(state.picker == Some(Picker::Model));
     assert_eq!(state.thread_id.as_deref(), Some("owned"));
     custom_entry(&mut state);
     state.paste("org/exact");
+    press(&mut state, KeyCode::Enter, true);
+    assert!(state.picker == Some(Picker::Effort));
     press(&mut state, KeyCode::Enter, true);
     state.reviewed = true;
     press(&mut state, KeyCode::Tab, true);
@@ -1834,7 +1855,10 @@ fn active_model_change_is_refused_and_unsupported_effort_cannot_be_selected() {
     state.active = false;
     state.generation = None;
     command(&mut state, "effort", true);
-    assert!(state.picker_choice(1).unwrap().reason.is_some());
+    assert_eq!(state.picker_choice(1).unwrap().label, "auto");
+    assert!(state.picker_choice(1).unwrap().reason.is_none());
+    assert!(state.picker_choice(2).unwrap().reason.is_some());
+    press(&mut state, KeyCode::Down, true);
     press(&mut state, KeyCode::Down, true);
     press(&mut state, KeyCode::Enter, true);
     assert!(state.selection.effort.is_none() && state.pending.is_none());

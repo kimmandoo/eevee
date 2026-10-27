@@ -254,9 +254,15 @@ impl State {
             self.catalogue_pending = None;
             self.catalogue_errors.remove(&self.agent);
             ModelSelection::default()
+        } else if self.selection.effort.as_deref() == Some("auto") {
+            ModelSelection {
+                model: self.selection.model.clone(),
+                effort: None,
+            }
         } else {
             self.selection.clone()
         };
+        self.freeze_effort(task);
         self.freeze_chat_intent(task, fresh_chat && !inspect_models && !inspect_sessions);
         self.native_candidate = None;
         self.connection_invalidated = false;
@@ -352,6 +358,7 @@ impl State {
             inspect_sessions,
             inspect_models,
             selection: self.request_selection.clone(),
+            effort_resolution: self.request_effort.clone(),
             conversation: if self.agent.is_direct()
                 && !inspect_models
                 && !self.conversation_flow.fresh_prepared
@@ -978,7 +985,9 @@ impl State {
                                 self.picker_model(self.picker_selected)
                                     .map(|model| model.id.clone())
                             };
-                            if selection.model != self.selection.model {
+                            if selection.model != self.selection.model
+                                && selection.effort.as_deref() != Some("auto")
+                            {
                                 selection.effort = None;
                             }
                             self.choose_model(selection);
@@ -987,6 +996,8 @@ impl State {
                         Some(Picker::Effort) => {
                             selection.effort = if self.picker_selected == 0 {
                                 None
+                            } else if row.label == "auto" {
+                                Some("auto".into())
                             } else {
                                 self.effort_model()
                                     .and_then(|model| model.efforts.get(self.picker_selected - 1))

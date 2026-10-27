@@ -1281,6 +1281,15 @@ impl App {
 
 impl App {
     pub fn provider_event(&mut self, partner: i64, event: crate::providers::Event) -> bool {
+        if let crate::providers::Event::Progress {
+            generation,
+            task_id,
+            source,
+            steps,
+        } = event
+        {
+            return self.provider_progress(partner, generation, task_id, source, steps);
+        }
         if let crate::providers::Event::RunCommand {
             generation,
             task_id,

@@ -53,22 +53,30 @@ pub struct State {
     dirty: bool,
 }
 
+#[derive(Default)]
+pub(super) struct Metadata<'a> {
+    pub selection: Option<&'a providers::ModelSelection>,
+    pub effort: Option<&'a providers::effort::Resolution>,
+    pub progress: Option<&'a str>,
+}
+
 impl State {
     /// Freezes only local prepared bytes. No durable receipt exists until the
     /// exact generation/request receives the transport submission event.
-    pub fn stage(
+    pub(super) fn stage(
         &mut self,
         preview: &providers::Preview,
         claim: &store::WorkClaim,
         agent: providers::Agent,
         operation: providers::Operation,
+        metadata: Metadata<'_>,
     ) -> Result<(), String> {
         self.staged = None;
         self.terminal = None;
         if preview.task_id != claim.task_id {
             return Err("Receipt preview belongs to a different task".into());
         }
-        let outgoing = Outgoing::frozen(
+        let mut outgoing = Outgoing::frozen(
             &preview.payload,
             claim,
             preview.generation,
@@ -76,6 +84,17 @@ impl State {
             operation,
             0,
         )?;
+        outgoing.record.selection = metadata.selection.cloned();
+        outgoing.record.effort = metadata.effort.cloned();
+        if metadata.effort.is_some()
+            && let Some(selection) = &mut outgoing.record.selection
+        {
+            selection.effort = Some("auto".into());
+        }
+        outgoing.record.progress = metadata
+            .progress
+            .map(|progress| crate::workspace::privacy::redact(progress).into_owned());
+        outgoing.record.validate()?;
         self.staged = Some((preview.generation, outgoing));
         Ok(())
     }
@@ -523,6 +542,37 @@ impl State {
                     ("generation", &r.generation.to_string()),
                 ],
             ));
+            lines.push(format!("Route: {}", r.agent.label()));
+            lines.push(format!(
+                "Model: {} / requested; observed unknown in outgoing receipt",
+                r.selection
+                    .as_ref()
+                    .and_then(|selection| selection.model.as_deref())
+                    .unwrap_or("provider default")
+            ));
+            lines.push(r.effort.as_ref().map_or_else(
+                || {
+                    format!(
+                        "Effort: {} / requested; not acknowledged",
+                        r.selection
+                            .as_ref()
+                            .and_then(|selection| selection.effort.as_deref())
+                            .unwrap_or("provider default")
+                    )
+                },
+                |effort| effort.line(),
+            ));
+            lines.push(format!(
+                "Todo: {}",
+                r.progress
+                    .as_deref()
+                    .unwrap_or("no step list from this route")
+            ));
+            lines.push(
+                "Usage: unknown in outgoing receipt; inspect provider-reported usage separately"
+                    .into(),
+            );
+            lines.push("Outcome: unknown at dispatch; provider claims are not verification".into());
             lines.push(
                 (if view.source_available {
                     Message::ReceiptsAvailable

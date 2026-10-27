@@ -76,7 +76,7 @@ export const WriteScopeSchema = z.object({
 }).strict();
 export type WriteScope = z.infer<typeof WriteScopeSchema>;
 export const RunSchema = z.object({
-  protocol: z.literal(1), bridge_revision: z.literal(10), type: z.literal('run'), generation: z.number().int().positive(), task_id: z.number().int().positive(),
+  protocol: z.literal(1), bridge_revision: z.literal(11), type: z.literal('run'), generation: z.number().int().positive(), task_id: z.number().int().nonnegative(),
   request_id: boundedText(256).nullish(),
   prompt: z.string().max(FRAME_LIMIT / 2), cwd: z.string().min(1).max(4096), state_dir: z.string().min(1).max(4096),
   operation: z.enum(['plan', 'implement']), write_scope: WriteScopeSchema,
@@ -85,7 +85,7 @@ export const RunSchema = z.object({
   const scope = command.write_scope;
   if ((command.operation === 'plan' && (scope.mode !== 'Selected' || scope.files.length !== 0)) ||
     (command.operation === 'implement' && (scope.root_identity === null || (scope.mode === 'Selected' ? scope.files.length === 0 : scope.files.length !== 0))) ||
-    (!command.inspect_models && scope.root_identity === null) ||
+    (!command.inspect_models && (command.task_id === 0 || scope.root_identity === null)) ||
     (command.inspect_models && (command.request_id != null || command.prompt !== '' || command.resume != null || scope.files.length !== 0 || command.operation !== 'plan'))) {
     context.addIssue({ code: 'custom', message: 'Invalid inspection/operation write scope' });
   }

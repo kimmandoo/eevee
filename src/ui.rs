@@ -664,6 +664,7 @@ pub fn render(
             Overlay::Forms => forms(frame, area, app, config, &paint, artwork),
             Overlay::Help => help(frame, area, app, config, &paint),
             Overlay::EvolutionPreview => evolution_preview(frame, area, app, config, &paint),
+            Overlay::Journey => journey(frame, area, app, config, &paint),
             Overlay::Preview => preview(frame, area, app, config, &paint),
             Overlay::Tasks => tasks(frame, area, app, config, &paint),
             Overlay::Criteria => criteria(frame, area, app, config, &paint),
@@ -798,19 +799,7 @@ fn header(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &Pai
     let brand = if area.width >= 90 { " EEVEE " } else { "" };
     let usable_width = usize::from(area.width).saturating_sub(brand.len());
     {
-        use crate::providers::Agent;
-        let route = match app.planning.agent {
-            Agent::Codex => "Codex/CLI",
-            Agent::ChatGPT => "OpenAI/OAuth",
-            Agent::Claude => "Claude/SDK",
-            Agent::OpenCode => "OpenCode/ACP",
-            Agent::Gemini => "Gemini/ACP",
-            Agent::Devin => "Devin/ACP",
-            Agent::OpenAI => "OpenAI/API",
-            Agent::Anthropic => "Anthropic",
-            Agent::Google => "Gemini/API",
-            Agent::Compatible => "Custom",
-        };
+        let route = crate::providers::capabilities::route(app.planning.agent).short;
         let effort = Span::styled(
             format!(
                 "/{}",
@@ -1923,6 +1912,49 @@ fn help(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &P
     );
 }
 
+fn journey(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &Paint) {
+    let area = sheet(area, 82, 30);
+    frame.render_widget(Clear, area);
+    let block = panel(
+        "Request journey / all routes and models",
+        config,
+        paint,
+        true,
+    );
+    let content = block.inner(area);
+    frame.render_widget(block, area);
+    let mut lines: Vec<String> = crate::providers::capabilities::JOURNEY
+        .iter()
+        .enumerate()
+        .map(|(index, (state, keys))| format!("{:02} {state}: {keys}", index + 1))
+        .collect();
+    lines.push(String::new());
+    lines.extend(crate::providers::capabilities::disclosures(
+        app.planning.agent,
+        app.planning.operation,
+        app.planning.catalogues.get(&app.planning.agent),
+        &app.planning.selection,
+    ));
+    lines.push(format!(
+        "Task progress: {}",
+        app.workflows.progress.as_ref().map_or_else(
+            || "no step list from this route".into(),
+            |progress| progress.summary(),
+        )
+    ));
+    lines.push(String::new());
+    lines.push("Esc back · Up/Down/PgUp/PgDn scroll · /commands unchanged. Inspection never sends, retries, adopts progress or grants authority.".into());
+    scroll_text(
+        frame,
+        content,
+        Paragraph::new(lines.join("\n"))
+            .style(paint.surface)
+            .wrap(Wrap { trim: false }),
+        app,
+        ScrollSurface::Preview,
+    );
+}
+
 fn evolution_preview(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &Paint) {
     let area = sheet(area, 78, 20);
     frame.render_widget(Clear, area);
@@ -1973,6 +2005,13 @@ fn evolution_preview(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                         .unwrap_or_else(|| paint.hint(Message::CoreEvolutionPreviewNone)),
                 )],
             ),
+            preview.effort.as_ref().map_or_else(
+                || format!("Effort: {} / {}", app.planning.selection.effort.as_deref().unwrap_or("provider default"), crate::providers::capabilities::route(app.planning.agent).effort),
+                |effort| effort.line(),
+            ),
+            format!("Todo step: {}", preview.todo_step.as_deref().unwrap_or("no step list from this route")),
+            "Context: current task and reviewed selections; exact outgoing bytes reviewed before dispatch".into(),
+            format!("Model capabilities: {}", crate::providers::capabilities::model_disclosure(app.planning.catalogues.get(&app.planning.agent), &app.planning.selection)),
             String::new(),
             paint.hint(Message::CoreEvolutionPreviewGuard).into(),
             String::new(),
