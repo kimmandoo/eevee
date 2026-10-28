@@ -1,5 +1,13 @@
 # Work Checkpoint
 
+## 2026-10-28 — Prompt-intent/todo audit (completed locally; unreleased)
+
+- **Request:** Verify that prompt-intent classification and todo extraction work. Baseline `77776c3`.
+- **Findings:** Todos are never extracted locally; they come from provider observations (native `todo` tool, Codex `turn/plan/updated`, ACP `plan`, SDK `TodoWrite`) normalized by `src/workspace/progress.rs`, and require explicit `/todo-adopt`. The wiring and tests are intact. The native route only asks the model to build a list when `/todo-eager on` is set (off by default per contract). The local classifier (`src/app/evolution.rs`) misread `…뽑는 기능 잘 구현됐나 확인` as Implementation and `Investigate the crash and fix it` as read-only Diagnosis.
+- **Fixed:** `verb_description`, `CHECKS`/`CHECKED` verification fallback and `REPAIRS` + diagnosis context in `classify`; regression `descriptive_verbs_checks_and_diagnosed_repairs_choose_the_requested_capability`.
+- **Verification:** fmt; strict Clippy clean; full suite 1,846 passed/two ignored. No live provider call.
+- **Next action:** None; commit.
+
 ## 2026-10-28 — Follow-up handoff-class blockers and choice visibility (completed locally; unreleased)
 
 - **Request / baseline:** Audit agent use for further bugs like the fixed provider-switch handoff blocker, fix them, then improve visibility of choices. Started clean main at `b239cc6`; no wave, live/paid call, push or release work.

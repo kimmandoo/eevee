@@ -478,6 +478,37 @@ fn execution_description(clause: &str, action: &str) -> bool {
             && !any(clause, &["실행해", "빌드해", "컴파일해"])
 }
 
+// Korean adnominal/passive verb forms ("구현됐나", "뽑는 기능", "추가된 함수")
+// describe existing work rather than request it.
+fn verb_description(clause: &str, action: &str) -> bool {
+    !action.is_ascii()
+        && clause.contains(action)
+        && clause.match_indices(action).all(|(at, _)| {
+            [
+                "는", "던", "된", "됐", "되었", "되어", "되는", "되나", "되지", "어진", "아진",
+                "여진", "진", "힌",
+            ]
+            .iter()
+            .any(|ending| clause[at + action.len()..].starts_with(ending))
+        })
+}
+
+// Checking whether existing work is implemented or behaves correctly verifies
+// it; there is no new mutation request.
+const CHECKS: &[&str] = &["check", "확인", "점검"];
+const CHECKED: &[&str] = &[
+    "feature",
+    "implementation",
+    "implemented",
+    "works",
+    "working",
+    "기능",
+    "구현",
+    "동작",
+    "작동",
+];
+const REPAIRS: &[&str] = &["fix", "repair", "고쳐", "고치", "수정"];
+
 /// Strip literal/source instructions, retaining only object markers for quoted
 /// filenames or opaque arguments. Only unquoted verbs can request a capability;
 /// the original draft alone is submitted.
@@ -713,6 +744,8 @@ pub fn classify(text: &str) -> Option<Selection> {
     // Source nouns can precede a later edit/refactor clause. Keep negated and
     // literal source out, but do not let a discovery prefix hide that action.
     let source_context = clauses().any(|clause| task_object(clause, read));
+    // "Investigate the crash and fix it": the repair targets the diagnosed object.
+    let diagnosis_context = clauses().any(|clause| task_object(clause, &RULES[1]));
     if readonly
         && task_object(&literal, read)
         && clauses().any(|clause| any(clause, read.actions))
@@ -732,17 +765,25 @@ pub fn classify(text: &str) -> Option<Selection> {
                 rule.operation == Operation::Implement
                     && rule.actions.iter().any(|action| {
                         contains(clause, action)
-                            && !planning_artifact(clause, action)
-                            && !(rule.form == 2 && execution_description(clause, action))
+                            && !(verb_description(clause, action)
+                                || planning_artifact(clause, action)
+                                || rule.form == 2 && execution_description(clause, action))
                     })
                     && (task_object(clause, rule) || source_context)
-            }) || [
-                "write", "create", "update", "generate", "save", "작성", "생성", "수정", "갱신",
-                "저장",
-            ]
-            .iter()
-            .any(|action| contains(clause, action) && !planning_artifact(clause, action))
-                && (source_path(clause)
+            }) || REPAIRS
+                .iter()
+                .any(|action| contains(clause, action) && !verb_description(clause, action))
+                && diagnosis_context
+                || [
+                    "write", "create", "update", "generate", "save", "작성", "생성", "수정",
+                    "갱신", "저장",
+                ]
+                .iter()
+                .any(|action| {
+                    contains(clause, action)
+                        && !verb_description(clause, action)
+                        && !planning_artifact(clause, action)
+                }) && (source_path(clause)
                     || any(
                         clause,
                         &[
@@ -762,6 +803,7 @@ pub fn classify(text: &str) -> Option<Selection> {
         if clauses().any(|clause| {
             rule.actions.iter().any(|action| {
                 contains(clause, action)
+                    && !verb_description(clause, action)
                     && !(rule.form == 2 && execution_description(clause, action))
             }) && (task_object(clause, rule) || matches!(rule.form, 3 | 6) && source_context)
         }) {
@@ -794,6 +836,13 @@ pub fn classify(text: &str) -> Option<Selection> {
                 },
             });
         }
+    }
+    if !readonly && clauses().any(|clause| any(clause, CHECKS) && any(clause, CHECKED)) {
+        return Some(Selection {
+            form: 2,
+            operation: Operation::Implement,
+            reason: Message::CoreEvolutionVerification,
+        });
     }
     readonly.then_some(Selection {
         form: 1,
@@ -1590,6 +1639,55 @@ mod tests {
         assert_eq!(classify("Make a Python file.").unwrap().form, 3);
         assert_eq!(classify("파이썬 파일을 만들어줘.").unwrap().form, 3);
         assert_eq!(classify("소스 파일의 값을 바꿔줘.").unwrap().form, 3);
+    }
+
+    #[test]
+    fn descriptive_verbs_checks_and_diagnosed_repairs_choose_the_requested_capability() {
+        for (text, form, operation) in [
+            // Checking existing work verifies it rather than requesting a mutation.
+            (
+                "프롬프트 의도 파악해서 todo 뽑는 기능 잘 구현됐나 확인",
+                2,
+                Operation::Implement,
+            ),
+            (
+                "Check whether the todo feature is implemented correctly",
+                2,
+                Operation::Implement,
+            ),
+            (
+                "로그인 기능 잘 동작하는지 확인해줘",
+                2,
+                Operation::Implement,
+            ),
+            ("추가된 함수 보여줘", 1, Operation::Plan),
+            // A diagnosis prefix must not hide the later repair of its object.
+            ("Investigate the crash and fix it", 5, Operation::Implement),
+            (
+                "Investigate the crash. Then fix it.",
+                5,
+                Operation::Implement,
+            ),
+            ("크래시 원인 분석해서 수정해줘", 5, Operation::Implement),
+            ("Analyze the error and summarize it", 5, Operation::Plan),
+            // Imperative requests keep their capability.
+            (
+                "버그같은거 더 없는지 확인해서 고쳐줘",
+                3,
+                Operation::Implement,
+            ),
+            ("새 기능 추가해줘", 3, Operation::Implement),
+            ("이 기능 구현해줘", 3, Operation::Implement),
+        ] {
+            let selected = classify(text).unwrap();
+            assert_eq!(
+                (selected.form, selected.operation),
+                (form, operation),
+                "{text}"
+            );
+        }
+        let selected = classify("분석만 하고 수정하지 마").unwrap();
+        assert_eq!((selected.form, selected.operation), (1, Operation::Plan));
     }
 
     #[test]

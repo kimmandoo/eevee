@@ -2,6 +2,7 @@
 
 ## 2026-10-28
 
+- fix(evolution): stopped Korean descriptive verb forms (`구현됐나`, `뽑는 기능`, `추가된`) from requesting mutation, classified checks of existing features/implementations as Verification, and kept a repair of a diagnosed object (`Investigate the crash and fix it`) as an Implement-capable Diagnosis instead of read-only Plan.
 - fix(providers): admitted an exactly accepted same-task handoff after request-only saves when every portable fact still matched, kept changed/foreign handoffs fail-closed with a `/handoff-clear` recovery hint, and excluded tool selections reviewed for another adapter/task/partner instead of blocking every later request after a switch.
 - feat(ui): painted the selected `[choice]` in review/confirmation controls as a highlighted button, highlighted the focused provider question/permission option, and kept the focused answer option scrolled into view at 60×18.
 - fix(providers): stopped provider switching from retaining synthetic stale task handoffs, preserved exact imported-document admission, and prevented blocked previews from producing secondary empty-JSON errors or retaining staged outgoing receipts.
