@@ -1747,15 +1747,9 @@ impl State {
                         self.complete_switch();
                         return true;
                     }
-                    if self.handoff.is_none() {
-                        match crate::workspace::handoff::from_task(task, excerpts, &[]) {
-                            Ok(document) => self.handoff = Some(document),
-                            Err(error) => {
-                                self.notice = error;
-                                return true;
-                            }
-                        }
-                    }
+                    // Ordinary requests already freeze the current committed
+                    // task/context. Only explicit import acceptance selects a
+                    // portable document; switching must not pin an old revision.
                     self.switch_to = Some(next);
                     self.review_start();
                 } else {

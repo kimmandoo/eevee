@@ -97,6 +97,69 @@ fn preview_and_wrong_dispatch_never_create_durable_work_but_actual_submission_do
 }
 
 #[test]
+fn blocked_preview_preserves_cause_without_a_fictitious_outgoing_receipt() {
+    let mut state = super::super::State::new();
+    state.reset(7);
+    state.work = Some(claim());
+    state.awaiting_preview = true;
+    let mut blocked = preview();
+    blocked.payload.clear();
+    blocked.blockers.push(
+        "Handoff task changed or belongs to another task; prepare and accept a fresh handoff"
+            .into(),
+    );
+    let causes = blocked.blockers.clone();
+    state.event(providers::Event::Preview(blocked));
+    assert_eq!(state.preview.as_ref().unwrap().blockers, causes);
+    state.receipts.dispatched(11, 7, &claim().request_id);
+    assert!(!state.receipts.pending());
+    assert!(state.pending.is_none());
+}
+
+#[test]
+fn blocked_preview_retires_prior_receipt_but_unblocked_invalid_json_still_refuses() {
+    let mut state = State::default();
+    let mut next = preview();
+    state
+        .stage(
+            &next,
+            &claim(),
+            providers::Agent::Codex,
+            providers::Operation::Plan,
+            Metadata::default(),
+        )
+        .unwrap();
+    next.blockers.push("Current task source changed".into());
+    state
+        .stage(
+            &next,
+            &claim(),
+            providers::Agent::Codex,
+            providers::Operation::Plan,
+            Metadata::default(),
+        )
+        .unwrap();
+    state.dispatched(11, 7, &claim().request_id);
+    assert!(
+        !state.pending(),
+        "blocked preparation cannot retain old authority"
+    );
+    next.blockers.clear();
+    next.payload.clear();
+    assert!(
+        state
+            .stage(
+                &next,
+                &claim(),
+                providers::Agent::Codex,
+                providers::Operation::Plan,
+                Metadata::default(),
+            )
+            .is_err()
+    );
+}
+
+#[test]
 fn purge_is_neutral_and_requires_visible_review_then_exact_owner_operation() {
     for (width, height) in [(60, 18), (120, 36)] {
         let mut state = saved();

@@ -2520,8 +2520,6 @@ fn idle_switch_preserves_old_session_without_portable_grants_or_ids() {
     command(&mut state, "provider-claude", true);
     assert_eq!(state.agent, Agent::Codex);
     assert!(state.pending.is_none());
-    let document = serde_json::to_string(state.handoff.as_ref().unwrap()).unwrap();
-    assert!(!document.contains("opaque-old-thread"));
     state.reviewed = true;
     press(&mut state, KeyCode::Tab, true);
     press(&mut state, KeyCode::Enter, true);

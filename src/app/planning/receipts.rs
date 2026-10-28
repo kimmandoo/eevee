@@ -76,6 +76,9 @@ impl State {
         if preview.task_id != claim.task_id {
             return Err("Receipt preview belongs to a different task".into());
         }
+        if !preview.blockers.is_empty() {
+            return Ok(());
+        }
         let mut outgoing = Outgoing::frozen(
             &preview.payload,
             claim,

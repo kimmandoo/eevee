@@ -313,6 +313,7 @@ impl State {
             2 => self.login_persist = !self.login_persist,
             3 => match crate::providers::direct::config::setup(Agent::ChatGPT) {
                 Ok(form) => {
+                    self.notice = form.source_notice.clone().unwrap_or_default();
                     self.connection = Some(ConnectionEditor {
                         form,
                         field: 0,
@@ -320,7 +321,6 @@ impl State {
                         visible: false,
                         advanced: true,
                     });
-                    self.notice.clear();
                 }
                 Err(reason) => self.notice = reason,
             },
@@ -3139,5 +3139,100 @@ mod tests {
         assert!(!detail.contains("private-preflight-sentinel"));
         assert!(!detail.chars().any(char::is_control));
         assert!(state.pending.is_none() && state.pending_auth.is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn advanced_account_setup_preserves_expired_and_invalid_saved_source_diagnostics() {
+        use std::os::unix::fs::PermissionsExt;
+        const CHILD: &str = "EV_TEST_ACCOUNT_SOURCE_DIAGNOSTICS";
+        if std::env::var_os(CHILD).is_none() {
+            let mut random = [0; 16];
+            getrandom::getrandom(&mut random).unwrap();
+            let home = std::env::temp_dir().join(format!(
+                "eevee-account-source-{:x}",
+                u128::from_le_bytes(random)
+            ));
+            std::fs::create_dir(&home).unwrap();
+            std::fs::set_permissions(&home, std::fs::Permissions::from_mode(0o700)).unwrap();
+            let result = std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "app::agents::tests::advanced_account_setup_preserves_expired_and_invalid_saved_source_diagnostics",
+                    "--nocapture",
+                ])
+                .env(CHILD, "1")
+                .env("HOME", &home)
+                .env("USERPROFILE", &home)
+                .env_remove("CODEX_ACCESS_TOKEN")
+                .env_remove("CODEX_ACCOUNT_ID")
+                .env_remove("CODEX_HOME")
+                .output()
+                .unwrap();
+            std::fs::remove_dir_all(home).unwrap();
+            assert!(
+                result.status.success(),
+                "{}\n{}",
+                String::from_utf8_lossy(&result.stdout),
+                String::from_utf8_lossy(&result.stderr)
+            );
+            return;
+        }
+        let directory =
+            std::path::PathBuf::from(std::env::var_os("HOME").unwrap()).join(".eevee-connections");
+        std::fs::create_dir(&directory).unwrap();
+        std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let path = directory.join("chatgpt.json");
+        let expired = serde_json::json!({
+            "base_url": "https://chatgpt.com/backend-api/codex",
+            "model": "retained-model",
+            "protocol": "codex",
+            "secret": "private-expired-account-sentinel",
+            "account_id": "private-account-sentinel",
+            "expires_at": 1,
+            "keyless": false,
+        })
+        .to_string();
+        let mut jwt: serde_json::Value = serde_json::from_str(&expired).unwrap();
+        jwt.as_object_mut().unwrap().remove("expires_at");
+        jwt["secret"] = "e30.eyJleHAiOjF9.signature".into();
+        let jwt = jwt.to_string();
+        for (contents, expected) in [
+            (expired.as_str(), "OpenAI account connection expired"),
+            (jwt.as_str(), "OpenAI account access token expired"),
+            ("{", "Private native configuration is invalid"),
+        ] {
+            std::fs::write(&path, contents).unwrap();
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+            let mut state = discovered();
+            state.selected = Agent::ChatGPT.index();
+            state.page = Page::Account;
+            state.family_choice = 3;
+            state.select_account_method();
+            let form = &state.connection.as_ref().expect("editable recovery").form;
+            assert!(
+                form.source_notice
+                    .as_deref()
+                    .is_some_and(|notice| notice.contains(expected)),
+                "source diagnostic must survive setup: {:?}",
+                form.source_notice
+            );
+            assert!(
+                state.notice.contains(expected),
+                "visible notice: {}",
+                state.notice
+            );
+            assert!(form.credential.is_empty() && form.account_id.is_empty() && !form.persist);
+            if contents != "{" {
+                assert_eq!(form.model, "retained-model");
+            }
+            assert!(!state.notice.contains("private-expired-account-sentinel"));
+            assert!(!state.notice.contains("private-account-sentinel"));
+            assert!(!state.notice.contains("e30.eyJleHAiOjF9.signature"));
+            assert!(state.pending.is_none() && state.pending_auth.is_none());
+            assert!(state.use_for_task.is_none() && state.pick.is_none());
+            assert!(state.take_connection_change().is_none());
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), contents);
+        }
     }
 }

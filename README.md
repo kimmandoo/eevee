@@ -121,6 +121,10 @@ Each new explicit Send opens a fresh request and carries only the existing compl
 
 Responses retain their own outcome and context-admission status after later requests. An external agent process disconnect opens the existing diagnostics path without resending the request or exposing raw process output.
 
+Connection credentials are **session-only by default**; reopening restores model choices and drafts, not an unsaved key/token. In `/connect chatgpt`, select **Storage → SAVE private local plaintext** before Browser/Device login if you explicitly want the account credential retained across restarts. API setup offers the same storage choice. Saved credentials are not encrypted or stored in an OS keychain. An OpenAI account access grant still expires even when saved: reconnect through Browser/Device login; Eevee does not retain refresh tokens or renew automatically. Account → Advanced settings shows saved-source expiry/read failures without changing the saved file or sending a request.
+
+If an older build reports `Handoff task changed` after changing providers, `/handoff-clear` deselects only the portable handoff; it does not erase the task or exports. Then explicitly Send again. Provider switching in the corrected source does not automatically select a handoff; deliberately imported stale/foreign handoffs still require a fresh review or deselection.
+
 ### Everyday controls
 
 | Want to… | Use |

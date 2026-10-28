@@ -2,6 +2,8 @@
 
 ## 2026-10-28
 
+- fix(providers): stopped provider switching from retaining synthetic stale task handoffs, preserved exact imported-document admission, and prevented blocked previews from producing secondary empty-JSON errors or retaining staged outgoing receipts.
+- fix(auth): preserved saved-account grant/JWT expiry and private-source read diagnostics through recovery setup and Account Advanced settings without renewing, persisting or replaying credentials.
 - feat(sdk)!: advanced the complete SDK bridge to11 for structured progress events and refused older mixed components before dispatch.
 - fix(sdk): admitted taskless empty model inspection while retaining positive task ownership and frozen-root requirements for every actual prompt.
 - fix(forms): excluded negated `without` tails from writing intent while preserving positive leading requests and later independent clauses.

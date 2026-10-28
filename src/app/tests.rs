@@ -2007,6 +2007,138 @@ fn provider_switch_review_cancellation_restores_the_invoking_editor_directly() {
 }
 
 #[test]
+fn provider_switch_does_not_pin_synthetic_handoff_across_composer_saves() {
+    use crate::providers::{Agent, Request};
+
+    for accept_switch in [false, true] {
+        for (width, height) in [(120, 36), (60, 18)] {
+            let mut app = request_app();
+            app.width = width;
+            app.height = height;
+            app.goal = "Keep the committed task across provider changes".into();
+            app.update(Event::Paste("Explain the current task".into()));
+            modified_key(&mut app, KeyCode::Char('s'), KeyModifiers::CONTROL);
+            let before_switch = save_request(&mut app);
+            app.planning.reset(app.task_id);
+            app.planning.agent = Agent::Codex;
+            app.planning.thread_id = Some("old-provider-owned-session".into());
+            app.command("provider");
+            app.agents.use_for_task = Some(Agent::Claude.index());
+            app.use_selected_provider();
+            assert_eq!(app.planning.switch_to, Some(Agent::Claude));
+            assert!(app.planning.pending.is_none());
+            if accept_switch {
+                app.planning.reviewed = true;
+                key(&mut app, KeyCode::Tab);
+            }
+            key(&mut app, KeyCode::Enter);
+            assert_eq!(
+                app.planning.agent,
+                if accept_switch {
+                    Agent::Claude
+                } else {
+                    Agent::Codex
+                }
+            );
+            assert!(app.overlay.is_none() && app.composer_is_request());
+            assert_eq!(app.input, "Explain the current task");
+            assert!(app.planning.pending.is_none());
+
+            key(&mut app, KeyCode::Enter);
+            let current = save_request(&mut app);
+            assert!(current.revision > before_switch.revision);
+            assert!(app.settle_planning());
+            acknowledge_work(&mut app);
+            let Some(Request::Preview(input)) = app.planning.pending.take() else {
+                panic!("ordinary composer Send must prepare the committed request");
+            };
+            assert_eq!(input.task.revision, current.revision);
+            assert_eq!(input.task.request_text(), "Explain the current task");
+            if let Some(document) = &input.handoff {
+                crate::workspace::handoff::validate_dispatch(
+                    document,
+                    &input.task,
+                    &input.excerpts,
+                    input.report.as_ref(),
+                    &[],
+                )
+                .expect("a provider switch must not leave a stale synthetic dispatch binding");
+            }
+            assert!(
+                input.handoff.is_none() && app.planning.handoff.is_none(),
+                "current task context is already frozen in Input; a route switch is not an imported handoff selection"
+            );
+        }
+    }
+}
+
+#[test]
+fn accepted_imports_remain_exact_and_fail_closed_after_provider_switch_and_send() {
+    use crate::providers::{Agent, Request};
+
+    for foreign in [false, true] {
+        let mut app = request_app();
+        app.goal = "Keep explicit imported context separate from route selection".into();
+        app.update(Event::Paste("Explain the current task".into()));
+        modified_key(&mut app, KeyCode::Char('s'), KeyModifiers::CONTROL);
+        let task = save_request(&mut app);
+        app.planning.reset(app.task_id);
+        app.planning.agent = Agent::Codex;
+        let mut imported = crate::workspace::handoff::from_task(
+            &task,
+            &[],
+            &["Explicitly accepted, unverified imported decision".into()],
+        )
+        .unwrap();
+        if foreign {
+            imported.task.id += 1;
+        }
+        app.handoff.output = Some(imported.clone());
+        assert!(app.settle_planning());
+        assert_eq!(app.planning.handoff.as_ref(), Some(&imported));
+        app.command("provider");
+        app.agents.use_for_task = Some(Agent::Claude.index());
+        app.use_selected_provider();
+        assert_eq!(app.planning.switch_to, Some(Agent::Claude));
+        app.planning.reviewed = true;
+        key(&mut app, KeyCode::Tab);
+        key(&mut app, KeyCode::Enter);
+        assert_eq!(app.planning.agent, Agent::Claude);
+        assert_eq!(app.planning.handoff.as_ref(), Some(&imported));
+        assert!(app.planning.pending.is_none());
+
+        key(&mut app, KeyCode::Enter);
+        let current = save_request(&mut app);
+        assert!(current.revision > task.revision);
+        assert!(app.settle_planning());
+        acknowledge_work(&mut app);
+        let Some(Request::Preview(input)) = app.planning.pending.take() else {
+            panic!("expected an owned local request preparation");
+        };
+        let selected = input
+            .handoff
+            .as_ref()
+            .expect("accepted import stays selected");
+        assert_eq!(
+            selected, &imported,
+            "never silently refresh an accepted import"
+        );
+        assert!(
+            crate::workspace::handoff::validate_dispatch(
+                selected,
+                &input.task,
+                &input.excerpts,
+                input.report.as_ref(),
+                &[],
+            )
+            .unwrap_err()
+            .contains("Handoff task changed or belongs to another task"),
+            "foreign and stale imported documents must still fail closed"
+        );
+    }
+}
+
+#[test]
 fn native_login_selection_waits_for_size_preserves_switch_review_and_rejects_stale_owner() {
     use crate::providers::Agent;
     for stale in [false, true] {
