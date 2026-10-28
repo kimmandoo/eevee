@@ -3,7 +3,7 @@
 ## 2026-10-28 — Game-loop task track added (planning only)
 
 - **Request:** Add tasks for more game-like use: learning a move from repeated similar commands, tools/Poké Ball-style items, and TM/Potion/Berry sprites shown with popups. Planning only; nothing implemented.
-- **Added:** `tasks/L-game-loop.md` GL01–GL05 and the task.md track row (remaining 14 → 19). Each task maps items to existing reviewed actions and records the binding constraints: explicit teach review, no progression mechanics, cache-only item sprites under the existing rights review, and a required DESIGN_RULES popup change for GL05.
+- **Added:** `tasks/L-game-loop.md` GL01/GL02/GL04/GL05 (GL03 Poké Ball dropped at the user's request; ID not reused) and `tasks/U-ux-clarity.md` UX10–UX17 for design-level ambiguity found in the 0.1.35 PTY audit, plus a stale `progress_smoke.py` note; task.md remaining 14 → 26. Each task maps items to existing reviewed actions and records the binding constraints: explicit teach review, no progression mechanics, cache-only item sprites under the existing rights review, and a required DESIGN_RULES popup change for GL05.
 - **Next action:** Choose GL tasks on a later authorized implementation request. Not pushed until the in-progress v0.1.35 release (tag on `ad5c634`) is published.
 
 ## 2026-10-28 — Whole-product UX pass and v0.1.35 release (in progress)
