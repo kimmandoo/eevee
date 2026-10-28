@@ -179,7 +179,7 @@ mod tests {
             }
         }
         assert!(checked > 20, "footer hint messages were found");
-        for file in ["src/ui.rs", "src/app.rs"] {
+        for file in ["src/ui.rs", "src/ui/chrome.rs", "src/ui/workspace.rs", "src/app.rs"] {
             for line in std::fs::read_to_string(root.join(file)).unwrap().lines() {
                 assert!(!line.contains(" / /"), "{file}: {line}");
             }
