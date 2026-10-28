@@ -26,8 +26,9 @@ Rules for every RF task:
 ### RF04 — Separate remaining UI layout and chrome
 
 - [ ] Separate layout helpers from surfaces.
-- **Priority:** 2. **Needs:** —. **Builds on:** —.
-- **Change:** `ui/layout.rs` (shell, centered, inner, grid_cell, occlusion), `ui/workspace.rs` (workspace/inspect/repository), `ui/chrome.rs` (header, footer, selection line, confirmation), with `Paint` staying in `ui.rs`.
+- **Priority:** 1 (triggered). **Needs:** —. **Builds on:** —. **Needed by:** GL02, GL05.
+- **Trigger (2026-10-28):** `src/ui.rs` grew to ~3,000 lines with the 0.1.35 header/status/todo/choice helpers, and the bag and item-notice surfaces would add more chrome into the same file. Do this extraction first, as its own behavior-free commit, before GL02.
+- **Change:** `ui/layout.rs` (shell, centered, inner, grid_cell, occlusion), `ui/workspace.rs` (workspace/inspect/repository), `ui/chrome.rs` (header, footer, selection line, confirmation, `choice_text`/`choices`, `todo_line`/`compact_todo`/`composer_todo`), with `Paint` staying in `ui.rs`. Keep the message lint test's `src/ui.rs` path list in sync with the moved files.
 - **Accept:** UI tests and the workbench smoke pass unchanged.
 
 ### RF06 — Separate runner validation, capture and native ownership

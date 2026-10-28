@@ -1,5 +1,12 @@
 # Work Checkpoint
 
+## 2026-10-28 — Open-task reconciliation (planning only)
+
+- **Request:** Fix or strengthen existing tasks that are already done or need replanning.
+- **Checked against code:** All seven RF tasks are still open (`ModelListing`/`run_transport` remain in `providers/codex.rs`; no `acp` framing, `ui/layout.rs`, `runner/spec.rs` or split store tests exist). No H/F task is complete; their blockers (live credentials, benchmarks, downloaded per-target installs) are unchanged.
+- **Edited:** H — A04 status bridge 9 → bridge 11 and 45 cases; Q01 gains a 0.1.35 visible-state refresh list and the 0.1.34 journey evidence; P03 records the 0.1.33/0.1.34 downloaded macOS install proof and a new `progress.eager_off` older-reader upgrade row. R — RF04 marked triggered (ui.rs ~3,000 lines) and needed by GL02/GL05, with the 0.1.35 helpers named. L — GL01 reuses dispatched outgoing receipts and the existing teach-from-last-request path instead of new history storage; GL02/GL05 need RF04; GL02 links the help map; GL04 names the exact recovery commands. WAVES/task.md updated (U done pending release, L unassigned, next order).
+- **Next action:** Unchanged release step: when native CI on `fd9bc41` passes, retag and publish v0.1.35.
+
 ## 2026-10-28 — U UX-clarity track implemented; v0.1.35 re-qualification
 
 - **Request:** Implement all of `tasks/U-ux-clarity.md` and verify once at the end; then check whether the "English native coverage" CI step is still needed after the multilingual runtime removal.

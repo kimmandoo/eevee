@@ -33,7 +33,9 @@ A/B/C/D/E/G/I/J/K are entirely completed and archived; F/H/R and the new L track
 1. Public v0.1.34 and this query's implementation/CI/graphics/additional-release delivery are complete; do not restart archived Wave1–7 or unassigned tasks.
 2. Wave6 GP05/PK09/RX04/RX05/RX06, Wave7 GP06/GP07 and unassigned GP10→GP08/GP09/P05 shipped in0.1.33. Version0.1.34 retained SQL20/complete SDK bridge11 and added the separately qualified transport/outcome/diagnostic follow-up.
 3. [Wave plan](docs/WAVES.md) assigns all14 remaining tasks. Wave8 and conditional structure lanes remain pending; select new implementation only on a subsequent authorized request.
-4. Local Q01/Q02/P03 evidence remains independently actionable; authenticated rows and Q03 live trials require separate permission. Existing published assets stay unchanged.
+4. After 0.1.35 ships, archive the U track into COMPLETED.md and refresh the Q01 rows and the new P03 `eager_off` upgrade row listed in H.
+5. The L game loop starts with RF04 (now triggered), then GL02 → GL01/GL04 → GL05 (GL05 also needs the item-sprite rights review and a popup contract change).
+6. Local Q01/Q02/P03 evidence remains independently actionable; authenticated rows and Q03 live trials require separate permission. Existing published assets stay unchanged.
 
 ## Execution rules
 
