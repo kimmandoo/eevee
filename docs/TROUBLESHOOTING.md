@@ -1,5 +1,12 @@
 # Troubleshooting
 
+### [2026-10-28] v0.1.35 release upload failed without version changelog notes
+
+- **Context / Symptom:** Native run 40638360962 passed at `ad5c634`, but release run 40640741692 failed at "Upload all assets before publishing"; no GitHub release was created.
+- **Root Cause:** The upload step reads `## <version>` from CHANGELOG.md for release notes. Only dated `## 2026-10-28` entries existed for 0.1.35, so the split raised before `gh release create`.
+- **Solution:** Added a `## 0.1.35` section, pushed main, waited for a fresh native run on that commit, then moved the unpublished `v0.1.35` tag to it and pushed again.
+- **Prevention / Reference:** Add the `## <version>` changelog section together with the version bump, before tagging.
+
 ### [2026-10-28] Accepted handoffs and tool selections still blocked Requests after ordinary saves or switches
 
 - **Context / Symptom:** After the provider-switch fix, two related paths still refused every later Send. An explicitly accepted same-task handoff failed with `Handoff task changed or belongs to another task; prepare and accept a fresh handoff` as soon as the composer saved the new Request (every Send does). A `/tools` selection made for one adapter returned `Finish catalog setup for this exact task/partner/adapter before dispatch` after switching provider, form partner or task, with no hint how to recover.
