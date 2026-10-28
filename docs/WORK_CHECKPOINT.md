@@ -1,5 +1,14 @@
 # Work Checkpoint
 
+## 2026-10-28 — Whole-product UX pass and v0.1.35 release (in progress)
+
+- **Request:** Improve ambiguous UX across Eevee and publish a release (user explicitly authorized release). Baseline `30a7961`.
+- **Audit method:** Drove the actual debug binary in an isolated HOME/project through a pyte PTY (`/tmp/eevee-connection-fix-venv`) at 120×36 and 60×18: home, typing, `/` palette, Enter without a connection, connection setup/back, `/todo`, `/evolution-preview`, `/forms`, `/help`.
+- **Fixed:** header marks an unconnected route (`(not connected)`, `(setup)` below 90 columns, `(attention)` when blocked); status line `saved  /   Local work idle` → `saved · Local work idle`; `/todo` gets its own "Todo / task progress" panel instead of the Specialist-desk tabs, mode-aware keys and "No todo yet…" copy; palette lists provider/model/effort/files/tasks/todo/evolution-preview/forms/help first and moves update/rollback last; advisory `Suggested:` strip hidden in automatic form mode (the picker still marks it; contract updated); help lists `/todo` and `/evolution-preview`.
+- **Deliberately unchanged:** footer ` / ` separators next to the `/` key (CI smoke drivers match `Enter Send /`, `Type Request /`, `/ Commands` prefixes); not-CI `scripts/progress_smoke.py` still encodes pre-auto-adoption/opt-in-prelude expectations and needs updating before it is used again.
+- **Verification so far:** fmt; strict Clippy (with and without all features); 1,850 Rust tests passed/two ignored; Python unittest 28 (four Windows skips); sidecar npm test passed; local `native_workflows_smoke.py --profile full` against the release build (see result below).
+- **Release plan:** version 0.1.35; push main, wait for native.yml Check + five native jobs, then push annotated `v0.1.35` so release.yml qualifies and publishes.
+
 ## 2026-10-28 — Native todo prelude on by default (completed locally; unreleased)
 
 - **Request:** Make `/todo-eager on` the default for simpler UX. Baseline `4c95d4e`; intentional contract change.

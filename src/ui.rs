@@ -839,7 +839,24 @@ fn header(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &Pai
     let brand = if area.width >= 90 { " EEVEE " } else { "" };
     let usable_width = usize::from(area.width).saturating_sub(brand.len());
     {
-        let route = crate::providers::capabilities::route(app.planning.agent).short;
+        // An unconnected default route must not read as a ready connection;
+        // Enter (or /connect) opens setup.
+        let short = crate::providers::capabilities::route(app.planning.agent).short;
+        let route_label = match app.agents.readiness(app.planning.agent.index()) {
+            crate::app::agents::Readiness::Setup
+            | crate::app::agents::Readiness::MissingCli
+            | crate::app::agents::Readiness::SignedOut
+                if area.width >= 90 =>
+            {
+                format!("{short} (not connected)")
+            }
+            crate::app::agents::Readiness::Setup
+            | crate::app::agents::Readiness::MissingCli
+            | crate::app::agents::Readiness::SignedOut => format!("{short} (setup)"),
+            crate::app::agents::Readiness::Blocked => format!("{short} (attention)"),
+            _ => short.to_owned(),
+        };
+        let route = route_label.as_str();
         let effort = Span::styled(
             format!(
                 "/{}",
@@ -929,15 +946,18 @@ fn header(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &Pai
         _ if app.planning.auto_approve => paint.hint(Message::AutoApprovePolicy),
         _ => "",
     };
+    let marker = if !waiting && app.planning.activity_label().is_some() {
+        format!(
+            "{} ",
+            activity_marker(app.activity_frame, config, app.motion_enabled())
+        )
+    } else {
+        String::new()
+    };
     let status = format!(
-        "{policy}{}{}  /  {} {activity}",
+        "{policy}{}{} · {marker}{activity}",
         if policy.is_empty() { "" } else { " · " },
         app.storage_label(),
-        if !waiting && app.planning.activity_label().is_some() {
-            activity_marker(app.activity_frame, config, app.motion_enabled())
-        } else {
-            ""
-        }
     );
     let line = row(area, 1, 1);
     text(
@@ -983,7 +1003,9 @@ fn header(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &Pai
 }
 
 fn suggestion_line<'a>(app: &'a App, paint: &Paint) -> Option<Line<'a>> {
-    if app.planning.request.is_some() || (app.lead().auto_form && app.form() != 0) {
+    // Automatic mode chooses the form itself at Send; an advisory strip would
+    // compete with that choice. The picker still marks the recommendation.
+    if app.planning.request.is_some() || app.lead().auto_form {
         return None;
     }
     app.visible_suggestion().map(|suggestion| {
@@ -2074,7 +2096,7 @@ fn evolution_preview(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                 || format!("Effort: {} / {}", app.planning.selection.effort.as_deref().unwrap_or("provider default"), crate::providers::capabilities::route(app.planning.agent).effort),
                 |effort| effort.line(),
             ),
-            format!("Todo step: {}", preview.todo_step.as_deref().unwrap_or("no step list from this route")),
+            format!("Todo step: {}", preview.todo_step.as_deref().filter(|step| *step != "no step list from this route").unwrap_or("none yet; the agent creates one when work starts")),
             "Context: current task and reviewed selections; exact outgoing bytes reviewed before dispatch".into(),
             format!("Model capabilities: {}", crate::providers::capabilities::model_disclosure(app.planning.catalogues.get(&app.planning.agent), &app.planning.selection)),
             String::new(),

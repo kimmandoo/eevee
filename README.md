@@ -78,11 +78,11 @@ Pin a version:
 
 ```sh
 curl -fsSLo install-ev.sh https://github.com/kimmandoo/eevee/releases/latest/download/install.sh
-sh ./install-ev.sh --version v0.1.34
+sh ./install-ev.sh --version v0.1.35
 ```
 
 ```powershell
-& ([scriptblock]::Create((irm https://github.com/kimmandoo/eevee/releases/latest/download/install.ps1))) -Version v0.1.34
+& ([scriptblock]::Create((irm https://github.com/kimmandoo/eevee/releases/latest/download/install.ps1))) -Version v0.1.35
 ```
 
 Offline: download the matching archive, `SHA256SUMS` and installer from one release, then:
@@ -159,7 +159,7 @@ ev --help
 
 ### Retained work and long requests
 
-Public0.1.34 includes:
+Public0.1.35 includes:
 
 | Want to… | Use |
 | --- | --- |
@@ -171,7 +171,7 @@ Public0.1.34 includes:
 
 External editing waits for all work and saves to settle. Set `VISUAL` (preferred) or `EDITOR` to one executable, or a JSON argv array such as `["code","--wait"]`. No shell syntax or placeholders are expanded. Configure the editor to save in place: replaced files, links, unsafe/oversized output and cleanup failures are refused. The Request is exported as plaintext and may contain secrets; the unsandboxed editor inherits your environment, which may contain credentials, and may retain its own copies. Importing text does not send it.
 
-Parked drafts, landmarks, adopted progress and typed auto effort use strict reader admission. Since0.1.33, admitted SQL0–19 data migrates to SQL20 for retained screenshots, and structured todo events require complete SDK bridge11; replace sidecar source/policy/dependencies together. TM1/formation2 remain unchanged. Back up the whole data directory before upgrading. Public0.1.32 refuses SQL20; a matching version number is not a reader/rollback compatibility guarantee.
+Parked drafts, landmarks, adopted progress and typed auto effort use strict reader admission. Since0.1.33, admitted SQL0–19 data migrates to SQL20 for retained screenshots, and structured todo events require complete SDK bridge11; replace sidecar source/policy/dependencies together. TM1/formation2 remain unchanged. Back up the whole data directory before upgrading. Public0.1.34 refuses a task saved with `/todo-eager off`; public0.1.32 refuses SQL20; a matching version number is not a reader/rollback compatibility guarantee.
 
 ### Reviewed images and selected local commits
 

@@ -587,23 +587,34 @@ impl App {
                     .any(|(name, _, _)| *name == choice.command)
         });
         for (name, label) in [
-            ("provider", "Provider connection selector; nothing sent"),
+            ("provider", "Connect or switch provider; nothing sent"),
+            ("connect", "Provider connections; nothing sent"),
             ("model", "Choose model / optional exact ID"),
+            ("effort", "Reasoning level / optional value"),
             ("files", "Attach files / inspect source context"),
             ("tasks", "Saved tasks"),
+            ("todo", "Todo steps that guide the next evolution"),
+            (
+                "evolution-preview",
+                "Explain next evolution and operation; nothing sent",
+            ),
+            ("forms", "Choose evolution"),
+            ("help", "Navigation help"),
             (
                 "response",
                 "Read continuous response / inspect pending request",
             ),
             ("approvals", "Focus oldest pending approval or question"),
-            ("cancel-all", "Review cancellation of all owned work"),
-            ("help", "Navigation help"),
-            ("connect", "Provider connections; nothing sent"),
-            ("update", "Review an application update; no replacement yet"),
+            ("new", "Send ordinary Request as a fresh conversation"),
             (
-                "rollback",
-                "Review a retained package and proven data compatibility",
+                "resume",
+                "Send ordinary Request using its owned conversation",
             ),
+            (
+                "chat-new",
+                "Reset local native conversation; keep draft and journal",
+            ),
+            ("cancel-all", "Review cancellation of all owned work"),
             (
                 "context-compare",
                 "Compare exact context selection bytes for this turn",
@@ -684,11 +695,6 @@ impl App {
             ("artifacts", "Inspect owned immutable tool output"),
             ("artifact-search", "Search retained tool output"),
             ("artifact-locations", "Inspect retained failure locations"),
-            ("new", "Send ordinary Request as a fresh conversation"),
-            (
-                "resume",
-                "Send ordinary Request using its owned conversation",
-            ),
             (
                 "session-new",
                 "Advanced: review exact fresh-session payload",
@@ -697,25 +703,15 @@ impl App {
                 "session-resume",
                 "Advanced: review exact owned-session payload",
             ),
-            (
-                "chat-new",
-                "Reset local native conversation; keep draft and journal",
-            ),
             ("reset", "Fresh local task; keep old task and drafts"),
             ("init", "Draft project guide request; review before sending"),
-            ("effort", "Reasoning level / optional value"),
             ("role", "Choose Plan / Implement / Review role"),
-            ("forms", "Choose evolution"),
             ("back-form", "Return to the previous form (Backspace)"),
             (
                 "suggestion-dismiss",
                 "Dismiss this task's current suggestion; no work",
             ),
             ("carry-over", "Reopen the last form carry-over; no work"),
-            (
-                "evolution-preview",
-                "Explain next evolution and operation; nothing sent",
-            ),
             (
                 "journey",
                 "Inspect canonical request steps and route disclosures",
@@ -776,12 +772,11 @@ impl App {
             ("goal", "Edit goal"),
             ("criteria", "Acceptance criteria"),
             ("criteria-edit", "Edit acceptance criteria"),
-            ("todo", "Task card / proposed and adopted progress"),
             ("todo-adopt", "Adopt the inspected current todo revision"),
             ("todo-edit", "Edit proposed todo JSON steps"),
             (
                 "todo-eager",
-                "Native phased todo prelude on|off (default off)",
+                "Native phased todo prelude on|off (default on)",
             ),
             ("next", "Edit next action"),
             ("complete", "Review task completion"),
@@ -819,6 +814,11 @@ impl App {
             ("verbose", "Toggle brief / full explanations"),
             ("quit", "Leave Eevee"),
             ("task-new", "Create local task"),
+            ("update", "Review an application update; no replacement yet"),
+            (
+                "rollback",
+                "Review a retained package and proven data compatibility",
+            ),
         ] {
             if !choices.iter().any(|choice| choice.command == name) {
                 choices.push(Choice::new(name, label));

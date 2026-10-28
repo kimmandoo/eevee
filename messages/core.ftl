@@ -106,6 +106,8 @@ core-help-content =
     { " /party /lead NAME   Partners and the lead" }
     { " /forms /role        Evolution and role" }
     { " Eevee: automatic at Send; choosing a specialist: manual." }
+    { " /todo               Todo steps; in Auto they guide the next form" }
+    { " /evolution-preview  Why the next Send picks its form and tools" }
     { " /files /search      Source context and filename search" }
     { " /run /execute       Command evidence / prepared command review" }
     { " /output-search      Search retained command output" }

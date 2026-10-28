@@ -300,11 +300,14 @@ impl App {
     }
     pub fn progress_card(&self) -> String {
         let mut lines = vec![
-            "Task card / Todo progress".into(),
             self.workflows
                 .progress
                 .as_ref()
-                .map_or_else(|| "no step list from this route".into(), State::summary),
+                .filter(|progress| progress.revision > 0)
+                .map_or_else(
+                    || "No todo yet. The agent creates one when work starts; /todo init adds your own.".into(),
+                    State::summary,
+                ),
             "Provider status claims are not evidence, completion or permission.".into(),
             if self.lead.auto_form {
                 "Auto: provider updates are adopted automatically; the current step guides evolution at the next Send."

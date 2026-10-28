@@ -2,6 +2,8 @@
 
 ## 2026-10-28
 
+- feat(ui): marked an unconnected route in the header (`(not connected)`/`(setup)`), removed stray status spacing, gave `/todo` its own panel with mode-aware keys and a plain "No todo yet" state, listed everyday commands first in the palette, hid the advisory form strip in automatic mode, and added `/todo` and `/evolution-preview` to help.
+- chore(release): advanced the package version to 0.1.35.
 - feat(evolution)!: enabled the native phased-todo prelude by default so todo-driven evolution needs no setup; `/todo-eager off` now persists a task-level opt-out that earlier strict readers refuse.
 - feat(evolution): adopted provider todo updates automatically in automatic form mode, steered the next Send's evolution from the current (active or next pending) todo step for ambiguous and unclassified requests, applied user-authored todo edits immediately, and showed the step and predicted form in the companion card.
 - fix(evolution): stopped Korean descriptive verb forms (`구현됐나`, `뽑는 기능`, `추가된`) from requesting mutation, classified checks of existing features/implementations as Verification, and kept a repair of a diagnosed object (`Investigate the crash and fix it`) as an Implement-capable Diagnosis instead of read-only Plan.

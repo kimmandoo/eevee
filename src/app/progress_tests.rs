@@ -120,7 +120,7 @@ fn absent_source_is_visible_on_every_route() {
         let mut app = app();
         app.planning.agent = agent;
         app.progress_command("todo", "");
-        assert!(app.progress_card().contains("no step list from this route"));
+        assert!(app.progress_card().contains("No todo yet"));
         assert!(app.workflow.todo_view);
         assert!(app.pending_request.is_none() && app.planning.pending.is_none());
     }

@@ -620,6 +620,16 @@ fn suggestion_wraps_without_replacing_response_or_composer() {
     for (width, height) in [(120, 36), (60, 18)] {
         for with_response in [false, true] {
             let mut app = App::new("/workspace".into(), width, height);
+            // Advisory strips belong to manual form mode.
+            app.store_event(crate::store::Event::Loaded(crate::store::Project {
+                tasks: Vec::new(),
+                partners: vec![crate::store::Partner {
+                    auto_form: false,
+                    ..Default::default()
+                }],
+                active_id: None,
+                usage_bytes: 0,
+            }));
             app.goal = "Current task".into();
             app.input = "Follow-up draft stays editable".into();
             app.cursor = app.input.len();
@@ -1071,6 +1081,16 @@ fn task_card_suggestion_belongs_only_to_active_task() {
     let config = home_config();
     for (width, height) in [(120, 36), (60, 18)] {
         let mut app = App::new("/workspace".into(), width, height);
+        // Advisory strips belong to manual form mode.
+        app.store_event(crate::store::Event::Loaded(crate::store::Project {
+            tasks: Vec::new(),
+            partners: vec![crate::store::Partner {
+                auto_form: false,
+                ..Default::default()
+            }],
+            active_id: None,
+            usage_bytes: 0,
+        }));
         app.task_id = 7;
         app.goal = "Active task".into();
         app.tasks.push(app.snapshot("/workspace"));
