@@ -2164,6 +2164,56 @@ mod tests {
     }
 
     #[test]
+    fn home_companion_names_the_todo_step_that_steers_evolution() {
+        use crate::workspace::progress::{State as Progress, Status, Step};
+        // 60x18 has no companion pane; /todo and /evolution-preview remain.
+        for (width, height) in [(120, 36), (100, 30)] {
+            for automatic in [true, false] {
+                let mut app = App::new("/workspace".into(), width, height);
+                app.store_event(crate::store::Event::Loaded(crate::store::Project {
+                    tasks: Vec::new(),
+                    partners: vec![crate::store::Partner {
+                        auto_form: automatic,
+                        ..Default::default()
+                    }],
+                    active_id: None,
+                    usage_bytes: 0,
+                }));
+                let mut progress = Progress::default();
+                progress
+                    .propose(
+                        "fixture",
+                        vec![
+                            Step {
+                                label: "오류 조사".into(),
+                                phase: None,
+                                status: Status::Done,
+                            },
+                            Step {
+                                label: "코드 수정".into(),
+                                phase: None,
+                                status: Status::Pending,
+                            },
+                        ],
+                    )
+                    .unwrap();
+                app.workflows.progress = Some(progress.clone());
+                let screen = draw_home(&mut app);
+                assert!(screen.contains("Todo proposal waiting"), "{screen}");
+                progress.adopt().unwrap();
+                app.workflows.progress = Some(progress);
+                let screen = draw_home(&mut app);
+                let expected = if automatic {
+                    format!("→ {} · Todo 2/2", crate::domain::FORMS[3].name)
+                } else {
+                    "Todo 2/2".into()
+                };
+                assert!(screen.contains(&expected), "{expected}\n{screen}");
+            }
+        }
+    }
+
+    #[test]
     fn model_search_and_custom_entry_remain_visible_in_compact_picker() {
         for (width, height) in [(60, 18), (120, 36)] {
             let (mut app, task) = preview(width, height);

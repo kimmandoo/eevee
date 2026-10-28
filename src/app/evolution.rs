@@ -874,22 +874,37 @@ impl App {
             })
     }
 
+    /// The adopted todo step that automatic evolution continues, if any.
+    fn todo_focus(&self) -> Option<&str> {
+        (self.lead.auto_form && self.planning.explicit_operation().is_none())
+            .then(|| self.workflows.progress.as_ref()?.focus_label())
+            .flatten()
+    }
+
+    /// Current todo step position and the form it steers automatic evolution
+    /// toward, for the companion card. Purely a local prediction.
+    pub fn todo_guide(&self) -> Option<(String, Option<usize>)> {
+        let position = self.workflows.progress.as_ref()?.focus_position()?;
+        Some((
+            position,
+            self.todo_focus().and_then(classify).map(|todo| todo.form),
+        ))
+    }
+
+    /// Whether the next Send's appearance comes from the current todo step
+    /// rather than the request text itself.
+    pub(super) fn follows_todo(&self) -> bool {
+        classify(&self.input).is_none()
+            && self.todo_focus().and_then(classify).is_some()
+            && (crate::providers::effort::ambiguous_followup(&self.input)
+                || !self.planning.plan_conversation())
+    }
+
     /// Shared by inspection and ordinary Submit; does not mutate or prepare work.
-    fn request_evolution(&self) -> Option<Selection> {
+    pub(super) fn request_evolution(&self) -> Option<Selection> {
+        let todo = self.todo_focus().and_then(classify);
         let mut choice = classify(&self.input)
-            .or_else(|| {
-                (self.lead.auto_form
-                    && self.planning.explicit_operation().is_none()
-                    && crate::providers::effort::ambiguous_followup(&self.input))
-                .then(|| {
-                    self.workflows
-                        .progress
-                        .as_ref()?
-                        .active_label()
-                        .and_then(classify)
-                })
-                .flatten()
-            })
+            .or_else(|| todo.filter(|_| crate::providers::effort::ambiguous_followup(&self.input)))
             .or_else(|| {
                 (self.planning.operation == Operation::Plan
                     && proceed_with_plan(&self.input)
@@ -907,10 +922,12 @@ impl App {
                 // tool set: every file effect and command still needs exact
                 // one-shot approval. An ongoing planning/diagnosis conversation
                 // keeps its session for ambiguous follow-ups instead.
+                // An unclassified request keeps those tools but takes the
+                // current todo step's appearance.
                 (!self.planning.plan_conversation()).then_some(Selection {
-                    form: self.form(),
+                    form: todo.map_or_else(|| self.form(), |todo| todo.form),
                     operation: Operation::Implement,
-                    reason: Message::CoreEvolutionImplementation,
+                    reason: todo.map_or(Message::CoreEvolutionImplementation, |todo| todo.reason),
                 })
             })?;
         if !self.lead.auto_form {
@@ -956,7 +973,7 @@ impl App {
                 self.workflows
                     .progress
                     .as_ref()
-                    .and_then(|p| p.active_label()),
+                    .and_then(|p| p.focus_label()),
             ),
             todo_step: self.workflows.progress.as_ref().map(|p| p.summary()),
         });
@@ -980,7 +997,7 @@ impl App {
                         self.workflows
                             .progress
                             .as_ref()
-                            .and_then(|p| p.active_label()),
+                            .and_then(|p| p.focus_label()),
                     )
         })
     }
@@ -1001,14 +1018,12 @@ impl App {
                 fresh,
             });
             self.evolution.popup_shown = false;
-            if self.lead.auto_form
-                && self.planning.explicit_operation().is_none()
-                && crate::providers::effort::ambiguous_followup(&self.input)
+            if self.follows_todo()
                 && let Some(progress) = &self.workflows.progress
-                && let Some(step) = progress.active_label()
+                && let Some(step) = progress.focus_position()
             {
                 self.notice = format!(
-                    "Automatic form follows adopted todo revision {} / {step}",
+                    "Automatic form follows todo revision {} / step {step}",
                     progress.revision
                 );
             }
@@ -1081,7 +1096,7 @@ mod tests {
                             .progress
                             .as_ref()
                             .unwrap()
-                            .active_label()
+                            .focus_label()
                             .is_none()
                     );
                     progress.adopt().unwrap();

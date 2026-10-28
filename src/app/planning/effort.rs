@@ -72,7 +72,7 @@ impl State {
             .workflows
             .progress
             .as_ref()
-            .and_then(|progress| progress.active_label());
+            .and_then(|progress| progress.focus_label());
         let resolution = self.effort_preview(text, active);
         if let Some(resolution) = resolution {
             self.request_effort_model = self

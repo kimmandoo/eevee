@@ -1109,6 +1109,24 @@ fn workspace(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &
     );
 }
 
+/// The todo step that steers automatic evolution, or a waiting proposal.
+fn todo_line(app: &App) -> Option<String> {
+    if let Some((position, form)) = app.todo_guide() {
+        return Some(match form {
+            // Lead with the destination so clipping keeps it visible.
+            Some(form) => format!("→ {} · Todo {position}", FORMS[form].name),
+            None => format!("Todo {position}"),
+        });
+    }
+    app.workflows
+        .progress
+        .as_ref()
+        .filter(|progress| {
+            progress.revision > 0 && progress.adopted_revision != Some(progress.revision)
+        })
+        .map(|_| "Todo proposal waiting · /todo".into())
+}
+
 fn compact_companion(
     frame: &mut Frame,
     area: Rect,
@@ -1133,7 +1151,9 @@ fn compact_companion(
     if show_image && app.nickname_editor.is_none() {
         artwork.render(app.form(), image, frame.buffer_mut());
     }
-    let status = if app.criteria.is_empty() {
+    let status = if let Some(todo) = todo_line(app) {
+        Cow::Owned(todo)
+    } else if app.criteria.is_empty() {
         Cow::Borrowed("No criteria yet")
     } else {
         let met = app
@@ -1146,7 +1166,7 @@ fn compact_companion(
     text(
         frame,
         row(content, content.height.saturating_sub(2), 1),
-        &status,
+        &clipped(&status, content.width as usize),
         paint.muted,
     );
     text(
@@ -1216,6 +1236,11 @@ fn companion(
     lines.extend([
         Line::styled(form.element, paint.muted),
         Line::from(form.role),
+    ]);
+    if let Some(todo) = todo_line(app) {
+        lines.push(Line::styled(todo, paint.accent));
+    }
+    lines.extend([
         Line::styled(artwork.status(app.form()), paint.muted),
         Line::styled("/party Roster / /lead Front a partner", paint.accent),
     ]);

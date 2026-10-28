@@ -1,5 +1,13 @@
 # Work Checkpoint
 
+## 2026-10-28 — Automatic todo-driven evolution (completed locally; unreleased)
+
+- **Request:** Make todo automatic and use it as the basis for Eevee's evolution decision, with the best UX. Baseline `8ca7879`. Intentional contract change; DESIGN_RULES updated.
+- **Implementation:** `src/workspace/progress.rs` `focus_step`/`focus_label`/`focus_position` (active, else first pending; replaces `active_label`), summary `next:`. `src/app/progress.rs` auto-adopts provider proposals when `lead.auto_form`, adopts user edits immediately, mode hint on the card. `src/app/evolution.rs` `todo_focus`/`follows_todo`/`todo_guide`; ambiguous follow-ups take the step's selection, unclassified requests outside planning conversations keep Implement with the step's form; effort uses the focus step. `src/ui.rs` companion/compact companion show `→ <form> · Todo n/m label` or `Todo proposal waiting · /todo`.
+- **Not changed:** native `/todo-eager` prelude remains off by default (tri-state would need a persisted-schema change). 60×18 has no companion pane; `/todo` and `/evolution-preview` show the same facts. Form never changes mid-run; todo never sends or grants.
+- **Verification:** fmt; strict Clippy clean; full suite 1,849 passed/two ignored, including `automatic_todo_follows_provider_progress_and_steers_the_next_send`, `focus_follows_active_then_next_pending_adopted_step`, `home_companion_names_the_todo_step_that_steers_evolution`. No live provider call or interactive terminal run.
+- **Next action:** None; commit.
+
 ## 2026-10-28 — Prompt-intent/todo audit (completed locally; unreleased)
 
 - **Request:** Verify that prompt-intent classification and todo extraction work. Baseline `77776c3`.

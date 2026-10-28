@@ -4282,3 +4282,148 @@ fn all_route_and_model_choices_preserve_task_owned_progress_criteria_and_unicode
         }
     }
 }
+
+#[test]
+fn automatic_todo_follows_provider_progress_and_steers_the_next_send() {
+    use crate::providers::{Agent, Event as ProviderEvent, Preview, Request};
+    use crate::workspace::progress::{Status, Step};
+    if std::env::var_os("EV_TEST_AUTO_TODO").is_none() {
+        let home = std::env::temp_dir().join(format!(
+            "eevee-auto-todo-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir(&home).unwrap();
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "app::tests::automatic_todo_follows_provider_progress_and_steers_the_next_send",
+                "--nocapture",
+            ])
+            .env_clear()
+            .env("HOME", &home)
+            .env("USERPROFILE", &home)
+            .env("EV_TEST_AUTO_TODO", "1")
+            .env("EV_API_BASE_URL", "http://127.0.0.1:9/v1")
+            .env("EV_API_KEY", "synthetic-todo-fixture-not-a-real-key")
+            .output();
+        std::fs::remove_dir_all(home).unwrap();
+        let output = output.unwrap();
+        assert!(
+            output.status.success(),
+            "{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return;
+    }
+    let steps = |active: usize| {
+        ["오류 조사", "코드 수정", "테스트 실행"]
+            .iter()
+            .enumerate()
+            .map(|(index, label)| Step {
+                label: (*label).into(),
+                phase: None,
+                status: match index.cmp(&active) {
+                    std::cmp::Ordering::Less => Status::Done,
+                    std::cmp::Ordering::Equal => Status::Active,
+                    std::cmp::Ordering::Greater => Status::Pending,
+                },
+            })
+            .collect::<Vec<_>>()
+    };
+    for automatic in [true, false] {
+        let mut app = request_app();
+        app.lead.auto_form = automatic;
+        app.planning.agent = Agent::Compatible;
+        app.planning
+            .preference_event(Ok(Some(store::ProviderPreferences {
+                provider: Agent::Compatible,
+                selections: std::collections::HashMap::new(),
+                reduced_motion: false,
+                text_density: store::TextDensity::Compact,
+            })));
+        app.update(Event::Paste("Fix the failing code".into()));
+        key(&mut app, KeyCode::Enter);
+        save_request(&mut app);
+        app.settle_planning();
+        acknowledge_work(&mut app);
+        assert!(matches!(
+            app.planning.pending.take(),
+            Some(Request::Preview(_))
+        ));
+        app.provider_event(
+            1,
+            ProviderEvent::Preview(Preview {
+                transport: None,
+                comparison_scope: None,
+                arrival: crate::providers::approval_arrival(),
+                generation: 91,
+                task_id: app.task_id,
+                thread_id: None,
+                destination: None,
+                requires_connection_review: false,
+                trust: Vec::new(),
+                payload: "{}".into(),
+                blockers: Vec::new(),
+            }),
+        );
+        app.settle_planning();
+        assert!(matches!(
+            app.planning.pending.take(),
+            Some(Request::Run { generation: 91 })
+        ));
+        let form = app.form();
+        for active in 0..2 {
+            assert!(app.provider_event(
+                1,
+                ProviderEvent::Progress {
+                    generation: 91,
+                    task_id: app.task_id,
+                    source: "native todo".into(),
+                    steps: Ok(steps(active)),
+                },
+            ));
+            let progress = app.workflows.progress.as_ref().unwrap();
+            if automatic {
+                assert_eq!(
+                    progress.focus_label(),
+                    Some(["오류 조사", "코드 수정"][active])
+                );
+                assert!(
+                    app.workflow.notice.contains("Todo updated automatically"),
+                    "{}",
+                    app.workflow.notice
+                );
+            } else {
+                assert!(
+                    progress.focus_label().is_none(),
+                    "manual mode still adopts explicitly"
+                );
+            }
+            assert_eq!(app.form(), form, "progress never evolves mid-run");
+            assert!(app.planning.pending.is_none(), "progress never sends");
+        }
+        if automatic {
+            // An ambiguous follow-up continues the focused step, and an
+            // unclassified request keeps full tools with the step's appearance.
+            for input in ["계속", "Please handle what's left"] {
+                app.input = input.into();
+                let selection = app.request_evolution().unwrap();
+                assert_eq!(
+                    (selection.form, selection.operation),
+                    (3, crate::providers::Operation::Implement),
+                    "{input}"
+                );
+                assert!(app.follows_todo(), "{input}");
+            }
+            // Explicit request intent still wins over the todo step.
+            app.input = "Review the code".into();
+            assert_eq!(app.request_evolution().unwrap().form, 7);
+            assert!(!app.follows_todo());
+        }
+    }
+}

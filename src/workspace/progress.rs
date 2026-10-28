@@ -88,8 +88,23 @@ impl State {
         }
         self.steps.iter().find(|s| s.status == Status::Active)
     }
-    pub fn active_label(&self) -> Option<&str> {
-        self.active_step().map(|s| s.label.as_str())
+    /// The adopted step the next request continues: the active step, otherwise
+    /// the first pending one. Done/blocked/dropped steps never steer work.
+    pub fn focus_step(&self) -> Option<(usize, &Step)> {
+        if self.adopted_revision != Some(self.revision) {
+            return None;
+        }
+        let find = |status| self.steps.iter().position(|s| s.status == status);
+        let index = find(Status::Active).or_else(|| find(Status::Pending))?;
+        Some((index, &self.steps[index]))
+    }
+    pub fn focus_label(&self) -> Option<&str> {
+        self.focus_step().map(|(_, s)| s.label.as_str())
+    }
+    /// Compact "2/5 label" position of the focus step.
+    pub fn focus_position(&self) -> Option<String> {
+        self.focus_step()
+            .map(|(index, step)| format!("{}/{} {}", index + 1, self.steps.len(), step.label))
     }
     pub fn propose(&mut self, source: &str, steps: Vec<Step>) -> Result<bool, String> {
         validate_steps(&steps)?;
@@ -175,6 +190,11 @@ impl State {
         match self.active_step() {
             Some(step) => format!("adopted revision {} / {}", self.revision, step.label),
             None if self.revision == 0 => "no step list from this route".into(),
+            None if self.focus_step().is_some() => format!(
+                "adopted revision {} / next: {}",
+                self.revision,
+                self.focus_label().unwrap_or_default()
+            ),
             None => format!(
                 "revision {} / {} / no adopted active step",
                 self.revision,
@@ -283,21 +303,54 @@ mod tests {
                 ],
             )
             .unwrap();
-        assert!(state.active_label().is_none());
+        assert!(state.focus_label().is_none());
         state.adopt().unwrap();
-        assert_eq!(state.active_label(), Some("조사 오류"));
+        assert_eq!(state.focus_label(), Some("조사 오류"));
         let old = state.clone();
         assert!(state.operate("start", "fix code", vec![]).is_err());
         assert_eq!(state, old);
         state.operate("done", "조사 오류", vec![]).unwrap();
         state.operate("start", "fix code", vec![]).unwrap();
-        assert!(state.active_label().is_none());
+        assert!(state.focus_label().is_none());
         assert!(!state.diff().is_empty());
         state.adopt().unwrap();
-        assert_eq!(state.active_label(), Some("fix code"));
+        assert_eq!(state.focus_label(), Some("fix code"));
         assert_eq!(
             serde_json::from_str::<State>(&serde_json::to_string(&state).unwrap()).unwrap(),
             state
+        );
+    }
+    #[test]
+    fn focus_follows_active_then_next_pending_adopted_step() {
+        let mut state = State::default();
+        state
+            .propose(
+                "fixture",
+                vec![
+                    step("오류 조사", Status::Done),
+                    step("코드 수정", Status::Pending),
+                    step("테스트 실행", Status::Pending),
+                ],
+            )
+            .unwrap();
+        assert!(
+            state.focus_step().is_none(),
+            "unadopted proposals never steer"
+        );
+        state.adopt().unwrap();
+        assert_eq!(state.focus_label(), Some("코드 수정"));
+        assert_eq!(state.focus_position().as_deref(), Some("2/3 코드 수정"));
+        assert_eq!(state.summary(), "adopted revision 1 / next: 코드 수정");
+        state.operate("start", "테스트 실행", vec![]).unwrap();
+        state.adopt().unwrap();
+        assert_eq!(state.focus_label(), Some("테스트 실행"));
+        for label in ["코드 수정", "테스트 실행"] {
+            state.operate("done", label, vec![]).unwrap();
+        }
+        state.adopt().unwrap();
+        assert!(
+            state.focus_step().is_none(),
+            "completed lists steer nothing"
         );
     }
     #[test]
@@ -318,7 +371,7 @@ mod tests {
             .apply_tool(&serde_json::json!({"operation":"view","label":"","steps":[]}))
             .unwrap();
         assert_eq!(state, before);
-        assert!(state.active_label().is_none());
+        assert!(state.focus_label().is_none());
     }
     #[test]
     fn adapters_agree_and_bounds_refuse() {

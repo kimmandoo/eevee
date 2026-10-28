@@ -2,6 +2,7 @@
 
 ## 2026-10-28
 
+- feat(evolution): adopted provider todo updates automatically in automatic form mode, steered the next Send's evolution from the current (active or next pending) todo step for ambiguous and unclassified requests, applied user-authored todo edits immediately, and showed the step and predicted form in the companion card.
 - fix(evolution): stopped Korean descriptive verb forms (`구현됐나`, `뽑는 기능`, `추가된`) from requesting mutation, classified checks of existing features/implementations as Verification, and kept a repair of a diagnosed object (`Investigate the crash and fix it`) as an Implement-capable Diagnosis instead of read-only Plan.
 - fix(providers): admitted an exactly accepted same-task handoff after request-only saves when every portable fact still matched, kept changed/foreign handoffs fail-closed with a `/handoff-clear` recovery hint, and excluded tool selections reviewed for another adapter/task/partner instead of blocking every later request after a switch.
 - feat(ui): painted the selected `[choice]` in review/confirmation controls as a highlighted button, highlighted the focused provider question/permission option, and kept the focused answer option scrolled into view at 60×18.

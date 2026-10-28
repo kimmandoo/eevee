@@ -50,14 +50,14 @@ fn adoption_requires_visible_current_revision_and_never_dispatches() {
                 .progress
                 .as_ref()
                 .unwrap()
-                .active_label()
+                .focus_label()
                 .is_none()
         );
         app.workflow.todo_revision = Some(1);
         app.workflow.todo_reviewed = true;
         app.progress_command("todo-adopt", "");
         assert_eq!(
-            app.workflows.progress.as_ref().unwrap().active_label(),
+            app.workflows.progress.as_ref().unwrap().focus_label(),
             Some("오류 조사")
         );
         assert_eq!(
