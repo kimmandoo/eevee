@@ -1,5 +1,11 @@
 # Work Checkpoint
 
+## 2026-10-28 — Game-loop task track added (planning only)
+
+- **Request:** Add tasks for more game-like use: learning a move from repeated similar commands, tools/Poké Ball-style items, and TM/Potion/Berry sprites shown with popups. Planning only; nothing implemented.
+- **Added:** `tasks/L-game-loop.md` GL01–GL05 and the task.md track row (remaining 14 → 19). Each task maps items to existing reviewed actions and records the binding constraints: explicit teach review, no progression mechanics, cache-only item sprites under the existing rights review, and a required DESIGN_RULES popup change for GL05.
+- **Next action:** Choose GL tasks on a later authorized implementation request. Not pushed until the in-progress v0.1.35 release (tag on `ad5c634`) is published.
+
 ## 2026-10-28 — Whole-product UX pass and v0.1.35 release (in progress)
 
 - **Request:** Improve ambiguous UX across Eevee and publish a release (user explicitly authorized release). Baseline `30a7961`.
