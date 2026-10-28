@@ -273,6 +273,15 @@
 - test(terminal): acknowledged the new one-time evolution receipt before checking preserved goal/edit/discard behavior in the actual compact installed runtime without changing the published executable.
 - docs(verification): verified all public assets, sixteen bilingual automatic-review/file-progress journeys/64 groups, 24 file journeys/126 groups, evolution popups and preserved typing, scrolling/tooltips, native 176 groups, cooperation 24, six genuine schema upgrade/refusal/resume cases and 23 installation groups/all 34 installed terminal scenarios.
 
+## 0.1.35
+
+- fix(providers): stopped provider switches and request-only saves from staling handoffs, kept changed/foreign handoffs fail-closed with a `/handoff-clear` hint, and excluded `/tools` selections reviewed for another adapter instead of blocking every request.
+- fix(auth): preserved saved-account expiry and private-source read diagnostics in recovery setup and Account Advanced settings.
+- feat(ui): highlighted the selected choice in every review/confirmation and the focused provider question/permission option, keeping it scrolled into view at 60×18.
+- fix(evolution): treated Korean descriptive verbs and "check whether it works" as verification and kept repairs of a diagnosed failure Implement-capable.
+- feat(evolution)!: in automatic form mode, adopted provider todo updates automatically and chose the next Send's form from the current todo step; enabled the native phased-todo prelude by default (`/todo-eager off` writes a task opt-out that 0.1.34 refuses).
+- feat(ui): marked an unconnected route in the header, gave `/todo` its own panel, listed everyday commands first, hid the advisory form strip in automatic mode and added `/todo`/`/evolution-preview` to help.
+
 ## 0.1.34
 
 - feat(providers): added `--native-transport auto|http|websocket`, defaulted exact official public Responses requests to WebSocket, and retained HTTP for other native routes.
