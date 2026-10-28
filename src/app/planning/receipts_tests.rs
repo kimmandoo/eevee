@@ -105,7 +105,7 @@ fn blocked_preview_preserves_cause_without_a_fictitious_outgoing_receipt() {
     let mut blocked = preview();
     blocked.payload.clear();
     blocked.blockers.push(
-        "Handoff task changed or belongs to another task; prepare and accept a fresh handoff"
+        "Handoff task changed or belongs to another task; prepare and accept a fresh handoff, or /handoff-clear to send without it"
             .into(),
     );
     let causes = blocked.blockers.clone();

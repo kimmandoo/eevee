@@ -104,7 +104,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             paint,
         );
         app.moves.reviewed = body.height >= 4;
-        text(
+        super::choices(
             frame,
             footer,
             if !app.moves.failure_discard {
@@ -119,6 +119,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                 )
             },
             paint.accent,
+            paint,
         );
         return;
     }
@@ -283,7 +284,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                 );
                 app.moves.reviewed = body.height >= 4;
             }
-            text(
+            super::choices(
                 frame,
                 footer,
                 paint.hint(if app.moves.affirmative {
@@ -292,6 +293,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                     crate::messages::Message::TmExportControls
                 }),
                 paint.accent,
+                paint,
             );
         }
         Mode::Name => render_name(frame, body, footer, &app.moves, paint),
@@ -560,7 +562,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                     .hint(crate::messages::Message::DesksMovesStayConfirmLocalChangeEnterStayLeft)
                     .into()
             };
-            text(frame, footer, &controls, paint.accent);
+            super::choices(frame, footer, &controls, paint.accent, paint);
         }
         Mode::TaskReview => {
             text(
@@ -589,7 +591,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             if !app.moves.reviewed {
                 app.moves.affirmative = false;
             }
-            text(
+            super::choices(
                 frame,
                 footer,
                 if !app.moves.reviewed {
@@ -604,6 +606,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                     )
                 },
                 paint.accent,
+                paint,
             );
         }
     }

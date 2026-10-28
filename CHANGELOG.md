@@ -2,6 +2,8 @@
 
 ## 2026-10-28
 
+- fix(providers): admitted an exactly accepted same-task handoff after request-only saves when every portable fact still matched, kept changed/foreign handoffs fail-closed with a `/handoff-clear` recovery hint, and excluded tool selections reviewed for another adapter/task/partner instead of blocking every later request after a switch.
+- feat(ui): painted the selected `[choice]` in review/confirmation controls as a highlighted button, highlighted the focused provider question/permission option, and kept the focused answer option scrolled into view at 60×18.
 - fix(providers): stopped provider switching from retaining synthetic stale task handoffs, preserved exact imported-document admission, and prevented blocked previews from producing secondary empty-JSON errors or retaining staged outgoing receipts.
 - fix(auth): preserved saved-account grant/JWT expiry and private-source read diagnostics through recovery setup and Account Advanced settings without renewing, persisting or replaying credentials.
 - feat(sdk)!: advanced the complete SDK bridge to11 for structured progress events and refused older mixed components before dispatch.

@@ -152,7 +152,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         if let Some(pending) = &mut app.workflow.relay {
             pending.reviewed = confirm && body.height >= 3;
         }
-        text(
+        super::choices(
             frame,
             footer,
             if confirm {
@@ -161,6 +161,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                 paint.hint(crate::messages::Message::DesksWorkflowsUpDownTargetEnterReviewEscCancel)
             },
             paint.accent,
+            paint,
         );
         return;
     }
@@ -213,7 +214,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                     .saturating_add((caret_row.saturating_sub(top) as u16).min(input.height - 1)),
             ));
         }
-        text(
+        super::choices(
             frame,
             row(body, body.height.saturating_sub(1), 1),
             if app.workflow.editor_done {
@@ -226,6 +227,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             } else {
                 paint.muted
             },
+            paint,
         );
         text(
             frame,

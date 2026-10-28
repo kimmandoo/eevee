@@ -270,17 +270,14 @@ impl State {
         task_id: i64,
         partner: i64,
     ) -> Result<Option<Selection>, String> {
-        if self.selected.is_empty() {
+        // A selection reviewed for another adapter/task/partner is not portable:
+        // exclude it rather than blocking every later request after a switch.
+        // It stays selected for its own owner; /tools reselects for this route.
+        if self.selected.is_empty() || self.owner != (task_id, partner) || self.agent != agent {
             return Ok(None);
         }
-        if self.busy()
-            || self.failed.is_some()
-            || self.owner != (task_id, partner)
-            || self.agent != agent
-        {
-            return Err(
-                "Finish catalog setup for this exact task/partner/adapter before dispatch".into(),
-            );
+        if self.busy() || self.failed.is_some() {
+            return Err("Finish or retry catalog setup before dispatch".into());
         }
         let document = self
             .document
@@ -485,6 +482,32 @@ mod tests {
             );
             std::thread::sleep(Duration::from_millis(1));
         }
+    }
+
+    #[test]
+    fn foreign_owner_selection_is_excluded_without_blocking_or_forgetting() {
+        let mut state = State {
+            agent: Agent::Compatible,
+            owner: (7, 1),
+            selected: BTreeSet::from([0]),
+            ..State::default()
+        };
+        for (agent, task, partner) in [
+            (Agent::Claude, 7, 1),
+            (Agent::Compatible, 8, 1),
+            (Agent::Compatible, 7, 2),
+        ] {
+            assert_eq!(state.selection(agent, task, partner), Ok(None));
+        }
+        assert_eq!(state.selected, BTreeSet::from([0]));
+        state.inflight = true;
+        assert!(state.selection(Agent::Claude, 7, 1).unwrap().is_none());
+        assert!(
+            state
+                .selection(Agent::Compatible, 7, 1)
+                .unwrap_err()
+                .contains("catalog setup")
+        );
     }
 
     #[test]

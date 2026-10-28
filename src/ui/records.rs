@@ -237,11 +237,12 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             })
             .to_owned()
     };
-    text(
+    super::choices(
         frame,
         row(content, content.height.saturating_sub(3), 3),
         &footer,
         paint.muted,
+        paint,
     );
 }
 fn title(mode: Mode) -> Message {

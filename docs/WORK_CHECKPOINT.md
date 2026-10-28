@@ -1,5 +1,13 @@
 # Work Checkpoint
 
+## 2026-10-28 — Follow-up handoff-class blockers and choice visibility (completed locally; unreleased)
+
+- **Request / baseline:** Audit agent use for further bugs like the fixed provider-switch handoff blocker, fix them, then improve visibility of choices. Started clean main at `b239cc6`; no wave, live/paid call, push or release work.
+- **Found / fixed:** (1) An accepted same-task handoff became stale on every composer Send because admission compared raw revisions; `src/workspace/handoff.rs` now admits a later revision only when every portable fact/source still matches exactly, and the refusal names `/handoff-clear`. (2) `/tools` selections for another adapter/task/partner blocked every later request after a switch; `src/app/tool_catalog.rs` now excludes them (retained for their owner). Context plans/screenshots already dropped/filtered stale state and were left unchanged.
+- **UI/UX:** `src/ui.rs` `choice_text`/`choices` paint the bracketed `[Selected]` segment as an accent button across planning, agents, handoff, memory, moves, records, workflows, held, updates, parked drafts and execution controls. `src/ui/planning.rs` highlights the focused question/permission option and keeps the focused answer option scrolled into view (previously the second option was off-screen at 60×18). Parked-draft review now uses `[Discard]`/`[Replace]` instead of a trailing `[selected]`.
+- **Verification:** Rust `cargo fmt --all`; `cargo clippy --locked --all-targets --all-features -- -D warnings` clean; `cargo test --locked --all-targets --all-features -- --test-threads=4` **1,845 passed/two ignored**. UI behaviour verified through TestBackend renders of the real render path at 120×36 and 60×18; no interactive terminal/native Windows run and no live provider call.
+- **Active task / exact next action:** None locally; commit. Publication remains unauthorized.
+
 ## 2026-10-28 — PowerShell handoff blockers and connection retention (completed locally; unreleased)
 
 - **Request / baseline:** Investigated the user's recurring `Handoff task changed...` plus `Invalid frozen request JSON: EOF...` in Windows PowerShell and apparent connection loss on later visits. Read checkpoint/task/active plan/design; started clean main at `3655f69`. No remaining wave, live/paid call, publication or strategy work was started.

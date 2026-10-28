@@ -2073,7 +2073,7 @@ fn provider_switch_does_not_pin_synthetic_handoff_across_composer_saves() {
 }
 
 #[test]
-fn accepted_imports_remain_exact_and_fail_closed_after_provider_switch_and_send() {
+fn accepted_imports_stay_exact_across_provider_switch_and_request_saves() {
     use crate::providers::{Agent, Request};
 
     for foreign in [false, true] {
@@ -2123,18 +2123,23 @@ fn accepted_imports_remain_exact_and_fail_closed_after_provider_switch_and_send(
             selected, &imported,
             "never silently refresh an accepted import"
         );
-        assert!(
-            crate::workspace::handoff::validate_dispatch(
-                selected,
-                &input.task,
-                &input.excerpts,
-                input.report.as_ref(),
-                &[],
-            )
-            .unwrap_err()
-            .contains("Handoff task changed or belongs to another task"),
-            "foreign and stale imported documents must still fail closed"
+        let admission = crate::workspace::handoff::validate_dispatch(
+            selected,
+            &input.task,
+            &input.excerpts,
+            input.report.as_ref(),
+            &[],
         );
+        if foreign {
+            assert!(
+                admission
+                    .unwrap_err()
+                    .contains("Handoff task changed or belongs to another task"),
+                "foreign imported documents must still fail closed"
+            );
+        } else {
+            admission.expect("saving a new Request must not stale an exact accepted import");
+        }
     }
 }
 

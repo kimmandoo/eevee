@@ -648,11 +648,12 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             Page::Actions => paint.hint(Message::DiagnosticsActionsNavigation).into(),
             Page::Diagnostics => paint.hint(Message::DiagnosticsNavigation).into(),
         };
-        text(
+        super::choices(
             frame,
             row(content, content.height.saturating_sub(2), 2),
             &footer,
             paint.accent,
+            paint,
         );
         return;
     }
@@ -786,11 +787,12 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             .hint(Message::ProvidersAgentsBackCheckVersionYNDTab2)
             .into()
     };
-    text(
+    super::choices(
         frame,
         row(content, content.height.saturating_sub(1), 1),
         &footer,
         paint.accent,
+        paint,
     );
 }
 
@@ -1093,11 +1095,12 @@ fn render_forget(
     } else {
         paint.hint(Message::ProvidersAgentsBackForgetLocalTabEnterYN2)
     };
-    text(
+    super::choices(
         frame,
         row(content, content.height.saturating_sub(1), 1),
         footer,
         paint.accent,
+        paint,
     );
 }
 

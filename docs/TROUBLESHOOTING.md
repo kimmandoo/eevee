@@ -1,5 +1,12 @@
 # Troubleshooting
 
+### [2026-10-28] Accepted handoffs and tool selections still blocked Requests after ordinary saves or switches
+
+- **Context / Symptom:** After the provider-switch fix, two related paths still refused every later Send. An explicitly accepted same-task handoff failed with `Handoff task changed or belongs to another task; prepare and accept a fresh handoff` as soon as the composer saved the new Request (every Send does). A `/tools` selection made for one adapter returned `Finish catalog setup for this exact task/partner/adapter before dispatch` after switching provider, form partner or task, with no hint how to recover.
+- **Root Cause:** Handoff admission compared the raw task revision, which advances on request-only saves even though the Request text is not part of the portable document. The tool catalog treated a selection owned by another adapter/task/partner as an unfinished setup instead of non-portable state.
+- **Solution:** `validate_dispatch` admits a later revision only when the same task's goal, next action, criteria, derived portable facts/unresolved items and sources still match exactly; the document is never refreshed. Changed/foreign handoffs still fail closed and the refusal now names `/handoff-clear`. `tool_catalog::State::selection` excludes a foreign-owner selection (kept for its own owner) and errors only for the current owner's busy/failed setup.
+- **Prevention / Reference:** Regressions `later_revisions_admit_only_unchanged_portable_facts`, `accepted_imports_stay_exact_across_provider_switch_and_request_saves`, `foreign_owner_selection_is_excluded_without_blocking_or_forgetting`. When adding new task-bound request state, decide whether a request-only save or provider switch should drop, exclude or block it; blocking needs an actionable recovery command.
+
 ### [2026-10-28] Provider switching blocked later Requests with stale handoff and empty JSON errors
 
 - **Context / Symptom:** A Windows PowerShell user reported `Handoff task changed or belongs to another task; prepare and accept a fresh handoff` together with `Invalid frozen request JSON: EOF while parsing a value at line 1 column 0`. Both were reproduced by consumer regressions before the fix (`artifact://7`, `artifact://10`).

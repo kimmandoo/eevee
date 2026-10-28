@@ -272,7 +272,7 @@ fn render_reference_review(
                 && app.command_popup.is_none()
                 && app.confirmation.is_none(),
         );
-        text(
+        super::choices(
             frame,
             footer,
             paint.hint(if !app.held_renewal_can_confirm() {
@@ -283,6 +283,7 @@ fn render_reference_review(
                 Message::HeldRenewalScroll
             }),
             paint.accent,
+            paint,
         );
         (detail, scroll)
     } else {

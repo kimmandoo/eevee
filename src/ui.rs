@@ -28,7 +28,7 @@ use ratatui::{
     layout::{Alignment, Rect},
     style::{Color, Modifier, Style},
     symbols::border,
-    text::{Line, Span},
+    text::{Line, Span, Text},
     widgets::{Block, BorderType, Clear, Padding, Paragraph, Wrap},
 };
 use unicode_segmentation::UnicodeSegmentation;
@@ -762,6 +762,46 @@ fn text(frame: &mut Frame, area: Rect, value: &str, style: Style) {
         Paragraph::new(value)
             .style(style)
             .wrap(Wrap { trim: false }),
+        area,
+    );
+}
+
+/// Choice/control lines mark the selected action as `[Label]`; paint that
+/// segment as a button so the current choice stands out from its alternatives.
+fn choice_text<'a>(value: &'a str, style: Style, selected: Style) -> Text<'a> {
+    let lines = value.split('\n').map(|line| {
+        let mut spans = Vec::new();
+        let mut rest = line;
+        while let Some(start) = rest.find('[') {
+            let Some(end) = rest[start..].find(']').map(|end| start + end) else {
+                break;
+            };
+            if !rest[start + 1..end]
+                .chars()
+                .next()
+                .is_some_and(char::is_uppercase)
+            {
+                spans.push(Span::styled(&rest[..=end], style));
+                rest = &rest[end + 1..];
+                continue;
+            }
+            if start > 0 {
+                spans.push(Span::styled(&rest[..start], style));
+            }
+            spans.push(Span::styled(&rest[start..=end], selected));
+            rest = &rest[end + 1..];
+        }
+        if !rest.is_empty() {
+            spans.push(Span::styled(rest, style));
+        }
+        Line::from(spans)
+    });
+    Text::from(lines.collect::<Vec<_>>()).style(style)
+}
+
+fn choices(frame: &mut Frame, area: Rect, value: &str, style: Style, paint: &Paint) {
+    frame.render_widget(
+        Paragraph::new(choice_text(value, style, paint.selected)).wrap(Wrap { trim: false }),
         area,
     );
 }

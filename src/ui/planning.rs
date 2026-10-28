@@ -123,7 +123,7 @@ pub(super) fn render_small(frame: &mut Frame, area: Rect, state: &mut State, pai
             .hint(Message::ProvidersPlanningPlanningTerminalTooSmallNeed60Columns)
             .into()
     };
-    text(frame, area, &value, paint.accent);
+    super::choices(frame, area, &value, paint.accent, paint);
 }
 
 pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &Paint) {
@@ -355,6 +355,8 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
     let mut value = String::new();
     let _ = writeln!(value, "{}\n", super::selection_text(state));
     let mut review = false;
+    // Line of the focused provider option, painted as the current choice.
+    let mut focused_line = None;
     if let Some(preview) = &state.preview {
         for blocker in &preview.blockers {
             let _ = writeln!(
@@ -427,6 +429,9 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                 value.push_str("PERMISSION / EXACT PROVIDER RESPONSE\n");
                 value.push_str(description);
                 for (index, option) in options.iter().enumerate() {
+                    if index == state.option {
+                        focused_line = Some(value.matches('\n').count() + 1);
+                    }
                     let _ = writeln!(
                         value,
                         "\n{} {}: {}",
@@ -503,6 +508,9 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                         )
                     );
                     for (index, option) in question.options.iter().enumerate() {
+                        if state.option == index {
+                            focused_line = Some(value.matches('\n').count());
+                        }
                         let _ = writeln!(
                             value,
                             "{} {}\n  {}",
@@ -512,6 +520,9 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                         );
                     }
                     if question.other || question.options.is_empty() {
+                        if state.option == question.options.len() {
+                            focused_line = Some(value.matches('\n').count());
+                        }
                         let _ = writeln!(
                             value,
                             "{}",
@@ -561,10 +572,37 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         value.push_str(inspection);
     }
     let details = row(content, 1, content.height.saturating_sub(6));
+    let lines: Vec<_> = value
+        .split('\n')
+        .enumerate()
+        .map(|(index, line)| {
+            if focused_line == Some(index) {
+                Line::styled(line, paint.selected)
+            } else {
+                Line::raw(line)
+            }
+        })
+        .collect();
+    // Keep the focused answer choice and its description on screen; consent
+    // reviews keep purely manual scrolling.
+    if let Some(line) = focused_line.filter(|_| !review) {
+        let rows = |end: usize| {
+            Paragraph::new(lines[..end.min(lines.len())].to_vec())
+                .wrap(Wrap { trim: false })
+                .line_count(details.width.max(1))
+                .min(u16::MAX as usize) as u16
+        };
+        let (top, bottom) = (rows(line), rows(line + 2));
+        if top < state.scroll {
+            state.scroll = top;
+        } else if bottom > state.scroll.saturating_add(details.height) {
+            state.scroll = bottom.saturating_sub(details.height).min(top);
+        }
+    }
     state.scroll_max = selection_details(
         frame,
         details,
-        Paragraph::new(value)
+        Paragraph::new(lines)
             .style(paint.surface)
             .wrap(Wrap { trim: false }),
         state.scroll,
@@ -1063,7 +1101,7 @@ fn review_controls(frame: &mut Frame, area: Rect, state: &State, paint: &Paint) 
     } else {
         3
     };
-    text(
+    super::choices(
         frame,
         row(
             area,
@@ -1072,6 +1110,7 @@ fn review_controls(frame: &mut Frame, area: Rect, state: &State, paint: &Paint) 
         ),
         controls,
         paint.accent,
+        paint,
     );
 }
 
@@ -1452,7 +1491,7 @@ fn picker(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
             &summary,
             paint,
         );
-        text(
+        super::choices(
             frame,
             row(area, area.height.saturating_sub(3), 3),
             if state.affirmative {
@@ -1461,6 +1500,7 @@ fn picker(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
                 paint.hint(Message::ProvidersPlanningKeepCurrentNewSessionYNewN2)
             },
             paint.accent,
+            paint,
         );
         return;
     }
@@ -1715,7 +1755,7 @@ fn switch(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
         );
         state.scroll = 0;
         state.scroll_max = 0;
-        text(
+        super::choices(
             frame,
             row(area, area.height.saturating_sub(3), 3),
             if state.affirmative {
@@ -1724,6 +1764,7 @@ fn switch(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
                 paint.hint(Message::ProvidersPlanningStaySwitchAgentYSwitchNStay2)
             },
             paint.accent,
+            paint,
         );
         return;
     }
@@ -1784,7 +1825,7 @@ fn journal(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
             ],
             paint,
         );
-        text(
+        super::choices(
             frame,
             row(area, area.height.saturating_sub(3), 3),
             if state.affirmative {
@@ -1793,6 +1834,7 @@ fn journal(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
                 paint.hint(Message::ProvidersPlanningKeepPurgeTaskJournalYPurgeN2)
             },
             paint.accent,
+            paint,
         );
         return;
     }
@@ -1942,11 +1984,12 @@ fn quit(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
     } else {
         paint.hint(Message::ProvidersPlanningStayCancelRemainingWorkAndExit2)
     };
-    text(
+    super::choices(
         frame,
         row(area, area.height.saturating_sub(3), 1),
         choice,
         paint.accent,
+        paint,
     );
     text(
         frame,
@@ -3224,6 +3267,96 @@ mod tests {
             },
         });
         (app, task)
+    }
+
+    fn styled_row(buffer: &ratatui::buffer::Buffer, needle: &str) -> Option<(u16, u16)> {
+        (0..buffer.area.height).find_map(|y| {
+            let line = rendered_row(buffer, buffer.area, y);
+            let column = line.find(needle)?;
+            Some((line[..column].chars().count() as u16, y))
+        })
+    }
+
+    #[test]
+    fn choice_lines_paint_only_the_bracketed_selection_as_a_button() {
+        let selected = Style::default().add_modifier(Modifier::REVERSED);
+        let text = super::super::choice_text(
+            "Stay / [Switch agent] · y Switch / n Stay\n[n] key [Back]",
+            Style::default(),
+            selected,
+        );
+        let spans: Vec<_> = text
+            .lines
+            .iter()
+            .flat_map(|line| &line.spans)
+            .filter(|span| span.style == selected)
+            .map(|span| span.content.as_ref())
+            .collect();
+        assert_eq!(spans, ["[Switch agent]", "[Back]"]);
+        assert_eq!(
+            text.lines
+                .iter()
+                .map(|line| line.to_string())
+                .collect::<Vec<_>>(),
+            [
+                "Stay / [Switch agent] · y Switch / n Stay",
+                "[n] key [Back]"
+            ]
+        );
+    }
+
+    #[test]
+    fn focused_question_option_and_selected_action_are_highlighted() {
+        let config = config();
+        let paint = Paint::new(&config, &crate::domain::FORMS[0], 0);
+        for (width, height) in [(120, 36), (60, 18)] {
+            let (mut app, _) =
+                bolt_prompt(PromptKind::Questions(vec![crate::providers::Question {
+                    id: "q".into(),
+                    header: "Scope".into(),
+                    question: "Which module?".into(),
+                    options: vec![
+                        crate::providers::QuestionOption {
+                            label: "Alpha".into(),
+                            description: "first".into(),
+                        },
+                        crate::providers::QuestionOption {
+                            label: "Beta".into(),
+                            description: "second".into(),
+                        },
+                    ],
+                    other: false,
+                    secret: false,
+                }]));
+            app.width = width;
+            app.height = height;
+            for focused in [0, 1] {
+                app.planning.option = focused;
+                let buffer = draw(&mut app);
+                let screen = screen(&buffer);
+                let label = ["Alpha", "Beta"][focused];
+                let on = styled_row(&buffer, label)
+                    .unwrap_or_else(|| panic!("focused option must stay visible:\n{screen}"));
+                assert_eq!(buffer[on].bg, paint.selected.bg.unwrap(), "{screen}");
+                assert!(screen.contains(["first", "second"][focused]), "{screen}");
+                if let Some(off) = styled_row(&buffer, ["Beta", "Alpha"][focused]) {
+                    assert_ne!(buffer[off].bg, paint.selected.bg.unwrap());
+                }
+            }
+        }
+
+        let (mut app, _) = bolt_prompt(PromptKind::Approval {
+            command: "cargo test".into(),
+            cwd: "/workspace".into(),
+            reason: "verify".into(),
+            allow_once: true,
+            deny_decision: "decline".into(),
+        });
+        let buffer = draw(&mut app);
+        let deny = styled_row(&buffer, "[Deny]").expect("default Deny choice");
+        assert_eq!(buffer[deny].bg, paint.selected.bg.unwrap());
+        let allow = styled_row(&buffer, "Allow once").unwrap();
+        assert_ne!(buffer[allow].bg, paint.selected.bg.unwrap());
     }
 
     fn screen(buffer: &ratatui::buffer::Buffer) -> String {
