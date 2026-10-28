@@ -60,13 +60,15 @@ impl App {
             "todo-eager" => match argument {
                 "on" => {
                     state.eager = true;
+                    state.eager_off = false;
                     Ok(())
                 }
                 "off" => {
                     state.eager = false;
+                    state.eager_off = true;
                     Ok(())
                 }
-                _ => Err("Use /todo-eager on|off; native prelude is off by default".into()),
+                _ => Err("Use /todo-eager on|off; the native todo prelude is on by default".into()),
             },
             _ => {
                 let (operation, target) = argument
@@ -102,7 +104,7 @@ impl App {
                         self.flush_save();
                         self.workflow.notice = match name {
                             "todo-adopt" => "Todo revision explicitly adopted. Provider status is not evidence; no criteria completed.",
-                            "todo-eager" => "Todo prelude setting saved; nothing sent.",
+                            "todo-eager" => "Native todo prelude setting saved for this task; nothing sent.",
                             _ => "Todo saved and adopted. Its current step guides automatic evolution at the next Send; nothing sent.",
                         }
                         .into();
@@ -333,13 +335,14 @@ impl App {
                 lines.push("Revision diff (previous adopted -> proposed):".into());
                 lines.extend(progress.diff());
             }
-            lines.push(format!(
-                "Native eager phased prelude: {}",
-                if progress.eager { "on" } else { "off" }
-            ));
-            if progress.eager {
-                lines.push(format!("Exact added bytes: {:?}", progress::EAGER_PRELUDE));
-            }
+        }
+        let eager = self.workflows.progress.as_ref().is_none_or(State::eager);
+        lines.push(format!(
+            "Native phased todo prelude: {} (/todo-eager on|off)",
+            if eager { "on" } else { "off" }
+        ));
+        if eager {
+            lines.push(format!("Exact added bytes: {:?}", progress::EAGER_PRELUDE));
         }
         lines.push("/todo-edit <JSON steps>  /todo-adopt  /todo-eager on|off".into());
         lines.push(

@@ -1002,6 +1002,17 @@ fn committed_native_followups_preserve_raw_roles_and_separate_current_untrusted_
                     .unwrap(),
             };
             assert!(policy.contains(&task.goal) && policy.contains("untrusted data"));
+            // The phased todo prelude is on by default and disclosed in the body.
+            assert!(
+                policy.starts_with(crate::workspace::progress::EAGER_PRELUDE),
+                "{policy}"
+            );
+            let mut opted_out = input.clone();
+            opted_out.task.workflows.progress = Some(crate::workspace::progress::State {
+                eager_off: true,
+                ..Default::default()
+            });
+            assert_eq!(todo_prelude(&opted_out), "");
             assert!(policy.contains(&observed_name));
             assert!(!policy.contains("not automatic source context"));
             assert!(

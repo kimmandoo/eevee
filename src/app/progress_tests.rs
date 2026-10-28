@@ -148,7 +148,12 @@ fn literal_todo_arguments_win_over_matching_catalogue_labels() {
             let mut app = app();
             app.command_popup = Some(popup);
             app.command_popup_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-            assert!(app.workflows.progress.as_ref().unwrap().eager);
+            assert!(app.workflows.progress.as_ref().unwrap().eager());
+            let mut app = self::app();
+            assert!(app.progress_card().contains("prelude: on"), "on by default");
+            app.progress_command("todo-eager", "off");
+            assert!(!app.workflows.progress.as_ref().unwrap().eager());
+            assert!(app.progress_card().contains("prelude: off"));
             assert!(app.pending_request.is_none() && app.planning.pending.is_none());
         }
     }

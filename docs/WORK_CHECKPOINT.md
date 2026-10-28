@@ -1,5 +1,13 @@
 # Work Checkpoint
 
+## 2026-10-28 — Native todo prelude on by default (completed locally; unreleased)
+
+- **Request:** Make `/todo-eager on` the default for simpler UX. Baseline `4c95d4e`; intentional contract change.
+- **Implementation:** `src/workspace/progress.rs` adds `eager_off` (serde default, skipped when false) and `State::eager()`; legacy stored `eager: false` now means default-on. `src/providers/direct.rs` `todo_prelude` applies it when progress is absent or not opted out. `src/app/progress.rs` `/todo-eager on|off` toggles both flags; the card always shows the prelude state.
+- **Compatibility:** Default progress bytes are unchanged; only an explicit opt-out writes `eager_off`, which public0.1.34 strict readers refuse.
+- **Verification:** fmt; strict Clippy clean; full suite 1,850 passed/two ignored (new `todo_prelude_defaults_on_and_only_an_explicit_off_is_persisted`, native body prelude assertion, `/todo-eager off` card test). No live provider call.
+- **Next action:** None; commit.
+
 ## 2026-10-28 — Automatic todo-driven evolution (completed locally; unreleased)
 
 - **Request:** Make todo automatic and use it as the basis for Eevee's evolution decision, with the best UX. Baseline `8ca7879`. Intentional contract change; DESIGN_RULES updated.

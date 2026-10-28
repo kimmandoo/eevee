@@ -30,7 +30,11 @@ pub struct State {
     pub source: String,
     pub steps: Vec<Step>,
     pub adopted_steps: Vec<Step>,
+    /// Legacy opt-in flag; the prelude is now on unless `eager_off` is set.
     pub eager: bool,
+    /// Explicit `/todo-eager off`. Omitted while the default (on) applies.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub eager_off: bool,
 }
 fn label(text: &str) -> Result<(), String> {
     if text.trim() != text || text.is_empty() || text.len() > MAX_LABEL_BYTES || text.chars().any(|c| c.is_control() || matches!(c, '\u{061c}'|'\u{200e}'|'\u{200f}'|'\u{202a}'..='\u{202e}'|'\u{2066}'..='\u{2069}')) {
@@ -81,6 +85,10 @@ impl State {
             return Err("Adopted todo bytes differ from revision".into());
         }
         Ok(())
+    }
+    /// Whether native requests carry the phased-todo prelude (default on).
+    pub fn eager(&self) -> bool {
+        !self.eager_off
     }
     pub fn active_step(&self) -> Option<&Step> {
         if self.adopted_revision != Some(self.revision) {
@@ -352,6 +360,26 @@ mod tests {
             state.focus_step().is_none(),
             "completed lists steer nothing"
         );
+    }
+    #[test]
+    fn todo_prelude_defaults_on_and_only_an_explicit_off_is_persisted() {
+        let state = State::default();
+        assert!(state.eager());
+        let json = serde_json::to_string(&state).unwrap();
+        assert!(
+            !json.contains("eager_off"),
+            "default bytes stay legacy-readable"
+        );
+        // Legacy stored lists without the field (eager false) now use the default.
+        let legacy: State = serde_json::from_str(&json).unwrap();
+        assert!(legacy.eager());
+        let off = State {
+            eager_off: true,
+            ..State::default()
+        };
+        assert!(!off.eager());
+        let off: State = serde_json::from_str(&serde_json::to_string(&off).unwrap()).unwrap();
+        assert!(!off.eager());
     }
     #[test]
     fn malformed_native_tool_is_transactional_and_view_grants_nothing() {
