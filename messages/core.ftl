@@ -124,6 +124,9 @@ core-help-content =
     { " Recipe      Reviewed multi-step plan | /load-recipe" }
     { " Ribbon      Record of a real milestone | /ribbons" }
     { " Todo        Steps that guide the next form | /todo" }
+    { " Bag         Potions, Berries, TMs and held items | /bag" }
+    { " Potion      Opens the review that recovers a failure | /bag" }
+    { " Berry       Attachment sent once with the next Send | /berry" }
     { "" }
     { "SAFETY" }
     { " Enter sends your Request to the selected provider." }

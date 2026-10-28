@@ -1,5 +1,15 @@
 # Work Checkpoint
 
+## 2026-10-28 — L game loop implemented; v0.1.36 published; v0.1.37 release
+
+- **Request:** Implement all of `tasks/L-game-loop.md` and release. Baseline `36593a1`.
+- **v0.1.36 published:** native40659534690 passed at `36593a1`; annotated `v0.1.36` pushed (no force-push); release40662562163 succeeded and is GitHub latest with all eight assets. Downloaded `ev-linux-x86_64.tar.gz` matched SHA256SUMS and printed `ev 0.1.36`. The unpublished `v0.1.35` tag remains on `ad5c634`.
+- **RF04 (prerequisite):** `ui/layout.rs`, `ui/chrome.rs`, `ui/workspace.rs` extracted behavior-free (`a48a193`).
+- **Implemented:** `workspace/game.rs` (Berries, dismissed move digests, `loose_key`) in `workflows.game`; `app/game.rs` (bag rows/keys, Potion recovery mapping, Berry toggle/consumption on the lead's dispatch acknowledgment via `sources.remove_now`, item notices, repetition move proposal/learn/dismiss); `ui/bag.rs` (bag overlay with selected-item sprite at ≥70 columns, item notice in the evolution-notice slot); `ui/artwork.rs` (11 hash-pinned item sprites in `items/`, pre-rasterized cells, optional download after species); store submitted-instruction snapshot now keeps single-source candidates; move teach/copy/import commits raise a notice; `/bag`, `/berry`, `/learn-move`, `/learn-dismiss`; help game terms add Bag/Potion/Berry; DESIGN_RULES "Game loop" section, popup and artwork rules; ASSET_LICENSES item section.
+- **Verification:** fmt; strict Clippy with/without all features; Rust 1,866 passed/two ignored (new game/artwork/notice tests); Python unittest 28 (four Windows skips); sidecar 45/45; real `ev --download-artwork` into an empty cache fetched 9 species + 11/11 items and a rerun resumed with no rewrite; PTY captures of `/bag` with cached item sprites at 120×36 and 60×18 (`target/ux-captures/bag-*.txt`). Local `native_workflows_smoke.py --profile full --jobs 2` against the 0.1.37 release build: all 7 drivers/24 journeys passed. After the orphan-Berry fix: fmt, strict Clippy and 1,866 Rust tests passed/two ignored.
+- **Audit (same session):** Added `tasks/V-audit-gaps.md` (VA01–VA15) from a whole-project review; fixed one fresh bug found during it: orphaned Berries (attachment removed before Send) no longer produce a false "Berry used" notice.
+- **Not verified:** a live provider dispatch consuming a Berry in the PTY (covered by unit tests on the dispatch hook); 0.1.36 binary reading a task with nonempty `workflows.game` (contract follows `deny_unknown_fields`).
+
 ## 2026-10-28 — Live file feel, usability cleanup and v0.1.36 release
 
 - **Request:** Fix remaining usability issues and make file creation feel lively ("파바박"), then release.

@@ -78,11 +78,11 @@ Pin a version:
 
 ```sh
 curl -fsSLo install-ev.sh https://github.com/kimmandoo/eevee/releases/latest/download/install.sh
-sh ./install-ev.sh --version v0.1.36
+sh ./install-ev.sh --version v0.1.37
 ```
 
 ```powershell
-& ([scriptblock]::Create((irm https://github.com/kimmandoo/eevee/releases/latest/download/install.ps1))) -Version v0.1.36
+& ([scriptblock]::Create((irm https://github.com/kimmandoo/eevee/releases/latest/download/install.ps1))) -Version v0.1.37
 ```
 
 Offline: download the matching archive, `SHA256SUMS` and installer from one release, then:
@@ -159,7 +159,7 @@ ev --help
 
 ### Retained work and long requests
 
-Public0.1.36 includes:
+Public0.1.37 includes:
 
 | Want to… | Use |
 | --- | --- |
@@ -168,6 +168,9 @@ Public0.1.36 includes:
 | Keep separate unsent follow-ups | `/park-draft` · `/drafts`; restore never sends |
 | Label a retained response | `/retained-responses` → **Enter** → **l**; revisit with `/landmarks` |
 | Edit the current Request externally | `/external-edit`; review launch, then review returned text |
+| Open your items | `/bag`: Potions open the matching recovery review, Berries send an attachment once, TMs are your moves |
+| Send an attachment only once | `/berry` (or Bag → Berry); it is removed after the next Send is dispatched |
+| Turn a repeated request into a move | After three similar Sends, `/learn-move` opens the teach review; `/learn-dismiss` stops the offer |
 
 External editing waits for all work and saves to settle. Set `VISUAL` (preferred) or `EDITOR` to one executable, or a JSON argv array such as `["code","--wait"]`. No shell syntax or placeholders are expanded. Configure the editor to save in place: replaced files, links, unsafe/oversized output and cleanup failures are refused. The Request is exported as plaintext and may contain secrets; the unsandboxed editor inherits your environment, which may contain credentials, and may retain its own copies. Importing text does not send it.
 

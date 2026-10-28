@@ -38,6 +38,57 @@ const HASHES: [&str; 9] = [
     "54d2d8cdc5f0ed5d2f5da3c4006e4defa226bdd196e30dd4f54c2dd5321de266",
     "1ba3ba4d59fbe1e10ac86436cccf58931ec3d23646a496201738e2c6b9d76824",
 ];
+/// Item sprites at the same pinned revision (`sprites/items/{name}.png`).
+/// They live in `items/` under the asset cache, are always hash-verified and
+/// are optional: a missing or different file shows the text icon instead.
+pub const ITEMS: [(&str, &str); 11] = [
+    (
+        "potion",
+        "db5a0fa2343c5761599d9efd4514a30125164ced094b55f760a763ed0c9c64d5",
+    ),
+    (
+        "oran-berry",
+        "4d4d31e7c29a4540d5f438b87bb1762bf3cd7b0920e523fc9020f6c0bace1c1a",
+    ),
+    (
+        "tm-normal",
+        "b349d5435a7b8d14c50c4f0b6e2bd9bb65b6b6d6dd6c44613e9255682702b5bc",
+    ),
+    (
+        "tm-water",
+        "d0512082244a4e5a1c99c150d7eec98c300135d93eec5e651b32a9f686ed25aa",
+    ),
+    (
+        "tm-electric",
+        "9836de38bf7f2de336293f91b58a7cd74d5573a36829e07e94450a60125c2bb7",
+    ),
+    (
+        "tm-fire",
+        "10c0559ce0777d405ed071d6288be4c4c7d378f52318c88dcc4d3054dbd73724",
+    ),
+    (
+        "tm-psychic",
+        "2389efbbf9db12a15d27ecae5178fe05fb364dc8e83e54416782861be9181e38",
+    ),
+    (
+        "tm-dark",
+        "6ffecdbf68d1d69870ab11038af3d7d477066f510dc21e6fc925ace9fd53c9e4",
+    ),
+    (
+        "tm-grass",
+        "accad0bdbdf1d9f7c7d72b7cc152872be6a5d10f6ec37f645ef9906d2e6f02fa",
+    ),
+    (
+        "tm-ice",
+        "53f48f29f6bdea329d44582e0d268eccf2facc762088dcd69d9c5902ccc9164a",
+    ),
+    (
+        "tm-fairy",
+        "13e6d2f3b387676f0c96a2118a7958fc7ebd25139ea775d409996a582a7f42aa",
+    ),
+];
+/// Prepared item cell sizes: bag icon and notice.
+pub const ITEM_SIZES: [(u16, u16); 2] = [(6, 3), (10, 5)];
 const MAX_FILE_BYTES: u64 = 4 * 1024 * 1024;
 const MAX_MANIFEST_BYTES: u64 = 64 * 1024;
 const MAX_DIMENSION: u32 = 1024;
@@ -65,6 +116,21 @@ struct SourceImage {
     id: u16,
     url: String,
     sha256: String,
+}
+
+fn item_url(name: &str) -> String {
+    format!("https://raw.githubusercontent.com/PokeAPI/sprites/{REVISION}/sprites/items/{name}.png")
+}
+
+/// Index into [`ITEMS`] for a bag/notice item; key items have no sprite.
+pub fn item_sprite(item: crate::app::game::Item) -> Option<usize> {
+    use crate::app::game::Item;
+    match item {
+        Item::Potion => Some(0),
+        Item::Berry => Some(1),
+        Item::Tm(form) => Some(2 + form.min(8)),
+        Item::Key => None,
+    }
 }
 
 fn image_url(id: u16) -> String {
@@ -225,6 +291,8 @@ struct Raster {
 
 pub struct Artwork {
     assets: [Asset; 9],
+    /// Pre-rasterized item sprites per [`ITEM_SIZES`]; `None` shows text icons.
+    items: Vec<[Option<Raster>; 2]>,
     cache: Vec<Raster>,
     color: ColorMode,
     ascii: bool,
@@ -285,8 +353,37 @@ impl Artwork {
         for (asset, image) in assets.iter_mut().zip(images) {
             asset.image = image;
         }
+        let background = if config.images == ImageMode::Off {
+            None
+        } else {
+            Some(crate::ui::image_background(config))
+        };
+        let items = ITEMS
+            .iter()
+            .map(|(name, hash)| {
+                let image = background.and_then(|_| {
+                    let path = config.assets_dir.join("items").join(format!("{name}.png"));
+                    let bytes = read_bounded(&path, MAX_FILE_BYTES).ok()?;
+                    verify_hash(&bytes, hash).ok()?;
+                    decode_png(&bytes).ok().map(trim_transparent_border)
+                });
+                ITEM_SIZES.map(|(width, height)| {
+                    let (image, background) = (image.as_ref()?, background?);
+                    let key = CacheKey {
+                        species: usize::MAX,
+                        width,
+                        height,
+                        background: rgb(background, config.theme),
+                        color: config.color,
+                        ascii: config.ascii,
+                    };
+                    Some(rasterize(image, key, 0))
+                })
+            })
+            .collect();
         Self {
             assets,
+            items,
             cache: Vec::new(),
             color: config.color,
             ascii: config.ascii,
@@ -396,6 +493,42 @@ impl Artwork {
             }
             self.cache.push(raster);
         }
+    }
+
+    /// Draws a cached item sprite of the closest prepared size. Returns false
+    /// (drawing nothing) when no verified sprite is cached.
+    pub fn render_item(
+        &self,
+        item: crate::app::game::Item,
+        area: Rect,
+        buffer: &mut Buffer,
+    ) -> bool {
+        let Some(sizes) = item_sprite(item).and_then(|index| self.items.get(index)) else {
+            return false;
+        };
+        let Some(raster) = sizes
+            .iter()
+            .flatten()
+            .filter(|raster| raster.width <= area.width && raster.height <= area.height)
+            .max_by_key(|raster| raster.width)
+        else {
+            return false;
+        };
+        for row in 0..raster.height {
+            for column in 0..raster.width {
+                if let Some(cell) =
+                    buffer.cell_mut((area.x.saturating_add(column), area.y.saturating_add(row)))
+                {
+                    let prepared = &raster.cells
+                        [usize::from(row) * usize::from(raster.width) + usize::from(column)];
+                    cell.set_symbol(prepared.symbol);
+                    if !raster.key.ascii && raster.key.color != ColorMode::Mono {
+                        cell.set_fg(prepared.foreground).set_bg(prepared.background);
+                    }
+                }
+            }
+        }
+        true
     }
 
     /// Copies prepared cells only: no image IO, allocation, decode, or resizing.
@@ -912,10 +1045,81 @@ fn download_with_progress(
         check_cancelled(cancelled)?;
         publish(directory, &staging.0, &format!("{id}.png"), &bytes)?;
     }
+    // Item sprites are optional decoration: a failure keeps the species
+    // result, reports what is missing, and text icons stand in.
+    let items = download_items(directory, &agent, cancelled, &staging.0);
     Ok(format!(
-        "All nine pinned PNGs are SHA256-verified in {}. {ATTRIBUTION}",
-        directory.display()
+        "All nine pinned PNGs are SHA256-verified in {}. {}{ATTRIBUTION}",
+        directory.display(),
+        match items {
+            Ok(count) => format!("Item sprites: {count}/{} verified. ", ITEMS.len()),
+            Err(error) => format!("Item sprites incomplete ({error}); text icons are used. "),
+        }
     ))
+}
+
+fn download_items(
+    directory: &Path,
+    agent: &ureq::Agent,
+    cancelled: &AtomicBool,
+    staging: &Path,
+) -> Result<usize, String> {
+    let items = directory.join("items");
+    fs::create_dir_all(&items).map_err(|error| format!("{}: {error}", items.display()))?;
+    let mut ready = 0;
+    for (name, hash) in ITEMS {
+        check_cancelled(cancelled)?;
+        let file = format!("{name}.png");
+        let path = items.join(&file);
+        match fs::symlink_metadata(&path) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                return Err(format!(
+                    "{}: symbolic links are not download destinations",
+                    path.display()
+                ));
+            }
+            Ok(_) => {
+                // Never overwrite: an existing file either verifies or is kept aside.
+                if read_bounded(&path, MAX_FILE_BYTES)
+                    .is_ok_and(|bytes| verify_hash(&bytes, hash).is_ok())
+                {
+                    ready += 1;
+                }
+                continue;
+            }
+            Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+                return Err(format!("{}: {error}", path.display()));
+            }
+            Err(_) => {}
+        }
+        let url = item_url(name);
+        let response = agent
+            .get(&url)
+            .call()
+            .map_err(|error| format!("{url}: {error}"))?;
+        if response.status() != 200 {
+            return Err(format!(
+                "{url}: expected HTTP 200, got {}",
+                response.status()
+            ));
+        }
+        let mut bytes = Vec::new();
+        response
+            .into_reader()
+            .take(MAX_FILE_BYTES + 1)
+            .read_to_end(&mut bytes)
+            .map_err(|error| format!("{url}: {error}"))?;
+        if bytes.len() as u64 > MAX_FILE_BYTES {
+            return Err(format!("{url}: exceeds {MAX_FILE_BYTES}-byte limit"));
+        }
+        verify_hash(&bytes, hash).map_err(|error| format!("{url}: {error}"))?;
+        decode_png(&bytes).map_err(|error| format!("{url}: {error}"))?;
+        let staged = staging.join(&file);
+        write_staged(&staged, &bytes)?;
+        fs::hard_link(&staged, &path).map_err(|error| format!("{}: {error}", path.display()))?;
+        ready += 1;
+    }
+    Ok(ready)
 }
 
 #[derive(Clone, Copy)]

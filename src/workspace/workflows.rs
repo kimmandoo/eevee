@@ -41,6 +41,8 @@ pub struct State {
     pub parked_drafts: Vec<crate::store::parked_drafts::Entry>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub progress: Option<super::progress::State>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub game: Option<super::game::State>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -597,6 +599,9 @@ impl State {
         crate::store::parked_drafts::validate(&self.parked_drafts)?;
         if let Some(progress) = &self.progress {
             progress.validate()?;
+        }
+        if let Some(game) = &self.game {
+            game.validate()?;
         }
         if let Some(plan) = &self.tool_plans {
             plan.validate(task_id)?;

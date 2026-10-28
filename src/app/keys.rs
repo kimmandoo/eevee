@@ -24,6 +24,10 @@ impl App {
                     .transition
                     .is_some_and(|change| change.from == change.to))
             && self.evolution.transition.take().is_some();
+        // A shown item notice fades on the next real key/paste, which still acts.
+        let item_hidden = hide_carry_over
+            && self.item_notice_visible().is_some()
+            && self.item_notice.take().is_some();
         let resized = matches!(event, Event::Resize(_, _));
         let command_action = self.command_popup.is_some()
             && matches!(&event, Event::Key(key) if key.code == KeyCode::Enter);
@@ -128,7 +132,7 @@ impl App {
             Event::Paste(_)
                 if matches!(
                     self.overlay,
-                    Some(Overlay::EvolutionPreview | Overlay::Journey)
+                    Some(Overlay::EvolutionPreview | Overlay::Journey | Overlay::Bag)
                 ) =>
             {
                 false
@@ -221,7 +225,12 @@ impl App {
             self.changed_implicitly(now);
         }
         let presented = self.reconcile_permission_review();
-        changed || presented || carry_over_hidden || evolution_hidden || motion_hidden
+        changed
+            || presented
+            || carry_over_hidden
+            || evolution_hidden
+            || motion_hidden
+            || item_hidden
     }
 
     fn response_mouse(&mut self, mouse: MouseEvent) -> bool {
@@ -710,6 +719,7 @@ impl App {
     }
 
     pub fn settle_planning(&mut self) -> bool {
+        self.settle_berries();
         if self.settle_context_comparison() {
             return true;
         }
@@ -1048,6 +1058,7 @@ impl App {
         }
         match self.overlay {
             Some(Overlay::Retained) => return self.retained_key(key),
+            Some(Overlay::Bag) => return self.bag_key(key),
             Some(Overlay::ParkedDrafts) => return self.parked_draft_key(key),
             Some(Overlay::ToolPlans) => return self.tool_plan_key(key),
             Some(Overlay::EvolutionPreview | Overlay::Journey) => {

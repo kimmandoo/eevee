@@ -2186,6 +2186,34 @@ mod tests {
     }
 
     #[test]
+    fn item_notice_draws_in_the_notice_slot_and_yields_to_overlays() {
+        for (width, height) in [(120, 36), (60, 18)] {
+            let mut app = App::new("/workspace".into(), width, height);
+            app.show_notice(crate::app::game::Notice {
+                item: crate::app::game::Item::Tm(3),
+                title: "New move!".into(),
+                text: "Eevee #1 learned Ember!".into(),
+            });
+            let screen = draw_home(&mut app);
+            assert!(
+                screen.contains("New move!") && screen.contains("learned Ember"),
+                "{screen}"
+            );
+            assert!(
+                screen.contains("[TM]"),
+                "text icon without cached sprites:\n{screen}"
+            );
+            app.command("bag");
+            let screen = draw_home(&mut app);
+            assert!(!screen.contains("New move!"), "{screen}");
+            assert!(
+                screen.contains("Bag") && screen.contains("Potion"),
+                "{screen}"
+            );
+        }
+    }
+
+    #[test]
     fn compact_layouts_keep_the_todo_line_without_a_companion() {
         use crate::workspace::progress::{State as Progress, Status, Step};
         for (width, height) in [(60, 18), (80, 24)] {

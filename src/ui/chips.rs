@@ -38,14 +38,18 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &App, paint: &Paint) {
     } else {
         paint.hint(Message::ChipsFocus).to_owned()
     };
+    let berry = app.is_berry(crate::workspace::game::Berry::Source {
+        excerpt_id: capture.id,
+    });
     let identity = format!(
-        "{}#{} {}:{} [{}/{}] ",
+        "{}#{} {}:{} [{}/{}]{} ",
         if focused { ">" } else { "" },
         capture.id,
         capture.start_line,
         capture.end_line,
         index + 1,
-        app.sources.basket.len()
+        app.sources.basket.len(),
+        if berry { " Berry·once" } else { "" }
     );
     let (identity_area, path_area, controls_area) = columns(area, &identity, &controls);
     text(frame, identity_area, &identity, style);

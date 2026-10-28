@@ -1001,7 +1001,9 @@ fn snapshot(
             habit.memory = None;
         }
     }
-    habits.retain(|h| h.sources.len() >= 3 || h.dismissed || h.memory.is_some());
+    // Single-source candidates stay visible so similar (loosely equal)
+    // instructions can be grouped; exact memory proposals still need three.
+    habits.retain(|h| !h.sources.is_empty() || h.dismissed || h.memory.is_some());
     let mut signatures: Vec<FailureSignature> = rows(connection, "failure_signatures", project)?;
     for signature in &mut signatures {
         let mut statement=connection.prepare("SELECT run_id,paths FROM failure_observations WHERE project=?1 AND signature=?2 ORDER BY at,run_id LIMIT 8193").map_err(|e|e.to_string())?;

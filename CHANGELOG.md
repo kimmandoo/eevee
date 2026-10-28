@@ -2,6 +2,9 @@
 
 ## 2026-10-28
 
+- feat(game): added the bag, Potions, one-shot Berries, repetition-proposed moves, hash-pinned item sprites and static item notices.
+- refactor(ui): separated layout, chrome and workspace rendering from `ui.rs`.
+- chore(release): advanced the package version to 0.1.37.
 - feat(ui): flashed newly received file lines with a writing-edge caret and live line count while files stream, hid response worker/transport origin lines outside `/verbose`, collapsed `default/default` in the header and cleaned storage labels.
 - chore(release): advanced the package version to 0.1.36 instead of replacing the unpublished v0.1.35 tag.
 - fix(journey): updated every route's `/journey` todo disclosure to automatic adoption in Auto and `/todo-adopt` when Pinned.
@@ -278,6 +281,15 @@
 - docs(release): published v0.1.19 from source `c4ce4a2` after exact-source Check/all-five-native qualification and immutable promotion, retaining Schema 16 and complete SDK bridge 8.
 - test(terminal): acknowledged the new one-time evolution receipt before checking preserved goal/edit/discard behavior in the actual compact installed runtime without changing the published executable.
 - docs(verification): verified all public assets, sixteen bilingual automatic-review/file-progress journeys/64 groups, 24 file journeys/126 groups, evolution popups and preserved typing, scrolling/tooltips, native 176 groups, cooperation 24, six genuine schema upgrade/refusal/resume cases and 23 installation groups/all 34 installed terminal scenarios.
+
+## 0.1.37
+
+- feat(game): added `/bag` with Items (Potion, Berry), TMs and Key items; every row opens an existing command or review and nothing runs by itself.
+- feat(game): proposed learning a move after three similar Sends (case/whitespace/trailing-punctuation equal) with `/learn-move` opening the ordinary teach review and `/learn-dismiss` hiding the offer for the task.
+- feat(game): added one-shot Berries for attachments and selected memories, removed after the lead's next dispatch acknowledgment.
+- feat(game): added optional hash-pinned item sprites (Potion, Oran Berry, nine type TMs) downloaded to the sprite cache with text-icon fallbacks, and a static item notice for learned moves, imported TMs and used Berries.
+- refactor(ui): split `ui.rs` into layout, chrome and workspace modules (RF04) without behavior changes.
+- docs(storage): nonempty `workflows.game` is rejected by 0.1.36 strict readers; empty state writes no bytes.
 
 ## 0.1.36
 

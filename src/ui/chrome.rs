@@ -276,6 +276,26 @@ pub(super) fn suggestion_strip(frame: &mut Frame, area: Rect, app: &App, paint: 
         );
         return row(area, 1, area.height.saturating_sub(1));
     }
+    // A repeated request Eevee could learn is the one actionable offer here.
+    if let Some(proposal) = app.move_proposal_visible() {
+        let line = Line::from(vec![
+            Span::styled("Eevee wants to learn ", paint.accent),
+            Span::styled(proposal.name, paint.accent.add_modifier(Modifier::BOLD)),
+            Span::styled(
+                format!(
+                    " · you sent this {} times · /learn-move · /learn-dismiss",
+                    proposal.sources.len()
+                ),
+                paint.accent,
+            ),
+        ]);
+        let paragraph = Paragraph::new(line).wrap(Wrap { trim: false });
+        let height = paragraph
+            .line_count(area.width.max(1))
+            .min(usize::from(area.height.saturating_sub(6))) as u16;
+        frame.render_widget(paragraph, row(area, 0, height));
+        return row(area, height, area.height.saturating_sub(height));
+    }
     // A deliberate saved item takes the advisory slot; carry-over stays inspectable.
     if app.held.target.is_some() && !app.held.dismissed {
         return area;

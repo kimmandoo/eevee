@@ -11,6 +11,7 @@ pub mod execution;
 pub mod execution_relays;
 pub mod external_editor;
 pub mod formations;
+pub mod game;
 pub mod habits;
 pub mod handoff;
 pub mod held;
@@ -97,6 +98,7 @@ pub enum Overlay {
     ToolPlans,
     ParkedDrafts,
     Retained,
+    Bag,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -271,6 +273,9 @@ pub struct App {
     pub repo_refresh: bool,
     pub sources: sources::State,
     pub held: held::State,
+    pub bag: game::Bag,
+    pub item_notice: Option<game::Notice>,
+    berry_removals: Vec<i64>,
     pub execution: execution::State,
     pub suggestion: Option<suggestions::Suggestion>,
     pub dismissed_suggestion: Option<String>,
@@ -420,6 +425,9 @@ impl App {
             repo_refresh: false,
             sources: sources::State::default(),
             held: held::State::default(),
+            bag: game::Bag::default(),
+            item_notice: None,
+            berry_removals: Vec::new(),
             execution: execution::State::default(),
             suggestion: None,
             dismissed_suggestion: None,

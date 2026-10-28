@@ -1526,6 +1526,9 @@ impl App {
         if let Some(request) = dispatched {
             self.move_request_dispatched(partner, &request);
             self.record_request_dispatched(partner, &request);
+            if partner == self.lead.id {
+                self.consume_berries();
+            }
         }
         if resolved {
             self.defer_approval();

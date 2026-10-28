@@ -1,6 +1,7 @@
 mod agents;
 mod artifacts;
 pub mod artwork;
+mod bag;
 mod chips;
 mod chrome;
 mod composer;
@@ -454,6 +455,8 @@ pub fn render(
     footer(frame, shell.footer, app, &paint);
     if let Some(popup) = evolution_popup_area(area, app) {
         cooperation::evolution_popup(frame, popup, app, config, &paint);
+    } else if let Some(popup) = bag::notice_area(area, app) {
+        bag::notice(frame, popup, app, config, &paint, artwork);
     }
     if let Some(menu) = composer_menu_area(area, app) {
         composer::render(frame, menu, app, config, &paint);
@@ -464,6 +467,7 @@ pub fn render(
             Overlay::Help => help(frame, area, app, config, &paint),
             Overlay::EvolutionPreview => evolution_preview(frame, area, app, config, &paint),
             Overlay::Journey => journey(frame, area, app, config, &paint),
+            Overlay::Bag => bag::render(frame, area, app, config, &paint, artwork),
             Overlay::Preview => preview(frame, area, app, config, &paint),
             Overlay::Tasks => tasks(frame, area, app, config, &paint),
             Overlay::Criteria => criteria(frame, area, app, config, &paint),

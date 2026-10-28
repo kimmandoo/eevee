@@ -315,7 +315,7 @@ impl State {
             }
         }
     }
-    fn begin_learning(&mut self, learning: Learning) {
+    pub(super) fn begin_learning(&mut self, learning: Learning) {
         self.name = learning.proposal().name.clone();
         self.cursor = self.name.len();
         self.scope = learning.proposal().scope;
@@ -1324,6 +1324,24 @@ impl App {
                         self.moves.portable_exported = true;
                     }
                     if mutation {
+                        let announcement = match &request.operation {
+                            Operation::Teach { proposal, .. }
+                            | Operation::Copy { proposal, .. } => Some((
+                                format!("{} learned {}!", self.lead_label(), proposal.name),
+                                proposal.form,
+                            )),
+                            Operation::ImportPortable { name, .. } => {
+                                Some((format!("TM imported: {name} is ready to use."), form))
+                            }
+                            _ => None,
+                        };
+                        if let Some((text, form)) = announcement {
+                            self.show_notice(super::game::Notice {
+                                item: super::game::Item::Tm(form),
+                                title: "New move!".into(),
+                                text,
+                            });
+                        }
                         self.moves.offered = None;
                         self.move_return_menu();
                         self.moves.notice =

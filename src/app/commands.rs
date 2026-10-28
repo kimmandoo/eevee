@@ -606,6 +606,13 @@ impl App {
             ("files", "Attach files / inspect source context"),
             ("tasks", "Saved tasks"),
             ("todo", "Todo steps that guide the next evolution"),
+            ("bag", "Bag: Potions, Berries, TMs and held items"),
+            ("berry", "Make an attachment one-shot for the next Send"),
+            ("learn-move", "Learn the repeated request Eevee proposed"),
+            (
+                "learn-dismiss",
+                "Don't offer that repeated request as a move",
+            ),
             (
                 "evolution-preview",
                 "Explain next evolution and operation; nothing sent",
@@ -1656,6 +1663,21 @@ impl App {
         if name == "journey" {
             self.open_overlay(Overlay::Journey);
             return true;
+        }
+        match name {
+            "bag" | "berry" => {
+                self.open_bag();
+                return true;
+            }
+            "learn-move" => {
+                self.learn_proposed_move();
+                return true;
+            }
+            "learn-dismiss" => {
+                self.dismiss_proposed_move();
+                return true;
+            }
+            _ => {}
         }
         if name == "evolution-preview" {
             self.open_evolution_preview();
