@@ -23,7 +23,7 @@ Party, formations, portable TMs, moves, summary, Dex, held references, ribbons, 
 | [F — Context and tools](tasks/F-context-tools.md) | Paired optimization quality benchmark | 1 |
 | [H — Acceptance](tasks/H-provider-acceptance.md) | Live-provider rows, composed quality/resource measurements and native distribution evidence | 6 |
 | [R — Structure](tasks/R-code-structure.md) | Responsibility-based, just-in-time extractions | 7 |
-| [L — Game loop](tasks/L-game-loop.md) | Implemented 2026-10-28 (GL01/GL02/GL04/GL05); shipping in v0.1.37 | 0 |
+| [L — Game loop](tasks/L-game-loop.md) | Implemented 2026-10-28 (GL01/GL02/GL04/GL05); shipped in v0.1.37 | 0 |
 | [V — Audit gaps](tasks/V-audit-gaps.md) | Weak/ambiguous implementation found 2026-10-28: smoke drift, SQLite races, release-notes check, intent defaults, context invalidation, todo churn, move parameters, tool-selection disclosure, first-run route, item rights (not in a wave yet) | 15 |
 | [U — UX clarity](tasks/U-ux-clarity.md) | All eight implemented 2026-10-28; awaiting release | 0 |
 
