@@ -141,6 +141,7 @@ fn literal_todo_arguments_win_over_matching_catalogue_labels() {
             selected: Some(0),
             choices: vec![Choice::new(name, "todo on off start exact label pending")],
             scope: None,
+            everyday: false,
         };
         assert_eq!(popup.argument(), Some((name, argument)));
         assert_eq!(popup.candidates().count(), 1);

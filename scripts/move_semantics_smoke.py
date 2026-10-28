@@ -135,7 +135,7 @@ class SemanticsDriver(Driver):
     def draft(self):
         self.workspace()
         footer = self.session.display().rstrip().splitlines()[-1].strip()
-        if footer.startswith(("Type Request /", )):
+        if footer.startswith(("Type Request |", )):
             self.session.send("\r")
         text = "Keep 水の exact draft"
         self.session.send(UP * 16 + HOME + DELETE * 256)

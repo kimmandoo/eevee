@@ -4427,3 +4427,37 @@ fn automatic_todo_follows_provider_progress_and_steers_the_next_send() {
         }
     }
 }
+
+#[test]
+fn forms_a_restores_auto_without_changing_form_or_draft() {
+    let mut app = request_app();
+    app.update(Event::Paste("Keep this draft".into()));
+    let draft = (app.input.clone(), app.cursor);
+    app.open_overlay(Overlay::Forms);
+    app.picker_select_form(3);
+    assert!(!app.lead.auto_form);
+    assert_eq!(app.form(), 3);
+    assert!(app.notice.contains("Pinned"), "{}", app.notice);
+    app.command("forms");
+    assert_eq!(app.overlay, Some(Overlay::Forms));
+    key(&mut app, KeyCode::Char('a'));
+    assert!(
+        app.lead.auto_form,
+        "overlay={:?} input={:?} notice={}",
+        app.overlay, app.input, app.notice
+    );
+    assert_eq!(app.form(), 3, "Auto keeps the current appearance");
+    key(&mut app, KeyCode::Esc);
+    assert_eq!(app.input, draft.0, "the draft returns intact");
+    assert!(app.pending_request.is_none() && app.planning.pending.is_none());
+}
+
+#[test]
+fn first_run_send_opens_the_full_provider_list() {
+    let mut app = request_app();
+    if app.agents.any_route_ready() {
+        return; // A configured fixture route takes the ordinary path.
+    }
+    app.agents.begin_provider_list();
+    assert!(app.agents.notice.contains("Not connected yet"));
+}

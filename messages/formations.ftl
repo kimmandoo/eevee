@@ -1,7 +1,7 @@
 formation-title = Party formation
 formation-load = Open formation / literal file path
 formation-save = Save current arrangement / new file path
-formation-path-hint = Enter preview / Esc back - no file changed
+formation-path-hint = Enter preview / Esc back - no file changed | /help Game terms
 formation-map-hint = Up/Dn role / L/R map / y apply / d details / Esc
 formation-export-hint = y create new file / d details / Esc cancel
 formation-policy = Existing drafts stay. No command, request, pin or grant starts.

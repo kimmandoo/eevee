@@ -1,5 +1,13 @@
 # Work Checkpoint
 
+## 2026-10-28 — U UX-clarity track implemented; v0.1.35 re-qualification
+
+- **Request:** Implement all of `tasks/U-ux-clarity.md` and verify once at the end; then check whether the "English native coverage" CI step is still needed after the multilingual runtime removal.
+- **Implemented:** UX10 ASCII ` | ` footer separators + `messages::tests::key_hints_never_put_a_separator_next_to_the_slash_key` (19 smoke drivers' footer matchers updated); UX11 evolution-preview guard/outgoing-byte note and todo provider-claim note behind `/verbose`; UX12 `EVERYDAY` palette set for empty queries, Ctrl+K reveals all; UX13 `[Pinned]` label, `/forms` mode heading, `a` re-enables Auto keeping appearance, pin notice; UX14 status-row/composer-title todo line without the companion pane; UX15 first-run Send opens the full provider list (cursor on first ready route, else task route); UX16 Jolteon diff rule waits for an observed source move or a recorded run; UX17 game-terms map in `/help`, linked from move/formation empty states; progress_smoke.py updated for auto adoption, `next:` summaries and new captions.
+- **CI finding:** The "English native coverage profile" step is the only real-binary terminal acceptance and `release_qualification.py` requires every native step to succeed, so it stays; it was renamed "Exercise native coverage profile" since only one UI language exists. Native run 40640985213 at `0c9b8fd` failed only linux-x86_64's coverage step (log needs auth to read); the local equivalent earlier hit a fixture-side `sqlite3 database is locked`, so all read-only fixture connections now wait 10 s instead of 1 s.
+- **Verification (single pass):** fmt check; strict Clippy with and without all features; 1,856 Rust tests passed/two ignored; Python unittest 28 (four Windows skips); sidecar 45/45; release build; local `native_workflows_smoke.py --profile full --jobs 2` all 7 drivers/24 journeys passed (built just before the final first-run cursor tweak, which those drivers do not exercise). PTY before/after captures at 120×36 and 60×18 with English and Korean input: `target/ux-captures/{before,after}-{120x36,60x18}.txt`.
+- **Next action:** Push main, wait for native CI, move unpublished `v0.1.35` to that commit and push to publish.
+
 ## 2026-10-28 — Game-loop task track added (planning only)
 
 - **Request:** Add tasks for more game-like use: learning a move from repeated similar commands, tools/Poké Ball-style items, and TM/Potion/Berry sprites shown with popups. Planning only; nothing implemented.

@@ -7,19 +7,19 @@ core-request-invitation = What would you like to do?
 core-task-prefix = { "Task: " }
 core-request-start = Type your request below; Enter saves and sends it.
 core-request-save = Ctrl+S keeps a draft without sending.
-core-request-context = @ Attach files / /connect Choose provider
-core-request-tasks = /tasks Resume / /goal Optional task facts
+core-request-context = @ Attach files | /connect Choose provider
+core-request-tasks = /tasks Resume | /goal Optional task facts
 
 core-terminal-too-small =
     { "Terminal too small" }
     { "Need 60 columns x 18 rows" }
     { "Resize keeps your draft. Ctrl+C opens safe exit." }
 
-core-retained-task-fact = { "Task-fact draft retained / /goal / /next" }
+core-retained-task-fact = { "Task-fact draft retained | /goal | /next" }
 
-core-carry-over-control = { "c Carry-over / Enter" }
+core-carry-over-control = { "c Carry-over | Enter" }
 
-core-form-control = { "> Enter Form / n Nickname" }
+core-form-control = { "> Enter Form | n Nickname" }
 
 core-form-picker-title = { " Choose evolution / PARTY " }
 
@@ -27,7 +27,7 @@ core-return-intake-selected = { "> Return to Eevee / intake" }
 
 core-return-intake = { "  Return to Eevee / intake" }
 
-core-role-preview-control = { "Arrows Preview / /preview Role details" }
+core-role-preview-control = { "Arrows Preview | /preview Role details" }
 
 core-moves-unsaved =
     { "Moves: save a task to teach an action." }
@@ -49,10 +49,10 @@ core-moves-heading =
 core-tasks-empty =
     { "No task cards in this view." }
     { "" }
-    { "/archived Active/archived / /task-new New / Esc Back" }
+    { "/archived Active/archived | /task-new New | Esc Back" }
     { "Archive is reversible; deletion requires review." }
 
-core-criterion-detail-control = { "Selected criterion / PgUp/Dn details" }
+core-criterion-detail-control = { "Selected criterion | PgUp/Dn details" }
 
 core-criterion-completed = { "Completed task. Editing criteria requires explicit Reopen." }
 
@@ -66,13 +66,13 @@ core-nickname-privacy =
 
 core-nickname-saving = { "Saving locally / Esc Back" }
 
-core-nickname-save-control = { "Enter Save locally / Esc Cancel" }
+core-nickname-save-control = { "Enter Save locally | Esc Cancel" }
 
-core-party-control-full = { "Arrows Select / Enter Lead / n Nickname / Esc Back" }
+core-party-control-full = { "Arrows Select | Enter Lead | n Nickname | Esc Back" }
 
-core-party-control-add = { "Arrows Select / Enter Lead / n Nickname / a Add" }
+core-party-control-add = { "Arrows Select | Enter Lead | n Nickname | a Add" }
 
-core-release-partner-control = { "/release-partner reviews selected / /party-board" }
+core-release-partner-control = { "/release-partner reviews selected | /party-board" }
 
 core-help-title = { " Help / PgUp/Dn Scroll / Esc Back " }
 
@@ -114,6 +114,17 @@ core-help-content =
     { " /complete           Mark acceptance checklist complete" }
     { " /verbose            Brief / full explanations" }
     { "" }
+    { "GAME TERMS (what each is for | how to open it)" }
+    { " Form        Specialist role for a request | /forms" }
+    { " Move        Saved instruction you reuse (4 per form) | /move" }
+    { " TM          Move saved as a portable file | /move-export /move-import" }
+    { " Held item   One file or memory kept for a form | /held" }
+    { " Party       Partners that can work in parallel | /party" }
+    { " Formation   Saved party layout with drafts | /formation" }
+    { " Recipe      Reviewed multi-step plan | /load-recipe" }
+    { " Ribbon      Record of a real milestone | /ribbons" }
+    { " Todo        Steps that guide the next form | /todo" }
+    { "" }
     { "SAFETY" }
     { " Enter sends your Request to the selected provider." }
     { " Commands, file changes and privilege grants require approval." }
@@ -124,55 +135,55 @@ core-help-content =
 
 core-saving-exit = { "Saving task and drafts before exit / Esc Cancel exit" }
 
-core-confirmation-control = { "y Confirm / n Stay / Tab Choose / Enter Select" }
+core-confirmation-control = { "y Confirm | n Stay | Tab Choose | Enter Select" }
 
 core-saving-reset = { "Saving old task and drafts before reset / Esc Stay" }
 
 core-applying-task = { "Applying task operation / mutation paused" }
 
-core-command-picker-control = { "Type / arrows Choose / Enter Open / Esc Back" }
+core-command-picker-control = { "Type | arrows Choose | Enter Open | Esc Back" }
 
-core-file-picker-control = { "Arrows Choose file / Enter Inspect / Esc Keep text" }
+core-file-picker-control = { "Arrows Choose file | Enter Inspect | Esc Keep text" }
 
-core-request-busy-control = { "Draft only / Wheel/PgUp/Dn Scroll / /cancel" }
+core-request-busy-control = { "Draft only | Wheel/PgUp/Dn Scroll | /cancel" }
 
 core-waiting-for-user = { "Waiting for you" }
 
 core-pending-review-banner = { $count }{ " waiting for your review · Alt+A Review" }
 
-core-pending-request-control = { "Enter Review / Alt+A Oldest review / draft kept" }
+core-pending-request-control = { "Enter Review | Alt+A Oldest review | draft kept" }
 
-core-pending-review-control = { "Alt+A Review pending request / draft kept" }
+core-pending-review-control = { "Alt+A Review pending request | draft kept" }
 
 core-response-queued = { "Response queued for its exact owner; waiting for acknowledgment." }
 
-core-response-request-control = { "Enter Send / Wheel/PgUp/Dn Scroll / / Commands" }
+core-response-request-control = { "Enter Send | Wheel/PgUp/Dn Scroll | / Commands" }
 
-core-request-control = { "Enter Send / Ctrl+N Newline / @ Files / / Commands" }
+core-request-control = { "Enter Send | Ctrl+N Newline | @ Files | / Commands" }
 
-core-task-fact-control = { "Enter Save fact / Ctrl+N Newline / Esc Draft" }
+core-task-fact-control = { "Enter Save fact | Ctrl+N Newline | Esc Draft" }
 
-core-forms-control = { "Arrows Preview / Home Intake / Enter Select / Esc Back" }
+core-forms-control = { "Arrows Preview | Home Intake | Enter Select | a Auto | Esc Back" }
 
-core-criteria-control-compact = { "Enter Toggle / /criteria-edit / /complete / Esc Back" }
+core-criteria-control-compact = { "Enter Toggle | /criteria-edit | /complete | Esc Back" }
 
-core-criteria-control = { "Enter Toggle / /criteria-edit / /complete / Arrows Choose / Esc Back" }
+core-criteria-control = { "Enter Toggle | /criteria-edit | /complete | Arrows Choose | Esc Back" }
 
-core-tasks-control-compact = { "Enter Resume / / Commands / Esc Back" }
+core-tasks-control-compact = { "Enter Resume | / Commands | Esc Back" }
 
-core-tasks-control = { "Enter Resume / /archived / /archive / /restore / /delete / Esc Back" }
+core-tasks-control = { "Enter Resume | /archived | /archive | /restore | /delete | Esc Back" }
 
-core-approvals-control = { "/ Commands / Esc Defer / /approvals Return" }
+core-approvals-control = { "/ Commands | Esc Defer | /approvals Return" }
 
-core-request-active-control = { "/ Commands / Esc Cancel request / Ctrl+C Safe exit" }
+core-request-active-control = { "/ Commands | Esc Cancel request | Ctrl+C Safe exit" }
 
-core-source-filter-control = { "Enter Apply filter/range / Esc Back / Ctrl+C Exit" }
+core-source-filter-control = { "Enter Apply filter/range | Esc Back | Ctrl+C Exit" }
 
-core-overlay-control = { "/ Commands / Esc Back / Ctrl+C Exit" }
+core-overlay-control = { "/ Commands | Esc Back | Ctrl+C Exit" }
 
-core-overlay-scroll-control = { "/ Commands / Up/Down Scroll / Esc Back / Ctrl+C Exit" }
+core-overlay-scroll-control = { "/ Commands | Up/Down Scroll | Esc Back | Ctrl+C Exit" }
 
-core-home-control = { "Type Request / Tab Focus / / Commands / Ctrl+C Exit" }
+core-home-control = { "Type Request | Tab Focus | / Commands | Ctrl+C Exit" }
 
 core-back = { "Back" }
 
@@ -182,7 +193,7 @@ core-download-missing = { "Download missing / Retry" }
 
 core-reload-local = { "Reload local" }
 
-core-images-control = { "Tab Choose / Enter Select / PgUp/Dn Details / Esc Back" }
+core-images-control = { "Tab Choose | Enter Select | PgUp/Dn Details | Esc Back" }
 
 core-request-title = { " Request " }
 
@@ -194,7 +205,7 @@ core-attachment-save-failed = { " · save failed" }
 
 core-attachment-saving = { " · saving" }
 
-core-composer-draft-control = { " Ctrl+N Newline / Ctrl+S Retain draft " }
+core-composer-draft-control = { " Ctrl+N Newline | Ctrl+S Retain draft " }
 
 core-request-placeholder = { "Ask a question or describe what you want to do..." }
 
@@ -204,7 +215,7 @@ core-goal-placeholder = { "Describe the optional task goal..." }
 
 core-input-limit = { "Input limit reached; draft retained." }
 
-core-composer-idle-control = { "Type a request / / Commands / @ Files" }
+core-composer-idle-control = { "Type a request | / Commands | @ Files" }
 
 core-editor-request-help = { "Enter sends this request. Commands and file changes need separate approval." }
 
@@ -218,11 +229,11 @@ core-editor-command-help = { "JSON argv array or explicit shell object. Apply pr
 
 core-paste-limit = { " / LIMIT: paste truncated" }
 
-core-editor-apply-control = { "Enter Apply / Ctrl+S Save draft/back / Esc Back" }
+core-editor-apply-control = { "Enter Apply | Ctrl+S Save draft/back | Esc Back" }
 
 core-delete-control =
-    { "y Delete / n Keep / Tab Choose / Enter Select" }
-    { "PgUp/Dn IDs / Home/End Pages / Esc Stay" }
+    { "y Delete | n Keep | Tab Choose | Enter Select" }
+    { "PgUp/Dn IDs | Home/End Pages | Esc Stay" }
 
 core-detail-position =
     { $value }
@@ -237,7 +248,7 @@ core-editor-status =
     { $controls }
 
 core-evolution-auto = { "Auto" }
-core-evolution-manual = { "Manual" }
+core-evolution-manual = { "Pinned" }
 core-evolution-discovery = { "read / discovery" }
 core-evolution-verification = { "commands / verification; no local run" }
 core-evolution-implementation = { "code / file change; approval required" }

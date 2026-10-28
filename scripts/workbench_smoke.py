@@ -576,7 +576,7 @@ def main():
                     wait_for(native, "Endpoint:")
                     for _ in range(8):
                         footer = native.display().rstrip().splitlines()[-1].strip()
-                        if footer.startswith(("Type Request /", "Enter Send /", "Enter draft")):
+                        if footer.startswith(("Type Request |", "Enter Send |", "Enter draft")):
                             break
                         native.send("\x1b")
                     else:

@@ -342,7 +342,7 @@ class Resources:
 
 def rows(data):
     database = data / "workbench.sqlite3"
-    with closing(sqlite3.connect(database.as_uri() + "?mode=ro", uri=True, timeout=1)) as connection:
+    with closing(sqlite3.connect(database.as_uri() + "?mode=ro", uri=True, timeout=10)) as connection:
         executions = [{"record": json.loads(record), "output_name": name, "reserved": bool(reserved)}
                       for record, name, reserved in connection.execute("SELECT record,output_name,reserved FROM executions ORDER BY rowid")]
         providers = connection.execute("SELECT count(*) FROM provider_journal").fetchone()[0]

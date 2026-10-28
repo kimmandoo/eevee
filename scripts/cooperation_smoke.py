@@ -73,7 +73,7 @@ class Journey:
         return session
 
     def snapshot(self):
-        with closing(sqlite3.connect(self.database.as_uri() + "?mode=ro", uri=True, timeout=1)) as db:
+        with closing(sqlite3.connect(self.database.as_uri() + "?mode=ro", uri=True, timeout=10)) as db:
             db.row_factory = sqlite3.Row
             task = dict(db.execute("SELECT * FROM tasks ORDER BY id LIMIT 1").fetchone())
             partners = [dict(row) for row in db.execute("SELECT * FROM partners ORDER BY id")]
@@ -105,7 +105,7 @@ class Journey:
     def workspace(self):
         for _ in range(20):
             footer = self.session.display().rstrip().splitlines()[-1].strip()
-            if 'Alt+A' in footer or footer.startswith(("Type Request /", "Enter Send /", "Draft only /")):
+            if 'Alt+A' in footer or footer.startswith(("Type Request |", "Enter Send |", "Draft only |")):
                 return footer
             self.session.send("\x13" if "Ctrl+S Save draft/back" in self.session.display() else ESC)
             self.session.pump(.12)
@@ -122,7 +122,7 @@ class Journey:
 
     def request(self, partner, text, started=True, review_future=False):
         self.lead(partner)
-        if self.workspace().startswith("Type Request /"):
+        if self.workspace().startswith("Type Request |"):
             self.session.send("\r")
         self.session.send(UP * 100 + HOME + DELETE * 512)
         self.session.paste(text)
@@ -138,7 +138,7 @@ class Journey:
                 return False
             self.until(review_ready, "write scope was not reviewable")
             self.session.send(ESC)
-            if self.workspace().startswith("Type Request /"):
+            if self.workspace().startswith("Type Request |"):
                 self.session.send("\r")
             self.session.send(UP * 100 + HOME + DELETE * 512)
             future = "future draft 保持"
@@ -300,7 +300,7 @@ def main():
             assert j.draft(6)["text"] == rejected
             passed(f"{size}: idle partner release preserves all other live transports and unrelated drafts")
             j.lead(1)
-            if j.workspace().startswith("Type Request /"):
+            if j.workspace().startswith("Type Request |"):
                 j.session.send("\r")
             j.session.paste("follow-up draft 保持")
             j.session.send(LEFT * 3 + "\x13")

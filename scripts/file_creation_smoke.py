@@ -849,7 +849,7 @@ class CodexCreationJourney(cooperation_smoke.Journey):
         for _ in range(12):
             footer = self.session.display().rstrip().splitlines()[-1].strip()
             if 'Alt+A' in footer or footer.startswith(tuple(self.surface[key] for key in ('home', 'edit', 'draft'))):
-                return 'Type Request /' if footer.startswith(self.surface['home']) else 'Enter Send /'
+                return 'Type Request |' if footer.startswith(self.surface['home']) else 'Enter Send |'
             self.session.send(ESC)
         raise AssertionError('controlled request owner not reachable\n' + self.session.display())
 

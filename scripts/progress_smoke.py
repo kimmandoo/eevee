@@ -325,10 +325,10 @@ class ProgressJourney(SurfaceJourney):
         screens = []
         for _ in range(30):
             screens.append(self.session.display())
-            if 'Todo progress' in screens[-1]:
+            if 'task progress' in screens[-1]:
                 break
             self.session.send(ESC + '[6~')
-        assert any('Todo progress' in screen for screen in screens), '\n'.join(screens)
+        assert any('task progress' in screen for screen in screens), '\n'.join(screens)
         self.session.send(ESC + '[F')
         screens.append(self.session.display())
         self.capture(label)
@@ -339,7 +339,14 @@ class ProgressJourney(SurfaceJourney):
 
     def adopt(self, label):
         before = self.progress()
-        assert before['revision'] > 0 and before['adopted_revision'] != before['revision'], before
+        assert before['revision'] > 0, before
+        if before['adopted_revision'] == before['revision']:
+            # Automatic form mode adopts provider proposals without /todo-adopt.
+            assert before['steps'] == before['adopted_steps'], before
+            self.capture_progress(label + '-auto-adopted')
+            self.evidence.append({'action': label + '-auto-adopted', 'revision': before['revision'],
+                                  'steps': before['steps']})
+            return
         self.capture_progress(label + '-proposed')
         count = self.dispatch_count()
         self.session.command('todo-adopt')
@@ -444,9 +451,13 @@ class ProgressJourney(SurfaceJourney):
         expected_progress = None
         if before:
             active = next((step for step in before['steps'] if step['status'] == 'active'), None)
+            pending = next((step for step in before['steps'] if step['status'] == 'pending'), None)
             if before['adopted_revision'] == before['revision'] and active:
                 expected_progress = f"adopted revision {before['revision']} / {active['label']}"
                 assert f"adopted revision {before['revision']}" in prediction['screen'], prediction['screen']
+            elif before['adopted_revision'] == before['revision'] and pending:
+                # The focus step falls back to the next pending step (0.1.35).
+                expected_progress = f"adopted revision {before['revision']} / next: {pending['label']}"
             elif before['revision'] == 0:
                 expected_progress = 'no step list from this route'
             else:
@@ -704,7 +715,7 @@ class ProgressJourney(SurfaceJourney):
         assert self.dispatch_count() == count, 'task purge replayed provider work'
         self.capture(language + '-task-purge-removes-progress-owner')
         self.session.command('todo')
-        wait_for(self.session, 'no step list from this route')
+        wait_for(self.session, 'No todo yet')
         self.evidence.append({'action':'neutral-then-explicit-task-purge-removes-progress','task_id':deleted_id})
         self.workspace()
         return self.evidence

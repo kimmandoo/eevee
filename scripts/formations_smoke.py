@@ -54,7 +54,7 @@ def run(binary,output,root,size,):
     def homeward():
         for _ in range(8):
             footer=session.display().rstrip().splitlines()[-1].strip()
-            if footer.startswith(('Type Request /','Enter Send /','Draft only /',)):return
+            if footer.startswith(('Type Request |','Enter Send |','Draft only |',)):return
             session.send(ESC)
         raise AssertionError(session.display())
     def wait_forms(expected):until(session,lambda:forms()==expected,'saved forms '+str(expected))

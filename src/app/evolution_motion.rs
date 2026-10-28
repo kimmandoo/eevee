@@ -22,6 +22,18 @@ impl App {
         }
     }
 
+    /// Let Eevee choose again at the next Send while keeping the current
+    /// appearance. Mode affects only future Sends, never drafts or running work.
+    pub(super) fn enable_auto_form(&mut self) {
+        if self.lead.auto_form {
+            self.notice = "Auto is already on: Eevee picks the form at Send.".into();
+            return;
+        }
+        self.lead.auto_form = true;
+        self.changed_task();
+        self.notice = "Auto on: Eevee picks the form at the next Send; appearance kept.".into();
+    }
+
     pub(super) fn picker_return_to_eevee(&mut self) {
         let from = self.form();
         self.request_return_to_eevee();

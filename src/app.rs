@@ -477,7 +477,7 @@ impl App {
                 "Storage: saving before exit / Esc stay"
             }
             StorageState::Saving => "Storage: saving",
-            StorageState::Failed(_) => "Storage: save failed / /storage-retry / /inspect",
+            StorageState::Failed(_) => "Storage: save failed | /storage-retry | /inspect",
         }
     }
 

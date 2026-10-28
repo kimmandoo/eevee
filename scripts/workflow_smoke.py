@@ -65,7 +65,7 @@ def main():
             database = data / "workbench.sqlite3"
 
             def rows():
-                with closing(sqlite3.connect(database.as_uri() + "?mode=ro", uri=True, timeout=1)) as db:
+                with closing(sqlite3.connect(database.as_uri() + "?mode=ro", uri=True, timeout=10)) as db:
                     db.row_factory = sqlite3.Row
                     task = dict(db.execute("SELECT * FROM tasks ORDER BY id LIMIT 1").fetchone())
                     runs = [json.loads(row[0]) for row in db.execute("SELECT record FROM executions ORDER BY rowid")]

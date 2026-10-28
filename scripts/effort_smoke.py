@@ -75,7 +75,7 @@ class Journey(EvolutionJourney):
 
     def records(self):
         database = self.data / 'workbench.sqlite3'
-        with closing(sqlite3.connect(database.as_uri() + '?mode=ro', uri=True, timeout=1)) as db:
+        with closing(sqlite3.connect(database.as_uri() + '?mode=ro', uri=True, timeout=10)) as db:
             db.execute('PRAGMA query_only=ON')
             db.row_factory = sqlite3.Row
             receipts = [dict(row) for row in db.execute('SELECT * FROM outgoing_receipts ORDER BY rowid')]

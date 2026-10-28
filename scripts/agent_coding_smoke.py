@@ -128,7 +128,7 @@ def save_future(journey):
     journey.workspace()
     # Open only the visible Request owner; never dispatch the later draft.
     footer = journey.session.display().rstrip().splitlines()[-1].strip()
-    if footer.startswith(('Type Request /', journey.surface['home'])):
+    if footer.startswith(('Type Request |', journey.surface['home'])):
         journey.session.send('\r')
     journey.session.send((ESC + '[A') * 100 + ESC + '[H' + (ESC + '[3~') * 512)
     journey.session.paste(FUTURE)

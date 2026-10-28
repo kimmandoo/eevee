@@ -489,6 +489,38 @@ impl State {
     }
 
     /// Explicit setup entry: never changes the task provider or starts inference.
+    /// Whether any route is ready to send (configured, signed in or holding a
+    /// session credential). Nothing is probed; this reads existing state.
+    pub fn any_route_ready(&self) -> bool {
+        (0..Agent::ALL.len()).any(|index| {
+            matches!(
+                self.readiness(index),
+                Readiness::Configured | Readiness::SignedIn | Readiness::Session
+            )
+        })
+    }
+
+    /// First-run chooser: the full provider list with the cursor on the first
+    /// ready route, else the current task route. "Status unknown" is not
+    /// evidence of a usable install. Order is unchanged and nothing is selected
+    /// for the task or connected.
+    pub fn begin_provider_list(&mut self) {
+        if self.connection_editing() || self.preview || self.auth_preview.is_some() || self.busy() {
+            return;
+        }
+        self.page = Page::Providers;
+        self.notice = "Not connected yet. Choose a provider; nothing is sent.".into();
+        let ready = |state: &Self, index| {
+            matches!(
+                state.readiness(index),
+                Readiness::Configured | Readiness::SignedIn | Readiness::Session
+            )
+        };
+        if let Some(index) = (0..Agent::ALL.len()).find(|&index| ready(self, index)) {
+            self.selected = index;
+        }
+    }
+
     pub fn begin_connection(&mut self, agent: Agent) {
         if self.connection_editing()
             || self.preview

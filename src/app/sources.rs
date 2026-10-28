@@ -2121,7 +2121,7 @@ impl State {
             String::new()
         };
         self.detail = format!(
-            "EXACT BASKET ENVELOPE / escaped display\n{} UTF-8 bytes / ~{} tokens ({})\nProvider history/config/agent-owned reads may add context; this basket does not constrain them. No provider is connected and nothing is sent.{}\nPage {} / bytes {}..{} / /page-next, /page-previous\n\n{:?}",
+            "EXACT BASKET ENVELOPE / escaped display\n{} UTF-8 bytes / ~{} tokens ({})\nProvider history/config/agent-owned reads may add context; this basket does not constrain them. No provider is connected and nothing is sent.{}\nPage {} / bytes {}..{} | /page-next, /page-previous\n\n{:?}",
             payload.bytes,
             payload.estimated_tokens,
             crate::workspace::receipt::ESTIMATOR,

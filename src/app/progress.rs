@@ -299,7 +299,7 @@ impl App {
         true
     }
     pub fn progress_card(&self) -> String {
-        let mut lines = vec![
+        let mut lines: Vec<String> = vec![
             self.workflows
                 .progress
                 .as_ref()
@@ -308,7 +308,6 @@ impl App {
                     || "No todo yet. The agent creates one when work starts; /todo init adds your own.".into(),
                     State::summary,
                 ),
-            "Provider status claims are not evidence, completion or permission.".into(),
             if self.lead.auto_form {
                 "Auto: provider updates are adopted automatically; the current step guides evolution at the next Send."
             } else {
@@ -317,6 +316,12 @@ impl App {
             .into(),
             self.workflow.notice.clone(),
         ];
+        if self.verbose {
+            lines.insert(
+                1,
+                "Provider status claims are not evidence, completion or permission.".into(),
+            );
+        }
         if let Some(editor) = &self.workflow.todo_editor {
             lines.push(format!(
                 "EDIT JSON / caret byte {} / Enter save proposal / Esc cancel",

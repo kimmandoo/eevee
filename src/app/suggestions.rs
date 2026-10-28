@@ -24,6 +24,9 @@ pub(super) struct Cache {
     report: Option<Arc<repo::Report>>,
     pub(super) current: runner::InputSnapshot,
     observed_diff: bool,
+    /// First complete source identity observed this session. Pre-existing
+    /// dirty/untracked files are the starting point, not a change Eevee saw.
+    baseline: Option<String>,
     inputs: Option<[u8; 32]>,
 }
 
@@ -46,6 +49,9 @@ impl Cache {
         self.current = report
             .map(|report| repo::fingerprint(report))
             .unwrap_or_default();
+        if self.baseline.is_none() && self.current.complete {
+            self.baseline.clone_from(&self.current.fingerprint);
+        }
         self.observed_diff = report.is_some_and(|report| {
             !report.changes.is_empty()
                 || report
@@ -247,10 +253,12 @@ impl App {
         if !report_changed && self.suggestion_cache.inputs == Some(key) {
             return false;
         }
+        let cache = &self.suggestion_cache;
         let next = evaluate(
             &inputs,
-            &self.suggestion_cache.current,
-            self.suggestion_cache.observed_diff,
+            &cache.current,
+            cache.observed_diff,
+            cache.baseline.is_some() && cache.current.fingerprint != cache.baseline,
             &self.workflows,
         );
         self.suggestion_cache.inputs = Some(key);
@@ -287,6 +295,7 @@ fn evaluate(
     inputs: &Inputs<'_>,
     observed: &runner::InputSnapshot,
     diff: bool,
+    changed_since_start: bool,
     state: &workflows::State,
 ) -> Option<Suggestion> {
     if inputs.task <= 0 {
@@ -344,10 +353,16 @@ fn evaluate(
                     )),
                 )
             }
-            Rule::DiffNeedsRun if diff && !complete_current => (
-                "Observed source changes have no complete run at this revision.".into(),
-                evidence_hash(&(observed, inputs.observation_available)),
-            ),
+            // A change must be one Eevee observed (source moved this session)
+            // or follow a recorded run; a fresh project's files are not "changes".
+            Rule::DiffNeedsRun
+                if diff && (changed_since_start || latest.is_some()) && !complete_current =>
+            {
+                (
+                    "Observed source changes have no complete run at this revision.".into(),
+                    evidence_hash(&(observed, inputs.observation_available)),
+                )
+            }
             Rule::PassingRunNeedsReview
                 if complete_current
                     && latest.is_some_and(|run| run.state == runner::RunState::Succeeded)

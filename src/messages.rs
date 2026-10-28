@@ -150,6 +150,42 @@ mod message_build;
 mod tests {
     use super::*;
 
+    /// `/` is the Commands key, so a separator must never sit beside it, and
+    /// footer hint lines use ` | ` between keys (ASCII-safe).
+    #[test]
+    fn key_hints_never_put_a_separator_next_to_the_slash_key() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let mut checked = 0;
+        for entry in std::fs::read_dir(root.join("messages")).unwrap() {
+            let path = entry.unwrap().path();
+            let mut id = String::new();
+            for line in std::fs::read_to_string(&path).unwrap().lines() {
+                if let Some((name, _)) = line.split_once(" =")
+                    && !name.starts_with(' ')
+                {
+                    id = name.to_owned();
+                }
+                assert!(
+                    !line.contains(" / /") && !line.contains("/ / "),
+                    "{}: {line}",
+                    path.display()
+                );
+                if id.ends_with("-control") || id.ends_with("-controls") {
+                    // `/ Commands` names the key; any other spaced slash separates.
+                    let separators = line.replace(" / Commands", "").replace("\"/ Commands", "");
+                    assert!(!separators.contains(" / "), "{id}: {line}");
+                    checked += 1;
+                }
+            }
+        }
+        assert!(checked > 20, "footer hint messages were found");
+        for file in ["src/ui.rs", "src/app.rs"] {
+            for line in std::fs::read_to_string(root.join(file)).unwrap().lines() {
+                assert!(!line.contains(" / /"), "{file}: {line}");
+            }
+        }
+    }
+
     #[test]
     fn named_untrusted_arguments_are_literal_and_order_independent() {
         let field = "{ $partner }\n\"quoted\" \\ /provider --unsafe <tag> 한글 e\u{301} 👩‍💻";

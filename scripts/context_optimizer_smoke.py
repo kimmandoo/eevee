@@ -56,7 +56,7 @@ class Journey(RecordsJourney):
 
     def state(self):
         state = super().state()
-        with closing(sqlite3.connect(self.database.as_uri() + '?mode=ro', uri=True, timeout=1)) as db:
+        with closing(sqlite3.connect(self.database.as_uri() + '?mode=ro', uri=True, timeout=10)) as db:
             db.execute('PRAGMA query_only=ON')
             db.row_factory = sqlite3.Row
             state['context_revisions'] = [dict(row) for row in db.execute(
@@ -492,7 +492,7 @@ class Journey(RecordsJourney):
             return super().write_request(text)
         # Sending the already exact committed request is not a user text edit.
         # Avoid artificial delete/retype commits invalidating its frozen packet.
-        if footer.startswith('Type Request /'):
+        if footer.startswith('Type Request |'):
             self.session.send('\r')
         # A restored attachment chip owns Enter until ordinary caret navigation.
         # Home returns to literal text without modifying the committed Request.

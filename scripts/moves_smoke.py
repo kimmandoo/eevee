@@ -144,7 +144,7 @@ class Journey:
         wait_for(self.session, "Storage: saved", timeout=35)
 
     def state(self):
-        with closing(sqlite3.connect(self.database.as_uri() + "?mode=ro", uri=True, timeout=1)) as db:
+        with closing(sqlite3.connect(self.database.as_uri() + "?mode=ro", uri=True, timeout=10)) as db:
             db.row_factory = sqlite3.Row
             available = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
             result = {}
@@ -233,7 +233,7 @@ class Journey:
         for _ in range(12):
             view = self.session.display()
             footer = view.rstrip().splitlines()[-1].strip()
-            if footer.startswith(("Type Request /", "Enter Send /", "Draft only /")):
+            if footer.startswith(("Type Request |", "Enter Send |", "Draft only |")):
                 return footer
             if allow_offer and "wants to learn a move!" in view:
                 return "Learn prompt"
@@ -404,7 +404,7 @@ class Journey:
 
     def prepare_connection(self):
         footer = self.workspace()
-        if footer.startswith("Type Request /"):
+        if footer.startswith("Type Request |"):
             self.session.send("\r")
         revision = self.task()["revision"]
         # Workspace navigation and an earlier task row do not acknowledge the
@@ -434,7 +434,7 @@ class Journey:
 
     def write_request(self, text):
         footer = self.workspace()
-        if footer.startswith("Type Request /"):
+        if footer.startswith("Type Request |"):
             self.session.send("\r")
         self.session.send(UP * 16 + HOME)
         for _ in range(12):

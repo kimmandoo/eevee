@@ -14,4 +14,4 @@ source-memory-retention = Capture/receipt/artifact purge keeps this note.
 source-memory-summary = { $scope }
     { $effect }
     Note: { $content }
-    { $bytes } bytes / /verbose Full note and source
+    { $bytes } bytes | /verbose Full note and source

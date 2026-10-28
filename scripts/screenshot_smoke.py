@@ -71,7 +71,7 @@ class ScreenshotJourney(ReceiptJourney):
         assert not self.peer.snapshot('POST'), 'configuration/navigation must not send inference'
 
     def images(self):
-        with closing(sqlite3.connect(self.database.as_uri() + '?mode=ro', uri=True, timeout=1)) as db:
+        with closing(sqlite3.connect(self.database.as_uri() + '?mode=ro', uri=True, timeout=10)) as db:
             db.execute('PRAGMA query_only=ON')
             return [{'task_id': t, 'partner': p, 'capture': json.loads(c), 'bytes': b, 'selected': s}
                     for t, p, c, b, s in db.execute('SELECT task_id,partner,capture,bytes,selected FROM screenshots ORDER BY task_id,partner')]

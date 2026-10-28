@@ -2,6 +2,9 @@
 
 ## 2026-10-28
 
+- feat(ui): separated footer key hints with ` | ` so the `/` Commands key never sits beside a separator, and added a lint test.
+- feat(ui): listed only everyday commands for an empty palette query (Ctrl+K shows all), moved repeated disclaimers behind `/verbose`, named Auto/Pinned form mode with an `a` toggle in `/forms`, showed the todo focus line in compact layouts, opened the full provider list on a first-run Send, and added a game-terms map to help.
+- fix(suggestions): stopped suggesting Jolteon for pre-existing dirty files until Eevee observes an actual source change or a run exists.
 - feat(ui): marked an unconnected route in the header (`(not connected)`/`(setup)`), removed stray status spacing, gave `/todo` its own panel with mode-aware keys and a plain "No todo yet" state, listed everyday commands first in the palette, hid the advisory form strip in automatic mode, and added `/todo` and `/evolution-preview` to help.
 - chore(release): advanced the package version to 0.1.35.
 - feat(evolution)!: enabled the native phased-todo prelude by default so todo-driven evolution needs no setup; `/todo-eager off` now persists a task-level opt-out that earlier strict readers refuse.
@@ -281,6 +284,8 @@
 - fix(evolution): treated Korean descriptive verbs and "check whether it works" as verification and kept repairs of a diagnosed failure Implement-capable.
 - feat(evolution)!: in automatic form mode, adopted provider todo updates automatically and chose the next Send's form from the current todo step; enabled the native phased-todo prelude by default (`/todo-eager off` writes a task opt-out that 0.1.34 refuses).
 - feat(ui): marked an unconnected route in the header, gave `/todo` its own panel, listed everyday commands first, hid the advisory form strip in automatic mode and added `/todo`/`/evolution-preview` to help.
+- feat(ui): separated footer key hints with ` | `, showed only everyday commands for an empty palette (Ctrl+K shows all), named Auto/Pinned form mode with an `a` toggle, kept the todo line visible in compact layouts, opened the full provider list on a first-run Send, moved repeated disclaimers behind `/verbose` and added a game-terms map to help.
+- fix(suggestions): stopped suggesting Jolteon for files that were already dirty before Eevee observed any change.
 
 ## 0.1.34
 

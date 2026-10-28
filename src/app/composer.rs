@@ -168,7 +168,10 @@ impl App {
             self.input.clear();
             self.notice.clear();
             self.open_overlay(Overlay::Agents);
-            if matches!(
+            if !self.agents.any_route_ready() {
+                // First run: show every route instead of one family's methods.
+                self.agents.begin_provider_list();
+            } else if matches!(
                 self.planning.agent,
                 Agent::Codex | Agent::ChatGPT | Agent::OpenAI | Agent::Compatible
             ) {

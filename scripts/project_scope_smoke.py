@@ -20,7 +20,7 @@ from workbench_smoke import wait_for
 
 
 def rows(database):
-    with closing(sqlite3.connect(database.as_uri() + '?mode=ro', uri=True, timeout=1)) as db:
+    with closing(sqlite3.connect(database.as_uri() + '?mode=ro', uri=True, timeout=10)) as db:
         tasks = db.execute('SELECT id,project,goal FROM tasks ORDER BY id').fetchall()
         captures = [json.loads(row[0]) for row in db.execute('SELECT record FROM excerpts ORDER BY id')]
     return tasks, captures

@@ -2164,6 +2164,34 @@ mod tests {
     }
 
     #[test]
+    fn compact_layouts_keep_the_todo_line_without_a_companion() {
+        use crate::workspace::progress::{State as Progress, Status, Step};
+        for (width, height) in [(60, 18), (80, 24)] {
+            let mut app = App::new("/workspace".into(), width, height);
+            let screen = draw_home(&mut app);
+            assert!(!screen.contains("Todo "), "no todo, no line:\n{screen}");
+            let mut progress = Progress::default();
+            progress
+                .propose(
+                    "fixture",
+                    vec![Step {
+                        label: "Fix".into(),
+                        phase: None,
+                        status: Status::Active,
+                    }],
+                )
+                .unwrap();
+            progress.adopt().unwrap();
+            app.workflows.progress = Some(progress);
+            let screen = draw_home(&mut app);
+            assert!(
+                screen.contains("Todo 1/1 Fix"),
+                "{width}x{height}\n{screen}"
+            );
+        }
+    }
+
+    #[test]
     fn home_companion_names_the_todo_step_that_steers_evolution() {
         use crate::workspace::progress::{State as Progress, Status, Step};
         // 60x18 has no companion pane; /todo and /evolution-preview remain.

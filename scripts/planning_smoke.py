@@ -142,7 +142,7 @@ def main():
             wait_for(stale, 'Review local capture /')
             stale.command('attach')
             until(stale, lambda: source_attached(stale), 'exact source capture committed')
-            if not stale.display().rstrip().splitlines()[-1].strip().startswith(('Type Request /', 'Enter Send /')):
+            if not stale.display().rstrip().splitlines()[-1].strip().startswith(('Type Request |', 'Enter Send |')):
                 stale.command('close')
             wait_for(stale, 'Storage: saved')
             stale.command('role-plan')

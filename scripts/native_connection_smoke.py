@@ -396,13 +396,13 @@ class Journey:
         # Escape only temporary drawers; bounded navigation is not an inference retry.
         for _ in range(8):
             footer = self.session.display().rstrip().splitlines()[-1].strip()
-            if footer.startswith(('Type Request /', 'Enter Send /', 'Draft only /')):
+            if footer.startswith(('Type Request |', 'Enter Send |', 'Draft only |')):
                 return footer
             self.session.send(ESC)
         raise AssertionError('Request owner not reachable\n' + self.session.display())
 
     def write_request(self, text):
-        if self.workspace().startswith('Type Request /'):
+        if self.workspace().startswith('Type Request |'):
             self.session.send('\r')
         self.session.send((ESC + '[A') * 16 + HOME + DELETE * 256)
         self.session.paste(text)

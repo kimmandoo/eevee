@@ -683,9 +683,9 @@ fn render_todo(frame: &mut Frame, body: Rect, footer: Rect, app: &mut App, paint
         frame,
         footer,
         if app.lead().auto_form {
-            "e Edit / PgUp/PgDn Scroll / Esc Back"
+            "e Edit | PgUp/PgDn Scroll | Esc Back"
         } else {
-            "e Edit / a Adopt / PgUp/PgDn Scroll / Esc Back"
+            "e Edit | a Adopt | PgUp/PgDn Scroll | Esc Back"
         },
         paint.accent,
     );

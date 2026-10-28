@@ -919,22 +919,22 @@ fn header(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &Pai
     let activity = if waiting {
         paint.hint(Message::CoreWaitingForUser)
     } else if app.planning.cancelling {
-        "Cancelling provider / /response Status"
+        "Cancelling provider | /response Status"
     } else if let Some(preview) = app.planning.preview.as_ref() {
         if preview.blockers.is_empty() {
-            "Request prepared / /approvals Details"
+            "Request prepared | /approvals Details"
         } else {
-            "Request blocked / /approvals Details"
+            "Request blocked | /approvals Details"
         }
     } else if app.planning.preference_error().is_some() {
-        "Model preference not saved / /storage-retry"
+        "Model preference not saved | /storage-retry"
     } else if let Some(activity) = app.planning.activity_label() {
         activity
     } else if app.planning.outcome_unknown() {
         if area.width < 90 {
-            "Outcome unknown / /response"
+            "Outcome unknown | /response"
         } else {
-            "Provider outcome unknown / /response Inspect"
+            "Provider outcome unknown | /response Inspect"
         }
     } else {
         app.execution.activity_label()
@@ -954,11 +954,16 @@ fn header(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &Pai
     } else {
         String::new()
     };
-    let status = format!(
+    let mut status = format!(
         "{policy}{}{} · {marker}{activity}",
         if policy.is_empty() { "" } else { " · " },
         app.storage_label(),
     );
+    // Without the companion pane, keep the todo step and next form visible
+    // here; activity, approvals and cancellation take the row instead.
+    if let Some(todo) = compact_todo(app, frame.area().width) {
+        status = format!("{status} · {todo}");
+    }
     let line = row(area, 1, 1);
     text(
         frame,
@@ -1131,6 +1136,35 @@ fn workspace(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &
     );
 }
 
+/// Whether the status row shows the todo line itself (narrow layouts only).
+fn compact_todo(app: &App, width: u16) -> Option<String> {
+    let companion = !app.linear && width >= 90;
+    let busy = app.approval_count() > 0
+        || app.planning.cancelling
+        || app.planning.preview.is_some()
+        || app.planning.activity_label().is_some()
+        || app.planning.outcome_unknown();
+    if companion || busy {
+        return None;
+    }
+    let todo = todo_line(app)?;
+    let used = Span::raw(app.storage_label()).width()
+        + Span::raw(app.execution.activity_label()).width()
+        + 6;
+    (used + Span::raw(todo.as_str()).width() <= usize::from(width)).then_some(todo)
+}
+
+/// The todo line for the composer title when the narrow status row has no room.
+fn composer_todo(app: &App, width: u16) -> Option<String> {
+    if (!app.linear && width >= 90) || compact_todo(app, width).is_some() {
+        return None;
+    }
+    let busy = app.approval_count() > 0
+        || app.planning.cancelling
+        || app.planning.activity_label().is_some();
+    (!busy).then(|| todo_line(app)).flatten()
+}
+
 /// The todo step that steers automatic evolution, or a waiting proposal.
 fn todo_line(app: &App) -> Option<String> {
     if let Some((position, form)) = app.todo_guide() {
@@ -1199,7 +1233,7 @@ fn compact_companion(
         } else if focused {
             paint.hint(Message::CoreFormControl)
         } else {
-            "/forms / /companion"
+            "/forms | /companion"
         },
         paint.accent,
     );
@@ -1233,7 +1267,7 @@ fn companion(
         Paragraph::new(if app.last_carry_over().is_some() {
             "/forms /images  n Nickname  c Carry-over"
         } else {
-            "/forms / /images / n Nickname"
+            "/forms | /images / n Nickname"
         })
         .style(paint.accent)
         .alignment(Alignment::Center),
@@ -1264,7 +1298,7 @@ fn companion(
     }
     lines.extend([
         Line::styled(artwork.status(app.form()), paint.muted),
-        Line::styled("/party Roster / /lead Front a partner", paint.accent),
+        Line::styled("/party Roster | /lead Front a partner", paint.accent),
     ]);
     scroll_text(
         frame,
@@ -1341,7 +1375,7 @@ fn inspect(
         )
     } else {
         format!(
-            "PROJECT\n{project}\n\nTASK\n{task} / {}\nCriteria: {}/{} met\nRetained drafts: {}\n\nSTORAGE\n{}\n{}\n\n/provider Requests / /run Local checks / /handoff Handoff\nUp/Down scroll",
+            "PROJECT\n{project}\n\nTASK\n{task} / {}\nCriteria: {}/{} met\nRetained drafts: {}\n\nSTORAGE\n{}\n{}\n\n/provider Requests | /run Local checks | /handoff Handoff\nUp/Down scroll",
             if app.complete { "Complete" } else { "Open" },
             app.criteria
                 .iter()
@@ -1387,13 +1421,19 @@ fn forms(
     let content = block.inner(area);
     frame.render_widget(block, area);
     let current = FORMS[app.form()].name;
+    // The mode decides who picks the form at Send; say it and how to change it.
+    let mode = if app.lead().auto_form {
+        "Auto (Eevee picks at Send)".to_owned()
+    } else {
+        format!("Pinned: {current} · a Auto")
+    };
     let heading = match (app.visible_suggestion(), grid) {
         (Some(suggestion), false) => format!(
-            "Current: {current} / Suggested: {} / d Dismiss",
+            "Current: {current} · {mode} · Suggested: {} · d Dismiss",
             FORMS[suggestion.form].name
         ),
-        (Some(_), true) => format!("Current: {current} / d Dismiss suggestion"),
-        (None, _) => format!("Current: {current}"),
+        (Some(_), true) => format!("Current: {current} · {mode} · d Dismiss suggestion"),
+        (None, _) => format!("Current: {current} · {mode}"),
     };
     text(frame, row(content, 0, 1), &heading, paint.muted);
     text(
@@ -1537,7 +1577,7 @@ fn form_details(
             0 => "Task cards and resumption: available",
             1 => "Source ranges/context basket: /files",
             2 => "Approved local commands/evidence: /run",
-            3 => "Reviewed selected-file implementation: /provider / /role",
+            3 => "Reviewed selected-file implementation: /provider | /role",
             4 => "Reviewed multi-agent planning: /provider",
             _ => "Provider specialist workflow: unavailable",
         },
@@ -1672,7 +1712,7 @@ fn tasks(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &
         frame,
         row(content, list_rows, 1),
         &format!(
-            "{} cards / /archived View / {} / /delete / /prune Retention",
+            "{} cards | /archived View / {} | /delete | /prune Retention",
             count,
             if app.show_archived {
                 "/restore"
@@ -2097,11 +2137,19 @@ fn evolution_preview(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                 |effort| effort.line(),
             ),
             format!("Todo step: {}", preview.todo_step.as_deref().filter(|step| *step != "no step list from this route").unwrap_or("none yet; the agent creates one when work starts")),
-            "Context: current task and reviewed selections; exact outgoing bytes reviewed before dispatch".into(),
+            if VERBOSE.get() {
+                "Context: current task and reviewed selections; exact outgoing bytes reviewed before dispatch".into()
+            } else {
+                "Context: current task and reviewed selections".into()
+            },
             format!("Model capabilities: {}", crate::providers::capabilities::model_disclosure(app.planning.catalogues.get(&app.planning.agent), &app.planning.selection)),
             String::new(),
-            paint.hint(Message::CoreEvolutionPreviewGuard).into(),
-            String::new(),
+            // The guard repeats what every effect review enforces; /verbose shows it.
+            if VERBOSE.get() {
+                format!("{}\n", paint.hint(Message::CoreEvolutionPreviewGuard))
+            } else {
+                String::new()
+            },
             paint.hint(Message::CoreEvolutionPreviewControls).into(),
         ]
         .join("\n")
@@ -2456,6 +2504,10 @@ fn composer_input(frame: &mut Frame, area: Rect, app: &App, config: &Config, pai
             ),
         ],
     );
+    let title = match composer_todo(app, frame.area().width) {
+        Some(todo) => format!("{} · {todo} ", title.trim_end()),
+        None => title,
+    };
     let mut block = panel(&title, config, paint, editing && app.overlay.is_none());
     let pairing_offer;
     if app.overlay.is_none() && app.records.failed.is_some() {

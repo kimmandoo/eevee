@@ -95,7 +95,7 @@ def main():
                     # Unwind actual frames without escaping into a retained text editor.
                     for _ in range(12):
                         footer = session.display().rstrip().splitlines()[-1].strip()
-                        if footer.startswith(("Type Request /", "Enter Send /")):
+                        if footer.startswith(("Type Request |", "Enter Send |")):
                             return
                         session.send(ESC)
                         session.pump(.15)
