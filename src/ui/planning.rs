@@ -1131,12 +1131,15 @@ fn response(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
             .as_ref()
             .and_then(|status| status.outcome_label());
         let mut metadata = if let ItemKind::File(phase) = item.kind {
+            // A live count of actually received lines makes generation visible.
+            let lines = item.text.lines().count().saturating_sub(1);
             format!(
-                "{}{}{} {}",
+                "{}{}{} {} · {lines} line{}",
                 outcome.unwrap_or(""),
                 if outcome.is_some() { " · " } else { "" },
                 paint.hint(Message::ProvidersPlanningFileLabel),
                 paint.hint(file_phase_message(phase)),
+                if lines == 1 { "" } else { "s" },
             )
         } else {
             format!(
@@ -1260,31 +1263,50 @@ fn response(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
         let lines: Vec<Line<'_>> = state
             .response_display_rows(body.width, body.height, super::VERBOSE.get())
             .map(|row| match row.kind {
-                ItemKind::File(phase) => Line::from(vec![
-                    Span::styled(
-                        if row.header {
-                            "+ "
-                        } else if row.writing_edge {
-                            "> "
-                        } else {
-                            "| "
-                        },
-                        file_style(phase, paint),
-                    ),
-                    Span::styled(
-                        row.text,
-                        if row.header {
-                            file_style(phase, paint)
-                        } else if row.writing_edge {
-                            paint
-                                .base
-                                .add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
-                        } else {
-                            paint.base
-                        },
-                    ),
-                ])
-                .style(paint.base),
+                ItemKind::File(phase) => {
+                    // Newly arrived lines flash and the writing edge carries a
+                    // blinking caret while real bytes stream; static otherwise.
+                    let live = super::LIVE_FX.get();
+                    let fresh = row.fresh && live.is_some();
+                    let mut spans = vec![
+                        Span::styled(
+                            if row.header {
+                                "+ "
+                            } else if row.writing_edge {
+                                "> "
+                            } else if fresh {
+                                "+ "
+                            } else {
+                                "| "
+                            },
+                            file_style(phase, paint),
+                        ),
+                        Span::styled(
+                            row.text,
+                            if row.header {
+                                file_style(phase, paint)
+                            } else if row.writing_edge {
+                                paint
+                                    .base
+                                    .add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
+                            } else if fresh {
+                                file_style(phase, paint).add_modifier(Modifier::BOLD)
+                            } else {
+                                paint.base
+                            },
+                        ),
+                    ];
+                    if row.writing_edge
+                        && let Some((ascii, frame)) = live
+                        && frame % 4 < 2
+                    {
+                        spans.push(Span::styled(
+                            if ascii { "_" } else { "▌" },
+                            file_style(phase, paint),
+                        ));
+                    }
+                    Line::from(spans).style(paint.base)
+                }
                 _ => Line::raw(row.text),
             })
             .collect();
@@ -2536,6 +2558,48 @@ mod tests {
                     );
                 }
             }
+        }
+    }
+
+    #[test]
+    fn newly_received_file_lines_flash_only_while_live_and_never_hide_content() {
+        let (mut app, task) = preview(60, 18);
+        draw(&mut app);
+        key(&mut app, &task, KeyCode::Char('y'));
+        app.planning.pending.take();
+        let snapshot = |text: &str| Event::Item {
+            generation: 11,
+            task_id: 7,
+            thread_id: "thread".into(),
+            turn_id: "turn".into(),
+            item_id: "file".into(),
+            kind: ItemKind::File(FilePhase::Generating),
+            text: text.into(),
+            complete: false,
+        };
+        app.planning.event(snapshot("src/a.rs\nfn one() {}\n"));
+        app.planning.event(snapshot(
+            "src/a.rs\nfn one() {}\nfn two() {}\nfn three() {}\n",
+        ));
+        let fresh: Vec<_> = app
+            .planning
+            .response_display_rows(60, 12, false)
+            .filter(|row| row.fresh)
+            .map(|row| row.text.to_owned())
+            .collect();
+        assert!(fresh.iter().any(|row| row.contains("two")), "{fresh:?}");
+        assert!(fresh.iter().any(|row| row.contains("three")), "{fresh:?}");
+        assert!(!fresh.iter().any(|row| row.contains("one")), "{fresh:?}");
+        let paint = Paint::new(&config(), &crate::domain::FORMS[0], 0);
+        for live in [Some((true, 0)), None] {
+            super::super::LIVE_FX.set(live);
+            let screen = screen(&draw_response(&mut app.planning, 60, 18, &paint));
+            // Every received line is on screen either way; only styling differs.
+            for line in ["fn one", "fn two", "fn three"] {
+                assert!(screen.contains(line), "{screen}");
+            }
+            assert!(screen.contains("3 lines"), "{screen}");
+            assert_eq!(screen.contains("+ fn two"), live.is_some(), "{screen}");
         }
     }
 

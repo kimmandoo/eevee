@@ -2,6 +2,8 @@
 
 ## 2026-10-28
 
+- feat(ui): flashed newly received file lines with a writing-edge caret and live line count while files stream, hid response worker/transport origin lines outside `/verbose`, collapsed `default/default` in the header and cleaned storage labels.
+- chore(release): advanced the package version to 0.1.36 instead of replacing the unpublished v0.1.35 tag.
 - fix(journey): updated every route's `/journey` todo disclosure to automatic adoption in Auto and `/todo-adopt` when Pinned.
 - feat(ui): separated footer key hints with ` | ` so the `/` Commands key never sits beside a separator, and added a lint test.
 - feat(ui): listed only everyday commands for an empty palette query (Ctrl+K shows all), moved repeated disclaimers behind `/verbose`, named Auto/Pinned form mode with an `a` toggle in `/forms`, showed the todo focus line in compact layouts, opened the full provider list on a first-run Send, and added a game-terms map to help.
@@ -277,8 +279,12 @@
 - test(terminal): acknowledged the new one-time evolution receipt before checking preserved goal/edit/discard behavior in the actual compact installed runtime without changing the published executable.
 - docs(verification): verified all public assets, sixteen bilingual automatic-review/file-progress journeys/64 groups, 24 file journeys/126 groups, evolution popups and preserved typing, scrolling/tooltips, native 176 groups, cooperation 24, six genuine schema upgrade/refusal/resume cases and 23 installation groups/all 34 installed terminal scenarios.
 
-## 0.1.35
+## 0.1.36
 
+Includes every change prepared as 0.1.35, which was tagged but never published.
+
+- feat(ui): flashed newly received file lines, showed a blinking caret at the writing edge and a live received-line count while a file streams; static under reduced motion and `--no-animation`.
+- feat(ui): moved response worker/transport origin lines behind `/verbose` (the original model stays visible), collapsed `default/default` in the header and replaced `/` in storage labels.
 - fix(providers): stopped provider switches and request-only saves from staling handoffs, kept changed/foreign handoffs fail-closed with a `/handoff-clear` hint, and excluded `/tools` selections reviewed for another adapter instead of blocking every request.
 - fix(auth): preserved saved-account expiry and private-source read diagnostics in recovery setup and Account Advanced settings.
 - feat(ui): highlighted the selected choice in every review/confirmation and the focused provider question/permission option, keeping it scrolled into view at 60×18.

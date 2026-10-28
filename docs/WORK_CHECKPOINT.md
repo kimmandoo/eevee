@@ -1,5 +1,12 @@
 # Work Checkpoint
 
+## 2026-10-28 — Live file feel, usability cleanup and v0.1.36 release
+
+- **Request:** Fix remaining usability issues and make file creation feel lively ("파바박"), then release.
+- **Release decision:** Moving the unpublished `v0.1.35` tag needed a force-push that the permission check refused, so this ships as 0.1.36 (all 0.1.35 changes included). Remote `v0.1.35` still points at `ad5c634` with no GitHub release.
+- **Implemented:** `planning::State::file_growth` records the byte offset/time of each file item's newly received lines; `ResponseRow::fresh` (480 ms) drives a bold phase-colored flash with a `+` gutter, the writing edge gets a blinking `▌`/`_` caret, and the file metadata line counts received lines. Effects run only while real provider activity streams with motion enabled (`ui::LIVE_FX`, the existing 120 ms activity tick); bytes are never delayed. Response headers keep outcome/reason/context/model and move Origin/worker-generation and prepared-transport lines behind `/verbose`. Header omits `/default` effort when both model and effort are default; storage labels use ` · `. DESIGN_RULES file-live and verbose rules updated.
+- **Verification:** fmt; strict Clippy with/without all features; Rust 1,857 passed/two ignored including `newly_received_file_lines_flash_only_while_live_and_never_hide_content`; Python unittest 28 (four Windows skips); sidecar 45/45; release build; local full native profile 6/7 drivers passed and `conversation` failed because its outcome parser split on the now verbose-only `Origin:` line. Fixed `scripts/conversation_flow_smoke.py` to also stop at `Model:`; rerun of that driver against the same release binary passed both cases (`target/r036-conv`).
+
 ## 2026-10-28 — Open-task reconciliation (planning only)
 
 - **Request:** Fix or strengthen existing tasks that are already done or need replanning.

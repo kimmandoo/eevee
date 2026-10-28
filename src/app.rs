@@ -466,15 +466,15 @@ impl App {
         match &self.storage {
             StorageState::Loading => "Storage: loading",
             StorageState::Saved if self.draft_dirty() || !self.drafts.is_empty() => {
-                "Storage: saved / retained draft"
+                "Storage: saved · draft kept"
             }
             StorageState::Saved => "Storage: saved",
             StorageState::Pending if self.planning.holds_committed_input() => {
-                "Storage: draft pending / request active"
+                "Storage: draft pending · request active"
             }
             StorageState::Pending => "Storage: autosave pending",
             StorageState::Saving if self.quit_after_save => {
-                "Storage: saving before exit / Esc stay"
+                "Storage: saving before exit · Esc stay"
             }
             StorageState::Saving => "Storage: saving",
             StorageState::Failed(_) => "Storage: save failed | /storage-retry | /inspect",

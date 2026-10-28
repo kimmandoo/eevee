@@ -78,11 +78,11 @@ Pin a version:
 
 ```sh
 curl -fsSLo install-ev.sh https://github.com/kimmandoo/eevee/releases/latest/download/install.sh
-sh ./install-ev.sh --version v0.1.35
+sh ./install-ev.sh --version v0.1.36
 ```
 
 ```powershell
-& ([scriptblock]::Create((irm https://github.com/kimmandoo/eevee/releases/latest/download/install.ps1))) -Version v0.1.35
+& ([scriptblock]::Create((irm https://github.com/kimmandoo/eevee/releases/latest/download/install.ps1))) -Version v0.1.36
 ```
 
 Offline: download the matching archive, `SHA256SUMS` and installer from one release, then:
@@ -159,7 +159,7 @@ ev --help
 
 ### Retained work and long requests
 
-Public0.1.35 includes:
+Public0.1.36 includes:
 
 | Want to… | Use |
 | --- | --- |

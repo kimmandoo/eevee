@@ -158,6 +158,9 @@ pub struct State {
     pub following: bool,
     pub new_output: bool,
     response_cache: response::Layout,
+    /// Byte offset and arrival time of each live file item's newest received
+    /// lines. Display-only: it highlights real bytes, never delays them.
+    file_growth: HashMap<String, (usize, std::time::Instant)>,
     activity: &'static str,
     response_scroll: usize,
     response_max: usize,
@@ -326,7 +329,7 @@ impl State {
             plan_completed: false,
             failed_request: false,
             connection_recovery: None,
-            following: true, new_output: false, response_cache: response::Layout::default(),
+            following: true, new_output: false, response_cache: response::Layout::default(), file_growth: HashMap::new(),
             activity: "Connecting",
             response_scroll: 0, response_max: 0,
             response_height: 0, response_body: ratatui::layout::Rect::default(),
@@ -1129,6 +1132,18 @@ impl State {
                         && item.turn_id == turn_id
                         && item.item_id == item_id
                 });
+                if let ItemKind::File(_) = kind {
+                    let previous = position.map(|index| self.items[index].text.as_str());
+                    if previous != Some(text.as_str()) {
+                        // Newly arrived whole lines start after the previous
+                        // snapshot's last complete line.
+                        let from = previous
+                            .filter(|previous| text.starts_with(previous))
+                            .map_or(0, |previous| previous.rfind('\n').map_or(0, |at| at + 1));
+                        self.file_growth
+                            .insert(item_id.clone(), (from, std::time::Instant::now()));
+                    }
+                }
                 let index = if let Some(index) = position {
                     let item = &mut self.items[index];
                     let continued = !item.complete

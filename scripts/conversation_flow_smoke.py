@@ -155,7 +155,8 @@ def native_case(binary, output, size, ):
                     tail = observed.split('Request:' + request, 1)[1]
                     outcome, tail = tail.split('Requestoutcome:', 1)[1].split('Reason:', 1)
                     reason, tail = tail.split('Publiccontext:', 1)
-                    context = tail.split('Origin:', 1)[0]
+                    # Compact headers end the context at Model:, verbose ones at Origin:.
+                    context = tail.split('Origin:', 1)[0].split('Model:', 1)[0]
                     return outcome, reason, context
 
                 for mode, outcome, reason in (

@@ -71,6 +71,9 @@ const ASCII_BORDER: border::Set = border::Set {
 thread_local! {
     /// `/verbose` for the frame being drawn; set once at the start of `render`.
     static VERBOSE: Cell<bool> = const { Cell::new(false) };
+    /// Live-output effects for this frame: `Some((ascii, frame))` while real
+    /// provider work streams with motion enabled, otherwise `None`.
+    static LIVE_FX: Cell<Option<(bool, u8)>> = const { Cell::new(None) };
 }
 
 /// Coarse age of a Unix-millisecond timestamp ("just now", "5m ago", "3d ago").
@@ -513,6 +516,10 @@ pub fn render(
     graphics_status: &str,
 ) {
     VERBOSE.set(app.verbose);
+    LIVE_FX.set(
+        (app.motion_enabled() && !config.no_animation && app.planning.activity_label().is_some())
+            .then_some((config.ascii, app.activity_frame)),
+    );
     app.planning.set_response_body(Rect::default());
     let area = frame.area();
     app.confirmation_reviewed = false;
@@ -857,20 +864,16 @@ fn header(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &Pai
             _ => short.to_owned(),
         };
         let route = route_label.as_str();
-        let effort = Span::styled(
-            format!(
-                "/{}",
-                clipped(
-                    app.planning
-                        .selection
-                        .effort
-                        .as_deref()
-                        .unwrap_or("default"),
-                    8
-                )
-            ),
-            paint.muted,
-        );
+        // "default/default" says nothing twice; show the effort only when chosen
+        // or when a specific model makes the pairing meaningful.
+        let effort_text = match (
+            app.planning.selection.model.as_deref(),
+            app.planning.selection.effort.as_deref(),
+        ) {
+            (None, None) => String::new(),
+            (_, effort) => format!("/{}", clipped(effort.unwrap_or("default"), 8)),
+        };
+        let effort = Span::styled(effort_text, paint.muted);
         let model_name = app.planning.selection.model.as_deref().unwrap_or("default");
         let model_hint_width = Span::raw(model_name).width().min(20);
         let identity_budget = usable_width
