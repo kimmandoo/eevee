@@ -2,6 +2,7 @@
 
 ## 2026-10-29
 
+- fix(ci): compared every retained MCP uncertainty marker by file identity on Windows and waited for the initial committed storage state before opening connection setup, preserving all native qualification checks.
 - fix(ci): compared the MCP smoke's uncertain-project marker by file identity so Windows verbatim paths match, ran the five contract drivers concurrently through `scripts/contract_smoke.py` with quiet-redraw key settling, and limited non-full targets to the compact 60×18 size.
 - fix(usage): showed `usage unreported` instead of `≥0 tok` when no request has reported usage yet.
 - docs(readme): added a 0.1.38 overview, rules/steering/usage highlights and safety notes, folded the compatibility notes and fixed missing spaces.

@@ -1,5 +1,12 @@
 # Troubleshooting
 
+### [2026-10-29] Remaining Windows MCP comparisons and early connection setup blocked 0.1.38
+
+- **Context / Symptom:** Native40839754352 failed Windows MCP at line 290 after a reviewed post-crash success; the first marker comparison already passed. Native40845292777 failed Linux arm64 profile setup with `missing state: API key:` while `/connect compatible` remained in the command palette.
+- **Root Cause:** The earlier path fix covered only the initial crash check; post-success and restart checks still compared canonical Windows paths as strings. Quiet-redraw key settling also allowed the profile fixture's first connection command before startup had committed its initial storage state; connection setup correctly requires that barrier.
+- **Solution:** Reused the same file-identity predicate for all three uncertainty checks. The shared connection helper now waits for the visible `Storage: saved` acknowledgment before issuing its one connection command. No repeated Enter, larger timeout, skipped driver, production permission change or release-qualification bypass was added.
+- **Prevention / Reference:** Exact failed artifact digests and local/native acceptance are recorded in `docs/WORK_CHECKPOINT.md`; retained evidence is under `target/release-038-recovery`. Startup readiness must be observed independently of terminal output quiescence.
+
 ### [2026-10-29] Windows MCP smoke missed its own project in the uncertainty marker; contract step took 16–24 min
 
 - **Context / Symptom:** Native40830550690 failed `windows-x86_64` in "Exercise reviewed contract capabilities": `mcp_smoke.py` line 272 `assert str(journey.project.resolve()) in marker['uncertain_projects']`. On other targets the same step took 16–24 minutes.

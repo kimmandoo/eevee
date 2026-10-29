@@ -19,6 +19,9 @@ def focus_field(session, name, ):
 def open_setup(session, route, advanced=False):
     # Route-qualified explicit entry is for independent transport fixtures;
     # unified-family selection itself is exercised by provider_ux_smoke.
+    # Startup can still be loading/saving after the first terminal redraw.
+    # Connection setup requires committed idle state, not merely echoed keys.
+    wait_for(session, 'Storage: saved')
     session.command('connect ' + ('provider-openai' if route == 'openai' else route))
     wait_for(session, FIELDS['key'] + ':')
     if advanced and route != 'compatible':

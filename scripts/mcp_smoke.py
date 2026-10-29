@@ -287,7 +287,7 @@ def run(binary, output, root, size):
             assert answer['status'] == 'success' and answer['effects_unknown'] is True
             assert answer['approval_cause'] == 'Fresh explicit user review'
             marker = json.loads((journey.data / 'mcp.json').read_text())
-            assert str(journey.project.resolve()) in marker['uncertain_projects']
+            assert any(same(entry) for entry in marker['uncertain_projects']), marker
             assert 'uncertain_projects' in marker['critical']
             result['cases'].append('retained-unknown-disables-rule-later-success-does-not-clear')
             before, call_id = journey.submit_call({'text': '', 'mode': 'hang'})
@@ -324,7 +324,7 @@ def run(binary, output, root, size):
             wait_for(journey.session, 'UNMANAGED MCP EFFECTS UNKNOWN', timeout=35)
             journey.capture('restart-retains-unmanaged-uncertainty')
             marker = json.loads((journey.data / 'mcp.json').read_text())
-            assert str(journey.project.resolve()) in marker['uncertain_projects']
+            assert any(same(entry) for entry in marker['uncertain_projects']), marker
             assert 'uncertain_projects' in marker['critical']
             result['cases'].append('restart-loads-retained-unknown-before-any-effect-grant')
             journey.finish()
