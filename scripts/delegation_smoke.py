@@ -16,6 +16,7 @@ under --output rather than deleting the evidence.
 """
 from __future__ import annotations
 
+import smoke_sizes
 import argparse
 from contextlib import closing
 import hashlib
@@ -685,7 +686,7 @@ def main():
     report = {'status': 'failed', 'binary': str(binary), 'sha256': digest,
               'journeys': [], 'limits': LIMITS}
     try:
-        for size in SIZES:
+        for size in smoke_sizes.selected(SIZES):
             report['journeys'].append(run(binary, output / ('%dx%d' % size), size))
         assert hashlib.sha256(binary.read_bytes()).hexdigest() == digest, 'supplied binary changed during qualification'
         report['status'] = 'passed' if all(row['status'] == 'passed' for row in report['journeys']) else 'failed'

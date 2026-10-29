@@ -2,6 +2,9 @@
 
 ## 2026-10-29
 
+- fix(ci): compared the MCP smoke's uncertain-project marker by file identity so Windows verbatim paths match, ran the five contract drivers concurrently through `scripts/contract_smoke.py` with quiet-redraw key settling, and limited non-full targets to the compact 60×18 size.
+- fix(usage): showed `usage unreported` instead of `≥0 tok` when no request has reported usage yet.
+- docs(readme): added a 0.1.38 overview, rules/steering/usage highlights and safety notes, folded the compatibility notes and fixed missing spaces.
 - fix(ci): made the approval-rule fixture use a platform-absolute executable path and accepted Windows `ConnectionAborted` as a retired WebSocket in the overflow test, so the Windows native job passes.
 - feat(delegation): added reviewed lead-only concurrent read-only helpers through existing provider workers, bounded ordered results, executor-enforced source scope, linked prepared/submitted receipts, separate usage, work rows and parent-owned cancellation.
 - feat(mcp): added separately reviewed project stdio registration/launch, explicit frozen unmanaged tool selection, reviewed or scoped-rule calls, bounded untrusted results, owned server-tree cancellation and persistent unknown-effect refusal of automatic grants.

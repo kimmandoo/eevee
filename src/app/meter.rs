@@ -141,6 +141,10 @@ impl App {
         }
         let summary = self.meter_summary();
         let launch = &summary.launch;
+        if launch.tokens() == 0 && launch.unreported == launch.requests {
+            // Nothing reported yet (e.g. a local endpoint without usage); never "0 tok".
+            return Some("usage unreported · /usage".into());
+        }
         let bound = if launch.lower_bound() { "≥" } else { "" };
         let tokens = pricing::tokens(launch.tokens());
         let cost = pricing::cost(launch);

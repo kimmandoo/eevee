@@ -32,6 +32,8 @@ import sys
 import tempfile
 import threading
 import time
+
+KEY_QUIET = float(os.environ.get('EV_SMOKE_KEY_QUIET') or 0)
 import unicodedata
 
 ESC = "\x1b"
@@ -457,9 +459,11 @@ class Session:
         finally:
             self.data.put(None)
 
-    def pump(self, duration=0.25, settle=False, *, quiet_period=0.12):
+    def pump(self, duration=0.25, settle=False, *, quiet_period=0.12, cap=None):
         deadline = time.monotonic() + duration
         maximum = deadline + 2 if settle else deadline
+        if cap is not None:
+            maximum = time.monotonic() + cap
         last_output = time.monotonic()
         while time.monotonic() < maximum:
             now = time.monotonic()
@@ -483,7 +487,7 @@ class Session:
             last_output = time.monotonic()
             if len(self.text) > 16 * 1024 * 1024:
                 raise AssertionError("terminal transcript exceeded 16 MiB")
-        if settle:
+        if settle and cap is None:
             assert time.monotonic() < maximum or time.monotonic() - last_output >= quiet_period, \
                 "native console output did not settle within the bounded capture window"
         if not WINDOWS and self.alive():
@@ -508,6 +512,11 @@ class Session:
             pending = keys.encode("utf-8")
             while pending:
                 pending = pending[os.write(self.master, pending):]
+        if not settle and KEY_QUIET:
+            # Opt-in (EV_SMOKE_KEY_QUIET): stop once the redraw has been quiet,
+            # never later than the fixed 0.25 s window used otherwise.
+            self.pump(0.02, settle=True, quiet_period=KEY_QUIET, cap=0.25)
+            return
         self.pump(settle=settle)
 
     def command(self, name):
@@ -516,6 +525,12 @@ class Session:
         # Ctrl+K resets only an already visible chooser.
         self.send("\x0b" if "/ Commands" in self.display() else "/")
         self.send(name)
+        if KEY_QUIET:
+            # Fast keys: Enter only after the palette shows the typed query.
+            deadline = time.monotonic() + 3
+            while name not in self.display() and time.monotonic() < deadline:
+                self.pump(0.03)
+            self.pump(0.05)
         self.send("\r")
 
     def paste(self, text):

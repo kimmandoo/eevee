@@ -6,6 +6,7 @@ paid/live provider calls or fabricated instruction sources. Records suggestions,
 exact observed variants, neutral teaching, 32-entry library/33rd replacement,
 explicit quick assignment, ordinary use review and restart.
 """
+import smoke_sizes
 import argparse
 import json
 from pathlib import Path
@@ -261,7 +262,7 @@ def main():
     result = {"status": "failed", "binary": str(binary), "sha256": original_hash,
               "host": platform.platform(), "scope": "Actual PTY and loopback only; no paid/live provider; no SQL writes", "sizes": []}
     try:
-        for size, ascii_mode in (((120, 36), False), ((60, 18), True)):
+        for size, ascii_mode in smoke_sizes.selected((((120, 36), False), ((60, 18), True))):
             directory = output / ("%dx%d" % size)
             row = {"size": list(size), "status": "failed"}
             result["sizes"].append(row)

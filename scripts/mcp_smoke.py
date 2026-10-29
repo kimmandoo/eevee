@@ -5,6 +5,7 @@ python3 scripts/mcp_smoke.py --binary target/debug/ev --output /tmp/ev-mcp-proof
 Runs both 120x36 and 60x18 unless --width/--height are supplied.
 """
 from __future__ import annotations
+import smoke_sizes
 import argparse
 import json
 import os
@@ -269,7 +270,13 @@ def run(binary, output, root, size):
             assert answer['status'] == 'error' and 'crashed' in answer['message']
             assert answer['effects_unknown'] is True
             marker = json.loads((journey.data / 'mcp.json').read_text())
-            assert str(journey.project.resolve()) in marker['uncertain_projects']
+            # Windows stores the verbatim canonical form (\\?\D:\...); compare identities.
+            def same(entry):
+                try:
+                    return os.path.samefile(entry.removeprefix('\\\\?\\'), journey.project)
+                except OSError:
+                    return False
+            assert any(same(entry) for entry in marker['uncertain_projects']), marker
             assert 'uncertain_projects' in marker['critical']
             result['cases'].append('server-crash-tool-error-lead-continues')
             journey.connect_mcp()
@@ -345,7 +352,7 @@ def main():
     args = parser.parse_args()
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=False)
-    sizes = [(args.width, args.height)] if args.width and args.height else [(120, 36), (60, 18)]
+    sizes = [(args.width, args.height)] if args.width and args.height else smoke_sizes.selected([(120, 36), (60, 18)])
     with tempfile.TemporaryDirectory(prefix='eevee-mcp-smoke-') as directory:
         for size in sizes:
             name = f'{size[0]}x{size[1]}'

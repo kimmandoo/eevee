@@ -426,7 +426,11 @@ class Journey:
         self.session.send("\t\x15")
         self.session.paste(MODEL)
         self.session.send("\t\t ")  # Chat-completions default, explicitly choose keyless authentication.
-        self.session.send("\t\t\r")
+        self.session.send("\t\t")
+        # Save refuses while the keyless toggle is still saving; wait, don't race it.
+        wait_for(self.session, "> Save & choose model")
+        self.until(lambda: "Storage: saved" in self.session.display(), "connection edit saved before Save & choose")
+        self.session.send("\r")
         wait_for(self.session, MODEL, timeout=35)
         wait_for(self.session, "1 matches")
         self.session.send(MODEL + "\r")
@@ -447,6 +451,8 @@ class Journey:
             return any(d["field"] == "Request" and d["text"] == text for d in drafts) if text else not any(
                 d["field"] == "Request" and d["text"] for d in drafts)
         self.until(saved, "exact Request retained draft")
+        # The app acknowledges the durable write after SQLite shows it.
+        self.until(lambda: "Storage: saved" in self.session.display(), "Request save acknowledged")
 
     def send_request(self, text, answer, mode="complete"):
         self.write_request(text)

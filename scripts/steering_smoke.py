@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """XC03 actual-binary loopback steering/queued Send at both terminal sizes."""
 from __future__ import annotations
+import smoke_sizes
 import argparse
 from contextlib import ExitStack
 import json
@@ -113,7 +114,7 @@ def main():
     output = Path(args.output).resolve(); output.mkdir(parents=True, exist_ok=True)
     result = {'status': 'failed', 'cases': []}
     try:
-        for size in ((120, 36), (60, 18)):
+        for size in smoke_sizes.selected(((120, 36), (60, 18))):
             result['cases'].append(run(Path(args.binary).resolve(), output, size)); print('passed', result['cases'][-1], flush=True)
         result['status'] = 'passed'
     except BaseException:

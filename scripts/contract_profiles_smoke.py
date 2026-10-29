@@ -3,6 +3,7 @@
 No live provider/account calls; the loopback peer supplies deterministic responses.
 """
 from __future__ import annotations
+import smoke_sizes
 import argparse
 from contextlib import closing
 import json
@@ -108,7 +109,7 @@ def main():
     output.mkdir(parents=True, exist_ok=True)
     result = {'status': 'failed', 'cases': [], 'limits': ['Loopback fixture behavior, not a paired quality benchmark or live provider conformance.']}
     try:
-        for size in ((120, 36), (60, 18)):
+        for size in smoke_sizes.selected(((120, 36), (60, 18))):
             for route, protocol in (('compatible', 'responses'), ('compatible', 'chat_completions'), ('anthropic', 'messages'), ('google', 'gemini')):
                 result['cases'].append(run(binary, output, size, route, protocol, protocol == 'responses'))
                 print('passed', result['cases'][-1], flush=True)

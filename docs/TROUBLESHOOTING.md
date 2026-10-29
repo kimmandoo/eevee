@@ -1,5 +1,12 @@
 # Troubleshooting
 
+### [2026-10-29] Windows MCP smoke missed its own project in the uncertainty marker; contract step took 16–24 min
+
+- **Context / Symptom:** Native40830550690 failed `windows-x86_64` in "Exercise reviewed contract capabilities": `mcp_smoke.py` line 272 `assert str(journey.project.resolve()) in marker['uncertain_projects']`. On other targets the same step took 16–24 minutes.
+- **Root Cause:** The app records the canonical project path, which on Windows is the verbatim `\\?\D:\...` form, while Python's `resolve()` returns `D:\...`. The step ran five drivers sequentially at two sizes, and every PTY key waited a fixed 0.25 s (1,545 keys ≈ 390 s in `similar_moves_smoke.py` per size, per profile).
+- **Solution:** Compare marker entries with `os.path.samefile` after removing the verbatim prefix. `scripts/contract_smoke.py` runs the drivers three at a time; non-full targets run only 60×18; `EV_SMOKE_KEY_QUIET` lets keys settle once the redraw is quiet (capped at the old 0.25 s). `similar_moves` keeps fixed timing because its teach flow raced quiet settling; its connect/save helpers now wait for `Storage: saved` explicitly. Local compact run: 7 min total (was ~22 min sequential at both sizes).
+- **Prevention / Reference:** Never compare app-recorded paths as strings in smoke drivers on Windows. When speeding up key settling, add explicit waits for state (save acknowledgement, focused control) instead of relying on the fixed window.
+
 ### [2026-10-29] Windows native tests failed on a Unix rule path and WSAECONNABORTED
 
 - **Context / Symptom:** Native40826124948 at `f635231` passed Check, Linux and arm64 but `Build / windows-x86_64` failed "Test locked dependencies": `workspace::rules::tests::launch_rules_are_not_persisted_and_invalid_files_load_nothing` panicked with `invalid command rule #1`, and `native_websocket_event_queue_overflow_retires_the_actual_consumer_without_continuation` saw `Io(Os { code: 10053, kind: ConnectionAborted })` while waiting for the retired socket to close.
