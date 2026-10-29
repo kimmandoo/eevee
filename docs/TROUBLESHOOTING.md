@@ -1,5 +1,12 @@
 # Troubleshooting
 
+### [2026-10-29] Windows external editing could not remove its own temporary file
+
+- **Context / Symptom:** Native40848780657 passed Check and all Linux/macOS rows, while Windows profile editing failed before returned-candidate review: `Temporary cleanup FAILED: The process cannot access the file because it is being used by another process. (os error 32)`.
+- **Root Cause:** The temporary file was deliberately opened with read/write sharing but without delete sharing. Cleanup called `remove_file` before dropping that same owned file handle. Unix permits unlinking an open file, and the original subprocess editor regression was Unix-only, so earlier source gates missed the Windows lifetime defect.
+- **Solution:** Closed the file after directory revalidation and completed result collection, before removing its single temporary entry; kept the directory handle pinned through member removal, then closed it before removing the directory. Kept no-delete sharing during editing, exact identity/read validation, nonrecursive cleanup and failure preservation unchanged.
+- **Prevention / Reference:** Added an all-platform exact Unicode/CRLF temporary round-trip/cleanup regression. The cross-compiled Windows executable was executed through WSL interop and reproduced the original error 32 before the fix. Exact subsequent source/native/public acceptance is recorded in the checkpoint.
+
 ### [2026-10-29] Remaining Windows MCP comparisons and early connection setup blocked 0.1.38
 
 - **Context / Symptom:** Native40839754352 failed Windows MCP at line 290 after a reviewed post-crash success; the first marker comparison already passed. Native40845292777 failed Linux arm64 profile setup with `missing state: API key:` while `/connect compatible` remained in the command palette.

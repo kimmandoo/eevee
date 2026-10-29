@@ -2,6 +2,7 @@
 
 ## 2026-10-29
 
+- fix(editor): closed the validated temporary file handle before removing it, allowing Windows external Request and form-profile edits to finish without weakening identity checks or recursively deleting editor-owned copies.
 - fix(ci): compared every retained MCP uncertainty marker by file identity on Windows and waited for the initial committed storage state before opening connection setup, preserving all native qualification checks.
 - fix(ci): compared the MCP smoke's uncertain-project marker by file identity so Windows verbatim paths match, ran the five contract drivers concurrently through `scripts/contract_smoke.py` with quiet-redraw key settling, and limited non-full targets to the compact 60×18 size.
 - fix(usage): showed `usage unreported` instead of `≥0 tok` when no request has reported usage yet.
@@ -313,6 +314,7 @@
 - feat(providers): completed explicit mid-run steering and owner-bound queued Send, bounded safe native HTTP retry (`--retry off` disabled it), and truthful launch/task/request token and labelled local cost estimates.
 - feat(approvals): added explicit project allow/deny rules for pinned direct commands and create/edit paths, with immediate revocation; delete/rename, Shell, selected commits, protected/foreign paths and unknown effects remained freshly reviewed.
 - feat(storage): preserved ignorable task-workflow/receipt metadata and refused unknown critical fields; created up to three consistent database copies before major migration without pretending they were full evidence snapshots.
+- fix(editor): released the validated temporary file handle before cleanup so native Windows Request/profile editing could reach returned-candidate review and remove its owned plaintext file.
 - docs(compatibility): retained SQL 20, complete SDK bridge 11 and formation 2. New profile receipt metadata, delegated prepared/submitted receipt state, expanded move metadata and profile-bearing recipes could make older readers refuse. Readers through 0.1.37 did not gain forward compatibility retroactively. A complete `ev snapshot` was required before upgrade/rollback; no stored grants, provider sessions or automatic replay were restored.
 
 ## 0.1.37
