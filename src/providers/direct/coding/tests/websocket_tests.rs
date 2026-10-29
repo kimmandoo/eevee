@@ -119,6 +119,8 @@ fn closed_without_replay(socket: &mut Socket) {
                 if matches!(
                     error.kind(),
                     io::ErrorKind::ConnectionReset
+                        // Windows reports a locally retired socket as WSAECONNABORTED.
+                        | io::ErrorKind::ConnectionAborted
                         | io::ErrorKind::BrokenPipe
                         | io::ErrorKind::UnexpectedEof
                 ) =>

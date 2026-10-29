@@ -411,6 +411,11 @@ mod tests {
     use super::*;
 
     const SHA: &str = "0000000000000000000000000000000000000000000000000000000000000000";
+    // Rules require an absolute executable path on every platform.
+    #[cfg(windows)]
+    const CARGO: &str = r"C:\Tools\cargo.exe";
+    #[cfg(not(windows))]
+    const CARGO: &str = "/usr/bin/cargo";
 
     fn command(prefix: &[&str], cwd: &str, effect: Effect) -> Rule {
         Rule {
@@ -418,7 +423,7 @@ mod tests {
             project: "/p".into(),
             effect,
             kind: Kind::Command {
-                program: "/usr/bin/cargo".into(),
+                program: CARGO.into(),
                 program_sha256: SHA.into(),
                 argv_prefix: prefix.iter().map(|arg| arg.to_string()).collect(),
                 cwd: cwd.into(),
@@ -431,7 +436,7 @@ mod tests {
 
     fn call<'a>(args: &'a [String], cwd: &'a str, sha: &'a str) -> Call<'a> {
         Call::Command {
-            program: Path::new("/usr/bin/cargo"),
+            program: Path::new(CARGO),
             program_sha256: sha,
             args,
             cwd,

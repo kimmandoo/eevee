@@ -1,3 +1,10 @@
+## 2026-10-29 — Review of 85813f9/f635231, Windows CI repair and v0.1.38 release
+
+- **Request:** Review the latest two commits, fix anything wrong, repair CI and publish the release update.
+- **Findings:** Native40826124948 at `f635231` failed only `windows-x86_64` tests: a Unix-only absolute path in the rules fixture and an unaccepted Windows `ConnectionAborted` in a WebSocket retirement helper (see TROUBLESHOOTING). New non-test `expect`s in delegation/parameters/steering are guarded by prior checks. CHANGELOG lines in those commits had missing spaces (`to0.1.38`, `a32-entry`, `rules,64-KiB`, `through0.1.37`, `bridge11`); fixed in the new entries only.
+- **Verification:** Linux: 1,953 tests passed/two ignored, strict Clippy; `cargo check --target x86_64-pc-windows-gnu --all-targets` compiles (cross-target lint warnings pre-exist and are not CI's MSVC target).
+- **Next action:** Push, require a full green native run on the new commit, then push annotated `v0.1.38` and verify the public release assets.
+
 # Work Checkpoint
 
 ## 2026-10-29 — X contract implementation and 0.1.38 release (active)

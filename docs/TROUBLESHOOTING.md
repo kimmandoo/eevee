@@ -1,5 +1,12 @@
 # Troubleshooting
 
+### [2026-10-29] Windows native tests failed on a Unix rule path and WSAECONNABORTED
+
+- **Context / Symptom:** Native40826124948 at `f635231` passed Check, Linux and arm64 but `Build / windows-x86_64` failed "Test locked dependencies": `workspace::rules::tests::launch_rules_are_not_persisted_and_invalid_files_load_nothing` panicked with `invalid command rule #1`, and `native_websocket_event_queue_overflow_retires_the_actual_consumer_without_continuation` saw `Io(Os { code: 10053, kind: ConnectionAborted })` while waiting for the retired socket to close.
+- **Root Cause:** The rules fixture used `/usr/bin/cargo`, which is not an absolute path on Windows, so rule validation correctly refused it. Windows reports a locally aborted WebSocket as `ConnectionAborted`, which the fixture's "closed without replay" helper did not accept alongside reset/broken pipe/EOF.
+- **Solution:** The fixture now uses a platform-absolute executable path (`C:\Tools\cargo.exe` on Windows), and the helper accepts `ConnectionAborted` as a retired connection. Production validation is unchanged.
+- **Prevention / Reference:** Linux-only local runs cannot catch path absoluteness; use `cfg(windows)` fixture paths for any test that builds an absolute path, and `cargo check --target x86_64-pc-windows-gnu --all-targets` before pushing.
+
 ### [2026-10-29] Native qualification lacked generated move message variants
 
 - **Context / Symptom:** Native40824572443 at `85813f9` failed Check and all five targets during compilation: `Message::TmLibraryControls`, `TmParametersEditor`, `TmParametersBoundary` and `TmParametersControls` did not exist. No platform runtime or package from this run qualified.
