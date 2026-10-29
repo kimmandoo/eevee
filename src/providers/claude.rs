@@ -1265,6 +1265,8 @@ fn payload(
         "task": { "id": input.task.id, "revision": input.task.revision, "goal": input.task.goal, "acceptance_criteria": input.task.criteria, "next_action": crate::workspace::handoff::without_local_provenance(&input.task.next_action) },
         "project_context": project_context,
         "request": input.instruction(),
+        "behavior_profile": input.behavior_profile,
+        "behavior_profile_policy": input.behavior_profile.as_ref().map(|_| crate::workspace::form_profiles::POLICY),
         "prior_plan": input.prior_plan_payload(),
         "approved_memories": input.task.approved_memories,
         "selected_sources": serde_json::from_str::<Value>(&sources.text).map_err(|_| "Invalid source envelope")?, "write_mode": write_scope.mode, "edit_baselines": write_scope.files, "handoff": input.handoff,
@@ -1306,6 +1308,8 @@ fn worker(
             Err(_) => break,
         };
         match request {
+            // Steering is native-only and arrives through the worker's own queue.
+            Request::Steer { .. } => {}
             Request::Preview(input) => {
                 prepared = None;
                 generation = generation.saturating_add(1);

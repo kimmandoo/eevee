@@ -547,7 +547,26 @@ impl State {
                         return Err("Usage cannot change original request owner or agent".into());
                     }
                 } else {
-                    live_owner(&tx, task.id, &record.request_id, &record.owner)?;
+                    let child: Option<crate::workspace::receipt::Durable> = tx.query_row(
+                        "SELECT record FROM outgoing_receipts WHERE request_id=?1 AND task_id=?2",
+                        params![record.request_id, task.id], |r| json_column(r, 0, 64 * 1024),
+                    ).optional().map_err(|e| e.to_string())?;
+                    let authority = if let Some(child) = &child
+                        && let Some(parent) = &child.parent_request_id
+                    {
+                        if !child.submitted
+                            || child.owner != record.owner
+                            || child.agent != record.agent
+                        {
+                            return Err(
+                                "Child usage differs from its dispatched receipt owner".into()
+                            );
+                        }
+                        parent.as_str()
+                    } else {
+                        record.request_id.as_str()
+                    };
+                    live_owner(&tx, task.id, authority, &record.owner)?;
                     capacity(&tx, "provider_usage_events", &self.project, &id)?;
                     tx.execute("INSERT INTO provider_usage_events(id,project,task_id,owner,agent) VALUES(?1,?2,?3,?4,?5)",params![id,self.project,task.id,bounded_json(&record.owner,2048)?,bounded_json(&record.agent,128)?]).map_err(|e|e.to_string())?;
                 }
@@ -1001,7 +1020,9 @@ fn snapshot(
             habit.memory = None;
         }
     }
-    habits.retain(|h| h.sources.len() >= 3 || h.dismissed || h.memory.is_some());
+    // Single-source candidates stay visible so similar (loosely equal)
+    // instructions can be grouped; exact memory proposals still need three.
+    habits.retain(|h| !h.sources.is_empty() || h.dismissed || h.memory.is_some());
     let mut signatures: Vec<FailureSignature> = rows(connection, "failure_signatures", project)?;
     for signature in &mut signatures {
         let mut statement=connection.prepare("SELECT run_id,paths FROM failure_observations WHERE project=?1 AND signature=?2 ORDER BY at,run_id LIMIT 8193").map_err(|e|e.to_string())?;

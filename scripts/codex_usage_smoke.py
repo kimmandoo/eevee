@@ -547,7 +547,7 @@ def main():
             def workspace():
                 for _ in range(8):
                     footer = session.display().rstrip().splitlines()[-1].strip()
-                    if footer.startswith(('Type Request /', 'Enter Send /')):
+                    if footer.startswith(('Type Request |', 'Enter Send |')):
                         return footer
                     require(not any(marker in session.display() for marker in ('y Run', 'Confirm exit')),
                             'Unresolved consent blocks Request editing')
@@ -617,7 +617,7 @@ def main():
             persisted = []
             for number, prompt in enumerate(PROMPTS, 1):
                 footer = workspace()
-                if footer.startswith('Type Request /'):
+                if footer.startswith('Type Request |'):
                     session.send('\r')
                 session.send('\x1b[A' * 16 + '\x1b[H' + '\x1b[3~' * 512)
                 session.paste(prompt)

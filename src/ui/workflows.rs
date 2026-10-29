@@ -53,13 +53,26 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
     let area = centered(area, 116, height);
     frame.render_widget(Clear, area);
     let block = panel(
-        paint.hint(crate::messages::Message::DesksWorkflowsPanel),
+        if app.workflow.todo_view {
+            " Todo / task progress "
+        } else {
+            paint.hint(crate::messages::Message::DesksWorkflowsPanel)
+        },
         config,
         paint,
         true,
     );
     let content = block.inner(area);
     frame.render_widget(block, area);
+    if app.workflow.todo_view {
+        // The todo card carries its own status and notice; desk tabs would
+        // only suggest an unrelated mode.
+        let body = row(content, 0, content.height.saturating_sub(2));
+        let footer = row(content, content.height.saturating_sub(2), 2);
+        app.workflow.scroll_page = body.height.max(1);
+        render_todo(frame, body, footer, app, paint);
+        return;
+    }
     let tabs = match app.workflow.tab {
         Tab::Diagnosis => paint.hint(crate::messages::Message::DesksWorkflowsDiagnosisTab),
         Tab::Refactor => paint.hint(crate::messages::Message::DesksWorkflowsRefactorTab),
@@ -81,36 +94,6 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
     let body = row(content, 3, content.height.saturating_sub(5));
     let footer = row(content, content.height.saturating_sub(2), 2);
     app.workflow.scroll_page = body.height.max(1);
-    if app.workflow.todo_view {
-        let revision = app
-            .workflows
-            .progress
-            .as_ref()
-            .map(|progress| progress.revision);
-        if app.workflow.todo_revision != revision {
-            app.workflow.todo_revision = revision;
-            app.workflow.todo_reviewed = false;
-        }
-        let max = selection_details(
-            frame,
-            body,
-            Paragraph::new(app.progress_card())
-                .style(paint.surface)
-                .wrap(Wrap { trim: false }),
-            app.workflow.scroll,
-        );
-        app.workflow.scroll_max = max;
-        app.workflow.scroll = app.workflow.scroll.min(max);
-        app.workflow.todo_reviewed |=
-            app.workflow.todo_editor.is_none() && body.height >= 3 && app.workflow.scroll >= max;
-        text(
-            frame,
-            footer,
-            "Todo / e edit / a adopt / PgUp PgDn inspect / Esc back",
-            paint.accent,
-        );
-        return;
-    }
     if app.workflow.relay.is_some() {
         let targets = app.relay_targets();
         let pending = app.workflow.relay.as_ref().unwrap();
@@ -152,7 +135,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         if let Some(pending) = &mut app.workflow.relay {
             pending.reviewed = confirm && body.height >= 3;
         }
-        text(
+        super::choices(
             frame,
             footer,
             if confirm {
@@ -161,6 +144,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                 paint.hint(crate::messages::Message::DesksWorkflowsUpDownTargetEnterReviewEscCancel)
             },
             paint.accent,
+            paint,
         );
         return;
     }
@@ -213,7 +197,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                     .saturating_add((caret_row.saturating_sub(top) as u16).min(input.height - 1)),
             ));
         }
-        text(
+        super::choices(
             frame,
             row(body, body.height.saturating_sub(1), 1),
             if app.workflow.editor_done {
@@ -226,6 +210,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             } else {
                 paint.muted
             },
+            paint,
         );
         text(
             frame,
@@ -668,6 +653,40 @@ fn render_impact(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, 
         frame,
         row(content, content.height.saturating_sub(2), 2),
         paint.hint(Message::ImpactChecksControls),
+        paint.accent,
+    );
+}
+
+fn render_todo(frame: &mut Frame, body: Rect, footer: Rect, app: &mut App, paint: &Paint) {
+    let revision = app
+        .workflows
+        .progress
+        .as_ref()
+        .map(|progress| progress.revision);
+    if app.workflow.todo_revision != revision {
+        app.workflow.todo_revision = revision;
+        app.workflow.todo_reviewed = false;
+    }
+    let max = selection_details(
+        frame,
+        body,
+        Paragraph::new(app.progress_card())
+            .style(paint.surface)
+            .wrap(Wrap { trim: false }),
+        app.workflow.scroll,
+    );
+    app.workflow.scroll_max = max;
+    app.workflow.scroll = app.workflow.scroll.min(max);
+    app.workflow.todo_reviewed |=
+        app.workflow.todo_editor.is_none() && body.height >= 3 && app.workflow.scroll >= max;
+    text(
+        frame,
+        footer,
+        if app.lead().auto_form {
+            "e Edit | PgUp/PgDn Scroll | Esc Back"
+        } else {
+            "e Edit | a Adopt | PgUp/PgDn Scroll | Esc Back"
+        },
         paint.accent,
     );
 }

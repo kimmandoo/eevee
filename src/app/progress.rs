@@ -60,13 +60,15 @@ impl App {
             "todo-eager" => match argument {
                 "on" => {
                     state.eager = true;
+                    state.eager_off = false;
                     Ok(())
                 }
                 "off" => {
                     state.eager = false;
+                    state.eager_off = true;
                     Ok(())
                 }
-                _ => Err("Use /todo-eager on|off; native prelude is off by default".into()),
+                _ => Err("Use /todo-eager on|off; the native todo prelude is on by default".into()),
             },
             _ => {
                 let (operation, target) = argument
@@ -81,16 +83,37 @@ impl App {
                 }
             }
         };
+        // A list the user authored or operated is already their intent; only
+        // provider proposals in manual mode wait for /todo-adopt.
+        let authored = matches!(name, "todo" | "todo-edit");
+        let result = result.and_then(|()| {
+            if authored && state.revision > 0 {
+                state.adopt()
+            } else {
+                Ok(())
+            }
+        });
         match result.and_then(|_| state.validate()) {
             Ok(()) => {
                 let mut workflows = self.workflows.clone();
+                // An older reader that ignored the opt-out would resend the prelude.
+                crate::workspace::forward::set_critical(
+                    &mut workflows.critical,
+                    "progress.eager_off",
+                    state.eager_off,
+                );
                 workflows.progress = Some(state);
                 match workflows.validate(self.task_id) {
                     Ok(()) => {
                         self.workflows = workflows;
                         self.changed_task();
                         self.flush_save();
-                        self.workflow.notice=if name=="todo-adopt" {"Todo revision explicitly adopted. Provider status is not evidence; no criteria completed."}else{"Todo revision saved. Inspect diff and /todo-adopt to use its active label; nothing sent."}.into();
+                        self.workflow.notice = match name {
+                            "todo-adopt" => "Todo revision explicitly adopted. Provider status is not evidence; no criteria completed.",
+                            "todo-eager" => "Native todo prelude setting saved for this task; nothing sent.",
+                            _ => "Todo saved and adopted. Its current step guides automatic evolution at the next Send; nothing sent.",
+                        }
+                        .into();
                     }
                     Err(error) => self.workflow.notice = error,
                 }
@@ -120,8 +143,17 @@ impl App {
         match steps {
             Ok(steps) => {
                 let mut state = self.workflows.progress.clone().unwrap_or_default();
-                match state.propose(&source, steps) {
+                // Automatic mode follows the provider's list without a manual
+                // gate; it only steers appearance at the next explicit Send.
+                let auto = self.lead.auto_form;
+                let proposed = state.propose(&source, steps);
+                if auto && proposed == Ok(true) {
+                    // A failed adoption leaves an ordinary inspectable proposal.
+                    let _ = state.adopt();
+                }
+                match proposed {
                     Ok(true) => {
+                        let focus = state.focus_position();
                         let mut workflows = self.workflows.clone();
                         workflows.progress = Some(state);
                         match workflows.validate(task_id) {
@@ -129,7 +161,14 @@ impl App {
                                 self.workflows = workflows;
                                 self.changed_task();
                                 self.flush_save();
-                                self.workflow.notice="Provider todo proposal saved; inspect diff and explicitly adopt. No form changed or request sent.".into();
+                                self.workflow.notice = if auto {
+                                    format!(
+                                        "Todo updated automatically: {}. It guides evolution at the next Send; no form changed now.",
+                                        focus.unwrap_or_else(|| "all steps settled".into())
+                                    )
+                                } else {
+                                    "Provider todo proposal saved; inspect diff and explicitly adopt. No form changed or request sent.".into()
+                                };
                             }
                             Err(error) => {
                                 self.workflow.notice =
@@ -266,15 +305,29 @@ impl App {
         true
     }
     pub fn progress_card(&self) -> String {
-        let mut lines = vec![
-            "Task card / Todo progress".into(),
+        let mut lines: Vec<String> = vec![
             self.workflows
                 .progress
                 .as_ref()
-                .map_or_else(|| "no step list from this route".into(), State::summary),
-            "Provider status claims are not evidence, completion or permission.".into(),
+                .filter(|progress| progress.revision > 0)
+                .map_or_else(
+                    || "No todo yet. The agent creates one when work starts; /todo init adds your own.".into(),
+                    State::summary,
+                ),
+            if self.lead.auto_form {
+                "Auto: provider updates are adopted automatically; the current step guides evolution at the next Send."
+            } else {
+                "Manual form: inspect provider updates, then /todo-adopt. Your own edits apply immediately."
+            }
+            .into(),
             self.workflow.notice.clone(),
         ];
+        if self.verbose {
+            lines.insert(
+                1,
+                "Provider status claims are not evidence, completion or permission.".into(),
+            );
+        }
         if let Some(editor) = &self.workflow.todo_editor {
             lines.push(format!(
                 "EDIT JSON / caret byte {} / Enter save proposal / Esc cancel",
@@ -296,13 +349,14 @@ impl App {
                 lines.push("Revision diff (previous adopted -> proposed):".into());
                 lines.extend(progress.diff());
             }
-            lines.push(format!(
-                "Native eager phased prelude: {}",
-                if progress.eager { "on" } else { "off" }
-            ));
-            if progress.eager {
-                lines.push(format!("Exact added bytes: {:?}", progress::EAGER_PRELUDE));
-            }
+        }
+        let eager = self.workflows.progress.as_ref().is_none_or(State::eager);
+        lines.push(format!(
+            "Native phased todo prelude: {} (/todo-eager on|off)",
+            if eager { "on" } else { "off" }
+        ));
+        if eager {
+            lines.push(format!("Exact added bytes: {:?}", progress::EAGER_PRELUDE));
         }
         lines.push("/todo-edit <JSON steps>  /todo-adopt  /todo-eager on|off".into());
         lines.push(

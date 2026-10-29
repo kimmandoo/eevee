@@ -211,6 +211,9 @@ def run(binary, output, root, size, ascii_mode, ):
                 ('Review the patch, then fix it.', 7, 'Glaceon', True),
                 (' #1 todo 툴같은거 ui가 안예쁘게 잡히네. 중복으로 계속 출력되고. 이부분 개선해주고, 프롬프트 의도 분석해서 이브이 진화체 자동전환도 점검해서 개선해줘', 5, 'Umbreon', True),
                 ('Review tool UI without improving it.', 7, 'Glaceon', False),
+                ('개선된 UI 보여줘', 1, 'Vaporeon', False),
+                ('프롬프트 의도 파악해서 todo 뽑는 기능 잘 구현됐나 확인', 2, 'Jolteon', True),
+                ('Investigate the crash. Then fix it.', 5, 'Umbreon', True),
                 ('UI를 개선하지 말고 점검해줘.', 5, 'Umbreon', False),
                 ('UI 개선은 하지 말고 점검만 해줘.', 5, 'Umbreon', False),
             ]
@@ -240,6 +243,9 @@ def run(binary, output, root, size, ascii_mode, ):
             assert journey.snapshot()['claims'] == busy_claims, 'busy draft changed the active request owner or lease'
             assert len(peer.snapshot('POST')) == before + 1, 'busy Enter dispatched another request'
             journey.capture('busy-future-review-keeps-owner-and-form')
+            # Busy Enter now offers explicit steering/queueing; keep this draft
+            # rather than choosing either newly authorized action.
+            journey.session.send(files.ESC)
             gate.release.set()
             journey.permission(GENERATED, allow=True)
             journey.settled(answer, before + 2)

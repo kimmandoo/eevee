@@ -84,8 +84,14 @@ pub(super) fn continuation(
     outputs: Vec<Value>,
 ) -> Result<String, String> {
     checked_identity(response)?;
-    if outputs.is_empty()
-        || outputs
+    // Actual function outputs, optionally followed by explicit user steering (XC03).
+    let steering = outputs
+        .iter()
+        .rev()
+        .take_while(|item| item["type"] == "message" && item["role"] == "user")
+        .count();
+    if outputs.len() == steering
+        || outputs[..outputs.len() - steering]
             .iter()
             .any(|item| item["type"] != "function_call_output")
     {

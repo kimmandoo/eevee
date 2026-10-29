@@ -26,6 +26,7 @@ desks-moves-stay-discard-unsaved-request-enter-stay-left = [Stay] / Discard unsa
 desks-moves-no-moves-in-this-form-yet-teach = No moves in this form yet.
     /teach-move: teach from approved local work, selected pins, a sent user-authored request, or the task card.
     Move Reminder keeps forgotten and postponed moves.
+    /help explains moves, TMs, held items and formations.
 
 desks-moves-move-no-longer-available-esc-to-return = Move no longer available. Esc to return.
 
@@ -64,7 +65,7 @@ desks-moves-loading-the-chosen-partner-s-actual-move = Loading the chosen partne
 
 desks-moves-esc-back-wait-for-the-local-store = Esc Back / wait for the local store
 
-desks-moves-four-slots-are-occupied-across-project-and = Four slots are occupied across project and personal scope.
+desks-moves-four-slots-are-occupied-across-project-and = All 32 library entries are occupied across project and personal scope.
 
 desks-moves-up-down-choose-enter-review-exact-replacement = Up/Down Choose / Enter Review exact replacement
     Esc Give up / nothing changes until explicit confirmation
@@ -144,8 +145,8 @@ desks-memory-local-deletion-preview-no-deletion-yet = LOCAL DELETION PREVIEW / n
 
 desks-memory-unsaved-draft-keep-is-selected-initially = UNSAVED DRAFT / keep is selected initially
 
-desks-memory-create-memory-new-note-remember-next-action = /create-memory New note / /remember Next-action note
-    /edit-memory Edit / /delete-memory Delete
+desks-memory-create-memory-new-note-remember-next-action = /create-memory New note | /remember Next-action note
+    /edit-memory Edit | /delete-memory Delete
     /select-memory Include in future requests
     /memory-scope Task / Project / Personal
     /verbose Full content and provenance
@@ -341,7 +342,7 @@ desks-workflows-done-editing-selected = > [Done editing / retain draft]
 
 desks-workflows-done-editing = { "  " }Done editing / retain draft
 
-desks-workflows-ctrl-s-done-tab-control-enter-newline = Ctrl+S Done / Tab control / Enter newline
+desks-workflows-ctrl-s-done-tab-control-enter-newline = Ctrl+S Done | Tab control | Enter newline
     Esc Back (draft retained)
 
 desks-workflows-confirm-decision-linked-criteria-only-new-items = Confirm decision-linked criteria only.
@@ -365,8 +366,8 @@ desks-workflows-up-down-evidence-enter-attach-open-evidence = Up/Down evidence /
 desks-workflows-commands-left-right-tabs-up-down-actions = / Commands / Left/Right tabs / Up/Down actions / Enter
     PgUp/PgDn details / Esc Back
 
-desks-moves-action-controls = Up/Down Action: > { $action } / Enter
-    PgUp/PgDn Details / u Use / r Rename / f Forget / t Teach / Esc
+desks-moves-action-controls = Up/Down Action: > { $action } | Enter
+    1-4 Assign quick slot | u Use | r Rename | f Forget | Esc
 
 desks-moves-learn-details = { $partner } wants to learn a move!
     { $sources-count } observed sources (not a correctness verdict)
@@ -374,8 +375,8 @@ desks-moves-learn-details = { $partner } wants to learn a move!
     Sources:
     { $sources }
 
-desks-moves-learn-controls = Up/Down > { $action } / Enter
-    PgUp/PgDn Sources / Esc Not now
+desks-moves-learn-controls = Up/Down > { $action } | Enter
+    PgUp/PgDn Sources | Esc Not now
 
 desks-moves-give-up = { $marker } Give up learning (changes nothing)
 
@@ -414,19 +415,19 @@ desks-memory-discard-preview = Keep this editable draft or discard it?
     { "" }
     Discard affects only this draft, not existing approved memories.
 
-desks-memory-approve-controls = { $stay } { $approve } | y Approve / n Back
-    { $details } / /memory-scope / /edit-memory
+desks-memory-approve-controls = { $stay } { $approve } | y Approve | n Back
+    { $details } | /memory-scope | /edit-memory
 
-desks-memory-delete-controls = { $stay } { $delete } | y Delete / n Back
-    { $details } / Left/Right Choose / Enter
+desks-memory-delete-controls = { $stay } { $delete } | y Delete | n Back
+    { $details } | Left/Right Choose | Enter
 
 desks-memory-discard-controls = { $keep } { $discard }
-    y Discard draft / n Keep editing
+    y Discard draft | n Keep editing
 
 desks-memory-summary = { $scope }
     { $effect }
     { $content }
-    { $bytes } bytes / /verbose Full note and source
+    { $bytes } bytes | /verbose Full note and source
 
 desks-memory-details = SCOPE: { $scope }
     Local memory only; no tools or grants.
@@ -449,10 +450,10 @@ desks-handoff-decision-preview = SELECTED IMPORTED DECISION / { $index } / user-
     { "" }
     Copy opens the existing editor for separate review/save. It creates no execution evidence.
 
-desks-handoff-confirm-controls = { $stay } / { $open }{ $action }{ $close }
-    y Confirm / n Back / { $details }
+desks-handoff-confirm-controls = { $stay } | { $open }{ $action }{ $close }
+    y Confirm | n Back | { $details }
 
-desks-handoff-decision-controls = / Commands | Left/Right decision { $index }/{ $count } /copy-decision | PgUp/PgDn / Esc
+desks-handoff-decision-controls = | Commands | Left/Right decision { $index }/{ $count } /copy-decision | PgUp/PgDn | Esc
 
 desks-cooperation-release-disclosure = Selected: { $owner } · #{ $partner }
     Remove this partner across all tasks: roster entry,
@@ -493,8 +494,8 @@ desks-workflows-recipe-summary = { $effect }
     { $name } / { $steps } steps
     /verbose Full plan and scope
 
-desks-workflows-apply-controls = { $stay } / { $apply } | { $details }
-    y Apply / n Back / Left/Right Choose / Enter
+desks-workflows-apply-controls = { $stay } | { $apply } | { $details }
+    y Apply | n Back | Left/Right Choose | Enter
 
 desks-memory-erasure-notice = Deletion removes this memory from future Eevee context. Prior requests, exports, provider history, SQLite/WAL and backups are outside this local deletion; secure erasure is not promised. Deleting its source task preserves approved project/personal memories.
 
@@ -548,6 +549,6 @@ desks-workflows-review-fix = Handoff selected finding to Flareon
 
 impact-checks-title = Impact-directed checks / recommendation only
 impact-checks-pending = Analysing bounded local symbols, dependencies, test mappings and Dex failures. No check is prepared or run.
-impact-checks-controls = PgUp/PgDn inspect • s stage proposal for separate Jolteon review • Esc back / no execution
+impact-checks-controls = PgUp/PgDn inspect • s stage proposal for separate Jolteon review • Esc back | no execution
 impact-checks-command = Propose relevant checks with source and Dex reasons; no execution or completeness claim
 impact-checks-stage = Stage the current checks as an inert plan; each command still requires exact Jolteon review

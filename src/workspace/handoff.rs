@@ -228,6 +228,22 @@ impl Document {
     }
 }
 
+/// Portable facts and unresolved items derived from committed task data only.
+fn portable_state(task: &store::Snapshot) -> (Vec<String>, Vec<String>) {
+    let mut unresolved: Vec<_> = task
+        .criteria
+        .iter()
+        .filter(|criterion| !criterion.met)
+        .map(|criterion| approved_text(&criterion.text))
+        .collect();
+    if !task.next_action.trim().is_empty() {
+        unresolved.push(approved_text(&task.next_action));
+    }
+    let (facts, risks) = task.workflows.portable_notes();
+    unresolved.extend(risks);
+    (facts, unresolved)
+}
+
 /// Build only from committed task data and explicitly selected decisions. Provider
 /// item metadata and tool transcripts are never examined by this module.
 pub fn from_task(
@@ -261,17 +277,7 @@ pub fn from_task(
             text: sanitize(&excerpt.text),
         });
     }
-    let mut unresolved: Vec<_> = task
-        .criteria
-        .iter()
-        .filter(|criterion| !criterion.met)
-        .map(|criterion| approved_text(&criterion.text))
-        .collect();
-    if !task.next_action.trim().is_empty() {
-        unresolved.push(approved_text(&task.next_action));
-    }
-    let (facts, risks) = task.workflows.portable_notes();
-    unresolved.extend(risks);
+    let (facts, unresolved) = portable_state(task);
     let document = Document {
         schema_version: SCHEMA_VERSION,
         task: Task {
@@ -308,9 +314,17 @@ pub fn validate_dispatch(
     exclusions: &[PathBuf],
 ) -> Result<(), String> {
     document.validate()?;
+    // A later revision is admitted only when every portable task fact still
+    // matches exactly, e.g. after saving a new Request; the document is never
+    // refreshed or substituted.
+    let revision_current = document.task.revision == task.revision
+        || (document.task.revision < task.revision && {
+            let (facts, unresolved) = portable_state(task);
+            document.facts == facts && document.unresolved == unresolved
+        });
     if task.archived
         || document.task.id != task.id
-        || document.task.revision != task.revision
+        || !revision_current
         || document.task.goal != approved_text(&task.goal)
         || document.task.next_action != approved_text(&task.next_action)
         || document.task.criteria
@@ -321,7 +335,7 @@ pub fn validate_dispatch(
                 .collect::<Vec<_>>()
     {
         return Err(
-            "Handoff task changed or belongs to another task; prepare and accept a fresh handoff"
+            "Handoff task changed or belongs to another task; prepare and accept a fresh handoff, or /handoff-clear to send without it"
                 .into(),
         );
     }
@@ -701,7 +715,52 @@ mod tests {
         assert!(!preview.contains("abcdef"));
         assert!(validate_dispatch(&document, &task, &[], None, &[]).is_ok());
         task.revision += 1;
+        assert!(validate_dispatch(&document, &task, &[], None, &[]).is_ok());
+        task.criteria.push(store::Criterion {
+            text: "A new unmet criterion".into(),
+            met: false,
+        });
         assert!(validate_dispatch(&document, &task, &[], None, &[]).is_err());
+    }
+
+    #[test]
+    fn later_revisions_admit_only_unchanged_portable_facts() {
+        let mut task = store::Snapshot::empty("project".into());
+        task.id = 7;
+        task.revision = 3;
+        task.goal = "Continue the reviewed task".into();
+        task.next_action = "Run the checks".into();
+        task.criteria.push(store::Criterion {
+            text: "Check the result".into(),
+            met: false,
+        });
+        let document = from_task(&task, &[], &["Use a boring design".into()]).unwrap();
+        // Saving a new Request advances the revision but no portable fact.
+        let mut later = task.clone();
+        later.revision = 4;
+        assert!(validate_dispatch(&document, &later, &[], None, &[]).is_ok());
+        let mut met = later.clone();
+        met.criteria[0].met = true;
+        let mut next = later.clone();
+        next.next_action = "Ship it".into();
+        let mut earlier = task.clone();
+        earlier.revision = 2;
+        let mut forged = document.clone();
+        forged.facts.push("A fact the task never recorded".into());
+        for (document, task) in [
+            (&document, &met),
+            (&document, &next),
+            (&document, &earlier),
+            (&forged, &later),
+        ] {
+            assert!(
+                validate_dispatch(document, task, &[], None, &[])
+                    .unwrap_err()
+                    .contains("/handoff-clear")
+            );
+        }
+        // Same-revision admission is unchanged.
+        assert!(validate_dispatch(&forged, &task, &[], None, &[]).is_ok());
     }
 
     #[test]

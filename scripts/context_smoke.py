@@ -104,7 +104,7 @@ def main():
             def read_rows():
                 # Export is task-row-only. Read actual durable basket records without
                 # acquiring a second application writer or copying source payloads.
-                with closing(sqlite3.connect(database.as_uri() + "?mode=ro", uri=True, timeout=1)) as db:
+                with closing(sqlite3.connect(database.as_uri() + "?mode=ro", uri=True, timeout=10)) as db:
                     tasks = db.execute("SELECT id,goal FROM tasks ORDER BY id").fetchall()
                     records = [json.loads(row[0]) for row in db.execute("SELECT record FROM excerpts ORDER BY id")]
                     active = db.execute("SELECT active_id FROM selections").fetchone()

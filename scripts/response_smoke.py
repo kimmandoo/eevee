@@ -42,7 +42,7 @@ SURFACE = {"response": "Response", "previous": "Previous Response",
            "fields": ("API key", "Endpoint", "Default model", "Protocol",
                       "Authentication", "Storage", "Save & choose model"),
            "matches": "1 matches", "loading": "Loading metadata", "search": "Search: ",
-           "home": "Type Request /", "edit": "Enter Send /", "draft": "Draft only /"}
+           "home": "Type Request |", "edit": "Enter Send |", "draft": "Draft only |"}
 
 
 class SurfaceSession(Session):
@@ -74,7 +74,7 @@ class SurfaceJourney(Journey):
         for _ in range(8):
             footer = self.session.display().rstrip().splitlines()[-1].strip()
             if 'Alt+A' in footer or footer.startswith(tuple(self.surface[key] for key in ("home", "edit", "draft"))):
-                return "Type Request /" if footer.startswith(self.surface["home"]) else "Enter Send /"
+                return "Type Request |" if footer.startswith(self.surface["home"]) else "Enter Send |"
             self.session.send(ESC)
         raise AssertionError("Request owner not reachable\n" + self.session.display())
 

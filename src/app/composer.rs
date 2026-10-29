@@ -82,6 +82,9 @@ impl App {
             || self.partner_busy(self.lead().id)
             || self.partner_approval_pending(self.lead().id)
         {
+            if !self.partner_approval_pending(self.lead().id) && self.offer_steer_choice() {
+                return true;
+            }
             self.notice = "Finish or cancel this partner's request before sending another. Your draft is kept.".into();
             return true;
         }
@@ -168,7 +171,10 @@ impl App {
             self.input.clear();
             self.notice.clear();
             self.open_overlay(Overlay::Agents);
-            if matches!(
+            if !self.agents.any_route_ready() {
+                // First run: show every route instead of one family's methods.
+                self.agents.begin_provider_list();
+            } else if matches!(
                 self.planning.agent,
                 Agent::Codex | Agent::ChatGPT | Agent::OpenAI | Agent::Compatible
             ) {

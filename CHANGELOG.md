@@ -6,9 +6,50 @@
 - fix(forms): recognized English/Korean UI and tool improvements and compound inspection-plus-fix requests while preserving quoted-source, negation, manual appearance, adopted-step and explicit read-only policy boundaries.
 - fix(streaming): flushed pending observed code through existing HTTP/WebSocket polling after short quiet bursts, bounded live snapshot cadence, and normalized only the already-redacted visible tail without artificial typing delays.
 - fix(ui): docked file decisions immediately above the retained Request composer, separated muted code line numbers from the live edge, and retained explicit choices, full Details inspection and contiguous scope exposure across resizing.
+- docs(release): published v0.1.38 from `6794b50` after native40855031289 and release40859609274, verified all eight public assets against qualified packages and passed downloaded installation24/installed-terminal34 plus both-size contract journeys without replacing earlier releases.
+- fix(verification): waited for the actual first inference POST before dismissing the nonmodal evolution notice in steering journeys, preventing fixture caret movement from invalidating Send's save barrier while retaining compact-response visibility checks.
+- fix(verification): snapshotted nested item-sprite cache files by relative path during installation checks, preserving full cache byte/mtime comparisons instead of trying to hash the `items` directory as a file.
+- fix(editor): closed the validated temporary file handle before removing it, allowing Windows external Request and form-profile edits to finish without weakening identity checks or recursively deleting editor-owned copies.
+- fix(ci): compared every retained MCP uncertainty marker by file identity on Windows and waited for the initial committed storage state before opening connection setup, preserving all native qualification checks.
+- fix(ci): compared the MCP smoke's uncertain-project marker by file identity so Windows verbatim paths match, ran the five contract drivers concurrently through `scripts/contract_smoke.py` with quiet-redraw key settling, and limited non-full targets to the compact 60×18 size.
+- fix(usage): showed `usage unreported` instead of `≥0 tok` when no request has reported usage yet.
+- docs(readme): added a 0.1.38 overview, rules/steering/usage highlights and safety notes, folded the compatibility notes and fixed missing spaces.
+- fix(ci): made the approval-rule fixture use a platform-absolute executable path and accepted Windows `ConnectionAborted` as a retired WebSocket in the overflow test, so the Windows native job passes.
+- feat(delegation): added reviewed lead-only concurrent read-only helpers through existing provider workers, bounded ordered results, executor-enforced source scope, linked prepared/submitted receipts, separate usage, work rows and parent-owned cancellation.
+- feat(mcp): added separately reviewed project stdio registration/launch, explicit frozen unmanaged tool selection, reviewed or scoped-rule calls, bounded untrusted results, owned server-tree cancellation and persistent unknown-effect refusal of automatic grants.
+- feat(profiles): added default-enabled visible neutral form behavior profiles, exact instruction-byte receipt accounting, reviewed external editing, project/current-form/one-Send controls, disabled recipe imports and explicit portable handoff selection without classifier or permission changes.
+- feat(moves): grouped deterministic typed variants into reviewed parameterized moves, added explicit slot fill/substituted-text review, expanded the library to 32 with four assigned quick moves and retained literal TM1 imports alongside parameter-bearing TM2.
+- fix(steering): bound choice keys and queued Sends to task/partner/generation, retained original whitespace/caret on return, preserved newer drafts and labelled boundary append without claiming unproven model delivery.
+- fix(contracts): preserved selected-source receipt/reference/comparison decoding around profile policy, completed structured delegated result envelopes, froze reviewed parameter substitutions through ordinary move preparation and kept cancelled native helpers' transport uncertainty separate from local effects.
+- fix(build): included the Fluent move/help resources required to generate the new library and parameter review message variants in clean native builds.
+- chore(release): advanced the package version to 0.1.38 and added the contract capability journeys to all five native qualification rows.
+- feat(providers): let Enter during the lead's native run steer it (appended at the next tool-result boundary and recorded as `Steer #N` in the receipt, or returned to the composer if never sent) or queue the next Send, which is prepared only after a completed run; added `/queue-cancel`.
+- feat(approvals): added project approval rules: `/rule-allow` or `/rule-deny` on the lead's direct command (pinned executable, token-exact argv prefix, cwd prefix) or file create/edit (exact path or glob) answers later matching requests with an `Allowed/Denied by rule #N` notice, `/rules` lists, disables and revokes them, and deletes, renames, shells, selected commits, other partners and unknown effects always stay reviewed.
+- feat(store): kept task-workflow fields from newer writers and wrote them back unchanged unless declared critical in `workflows.critical` (`/todo-eager off` marks `progress.eager_off`), and saved a `VACUUM INTO` copy of an older-schema database in `<data dir>-backups/` (newest three) before migrating it (skipped only while a hot journal awaits recovery).
+- feat(usage): added a status-row meter of this launch's provider-reported tokens with a labelled local cost estimate (`Launch 48.2k tok · est. $0.31`, live `Req` count while running), a `/usage` panel with request/task/launch, per-partner and per-model breakdowns, `/usage-meter`, a non-blocking `/usage-budget` notice, user price rows in `<data dir>/usage.toml` reloaded by `/prices`, and real counters on the party board instead of a fixed "unknown".
+- feat(providers): resent a native HTTP model round automatically, at most three times with the same body and a visible cancellable wait, only when the provider refused it before processing (connection refused, HTTP 429/503/529, `Retry-After` up to 60 s); added `--retry off|safe` (default safe) and listed every retry in the completion message.
+- test(smoke): added a rate-limited-then-accepted journey to `native_connection_smoke.py` and stopped its flavor scan from matching the product name inside host tool declarations.
 
 ## 2026-10-28
 
+- feat(game): added the bag, Potions, one-shot Berries, repetition-proposed moves, hash-pinned item sprites and static item notices.
+- refactor(ui): separated layout, chrome and workspace rendering from `ui.rs`.
+- chore(release): advanced the package version to 0.1.37.
+- feat(ui): flashed newly received file lines with a writing-edge caret and live line count while files stream, hid response worker/transport origin lines outside `/verbose`, collapsed `default/default` in the header and cleaned storage labels.
+- chore(release): advanced the package version to 0.1.36 instead of replacing the unpublished v0.1.35 tag.
+- fix(journey): updated every route's `/journey` todo disclosure to automatic adoption in Auto and `/todo-adopt` when Pinned.
+- feat(ui): separated footer key hints with ` | ` so the `/` Commands key never sits beside a separator, and added a lint test.
+- feat(ui): listed only everyday commands for an empty palette query (Ctrl+K shows all), moved repeated disclaimers behind `/verbose`, named Auto/Pinned form mode with an `a` toggle in `/forms`, showed the todo focus line in compact layouts, opened the full provider list on a first-run Send, and added a game-terms map to help.
+- fix(suggestions): stopped suggesting Jolteon for pre-existing dirty files until Eevee observes an actual source change or a run exists.
+- feat(ui): marked an unconnected route in the header (`(not connected)`/`(setup)`), removed stray status spacing, gave `/todo` its own panel with mode-aware keys and a plain "No todo yet" state, listed everyday commands first in the palette, hid the advisory form strip in automatic mode, and added `/todo` and `/evolution-preview` to help.
+- chore(release): advanced the package version to 0.1.35.
+- feat(evolution)!: enabled the native phased-todo prelude by default so todo-driven evolution needs no setup; `/todo-eager off` now persists a task-level opt-out that earlier strict readers refuse.
+- feat(evolution): adopted provider todo updates automatically in automatic form mode, steered the next Send's evolution from the current (active or next pending) todo step for ambiguous and unclassified requests, applied user-authored todo edits immediately, and showed the step and predicted form in the companion card.
+- fix(evolution): stopped Korean descriptive verb forms (`구현됐나`, `뽑는 기능`, `추가된`) from requesting mutation, classified checks of existing features/implementations as Verification, and kept a repair of a diagnosed object (`Investigate the crash and fix it`) as an Implement-capable Diagnosis instead of read-only Plan.
+- fix(providers): admitted an exactly accepted same-task handoff after request-only saves when every portable fact still matched, kept changed/foreign handoffs fail-closed with a `/handoff-clear` recovery hint, and excluded tool selections reviewed for another adapter/task/partner instead of blocking every later request after a switch.
+- feat(ui): painted the selected `[choice]` in review/confirmation controls as a highlighted button, highlighted the focused provider question/permission option, and kept the focused answer option scrolled into view at 60×18.
+- fix(providers): stopped provider switching from retaining synthetic stale task handoffs, preserved exact imported-document admission, and prevented blocked previews from producing secondary empty-JSON errors or retaining staged outgoing receipts.
+- fix(auth): preserved saved-account grant/JWT expiry and private-source read diagnostics through recovery setup and Account Advanced settings without renewing, persisting or replaying credentials.
 - feat(sdk)!: advanced the complete SDK bridge to11 for structured progress events and refused older mixed components before dispatch.
 - fix(sdk): admitted taskless empty model inspection while retaining positive task ownership and frozen-root requirements for every actual prompt.
 - fix(forms): excluded negated `without` tails from writing intent while preserving positive leading requests and later independent clauses.
@@ -270,6 +311,51 @@
 - docs(release): published v0.1.19 from source `c4ce4a2` after exact-source Check/all-five-native qualification and immutable promotion, retaining Schema 16 and complete SDK bridge 8.
 - test(terminal): acknowledged the new one-time evolution receipt before checking preserved goal/edit/discard behavior in the actual compact installed runtime without changing the published executable.
 - docs(verification): verified all public assets, sixteen bilingual automatic-review/file-progress journeys/64 groups, 24 file journeys/126 groups, evolution popups and preserved typing, scrolling/tooltips, native 176 groups, cooperation 24, six genuine schema upgrade/refusal/resume cases and 23 installation groups/all 34 installed terminal scenarios.
+
+## 0.1.39
+
+- fix(ui): consolidated qualified native, Codex, ACP and SDK todo updates into readable request-owned cards with counts and status markers, while preserving original observations through `/verbose` and keeping refusals/errors distinct.
+- fix(streaming): flushed actual pending code after quiet provider bursts through existing HTTP/WebSocket polling, bounded snapshot cadence and retained source-driven arrival emphasis without delayed or fabricated text.
+- fix(approvals): attached compact file decisions immediately above Request, kept the draft and response visible, retained complete Details and exact scope guards, and matched paging to the short review body so every required path/directory row could be reviewed.
+- fix(forms): recognized English/Korean UI/tool improvement and compound diagnosis/review-plus-fix requests without dropping latest automatic todo adoption, pinned appearance or explicit restrictive policy.
+- chore(release): advanced the package to 0.1.39 and preserved all qualified 0.1.38 capabilities and existing release assets during concurrent-upstream integration.
+
+## 0.1.38
+
+- feat(delegation): added up to three bounded concurrent read-only investigations after one explicit round review, with ordered tool results, separate frozen/submitted receipts and usage, visible work and parent cancellation. Helpers used native source tools only; no writer, command, MCP or recursive delegation authority was inherited.
+- feat(mcp): added user-registered unmanaged stdio servers with separate registration and launch reviews, explicit selected schemas, exact call review or user-created server/tool rules, 64-KiB bounded untrusted results, crash continuation and owned-tree cancellation. Unknown effects retained a conservative persistent manual-review floor.
+- feat(profiles): enabled neutral editable form profiles, displayed exact instruction bytes, froze them into native/external request and review packets, and exposed `/form-profile off` plus per-form/one-Send controls. Recipe imports stayed disabled until reviewed; profiles entered handoffs only by explicit selection. No paired-benchmark quality improvement was claimed.
+- feat(moves): added deterministic typed request parameters, exact observed-variant teaching review, explicit fill/substituted-text review, a 32-entry library/four quick slots and portable parameter-bearing TM2 while preserving literal TM1 imports.
+- feat(providers): completed explicit mid-run steering and owner-bound queued Send, bounded safe native HTTP retry (`--retry off` disabled it), and truthful launch/task/request token and labelled local cost estimates.
+- feat(approvals): added explicit project allow/deny rules for pinned direct commands and create/edit paths, with immediate revocation; delete/rename, Shell, selected commits, protected/foreign paths and unknown effects remained freshly reviewed.
+- feat(storage): preserved ignorable task-workflow/receipt metadata and refused unknown critical fields; created up to three consistent database copies before major migration without pretending they were full evidence snapshots.
+- fix(editor): released the validated temporary file handle before cleanup so native Windows Request/profile editing could reach returned-candidate review and remove its owned plaintext file.
+- docs(compatibility): retained SQL 20, complete SDK bridge 11 and formation 2. New profile receipt metadata, delegated prepared/submitted receipt state, expanded move metadata and profile-bearing recipes could make older readers refuse. Readers through 0.1.37 did not gain forward compatibility retroactively. A complete `ev snapshot` was required before upgrade/rollback; no stored grants, provider sessions or automatic replay were restored.
+
+## 0.1.37
+
+- feat(game): added `/bag` with Items (Potion, Berry), TMs and Key items; every row opens an existing command or review and nothing runs by itself.
+- feat(game): proposed learning a move after three similar Sends (case/whitespace/trailing-punctuation equal) with `/learn-move` opening the ordinary teach review and `/learn-dismiss` hiding the offer for the task.
+- feat(game): added one-shot Berries for attachments and selected memories, removed after the lead's next dispatch acknowledgment.
+- feat(game): added optional hash-pinned item sprites (Potion, Oran Berry, nine type TMs) downloaded to the sprite cache with text-icon fallbacks, and a static item notice for learned moves, imported TMs and used Berries.
+- refactor(ui): split `ui.rs` into layout, chrome and workspace modules (RF04) without behavior changes.
+- docs(storage): nonempty `workflows.game` is rejected by 0.1.36 strict readers; empty state writes no bytes.
+
+## 0.1.36
+
+Includes every change prepared as 0.1.35, which was tagged but never published.
+
+- feat(ui): flashed newly received file lines, showed a blinking caret at the writing edge and a live received-line count while a file streams; static under reduced motion and `--no-animation`.
+- feat(ui): moved response worker/transport origin lines behind `/verbose` (the original model stays visible), collapsed `default/default` in the header and replaced `/` in storage labels.
+- fix(providers): stopped provider switches and request-only saves from staling handoffs, kept changed/foreign handoffs fail-closed with a `/handoff-clear` hint, and excluded `/tools` selections reviewed for another adapter instead of blocking every request.
+- fix(auth): preserved saved-account expiry and private-source read diagnostics in recovery setup and Account Advanced settings.
+- feat(ui): highlighted the selected choice in every review/confirmation and the focused provider question/permission option, keeping it scrolled into view at 60×18.
+- fix(evolution): treated Korean descriptive verbs and "check whether it works" as verification and kept repairs of a diagnosed failure Implement-capable.
+- feat(evolution)!: in automatic form mode, adopted provider todo updates automatically and chose the next Send's form from the current todo step; enabled the native phased-todo prelude by default (`/todo-eager off` writes a task opt-out that 0.1.34 refuses).
+- feat(ui): marked an unconnected route in the header, gave `/todo` its own panel, listed everyday commands first, hid the advisory form strip in automatic mode and added `/todo`/`/evolution-preview` to help.
+- feat(ui): separated footer key hints with ` | `, showed only everyday commands for an empty palette (Ctrl+K shows all), named Auto/Pinned form mode with an `a` toggle, kept the todo line visible in compact layouts, opened the full provider list on a first-run Send, moved repeated disclaimers behind `/verbose` and added a game-terms map to help.
+- fix(suggestions): stopped suggesting Jolteon for files that were already dirty before Eevee observed any change.
+- fix(journey): updated every route's `/journey` todo disclosure to automatic adoption in Auto and `/todo-adopt` when Pinned.
 
 ## 0.1.34
 

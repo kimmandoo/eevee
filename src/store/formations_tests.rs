@@ -36,6 +36,7 @@ impl Drop for Fixture {
 fn recipe() -> Recipe {
     Recipe {
         schema_version: 2,
+        profiles: Vec::new(),
         name: "Fixture arrangement".into(),
         scope: vec![],
         context: vec![],

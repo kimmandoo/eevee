@@ -1,17 +1,22 @@
 //! Local task work: repository state, context capture, owned execution, evidence and handoff.
 pub mod artifacts;
 pub mod context;
+pub mod form_profiles;
+pub mod forward;
+pub mod game;
 pub mod handoff;
 pub mod held;
 pub mod locations;
 pub mod memory;
 pub mod moves;
+pub mod pricing;
 pub mod privacy;
 pub mod progress;
 pub mod receipt;
 pub mod records;
 pub mod repo;
 pub mod ribbons;
+pub mod rules;
 pub mod runner;
 pub mod tool_plans;
 pub mod usage;

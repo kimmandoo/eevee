@@ -14,8 +14,11 @@ use crate::{
 pub enum Mode {
     #[default]
     Menu,
+    Library,
     Detail,
     Name,
+    Parameters,
+    ParameterReview,
     Review,
     Forget,
     Replace,
@@ -65,6 +68,7 @@ pub struct Review {
     pub same_semantics: Option<bool>,
     pub name_only: bool,
     pub changes: Vec<moves::ChangedField>,
+    pub variants: Vec<String>,
     action: ReviewAction,
     replacement: Option<(i64, u64)>,
     owner: (i64, i64, usize),
@@ -96,6 +100,11 @@ pub struct State {
     pub failed_error: String,
     pub failure_discard: bool,
     pub learning: Option<Learning>,
+    pub variants: Vec<String>,
+    pub parameter_record: Option<Record>,
+    pub parameter_values: String,
+    pub parameter_instruction: Option<String>,
+    pub parameter_review: String,
     pub replacement: Option<(i64, u64)>,
     pub offered: Option<Candidate>,
     pub name: String,
@@ -145,7 +154,10 @@ impl State {
         self.form = form;
     }
     pub fn editing(&self) -> bool {
-        matches!(self.mode, Mode::Name | Mode::ImportPath | Mode::ExportPath)
+        matches!(
+            self.mode,
+            Mode::Name | Mode::Parameters | Mode::ImportPath | Mode::ExportPath
+        )
     }
     pub fn invalidate_review(&mut self) {
         self.reviewed = false;
@@ -197,6 +209,10 @@ impl State {
         }
         let mut choices = vec![
             Choice::new("move", "Move menu; no action executed"),
+            Choice::new(
+                "move-library",
+                "All learned moves (up to 32); no action executed",
+            ),
             Choice::new("teach-move", "Teach from actual approved work"),
             Choice::new("move-reminder", "Forgotten and postponed moves"),
             Choice::new(
@@ -208,7 +224,7 @@ impl State {
                 "Review exporting the highlighted move to a new TM file",
             ),
         ];
-        if self.mode == Mode::Menu && self.active().next().is_some() {
+        if matches!(self.mode, Mode::Menu | Mode::Library) && self.menu_records().next().is_some() {
             choices.push(Choice::new("move-details", "Inspect the highlighted move"));
         } else if self.mode == Mode::Detail && self.selected_record().is_some() {
             choices.extend([
@@ -284,6 +300,62 @@ impl State {
             !r.forgotten && r.proposal.partner == self.partner && r.proposal.form == self.form
         })
     }
+    pub fn quick(&self) -> impl Iterator<Item = &Record> + Clone {
+        let explicit = self
+            .active()
+            .any(|record| record.proposal.extra.0.contains_key("quick_slot"));
+        let slots: [Option<&Record>; moves::QUICK_SLOTS] = std::array::from_fn(|slot| {
+            if explicit {
+                self.active().find(|record| {
+                    record
+                        .proposal
+                        .extra
+                        .0
+                        .get("quick_slot")
+                        .and_then(serde_json::Value::as_u64)
+                        == Some(slot as u64)
+                })
+            } else {
+                self.active().nth(slot)
+            }
+        });
+        slots.into_iter().flatten()
+    }
+    pub fn menu_records(&self) -> impl Iterator<Item = &Record> + Clone {
+        self.quick()
+            .filter(|_| self.mode == Mode::Menu)
+            .chain(self.active().filter(|_| self.mode != Mode::Menu))
+    }
+    pub fn parameter_current(&self) -> bool {
+        self.parameter_instruction.is_some()
+            && self.name == self.parameter_values
+            && self.parameter_record.as_ref().is_some_and(|record| {
+                !record.forgotten
+                    && record.proposal.partner == self.partner
+                    && record.proposal.form == self.form
+                    && self.records.iter().any(|current| current == record)
+            })
+    }
+    fn finish_parameters(&mut self) -> Result<(), String> {
+        if self.insertion_rejected {
+            return Err("Correct the refused parameter insertion first".into());
+        }
+        let record = self
+            .parameter_record
+            .as_ref()
+            .ok_or("No parameterized move selected")?;
+        let template = moves::parameters::Template::of(&record.proposal)?
+            .ok_or("Request template is missing")?;
+        let (instruction, details) = template.review(&record.proposal.steps, &self.name)?;
+        self.parameter_review = format!(
+            "Move #{} revision {} / only slot substitution\n{}",
+            record.id, record.revision, details
+        );
+        self.parameter_values.clone_from(&self.name);
+        self.parameter_instruction = Some(instruction);
+        self.enter(Mode::ParameterReview);
+        Ok(())
+    }
     pub fn reminders(&self) -> impl Iterator<Item = &Record> + Clone {
         self.records.iter().filter(|r| {
             r.forgotten && r.proposal.partner == self.partner && r.proposal.form == self.form
@@ -315,7 +387,8 @@ impl State {
             }
         }
     }
-    fn begin_learning(&mut self, learning: Learning) {
+    pub(super) fn begin_learning(&mut self, learning: Learning) {
+        self.variants.clear();
         self.name = learning.proposal().name.clone();
         self.cursor = self.name.len();
         self.scope = learning.proposal().scope;
@@ -371,7 +444,9 @@ impl State {
                 > if self.mode == Mode::Name { 256 } else { 4096 }
         {
             self.insertion_rejected = true;
-            self.notice = "Name insertion refused: use a single line within 256 UTF-8 bytes, without controls.".into();
+            self.notice = if self.mode == Mode::Parameters {
+                "Parameter insertion refused: use a single safe line within 4096 UTF-8 bytes."
+            } else { "Name insertion refused: use a single line within 256 UTF-8 bytes, without controls." }.into();
             return true;
         }
         self.name.insert_str(self.cursor, text);
@@ -472,7 +547,7 @@ impl State {
         }
         self.validate_name()?;
         let rename = matches!(self.learning, Some(Learning::Rename(_)));
-        if !rename && self.replacement.is_none() && self.active().count() >= 4 {
+        if !rename && self.replacement.is_none() && self.active().count() >= moves::MAX_LIBRARY {
             self.enter(Mode::Replace);
         } else {
             self.enter(Mode::Review);
@@ -570,10 +645,16 @@ impl State {
         } else {
             None
         };
-        let changes = old
+        let mut changes = old
             .as_ref()
             .map(|old| moves::changed_fields(&old.proposal.steps, &proposal.steps))
             .unwrap_or_default();
+        if old.as_ref().is_some_and(|old| {
+            old.proposal.extra.0.get(moves::parameters::KEY)
+                != proposal.extra.0.get(moves::parameters::KEY)
+        }) {
+            changes.push(moves::ChangedField::Parameters);
+        }
         let same_semantics = old.as_ref().map(|_| changes.is_empty());
         let name_only = old.as_ref().is_some_and(|old| {
             same_semantics == Some(true)
@@ -590,6 +671,7 @@ impl State {
             same_semantics,
             name_only,
             changes,
+            variants: self.variants.clone(),
             action,
             replacement: self.replacement,
             owner: (self.task_id, self.partner, self.form),
@@ -599,6 +681,7 @@ impl State {
         self.review.as_ref().is_some_and(|review| {
             review.owner == (self.task_id, self.partner, self.form)
                 && review.replacement == self.replacement
+                && review.variants == self.variants
                 && self.learning.as_ref().is_some_and(|learning| {
                     let source = learning.proposal();
                     review.proposal.name == self.name
@@ -607,14 +690,19 @@ impl State {
                         && review.proposal.form == self.form
                         && review.proposal.steps == source.steps
                         && review.proposal.provenance == source.provenance
+                        && review.proposal.extra == source.extra
                         && match (&review.action, learning) {
                             (ReviewAction::Import { original_name }, Learning::Import(_)) => {
                                 self.portable.as_ref().is_some_and(|definition| {
-                                    definition.schema_version == 1
+                                    matches!(definition.schema_version, 1 | 2)
                                         && definition.name == *original_name
                                         && definition.form
                                             == crate::domain::FORMS[review.proposal.form].name
                                         && definition.steps == review.proposal.steps
+                                        && moves::parameters::Template::of(&review.proposal)
+                                            .ok()
+                                            .flatten()
+                                            == definition.parameters
                                 })
                             }
                             (ReviewAction::Copy(source), Learning::Copy(_, current)) => {
@@ -704,6 +792,7 @@ impl App {
         if !matches!(
             command,
             "move"
+                | "move-library"
                 | "teach-move"
                 | "move-reminder"
                 | "move-import"
@@ -722,7 +811,8 @@ impl App {
             self.teach_move();
             return true;
         }
-        let was_menu = self.overlay == Some(Overlay::Moves) && self.moves.mode == Mode::Menu;
+        let was_menu = self.overlay == Some(Overlay::Moves)
+            && matches!(self.moves.mode, Mode::Menu | Mode::Library);
         self.open_moves();
         if self.overlay != Some(Overlay::Moves) {
             return true;
@@ -748,6 +838,7 @@ impl App {
         }
         match command {
             "move" => self.moves.enter(Mode::Menu),
+            "move-library" => self.moves.enter(Mode::Library),
             "move-reminder" => self.moves.enter(Mode::Reminder),
             "move-import" => self.move_file_editor(false),
             "move-export" => self.move_file_editor(true),
@@ -785,6 +876,24 @@ impl App {
             self.moves.notice = "Relearn this move before using it.".into();
             return;
         }
+        match moves::parameters::Template::of(&record.proposal) {
+            Ok(Some(template)) => {
+                self.moves.name = template.defaults_json();
+                self.moves.cursor = self.moves.name.len();
+                self.moves.scope_focus = false;
+                self.moves.insertion_rejected = false;
+                self.moves.parameter_record = Some(record);
+                self.moves.parameter_instruction = None;
+                self.moves.parameter_values.clear();
+                self.moves.enter(Mode::Parameters);
+                return;
+            }
+            Err(error) => {
+                self.moves.notice = error;
+                return;
+            }
+            Ok(None) => {}
+        }
         if matches!(&record.proposal.steps, Steps::Task { .. }) {
             self.moves.enter(Mode::TaskReview);
             return;
@@ -806,8 +915,12 @@ impl App {
         self.moves.paste(value)
     }
     fn move_file_editor(&mut self, export: bool) {
-        if export && self.moves.mode == Mode::Menu {
-            let selected = self.moves.active().nth(self.moves.selected).map(|r| r.id);
+        if export && matches!(self.moves.mode, Mode::Menu | Mode::Library) {
+            let selected = self
+                .moves
+                .menu_records()
+                .nth(self.moves.selected)
+                .map(|r| r.id);
             self.moves.detail = selected;
         }
         if export && self.moves.selected_record().is_none() {
@@ -867,7 +980,7 @@ impl App {
                 return true;
             }
             match self.moves.mode {
-                Mode::Menu => self.close_overlay(),
+                Mode::Menu | Mode::Library => self.close_overlay(),
                 _ => self.move_return_menu(),
             }
             return true;
@@ -938,6 +1051,12 @@ impl App {
         }
         if self.moves.editing() {
             if key.code == KeyCode::Enter {
+                if self.moves.mode == Mode::Parameters {
+                    if let Err(error) = self.moves.finish_parameters() {
+                        self.moves.notice = error;
+                    }
+                    return true;
+                }
                 if self.moves.mode == Mode::Name {
                     if let Err(error) = self.moves.finish_name() {
                         self.moves.notice = error;
@@ -984,7 +1103,11 @@ impl App {
         let mode = self.moves.mode;
         if matches!(
             mode,
-            Mode::Review | Mode::Forget | Mode::TaskReview | Mode::ExportReview
+            Mode::Review
+                | Mode::ParameterReview
+                | Mode::Forget
+                | Mode::TaskReview
+                | Mode::ExportReview
         ) {
             match key.code {
                 KeyCode::Left | KeyCode::Right | KeyCode::Tab | KeyCode::BackTab
@@ -1005,7 +1128,7 @@ impl App {
             return true;
         }
         let count = match mode {
-            Mode::Menu => self.moves.active().count(),
+            Mode::Menu | Mode::Library => self.moves.menu_records().count(),
             Mode::Detail => 4,
             Mode::Replace => self.moves.active().count() + 1,
             Mode::Reminder => self.moves.reminders().count() + self.moves.postponed().count(),
@@ -1050,11 +1173,24 @@ impl App {
             KeyCode::Right if mode == Mode::Menu => {
                 self.moves.selected = (self.moves.selected + 1).min(count.saturating_sub(1))
             }
+            KeyCode::Char('l') if mode == Mode::Menu => self.moves.enter(Mode::Library),
+            KeyCode::Char('m') if mode == Mode::Library => self.moves.enter(Mode::Menu),
+            KeyCode::Char(ch @ '1'..='4') if mode == Mode::Detail => {
+                if let Some(record) = self.moves.selected_record() {
+                    self.moves.request(Operation::AssignQuick {
+                        id: record.id,
+                        revision: record.revision,
+                        slot: ch as u8 - b'1',
+                    });
+                }
+            }
             KeyCode::Char('t') if mode == Mode::Menu => self.teach_move(),
             KeyCode::Char('r') if mode == Mode::Menu => self.moves.enter(Mode::Reminder),
-            KeyCode::Char('d') if mode == Mode::Menu => self.move_menu_details(),
+            KeyCode::Char('d') if matches!(mode, Mode::Menu | Mode::Library) => {
+                self.move_menu_details()
+            }
             KeyCode::Char('i') if mode == Mode::Menu => self.move_file_editor(false),
-            KeyCode::Char('e') if matches!(mode, Mode::Menu | Mode::Detail) => {
+            KeyCode::Char('e') if matches!(mode, Mode::Menu | Mode::Library | Mode::Detail) => {
                 self.move_file_editor(true)
             }
             KeyCode::Char('u') if mode == Mode::Detail => self.move_use_selected(),
@@ -1076,10 +1212,29 @@ impl App {
         } else {
             self.moves.learning = None;
             self.moves.replacement = None;
+            self.moves.parameter_record = None;
+            self.moves.parameter_instruction = None;
+            self.moves.parameter_values.clear();
+            self.moves.parameter_review.clear();
+            self.moves.variants.clear();
             self.moves.enter(Mode::Menu);
         }
     }
     fn move_confirm(&mut self) {
+        if self.moves.mode == Mode::ParameterReview {
+            if !self.moves.parameter_current() {
+                self.moves.notice = "Parameterized move changed; open a fresh fill review.".into();
+                self.moves.invalidate_review();
+                return;
+            }
+            if let Some(record) = self.moves.parameter_record.clone() {
+                match self.stage_move_use(&record) {
+                    Ok(()) => self.moves.invalidate_review(),
+                    Err(error) => self.moves.notice = error,
+                }
+            }
+            return;
+        }
         if self.moves.mode == Mode::ExportReview {
             if let Some(record) = self.moves.selected_record().cloned() {
                 self.moves.request(Operation::ExportPortable {
@@ -1115,7 +1270,11 @@ impl App {
         }
     }
     fn move_menu_details(&mut self) {
-        let detail = self.moves.active().nth(self.moves.selected).map(|r| r.id);
+        let detail = self
+            .moves
+            .menu_records()
+            .nth(self.moves.selected)
+            .map(|r| r.id);
         self.moves.detail = detail;
         if detail.is_some() {
             self.moves.enter(Mode::Detail);
@@ -1144,7 +1303,7 @@ impl App {
                     Err(error) => self.moves.notice = error,
                 }
             }
-            Mode::Menu => {
+            Mode::Menu | Mode::Library => {
                 self.move_menu_details();
                 if self.moves.detail.is_some() {
                     self.move_use_selected();
@@ -1191,7 +1350,9 @@ impl App {
                     self.moves.replacement = replacement;
                     self.moves.learning = Some(Learning::Relearn(record));
                     self.moves.enter(
-                        if self.moves.replacement.is_none() && self.moves.active().count() >= 4 {
+                        if self.moves.replacement.is_none()
+                            && self.moves.active().count() >= moves::MAX_LIBRARY
+                        {
                             Mode::Replace
                         } else {
                             Mode::Review
@@ -1238,6 +1399,7 @@ impl App {
                     return;
                 };
                 let mut proposal = record.proposal.clone();
+                proposal.extra.0.remove("quick_slot");
                 proposal.partner = target.id;
                 proposal.provenance.taught_by = Some(self.lead.id);
                 proposal.provenance.teacher_name =
@@ -1281,6 +1443,7 @@ impl App {
                 | Operation::Rename { .. }
                 | Operation::Forget { .. }
                 | Operation::Relearn { .. }
+                | Operation::AssignQuick { .. }
         );
         if let Err(error) = &result {
             self.moves.failed = Some(request);
@@ -1324,6 +1487,24 @@ impl App {
                         self.moves.portable_exported = true;
                     }
                     if mutation {
+                        let announcement = match &request.operation {
+                            Operation::Teach { proposal, .. }
+                            | Operation::Copy { proposal, .. } => Some((
+                                format!("{} learned {}!", self.lead_label(), proposal.name),
+                                proposal.form,
+                            )),
+                            Operation::ImportPortable { name, .. } => {
+                                Some((format!("TM imported: {name} is ready to use."), form))
+                            }
+                            _ => None,
+                        };
+                        if let Some((text, form)) = announcement {
+                            self.show_notice(super::game::Notice {
+                                item: super::game::Item::Tm(form),
+                                title: "New move!".into(),
+                                text,
+                            });
+                        }
                         self.moves.offered = None;
                         self.move_return_menu();
                         self.moves.notice =
@@ -1475,6 +1656,7 @@ mod tests {
     use crate::workspace::moves::{Pin, Provenance};
     fn proposal(name: &str) -> Proposal {
         Proposal {
+            extra: Default::default(),
             partner: 1,
             form: 1,
             name: name.into(),
@@ -1524,9 +1706,136 @@ mod tests {
         assert!(state.pending.is_none());
     }
     #[test]
-    fn fifth_move_defaults_to_give_up_and_replacement_is_exact() {
+    fn xc07_parameter_fill_is_explicit_neutral_and_revision_bound() {
+        let mut app = app();
+        app.set_form(3);
+        app.moves.form = 3;
+        app.overlay = Some(Overlay::Moves);
+        let mut record = record(7, "Parameterized fix");
+        record.proposal.form = 3;
+        record.proposal.steps = Steps::Request {
+            instruction: "Fix bug in src/b.rs".into(),
+            pins: vec![],
+        };
+        let template = moves::parameters::Template::derive(
+            &record.proposal.steps,
+            vec![
+                "fix the bug in src/a.rs".into(),
+                "Fix bug in src/b.rs".into(),
+            ],
+        )
+        .unwrap()
+        .unwrap();
+        template.store(&mut record.proposal).unwrap();
+        app.moves.records.push(record.clone());
+        app.moves.detail = Some(7);
+        app.move_use_selected();
+        assert_eq!(app.moves.mode, Mode::Parameters);
+        assert!(app.moves.pending.is_none() && app.pending_request.is_none());
+        app.moves.name = "[\"src/c.rs\"]".into();
+        app.moves.cursor = app.moves.name.len();
+        app.move_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert_eq!(app.moves.mode, Mode::ParameterReview);
+        assert_eq!(
+            app.moves.parameter_instruction.as_deref(),
+            Some("Fix bug in src/c.rs")
+        );
+        assert!(!app.moves.affirmative);
+        app.moves.reviewed = true;
+        app.move_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert_eq!(app.moves.mode, Mode::Menu);
+        assert!(app.moves.pending.is_none() && app.pending_request.is_none());
+        assert_eq!(app.moves.records, vec![record.clone()]);
+        app.moves.detail = Some(7);
+        app.move_use_selected();
+        app.moves.name = "[\"../outside.rs\"]".into();
+        app.moves.cursor = app.moves.name.len();
+        app.move_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert_eq!(app.moves.mode, Mode::Parameters);
+        app.moves.name = "[\"src/c.rs\"]".into();
+        app.moves.cursor = app.moves.name.len();
+        app.move_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        app.moves.records[0].revision += 1;
+        assert!(!app.moves.parameter_current());
+        app.moves.reviewed = true;
+        app.move_key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE));
+        assert!(app.moves.pending.is_none() && app.pending_request.is_none());
+    }
+    #[test]
+    fn xc07_library_keeps_four_quick_moves_and_uses_the_normal_review() {
+        let mut app = app();
+        app.overlay = Some(Overlay::Moves);
+        app.moves.records = (1..=32)
+            .map(|id| record(id, &format!("Library {id}")))
+            .collect();
+        assert_eq!(
+            app.moves
+                .quick()
+                .map(|record| record.id)
+                .collect::<Vec<_>>(),
+            [1, 2, 3, 4]
+        );
+        app.moves.enter(Mode::Library);
+        assert_eq!(app.moves.menu_records().count(), 32);
+        app.moves.selected = 31;
+        app.move_menu_details();
+        assert_eq!(app.moves.detail, Some(32));
+        assert_eq!(app.moves.mode, Mode::Detail);
+        assert!(app.moves.pending.is_none() && app.pending_request.is_none());
+        app.move_key(KeyEvent::new(KeyCode::Char('1'), KeyModifiers::NONE));
+        assert!(matches!(
+            app.moves.pending.as_ref().map(|request| &request.operation),
+            Some(Operation::AssignQuick {
+                id: 32,
+                revision: 1,
+                slot: 0
+            })
+        ));
+        assert!(app.pending_request.is_none());
+        // Explicit metadata orders the quick menu by slot, not library order.
+        app.moves.pending = None;
+        app.moves.inflight = None;
+        for record in &mut app.moves.records {
+            record
+                .proposal
+                .extra
+                .0
+                .insert("quick_slot".into(), serde_json::Value::Null);
+        }
+        app.moves.records[31]
+            .proposal
+            .extra
+            .0
+            .insert("quick_slot".into(), 0.into());
+        app.moves.records[0]
+            .proposal
+            .extra
+            .0
+            .insert("quick_slot".into(), 1.into());
+        app.moves.enter(Mode::Menu);
+        assert_eq!(
+            app.moves
+                .menu_records()
+                .map(|record| record.id)
+                .collect::<Vec<_>>(),
+            [32, 1]
+        );
+        app.move_activate();
+        assert_eq!(app.moves.detail, Some(32));
+        assert!(matches!(
+            app.moves.pending.as_ref().map(|request| &request.operation),
+            Some(Operation::Validate {
+                id: 32,
+                revision: 1
+            })
+        ));
+        assert!(app.pending_request.is_none());
+    }
+
+    #[test]
+    fn thirty_third_move_defaults_to_give_up_and_replacement_is_exact() {
         let mut state = state();
-        state.records = (1..=4)
+        state.records = (1..=32)
             .map(|id| record(id, &format!("Surf {id}")))
             .collect();
         state.begin_learning(Learning::Teach(proposal("Water Pulse")));
@@ -1725,7 +2034,7 @@ mod tests {
             app.moves.pending.as_ref().unwrap().operation,
             Operation::Load
         ));
-        let records = (2..=5)
+        let records = (2..=33)
             .map(|id| {
                 let mut record = record(id, &format!("Wave {id}"));
                 record.proposal.partner = 2;
@@ -2068,7 +2377,7 @@ mod tests {
         let mut state = state();
         let definition = moves::portable::Definition::from_proposal(&proposal("Surf")).unwrap();
         state.portable = Some(definition.clone());
-        state.records = (1..=4)
+        state.records = (1..=32)
             .map(|id| record(id, &format!("Local {id}")))
             .collect();
         state.begin_learning(Learning::Import(

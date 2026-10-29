@@ -1,4 +1,5 @@
-//! Provider-reported counters. These are neither local estimates nor prices.
+//! Provider-reported counters. These are neither local estimates nor prices;
+//! labelled cost estimates live in `workspace::pricing` and never write back.
 use crate::{providers::Agent, store::Attribution};
 use serde::{Deserialize, Serialize};
 

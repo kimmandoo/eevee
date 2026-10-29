@@ -534,6 +534,37 @@ fn improvement_description(clause: &str, action: &str) -> bool {
         && execution_description(clause, action)
 }
 
+// Korean adnominal/passive verb forms ("구현됐나", "뽑는 기능", "추가된 함수")
+// describe existing work rather than request it.
+fn verb_description(clause: &str, action: &str) -> bool {
+    !action.is_ascii()
+        && clause.contains(action)
+        && clause.match_indices(action).all(|(at, _)| {
+            [
+                "는", "던", "된", "됐", "되었", "되어", "되는", "되나", "되지", "어진", "아진",
+                "여진", "진", "힌",
+            ]
+            .iter()
+            .any(|ending| clause[at + action.len()..].starts_with(ending))
+        })
+}
+
+// Checking whether existing work is implemented or behaves correctly verifies
+// it; there is no new mutation request.
+const CHECKS: &[&str] = &["check", "확인", "점검"];
+const CHECKED: &[&str] = &[
+    "feature",
+    "implementation",
+    "implemented",
+    "works",
+    "working",
+    "기능",
+    "구현",
+    "동작",
+    "작동",
+];
+const REPAIRS: &[&str] = &["fix", "repair", "고쳐", "고치", "수정"];
+
 /// Strip literal/source instructions, retaining only object markers for quoted
 /// filenames or opaque arguments. Only unquoted verbs can request a capability;
 /// the original draft alone is submitted.
@@ -773,13 +804,15 @@ pub fn classify(text: &str) -> Option<Selection> {
             })
     };
     let read = &RULES[RULES.len() - 1];
-    // Source or diagnosed/reviewed task nouns can precede a later fix clause.
+    // Source or diagnosed/reviewed task nouns can precede a later change clause.
     // Keep negated and literal source out, without dropping "diagnose; fix it".
     let source_context = clauses().any(|clause| {
         RULES
             .iter()
             .any(|rule| matches!(rule.form, 1 | 5 | 7) && task_object(clause, rule))
     });
+    // A repair can target a diagnosed object without repeating its noun.
+    let diagnosis_context = clauses().any(|clause| task_object(clause, &RULES[1]));
     if readonly
         && task_object(&literal, read)
         && clauses().any(|clause| any(clause, read.actions))
@@ -799,18 +832,26 @@ pub fn classify(text: &str) -> Option<Selection> {
                 rule.operation == Operation::Implement
                     && rule.actions.iter().any(|action| {
                         contains(clause, action)
-                            && !(planning_artifact(clause, action)
+                            && !(verb_description(clause, action)
+                                || planning_artifact(clause, action)
                                 || improvement_description(clause, action)
                                 || rule.form == 2 && execution_description(clause, action))
                     })
                     && (task_object(clause, rule) || source_context)
-            }) || [
-                "write", "create", "update", "generate", "save", "작성", "생성", "수정", "갱신",
-                "저장",
-            ]
-            .iter()
-            .any(|action| contains(clause, action) && !planning_artifact(clause, action))
-                && (source_path(clause)
+            }) || REPAIRS
+                .iter()
+                .any(|action| contains(clause, action) && !verb_description(clause, action))
+                && diagnosis_context
+                || [
+                    "write", "create", "update", "generate", "save", "작성", "생성", "수정",
+                    "갱신", "저장",
+                ]
+                .iter()
+                .any(|action| {
+                    contains(clause, action)
+                        && !verb_description(clause, action)
+                        && !planning_artifact(clause, action)
+                }) && (source_path(clause)
                     || any(
                         clause,
                         &[
@@ -830,8 +871,12 @@ pub fn classify(text: &str) -> Option<Selection> {
         if clauses().any(|clause| {
             rule.actions.iter().any(|action| {
                 contains(clause, action)
-                    && !improvement_description(clause, action)
-                    && !(rule.form == 2 && execution_description(clause, action))
+                    && !(verb_description(clause, action)
+                        || improvement_description(clause, action)
+                        || rule.form == 2 && execution_description(clause, action)
+                        || rule.form == 5
+                            && matches!(*action, "check" | "점검")
+                            && any(clause, CHECKED))
             }) && (task_object(clause, rule)
                 || matches!(rule.form, 3 | 6) && source_context
                 // "Do not improve UI; inspect it" still names an observation
@@ -868,6 +913,13 @@ pub fn classify(text: &str) -> Option<Selection> {
             });
         }
     }
+    if !readonly && clauses().any(|clause| any(clause, CHECKS) && any(clause, CHECKED)) {
+        return Some(Selection {
+            form: 2,
+            operation: Operation::Implement,
+            reason: Message::CoreEvolutionVerification,
+        });
+    }
     readonly.then_some(Selection {
         form: 1,
         operation: Operation::Plan,
@@ -898,22 +950,37 @@ impl App {
             })
     }
 
+    /// The adopted todo step that automatic evolution continues, if any.
+    fn todo_focus(&self) -> Option<&str> {
+        (self.lead.auto_form && self.planning.explicit_operation().is_none())
+            .then(|| self.workflows.progress.as_ref()?.focus_label())
+            .flatten()
+    }
+
+    /// Current todo step position and the form it steers automatic evolution
+    /// toward, for the companion card. Purely a local prediction.
+    pub fn todo_guide(&self) -> Option<(String, Option<usize>)> {
+        let position = self.workflows.progress.as_ref()?.focus_position()?;
+        Some((
+            position,
+            self.todo_focus().and_then(classify).map(|todo| todo.form),
+        ))
+    }
+
+    /// Whether the next Send's appearance comes from the current todo step
+    /// rather than the request text itself.
+    pub(super) fn follows_todo(&self) -> bool {
+        classify(&self.input).is_none()
+            && self.todo_focus().and_then(classify).is_some()
+            && (crate::providers::effort::ambiguous_followup(&self.input)
+                || !self.planning.plan_conversation())
+    }
+
     /// Shared by inspection and ordinary Submit; does not mutate or prepare work.
-    fn request_evolution(&self) -> Option<Selection> {
+    pub(super) fn request_evolution(&self) -> Option<Selection> {
+        let todo = self.todo_focus().and_then(classify);
         let mut choice = classify(&self.input)
-            .or_else(|| {
-                (self.lead.auto_form
-                    && self.planning.explicit_operation().is_none()
-                    && crate::providers::effort::ambiguous_followup(&self.input))
-                .then(|| {
-                    self.workflows
-                        .progress
-                        .as_ref()?
-                        .active_label()
-                        .and_then(classify)
-                })
-                .flatten()
-            })
+            .or_else(|| todo.filter(|_| crate::providers::effort::ambiguous_followup(&self.input)))
             .or_else(|| {
                 (self.planning.operation == Operation::Plan
                     && proceed_with_plan(&self.input)
@@ -931,10 +998,12 @@ impl App {
                 // tool set: every file effect and command still needs exact
                 // one-shot approval. An ongoing planning/diagnosis conversation
                 // keeps its session for ambiguous follow-ups instead.
+                // An unclassified request keeps those tools but takes the
+                // current todo step's appearance.
                 (!self.planning.plan_conversation()).then_some(Selection {
-                    form: self.form(),
+                    form: todo.map_or_else(|| self.form(), |todo| todo.form),
                     operation: Operation::Implement,
-                    reason: Message::CoreEvolutionImplementation,
+                    reason: todo.map_or(Message::CoreEvolutionImplementation, |todo| todo.reason),
                 })
             })?;
         if !self.lead.auto_form {
@@ -980,7 +1049,7 @@ impl App {
                 self.workflows
                     .progress
                     .as_ref()
-                    .and_then(|p| p.active_label()),
+                    .and_then(|p| p.focus_label()),
             ),
             todo_step: self.workflows.progress.as_ref().map(|p| p.summary()),
         });
@@ -1004,7 +1073,7 @@ impl App {
                         self.workflows
                             .progress
                             .as_ref()
-                            .and_then(|p| p.active_label()),
+                            .and_then(|p| p.focus_label()),
                     )
         })
     }
@@ -1025,14 +1094,12 @@ impl App {
                 fresh,
             });
             self.evolution.popup_shown = false;
-            if self.lead.auto_form
-                && self.planning.explicit_operation().is_none()
-                && crate::providers::effort::ambiguous_followup(&self.input)
+            if self.follows_todo()
                 && let Some(progress) = &self.workflows.progress
-                && let Some(step) = progress.active_label()
+                && let Some(step) = progress.focus_position()
             {
                 self.notice = format!(
-                    "Automatic form follows adopted todo revision {} / {step}",
+                    "Automatic form follows todo revision {} / step {step}",
                     progress.revision
                 );
             }
@@ -1105,7 +1172,7 @@ mod tests {
                             .progress
                             .as_ref()
                             .unwrap()
-                            .active_label()
+                            .focus_label()
                             .is_none()
                     );
                     progress.adopt().unwrap();
@@ -1139,6 +1206,51 @@ mod tests {
                     assert!(app.pending_request.is_none() && app.planning.pending.is_none());
                 }
             }
+        }
+    }
+
+    #[test]
+    fn adopted_pending_focus_distinguishes_continuations_from_fresh_unclassified_work() {
+        use crate::workspace::progress::{State, Status, Step};
+        for label in ["Investigate error", "오류 조사"] {
+            let mut progress = State::default();
+            progress
+                .propose(
+                    "fixture",
+                    vec![
+                        Step {
+                            label: "Fix code".into(),
+                            phase: None,
+                            status: Status::Done,
+                        },
+                        Step {
+                            label: label.into(),
+                            phase: None,
+                            status: Status::Pending,
+                        },
+                    ],
+                )
+                .unwrap();
+            progress.adopt().unwrap();
+            for (draft, operation) in [
+                ("Continue.", Operation::Plan),
+                ("계속해 주세요.", Operation::Plan),
+                ("Tell me more about this task.", Operation::Implement),
+            ] {
+                let mut app = app();
+                app.workflows.progress = Some(progress.clone());
+                app.input = draft.into();
+                let choice = app.request_evolution().unwrap();
+                assert_eq!((choice.form, choice.operation), (5, operation), "{draft}");
+                assert!(app.follows_todo());
+                assert_eq!(app.form(), 0, "prediction evolved before Send");
+            }
+            let mut app = planned_app();
+            app.workflows.progress = Some(progress);
+            app.input = "Tell me more about this task.".into();
+            assert!(app.request_evolution().is_none());
+            assert!(!app.follows_todo());
+            assert_eq!(app.planning.operation, Operation::Plan);
         }
     }
 
@@ -1760,6 +1872,63 @@ mod tests {
         assert_eq!(classify("Make a Python file.").unwrap().form, 3);
         assert_eq!(classify("파이썬 파일을 만들어줘.").unwrap().form, 3);
         assert_eq!(classify("소스 파일의 값을 바꿔줘.").unwrap().form, 3);
+    }
+
+    #[test]
+    fn descriptive_verbs_checks_and_diagnosed_repairs_choose_the_requested_capability() {
+        for (text, form, operation) in [
+            // Checking existing work verifies it rather than requesting a mutation.
+            (
+                "프롬프트 의도 파악해서 todo 뽑는 기능 잘 구현됐나 확인",
+                2,
+                Operation::Implement,
+            ),
+            (
+                "Check whether the todo feature is implemented correctly",
+                2,
+                Operation::Implement,
+            ),
+            ("Check tool UI", 5, Operation::Plan),
+            (
+                "로그인 기능 잘 동작하는지 확인해줘",
+                2,
+                Operation::Implement,
+            ),
+            ("추가된 함수 보여줘", 1, Operation::Plan),
+            ("개선된 UI 보여줘", 1, Operation::Plan),
+            ("다듬어진 레이아웃 점검해줘", 5, Operation::Plan),
+            (
+                "개선된 UI를 살펴보고, 레이아웃을 다듬어줘",
+                3,
+                Operation::Implement,
+            ),
+            // A diagnosis prefix must not hide the later repair of its object.
+            ("Investigate the crash and fix it", 5, Operation::Implement),
+            (
+                "Investigate the crash. Then fix it.",
+                5,
+                Operation::Implement,
+            ),
+            ("크래시 원인 분석해서 수정해줘", 5, Operation::Implement),
+            ("Analyze the error and summarize it", 5, Operation::Plan),
+            // Imperative requests keep their capability.
+            (
+                "버그같은거 더 없는지 확인해서 고쳐줘",
+                3,
+                Operation::Implement,
+            ),
+            ("새 기능 추가해줘", 3, Operation::Implement),
+            ("이 기능 구현해줘", 3, Operation::Implement),
+        ] {
+            let selected = classify(text).unwrap();
+            assert_eq!(
+                (selected.form, selected.operation),
+                (form, operation),
+                "{text}"
+            );
+        }
+        let selected = classify("분석만 하고 수정하지 마").unwrap();
+        assert_eq!((selected.form, selected.operation), (1, Operation::Plan));
     }
 
     #[test]

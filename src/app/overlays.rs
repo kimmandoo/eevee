@@ -394,6 +394,10 @@ impl App {
         if key == KeyCode::Char('d') {
             return self.command("suggestion-dismiss");
         }
+        if key == KeyCode::Char('a') {
+            self.enable_auto_form();
+            return true;
+        }
         let previous = self.selected;
         let grid =
             overlay == Overlay::Forms && self.width >= 90 && self.height >= 30 && !self.linear;

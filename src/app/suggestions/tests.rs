@@ -69,10 +69,32 @@ fn app() -> App {
         met: false,
     }];
     app.sources.basket = vec![pin()];
-    app.repository = Some(report(1, true));
     app.repo_loading = false;
     app.repo_error.clear();
+    // Eevee first observes the clean starting tree, then the edited one.
+    app.repository = Some(report(0, false));
+    app.refresh_suggestion();
+    app.repository = Some(report(1, true));
     app
+}
+
+#[test]
+fn preexisting_dirty_files_are_not_observed_changes() {
+    let mut app = App::new("/fixture".into(), 120, 36);
+    app.task_id = 7;
+    app.goal = "Deliver the requested change".into();
+    app.criteria = vec![store::Criterion {
+        text: "The check passes".into(),
+        met: false,
+    }];
+    app.sources.basket = vec![pin()];
+    app.repo_loading = false;
+    app.repo_error.clear();
+    app.repository = Some(report(1, true));
+    assert_form(&mut app, None);
+    // A later observed edit is an actual change without a run.
+    app.repository = Some(report(2, true));
+    assert_form(&mut app, Some(2));
 }
 
 // Explicit persisted-journal fixtures, not claims that a process was executed.

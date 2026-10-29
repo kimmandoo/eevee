@@ -91,7 +91,7 @@ def run(binary, output, size, keep):
         j.until(lambda: not j.claims() and bool(j.snapshot()[4]), 'first durable retained journal')
         j.request(2, 'COOP_RETAINED_B')
         j.lead(1)
-        if j.workspace().startswith('Type Request /'):
+        if j.workspace().startswith('Type Request |'):
             j.session.send('\r')
         draft = 'Unsent landmark draft 설명 exact caret'
         j.session.paste(draft)

@@ -26,7 +26,7 @@
 <p align="center">
   <img src="docs/assets/screenshot.png" width="900" alt="The real ev terminal app in Ghostty, with Eevee displayed as a full-color native pixel sprite in the partner panel">
   <br>
-  <sub>Actual <code>ev 0.1.33</code> in Ghostty 1.3.1 on macOS: Eevee is rendered as native pixels, not text or a composited overlay. This isolated first-launch capture made no provider/model request. <a href="docs/ASSET_LICENSES.md">Artwork attribution and rights limits.</a></sub>
+  <sub>Eevee is rendered as native pixels, not text or a composited overlay. This isolated first-launch capture made no provider/model request. <a href="docs/ASSET_LICENSES.md">Artwork attribution and rights limits.</a></sub>
 </p>
 
 `ev` is a single native binary that turns any folder into an agent workspace. Type a request; the model you connected reads your project, writes files, runs builds and tests, reads the real errors and fixes them — the same loop you know from Codex or Claude Code, with any provider and with every effect shown to you first.
@@ -38,9 +38,35 @@ It also happens to come with a companion: a party of Eevee forms that evolve wit
 - **Any model.** OpenAI (account or API), Anthropic, Google Gemini, and any OpenAI-compatible endpoint — including local servers like Ollama, vLLM and LM Studio. External agents (Codex, Claude Agent SDK, OpenCode / Gemini / Devin over ACP) work too.
 - **A real coding loop.** Discover, read, create, edit, rename and delete files; run builds, tests and programs; feed actual output back to the model. Generated code streams into the transcript as it is written.
 - **Review, or auto-approve.** Each file change and command opens a compact review with the exact diff or argv. When you trust the run, `/auto-approve` (or **Shift+A** in a review) lets the rest of the task proceed without prompts.
+- **Rules you write, not grants you forget.** Turn a reviewed `cargo test` or `tests/**` edit into a project rule with `/rule-allow`; deletes, shells and unknown effects always ask again.
+- **Steer without cancelling.** Press Enter while the model works to add a correction at the next tool boundary, or queue your next request.
+- **See what it costs.** The status row shows this session's reported tokens and a labelled cost estimate; `/usage` breaks it down.
 - **Local-first.** Tasks, drafts, transcripts and run history live in local SQLite. No account, server or Node runtime needed — the workspace works offline until you connect a model.
 - **Built for the terminal.** Rust + ratatui, works from 60×18 up, mouse and keyboard, Kitty/Sixel sprites with text fallback, ASCII/mono modes.
 - **Cross-platform.** macOS (arm64, x86_64), Linux and WSL (x86_64, arm64), Windows (x86_64). Every target is built and tested in CI.
+
+## What's new in 0.1.39
+
+| Improvement | What changed |
+| --- | --- |
+| **Readable tool progress** | Todo updates share one request-owned card; `/verbose` keeps the original observations inspectable |
+| **Live code** | Real source fragments keep updating through short provider pauses, with numbered lines and source-driven arrival emphasis |
+| **File choices by Request** | Compact Deny/Allow-once choices sit above the retained draft; long scope pages without skipping required rows |
+| **Intent-based forms** | English/Korean UI/tool improvements and inspect-then-fix requests select the right capability while respecting Auto/Pinned and read-only policy |
+
+### Capabilities retained from 0.1.38
+
+| Feature | How to use it |
+| --- | --- |
+| **Approval rules** | `/rule-allow` · `/rule-deny` · `/rules` — reuse a reviewed decision for matching commands or file edits |
+| **Steering and queued Send** | Enter while working → **s** steer this run · **q** queue the next Send · **Esc** keep the draft |
+| **Read-only helpers** | The lead can run up to three bounded investigations in parallel after one review |
+| **MCP tools** | `/mcp add` · `/mcp connect` · `/mcp select` — your stdio servers, reviewed and labelled unmanaged |
+| **Form profiles** | Each form carries a visible, editable instruction profile; `/form-profile off` turns them off |
+| **Move library** | 32 moves with typed parameters (`/move-library`); four stay on quick slots |
+| **Usage meter** | Launch/task/request tokens and `est.` cost; prices in `usage.toml`, `/prices` reloads |
+| **Safe retry** | Native HTTP rounds refused with 429/503/529 or a refused connection retry up to three times; `--retry off` |
+| **Forward-compatible data** | Fields from newer versions are kept; older schemas are copied before migration |
 
 ## Install
 
@@ -67,7 +93,7 @@ ev uninstall        # remove the binary; your data stays
 ```
 
 > [!IMPORTANT]
-> Before upgrading, exit every running `ev` and back up the **whole data directory**. Data formats can change between versions even when the schema number does not; `ev` refuses data it cannot read safely rather than converting it.
+> Before upgrading, exit every running `ev` and back up the **whole data directory**. Data formats can change between versions even when the schema number does not; `ev` refuses data it cannot read safely rather than converting it. From 0.1.38, task data a newer `ev` added is kept and written back unless that version marked it critical, and opening an older schema first saves a copy in `<data dir>-backups/`.
 
 ### Offline and pinned installs
 
@@ -78,11 +104,11 @@ Pin a version:
 
 ```sh
 curl -fsSLo install-ev.sh https://github.com/kimmandoo/eevee/releases/latest/download/install.sh
-sh ./install-ev.sh --version v0.1.34
+sh ./install-ev.sh --version v0.1.39
 ```
 
 ```powershell
-& ([scriptblock]::Create((irm https://github.com/kimmandoo/eevee/releases/latest/download/install.ps1))) -Version v0.1.34
+& ([scriptblock]::Create((irm https://github.com/kimmandoo/eevee/releases/latest/download/install.ps1))) -Version v0.1.39
 ```
 
 Offline: download the matching archive, `SHA256SUMS` and installer from one release, then:
@@ -117,9 +143,27 @@ The folder you launch from is the project boundary. Git is optional. No `/init` 
 
 Native Responses uses one WebSocket connection across a Run's model/tool rounds on the official public OpenAI API. Other native routes keep HTTP by default. Use `ev --native-transport http` to select HTTP explicitly, or `ev --native-transport websocket` for a supported Responses route; unsupported routes refuse rather than switching transports.
 
-Each new explicit Send opens a fresh request and carries only the existing completed public conversation. A retained socket is not a durable provider session, and partial/unknown output is not admitted as completed context. There is no automatic reconnect, retry or replay. WebSocket transport refuses ambient proxy configuration and custom TLS trust on secure `wss://` connections; choose HTTP explicitly when required. TLS-root settings do not affect permitted cleartext loopback `ws://` connections.
+Each new explicit Send opens a fresh request and carries only the existing completed public conversation. A retained socket is not a durable provider session, and partial/unknown output is not admitted as completed context. There is no automatic reconnect or replay. A native HTTP round that the provider refused before processing (connection refused, HTTP 429/503/529) is resent unchanged up to three times with a visible, cancellable wait; nothing is resent once a response has started, and `ev --retry off` turns this off. WebSocket transport refuses ambient proxy configuration and custom TLS trust on secure `wss://` connections; choose HTTP explicitly when required. TLS-root settings do not affect permitted cleartext loopback `ws://` connections.
 
 Responses retain their own outcome and context-admission status after later requests. An external agent process disconnect opens the existing diagnostics path without resending the request or exposing raw process output.
+
+Connection credentials are **session-only by default**; reopening restores model choices and drafts, not an unsaved key/token. In `/connect chatgpt`, select **Storage → SAVE private local plaintext** before Browser/Device login if you explicitly want the account credential retained across restarts. API setup offers the same storage choice. Saved credentials are not encrypted or stored in an OS keychain. An OpenAI account access grant still expires even when saved: reconnect through Browser/Device login; Eevee does not retain refresh tokens or renew automatically. Account → Advanced settings shows saved-source expiry/read failures without changing the saved file or sending a request.
+
+If an older build reports `Handoff task changed` after changing providers, `/handoff-clear` deselects only the portable handoff; it does not erase the task or exports. Then explicitly Send again. Provider switching in the corrected source does not automatically select a handoff; deliberately imported handoffs stay usable after saving a new Request while their task facts and sources are unchanged; changed or foreign handoffs still require a fresh review or `/handoff-clear`. Tool selections made with `/tools` apply only to the adapter they were reviewed for; after switching provider, reselect them.
+
+### Reviewed automation and visible profiles
+
+| Capability | Control and boundary |
+| --- | --- |
+| Steer or queue while working | Enter offers **s** Steer / **q** Queue / **Esc** Keep. Native steering enters the next tool-result boundary; unsent text returns exactly. One queued Send per partner waits for that exact completed run and an empty owning composer; it never changes the front partner. `/queue-cancel` returns it. |
+| Reuse a reviewed approval | `/rule-allow` or `/rule-deny` on the lead's pending command/create/edit; `/rules` inspects and revokes. Rules pin the project, executable/argv/cwd or write paths. Shell, delete/rename, selected commits and unknown local effects stay freshly reviewed. |
+| Delegate an investigation | The native lead may propose up to three concurrent bounded read-only helpers. One review lists instructions, paths, child count and per-child bounds. Helpers cannot write, run commands or delegate; `/receipts` links their own packets and usage. Cancelling the lead cancels its helpers. |
+| Register unmanaged MCP tools | `/mcp add <JSON>` reviews registration only; `/mcp connect <name>` separately reviews launch. `/mcp select <server> <tool>` includes that exact schema on the next native Send. Calls need review or an explicit server/tool rule; annotations never grant. Servers are **not sandboxed**. |
+| Change a form's model behavior | `/form-profile` inspects the neutral profile shown with exact instruction bytes. `edit` uses the reviewed external editor; `off` disables profiles project-wide, `disable` disables this form, `skip` removes it for one Send. Suggested checks never run automatically. Imported recipe profiles require a separate `/form-profile recipe` review; `handoff` explicitly selects one for portable unverified context (`handoff-off` removes it). No quality improvement is claimed without the paired benchmark. |
+| Use a larger move collection | `/move` keeps four quick moves; `/move-library` opens up to 32. Details **1–4** assign a quick slot. Similar requests show exact variants before teaching. A parameterized move asks for slot values and full substituted-text review before ordinary outgoing consent; TM2 retains parameters and old literal TM1 imports remain unchanged. |
+| Inspect reported tokens and estimated cost | `/usage` separates Request, Task and this Launch, with owner/model breakdowns and unknown parts. `/usage-meter off`, `/prices` and `/usage-budget` control the visible local estimate; it is never billing. |
+
+MCP registration example: `/mcp add {"name":"notes","program":"python3","args":["/absolute/server.py"],"cwd":".","env":[]}`. Registrations persist per project; connections and selected tools do not survive restart. Environment configuration names variables only; values are masked during review. MCP schemas/results and neutral profiles count toward the actual packet; names, nicknames and species lore are not automatically added.
 
 ### Everyday controls
 
@@ -143,7 +187,7 @@ Responses retain their own outcome and context-admission status after later requ
 
 `/effort auto` chooses reasoning effort locally for each explicit Send from how open-ended the request is, not its length. `/evolution-preview` shows the resolved effort and rule before sending. Ordinary automatic choices stop one advertised tier below the top; a standalone lowercase prose `ultrathink` requests the top for that request only. Code, quoted text, paths and identifiers do not trigger it. Fixed effort selections keep their existing behavior; unsupported effort control is disclosed, not fabricated.
 
-`/todo` opens the task's structured provider progress. **e** edits bounded step JSON; **a** or `/todo-adopt` adopts the inspected revision. A later provider revision needs review and re-adoption. In automatic form mode, an ambiguous explicit follow-up such as `continue` can follow the adopted active step; an explicit request, read-only policy or pinned form wins. Progress is a provider claim, never verification or completed criteria. Nothing continues automatically. `/todo-eager on` optionally adds a disclosed phased-list instruction to native requests; it is off by default.
+`/todo` opens the task's structured provider progress. In automatic form mode (`[Auto]`), provider todo updates are adopted automatically and the companion card shows the current step and the form it leads to (`→ Flareon · Todo 2/3 …`). The current step is the active one, otherwise the next pending one. At the next explicit Send, an ambiguous follow-up such as `continue`/`계속` takes that step's form and operation, and an otherwise unclassified request keeps full tools with that step's form; an explicit request, read-only policy or pinned form wins, and the form never changes mid-run. With a pinned (manual) form, provider updates wait for review: **a** or `/todo-adopt`. Your own **e**/`/todo` edits apply immediately. Progress is a provider claim, never verification or completed criteria. Nothing continues automatically. Native requests include a short disclosed instruction to keep a phased todo list by default, so todo-driven evolution works without setup; `/todo-eager off` turns it off for the task (`on` restores it).
 
 The response shows one readable todo card per request as valid updates arrive, with step markers and completion counts instead of repeated argument JSON. Refused/malformed observations stay visible; `/verbose` exposes the original tool observations. File code follows actual incoming source fragments with a numbered live tail—no artificial typing delay. File decisions stay in a small panel immediately above Request, preserving your future draft. Choose Deny or Allow once deliberately; long path/directory scope must be reviewed before allowing, and `d` opens the full change.
 
@@ -157,7 +201,7 @@ ev --help
 
 ### Retained work and long requests
 
-Public0.1.34 includes:
+Included retained-work controls:
 
 | Want to… | Use |
 | --- | --- |
@@ -166,17 +210,27 @@ Public0.1.34 includes:
 | Keep separate unsent follow-ups | `/park-draft` · `/drafts`; restore never sends |
 | Label a retained response | `/retained-responses` → **Enter** → **l**; revisit with `/landmarks` |
 | Edit the current Request externally | `/external-edit`; review launch, then review returned text |
+| Open your items | `/bag`: Potions open the matching recovery review, Berries send an attachment once, TMs are your moves |
+| Send an attachment only once | `/berry` (or Bag → Berry); it is removed after the next Send is dispatched |
+| Turn a repeated request into a move | After three similar Sends, `/learn-move` opens the teach review; `/learn-dismiss` stops the offer |
 
 External editing waits for all work and saves to settle. Set `VISUAL` (preferred) or `EDITOR` to one executable, or a JSON argv array such as `["code","--wait"]`. No shell syntax or placeholders are expanded. Configure the editor to save in place: replaced files, links, unsafe/oversized output and cleanup failures are refused. The Request is exported as plaintext and may contain secrets; the unsandboxed editor inherits your environment, which may contain credentials, and may retain its own copies. Importing text does not send it.
 
-Parked drafts, landmarks, adopted progress and typed auto effort use strict reader admission. Since0.1.33, admitted SQL0–19 data migrates to SQL20 for retained screenshots, and structured todo events require complete SDK bridge11; replace sidecar source/policy/dependencies together. TM1/formation2 remain unchanged. Back up the whole data directory before upgrading. Public0.1.32 refuses SQL20; a matching version number is not a reader/rollback compatibility guarantee.
+<details>
+<summary>Data compatibility when upgrading or rolling back</summary>
+
+Parked drafts, landmarks, adopted progress and typed auto effort use strict reader admission. Since 0.1.33, admitted SQL 0–19 data migrates to SQL 20 for retained screenshots, and structured todo events require complete SDK bridge 11; replace sidecar source/policy/dependencies together. TM1/formation 2 remain unchanged. Back up the whole data directory before upgrading. Public 0.1.34 refuses a task saved with `/todo-eager off`; public 0.1.32 refuses SQL 20; a matching version number is not a reader/rollback compatibility guarantee.
+
+Version 0.1.38 preserves ignorable task-workflow/receipt fields and refuses unknown declared critical fields. Before major SQL migration it keeps three consistent database copies beside the data directory. This helps only subsequent readers; older releases still refuse unfamiliar data. Delegated receipt state, profile metadata/recipes and critical parameterized move metadata can make old readers refuse even though SQL 20 and complete SDK bridge 11 remain unchanged. Parameterized TMs use TM2; literal TM1 imports keep their semantics. Keep a complete `ev snapshot` before upgrading or rolling back; database migration copies alone are not complete evidence backups.
+
+</details>
 
 ### Reviewed images and selected local commits
 
 `/screenshot` asks for one literal project-relative PNG/JPEG path. Read every disclosure page, then **Enter** attaches it locally without sending. The Request title shows the selected image and compressed byte count; the next ordinary explicit Send includes its original bytes. `/screenshot-show` inspects metadata, `/screenshot-remove` deselects but retains bytes, and `/screenshot-purge` reviews deletion of the retained capture. Storage failure blocks Send; `/screenshot-retry` retries storage only.
 A different capture requires purging the retained one first; removal alone does not replace its bytes.
 
-Images are bounded to2MiB compressed,4096 pixels per axis,8,388,608 pixels and32MiB decoded. Source containment, exclusions, no-link policy, current bytes and request-body bounds are rechecked. Only explicitly qualified native OpenAI/compatible Responses routes and known image-capable model IDs are supported; unknown routes/models and other adapters refuse. Terminal metadata is **not visual review**: inspect the original yourself. Eevee cannot reliably detect/redact image secrets. Image-token cost remains unknown unless reported; local purge is not secure erasure or provider deletion. Task export does not include image bytes; full-directory backup does.
+Images are bounded to 2 MiB compressed, 4096 pixels per axis, 8,388,608 pixels and 32 MiB decoded. Source containment, exclusions, no-link policy, current bytes and request-body bounds are rechecked. Only explicitly qualified native OpenAI/compatible Responses routes and known image-capable model IDs are supported; unknown routes/models and other adapters refuse. Terminal metadata is **not visual review**: inspect the original yourself. Eevee cannot reliably detect/redact image secrets. Image-token cost remains unknown unless reported; local purge is not secure erasure or provider deletion. Task export does not include image bytes; full-directory backup does.
 
 `/commit-edit` uses the existing Command editor. Author strict JSON, then `/execute` opens the paged one-shot review:
 
@@ -184,7 +238,7 @@ Images are bounded to2MiB compressed,4096 pixels per axis,8,388,608 pixels and32
 {"selected_commit":["src/main.rs"],"message":"Describe this local change"}
 ```
 
-This locally commits only the1–64 selected whole files (8MiB each/32MiB total; message up to16KiB). It requires stable Git2.x>=2.36, an ordinary SHA-1 repository with a native `.git` directory, an existing local branch, a clean initial index, no merge/conflict state and repository-local `user.name`/`user.email`. Hooks, attributes/filters, CRLF conversion, signing and executable helpers are bypassed under the disclosed raw-byte plumbing semantics. Global/inherited Git configuration is not imported. Unsupported states and HEAD/source/index/configuration drift refuse.
+This locally commits only the 1–64 selected whole files (8 MiB each, 32 MiB total; message up to 16 KiB). It requires stable Git 2.x ≥ 2.36, an ordinary SHA-1 repository with a native `.git` directory, an existing local branch, a clean initial index, no merge/conflict state and repository-local `user.name`/`user.email`. Hooks, attributes/filters, CRLF conversion, signing and executable helpers are bypassed under the disclosed raw-byte plumbing semantics. Global/inherited Git configuration is not imported. Unsupported states and HEAD/source/index/configuration drift refuse.
 
 The operation requires exclusive project write ownership and fresh complete-scope approval; provider tools, standing auto-approval and retained rerun cannot authorize it. Other dirty worktree bytes remain untouched. `/run` retains actual commit/ref/index outcomes, including partial/unknown publication and possible unreachable objects—not verification or automatic task completion. There is no push, authentication, automatic retry/reset or rollback claim.
 
@@ -211,6 +265,8 @@ Details, limits and per-route enforcement: [Agent compatibility](docs/AGENT_COMP
 - **Files** — every create/edit/rename/delete is frozen against the exact bytes and paths it will touch, then reviewed. Edits of existing files show just the changed region. Stale content, links, protected paths and your exclusions are refused. Up to 1024 files per request, 4 MiB each.
 - **Commands** — shown as a readable argv with working directory and resolved executable before they run. Nonzero, cancelled or unknown outcomes are never reported as success, and nothing is replayed automatically.
 - **Auto-approve** — an explicit, visible (`AUTO-APPROVE` in the header), in-memory grant for the current partner and task only. Questions still ask; task change or restart ends it.
+- **Rules** — you create each one from a request under review; it pins the project, executable and argument prefix (or write paths), is listed in `/rules` and can be revoked instantly. Deletes, renames, shells, selected commits and unknown effects never match.
+- **Retry** — only a round the provider refused before processing is resent, unchanged and visibly; tool effects are never repeated.
 - **Ownership** — approvals belong to the request that asked. Evolution, restart and saved settings never restore a grant.
 
 > [!WARNING]
@@ -224,8 +280,8 @@ Your companion is more than decoration — but never a permission system.
 
 - **Nine forms** chosen automatically from what you ask (or pinned manually), with a small evolution moment when the specialty changes.
 - **Local intent routing** recognizes English/Korean UI and tool improvements, including inspection followed by an explicit fix. Appearance and capability remain separate: a diagnosis-and-fix can keep Umbreon while requesting approved implementation; manual appearance and explicit Plan/Review remain protected. Inspect `/evolution-preview` before Send.
-- **Party and cooperation** — up to three partners can work on one task with separate drafts and approvals; only one may edit at a time.
-- **Moves and TMs** — save reusable steps per form, export/import them as portable TOML.
+- **Party and cooperation** — up to three partners can work on one task with separate drafts and approvals; only one may edit at a time. The lead can also send up to three read-only helpers.
+- **Moves and TMs** — save reusable steps (with typed parameters) per form, keep up to 32 in the library, export/import them as portable TOML.
 - **Held context, formations, ribbons and records** — remember files and notes, save party setups, and browse source-linked history.
 
 Sprites render via Kitty/Sixel when supported; installers fetch artwork separately and source builds can run `ev --download-artwork`.

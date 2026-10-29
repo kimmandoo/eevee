@@ -52,7 +52,7 @@ pub struct State {
     presented_permissions: Vec<Pending>,
     queued_response: Option<Pending>,
     preference_owners: VecDeque<i64>,
-    journal_owners: VecDeque<i64>,
+    pub(super) journal_owners: VecDeque<i64>,
     pub cancel_review: Option<CancelReview>,
     pub journal_discard: Option<super::cooperation_journal::Review>,
     cancelling: bool,
@@ -82,7 +82,12 @@ impl App {
         if partner == self.lead.id {
             Some(&self.planning)
         } else {
-            self.cooperation.parked.get(&partner)
+            self.cooperation.parked.get(&partner).or_else(|| {
+                self.delegation
+                    .children
+                    .get(&partner)
+                    .map(|child| &child.state)
+            })
         }
     }
 
@@ -90,7 +95,12 @@ impl App {
         if partner == self.lead.id {
             Some(&mut self.planning)
         } else {
-            self.cooperation.parked.get_mut(&partner)
+            self.cooperation.parked.get_mut(&partner).or_else(|| {
+                self.delegation
+                    .children
+                    .get_mut(&partner)
+                    .map(|child| &mut child.state)
+            })
         }
     }
 
@@ -132,9 +142,10 @@ impl App {
     }
 
     pub fn planning_any_busy(&self) -> bool {
-        std::iter::once(&self.planning)
-            .chain(self.cooperation.parked.values())
-            .any(|state| state.busy() || state.preferences_pending())
+        self.delegation_active() > 0
+            || std::iter::once(&self.planning)
+                .chain(self.cooperation.parked.values())
+                .any(|state| state.busy() || state.preferences_pending())
     }
 
     pub(super) fn cancelling_owned_work(&self) -> bool {
@@ -178,11 +189,17 @@ impl App {
                 .parked
                 .values()
                 .any(planning::State::journal_failed)
+            || self
+                .delegation
+                .children
+                .values()
+                .any(|child| child.state.journal_failed())
     }
 
     pub fn planning_storage_failed(&self) -> bool {
         std::iter::once(&self.planning)
             .chain(self.cooperation.parked.values())
+            .chain(self.delegation.children.values().map(|child| &child.state))
             .any(|state| {
                 state.work_error.is_some()
                     || state.preference_error().is_some()
@@ -255,6 +272,7 @@ impl App {
                 rows.push(WorkRow { owner: owner.clone(), status: "saving", detail: "Waiting for the exact command draft's durable acknowledgement; nothing prepared.".into(), local: true });
             }
         }
+        self.delegation_work_rows(&mut rows);
         rows
     }
 
@@ -282,6 +300,12 @@ impl App {
         providers
             .chain(executions)
             .chain(saving)
+            .chain(
+                self.delegation
+                    .children
+                    .values()
+                    .filter_map(|child| child.bench.as_ref().or(child.state.front.as_ref())),
+            )
             .map(|owner| owner.form)
     }
 
@@ -335,7 +359,8 @@ impl App {
                         .is_some_and(execution::State::busy)
             })
             .count();
-        (providers + local + saving >= 3).then(|| "Three partners are already working on this task; wait or cancel one. Your draft is kept.".into())
+        let ordinary = providers + local + saving;
+        (ordinary >= 3 || ordinary + self.delegation_active() >= 4).then(|| "Working partner/read-only child capacity is full; wait or cancel one. Your draft is kept.".into())
     }
 
     pub(super) fn stage_provider_work(&mut self) {
@@ -347,7 +372,18 @@ impl App {
         if let Some(crate::providers::Request::Preview(input)) = &mut self.planning.pending {
             input.instruction_override = replacement;
         }
-        if let Some(crate::providers::Request::Preview(input)) = self.planning.pending.take() {
+        if let Some(crate::providers::Request::Preview(mut input)) = self.planning.pending.take() {
+            input.mcp = if input.agent.is_direct() {
+                self.mcp.frozen(
+                    &self.cwd,
+                    input.operation == crate::providers::Operation::Implement,
+                )
+            } else {
+                Vec::new()
+            };
+            if !input.local_only {
+                self.profile_skip.remove(&input.task.lead_partner);
+            }
             self.freeze_held_receipt(&input);
             self.planning.pending = Some(crate::providers::Request::Preview(input));
         }
@@ -379,6 +415,7 @@ impl App {
                 _ => false,
             },
         };
+        self.freeze_delegation_parent(&claim);
         self.remember_move_request(&claim);
         self.planning.stage_work(claim);
     }
@@ -401,6 +438,11 @@ impl App {
         for id in ids {
             let preference_free = self.cooperation.preference_owners.is_empty();
             let move_receipt_pending = self.move_dispatch_pending(id);
+            let delegated_children_pending = self
+                .delegation
+                .children
+                .values()
+                .any(|child| child.parent_partner == id);
             let nested_command_pending = self.cooperation.command_callbacks.contains_key(&id)
                 || self.execution_state(id).is_some_and(|state| {
                     state.busy() || state.storage_pending() || state.outcome_unknown()
@@ -416,7 +458,7 @@ impl App {
             if sent == 0
                 && !state.work_inflight
                 && state.work_error.is_none()
-                && !((move_receipt_pending || nested_command_pending)
+                && !((move_receipt_pending || nested_command_pending || delegated_children_pending)
                     && matches!(state.work_pending, Some(store::WorkRequest::Release(_))))
                 && store.try_work(&mut state.work_pending)
             {
@@ -464,8 +506,10 @@ impl App {
             }
             if let Some(worker) = workers.get(&id) {
                 worker.try_request(&mut state.pending);
+                worker.try_request(&mut state.steer_pending);
             }
         }
+        sent += self.drive_delegation(store, project, data_dir, exclusions, sent == 0);
         Ok(sent)
     }
 
@@ -534,7 +578,11 @@ impl App {
             self.refresh_approvals();
         }
         self.settle_cooperation();
+        let (child_changed, child_more) = self.poll_delegation();
+        changed |= child_changed;
+        more |= child_more;
         changed |= self.reconcile_permission_review();
+        changed |= self.observe_usage();
         (changed, more)
     }
 
@@ -677,6 +725,11 @@ impl App {
             state.work_error = None;
             state.retry_usage();
         }
+        for child in self.delegation.children.values_mut() {
+            child.state.retry_usage();
+            child.state.receipts.retry();
+            child.state.retry_journal();
+        }
     }
 
     pub fn refresh_approvals(&mut self) {
@@ -733,8 +786,7 @@ impl App {
     /// permission or agent command without presenting it, from any surface.
     /// Questions, other partners and settling/cancelling work are excluded.
     fn drive_auto_approval(&mut self) -> bool {
-        if !self.planning.auto_approve
-            || self.quit
+        if self.quit
             || self.cooperation.cancelling
             || self.cooperation.quitting
             || self.planning.cancelling
@@ -744,6 +796,16 @@ impl App {
                 .owner()
                 .is_none_or(|owner| owner.partner != self.lead.id)
         {
+            return false;
+        }
+        // User-created rules (XC01) answer before the broad task-scoped switch.
+        if self.drive_rules() {
+            return true;
+        }
+        if self.mcp.effects_unknown() {
+            return false;
+        }
+        if !self.planning.auto_approve {
             return false;
         }
         if self.planning.auto_accept() {
@@ -1281,6 +1343,36 @@ impl App {
 
 impl App {
     pub fn provider_event(&mut self, partner: i64, event: crate::providers::Event) -> bool {
+        if let crate::providers::Event::DelegateCapacity {
+            generation,
+            task_id,
+            reply,
+        } = event
+        {
+            let _ = reply.try_send(self.delegation_capacity(partner, generation, task_id));
+            return false;
+        }
+        if let crate::providers::Event::Preview(preview) = &event {
+            self.remember_delegation_route(partner, preview);
+        }
+        if let crate::providers::Event::Delegate {
+            generation,
+            task_id,
+            round,
+            calls,
+            reply,
+            cancelled,
+        } = event
+        {
+            return self.provider_delegate(
+                partner,
+                (generation, task_id),
+                round,
+                calls,
+                reply,
+                cancelled,
+            );
+        }
         if let crate::providers::Event::Progress {
             generation,
             task_id,
@@ -1526,6 +1618,9 @@ impl App {
         if let Some(request) = dispatched {
             self.move_request_dispatched(partner, &request);
             self.record_request_dispatched(partner, &request);
+            if partner == self.lead.id {
+                self.consume_berries();
+            }
         }
         if resolved {
             self.defer_approval();
@@ -2117,6 +2212,132 @@ mod tests {
     }
 
     #[test]
+    fn steering_is_acknowledged_or_returned_and_a_queued_send_waits_for_completion() {
+        let mut app = app();
+        start(&mut app, 1, 1);
+        app.planning.agent = providers::Agent::OpenAI;
+        app.open_editor(store::EditorField::Request);
+        let key = |app: &mut App, code| {
+            app.update(Event::Key(KeyEvent::new(code, KeyModifiers::NONE)));
+        };
+        app.input = "Use src/b.rs instead".into();
+        app.cursor = app.input.len();
+        assert!(app.submit_request());
+        assert!(
+            app.steering.choice && app.notice.contains("s Steer"),
+            "{}",
+            app.notice
+        );
+        // Esc keeps the exact draft.
+        key(&mut app, KeyCode::Esc);
+        assert_eq!(app.input, "Use src/b.rs instead");
+        assert!(app.planning.steer_pending.is_none());
+        assert!(app.submit_request());
+        key(&mut app, KeyCode::Char('s'));
+        assert!(app.input.is_empty());
+        assert!(matches!(
+            &app.planning.steer_pending,
+            Some(providers::Request::Steer { generation: 7, text }) if text == "Use src/b.rs instead"
+        ));
+        app.planning.steer_pending = None;
+        app.provider_event(
+            1,
+            providers::Event::Steered {
+                generation: 7,
+                task_id: 7,
+                round: 2,
+                texts: vec!["Use src/b.rs instead".into()],
+            },
+        );
+        assert!(app.planning.steering.is_empty());
+        // A second steer never reaches a boundary; the next Send is queued.
+        app.input = "Also check c.rs".into();
+        assert!(app.submit_request());
+        key(&mut app, KeyCode::Char('s'));
+        app.input = "Then write the docs".into();
+        assert!(app.submit_request());
+        key(&mut app, KeyCode::Char('q'));
+        assert_eq!(
+            app.steering
+                .queued
+                .get(&(7, 1))
+                .map(|draft| draft.text.as_str()),
+            Some("Then write the docs")
+        );
+        app.provider_event(
+            1,
+            providers::Event::Finished {
+                generation: 7,
+                task_id: 7,
+                outcome: providers::Outcome::Failed,
+                message: "fixture failure".into(),
+            },
+        );
+        app.settle_steering();
+        // Unsent steering returns at once; the queue waits for the claim release.
+        assert!(app.planning.steering.is_empty());
+        assert!(app.input.contains("Also check c.rs"), "{}", app.input);
+        assert!(app.has_queued_send(), "still owned until release");
+        app.planning.settle_work();
+        if let Some(request) = app.planning.work_pending.take() {
+            app.planning.work_event(request, Ok(Vec::new()));
+        }
+        app.planning.settle_work();
+        app.settle_steering();
+        assert!(app.input.contains("Also check c.rs"), "{}", app.input);
+        assert!(
+            app.input.contains("Then write the docs"),
+            "failed run never sends the queue"
+        );
+        assert!(!app.has_queued_send());
+        assert!(app.pending_request.is_none());
+    }
+
+    #[test]
+    fn approval_rules_answer_matching_file_requests_and_deny_wins() {
+        let mut app = app();
+        let dir = std::env::temp_dir().join(format!("ev-rule-app-{}", std::process::id()));
+        app.rules.path = dir.join(crate::workspace::rules::FILE_NAME);
+        start(&mut app, 1, 1);
+        file_prompt(&mut app, 1, 20);
+        assert!(
+            app.planning.pending.is_none(),
+            "no rule yet: ordinary review"
+        );
+        assert!(app.command_with_argument("rule-allow src/*.rs launch"));
+        assert!(app.notice.contains("Rule #1"), "{}", app.notice);
+        app.refresh_approvals();
+        assert!(matches!(
+            app.planning.pending.take(),
+            Some(providers::Request::Answer { answer, .. }) if answer == json!("once")
+        ));
+        assert!(app.notice.contains("Allowed by rule #1"), "{}", app.notice);
+        // Another partner's request is not answered by the lead's rules.
+        start(&mut app, 2, 2);
+        file_prompt(&mut app, 2, 21);
+        assert!(app.cooperation.parked[&2].pending.is_none());
+        // A deny rule wins over the broader allow.
+        let mut deny = app.rules.rules[0].clone();
+        deny.effect = crate::workspace::rules::Effect::Deny;
+        deny.kind = crate::workspace::rules::Kind::Write {
+            ops: vec![crate::workspace::rules::WriteOp::Create],
+            paths: vec!["src/new.rs".into()],
+        };
+        app.rules.add(deny).unwrap();
+        file_prompt(&mut app, 1, 22);
+        assert!(matches!(
+            app.planning.pending.take(),
+            Some(providers::Request::Answer { answer, .. }) if answer == json!("deny")
+        ));
+        // Revoking restores review before the next request.
+        assert!(app.command_with_argument("rule-revoke 1"));
+        assert!(app.command_with_argument("rule-revoke 2"));
+        file_prompt(&mut app, 1, 23);
+        assert!(app.planning.pending.is_none());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
     fn shift_a_in_an_engaged_file_review_allows_this_and_later_changes() {
         let mut app = app();
         start(&mut app, 1, 1);
@@ -2659,6 +2880,7 @@ mod tests {
 
         let config = Config {
             native_transport: crate::providers::NativeTransport::Auto,
+            retry: Default::default(),
             ascii: true,
             no_animation: true,
             animation_override: Some(false),
@@ -2930,11 +3152,6 @@ mod tests {
         for partner in 1..=3 {
             start(&mut app, partner, partner as u64);
         }
-        assert!(
-            app.work_capacity_reason(4)
-                .unwrap()
-                .contains("Three partners")
-        );
         app.request_lead(6);
         app.open_editor(store::EditorField::Request);
         app.update(Event::Paste("Future 漢字 draft".into()));

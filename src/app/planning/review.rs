@@ -292,6 +292,14 @@ impl State {
         };
         self.pending = Some(Request::Preview(Box::new(Input {
             native_transport: self.native_transport,
+            behavior_profile: if inspect_models || inspect_sessions {
+                None
+            } else {
+                self.behavior_profile.clone()
+            },
+            mcp: Vec::new(),
+            delegation_enabled: false,
+            delegation: None,
             prior_plan: if !inspect_models
                 && !inspect_sessions
                 && self.operation == Operation::Implement
@@ -649,6 +657,20 @@ impl State {
         if !self.auto_approve || self.pending.is_some() || self.cancelling {
             return false;
         }
+        if self
+            .request
+            .as_ref()
+            .is_some_and(|request| request.request_id.get("eevee-native-delegate").is_some())
+        {
+            return false; // Every delegated round needs its exact instruction review.
+        }
+        if self
+            .request
+            .as_ref()
+            .is_some_and(|request| request.request_id.get("eevee-mcp").is_some())
+        {
+            return false; // Unmanaged calls require a fresh review or an explicit MCP rule.
+        }
         let (answer, subject) = match self.request.as_ref().map(|request| &request.kind) {
             Some(PromptKind::Permission { options, file, .. }) if options.len() >= 2 => (
                 options[1].answer.clone(),
@@ -665,6 +687,25 @@ impl State {
         self.auto_permission_review = false;
         self.send_answer(answer);
         self.notice = format!("Auto-approved: {subject} · /auto-approve-off to review each change");
+        true
+    }
+
+    /// Answers the current owned permission with one of its own options; used
+    /// by a user-created approval rule (XC01). Questions are never answered.
+    pub(in crate::app) fn answer_permission(&mut self, index: usize) -> bool {
+        if self.pending.is_some() || self.cancelling {
+            return false;
+        }
+        let Some(PromptKind::Permission { options, .. }) =
+            self.request.as_ref().map(|request| &request.kind)
+        else {
+            return false;
+        };
+        let Some(answer) = options.get(index).map(|option| option.answer.clone()) else {
+            return false;
+        };
+        self.auto_permission_review = false;
+        self.send_answer(answer);
         true
     }
 

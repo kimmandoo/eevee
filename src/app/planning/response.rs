@@ -25,7 +25,13 @@ pub struct ResponseRow<'a> {
     pub todo: bool,
     /// Last visible source fragment of this actual file snapshot, not a timer.
     pub writing_edge: bool,
+    /// Part of the file lines that arrived in the latest snapshot, within
+    /// [`FRESH`]. Lets the UI flash real arrivals; content is never delayed.
+    pub fresh: bool,
 }
+
+/// How long newly received file lines stay highlighted.
+pub const FRESH: std::time::Duration = std::time::Duration::from_millis(480);
 
 struct Segment {
     identity: Arc<Identity>,
@@ -348,18 +354,36 @@ impl Layout {
                         };
                         let _ = write!(
                             segment.header,
-                            "\nRequest outcome: {outcome}\nReason: {}\n{context}\nOrigin: {} {:?} / task {} / worker generation {} / model {}\n",
+                            "\nRequest outcome: {outcome}\nReason: {}\n{context}\n",
                             status.reason,
-                            status.agent.label(),
-                            status.operation,
-                            status.task_id,
-                            status.generation,
-                            status
-                                .model
-                                .as_deref()
-                                .unwrap_or("provider default / unknown"),
                         );
-                        if let Some(wire) = status.transport {
+                        // Worker/transport identities help debugging, not reading
+                        // the answer; /verbose shows them. The original model
+                        // stays visible so an old answer is never relabelled.
+                        if !verbose {
+                            let _ = writeln!(
+                                segment.header,
+                                "Model: {}",
+                                status
+                                    .model
+                                    .as_deref()
+                                    .unwrap_or("provider default / unknown"),
+                            );
+                        } else {
+                            let _ = writeln!(
+                                segment.header,
+                                "Origin: {} {:?} / task {} / worker generation {} / model {}",
+                                status.agent.label(),
+                                status.operation,
+                                status.task_id,
+                                status.generation,
+                                status
+                                    .model
+                                    .as_deref()
+                                    .unwrap_or("provider default / unknown"),
+                            );
+                        }
+                        if let Some(wire) = status.transport.filter(|_| verbose) {
                             let wire = match wire {
                                 crate::providers::NativeWire::Http => "HTTP",
                                 crate::providers::NativeWire::WebSocket => "WebSocket",
@@ -870,6 +894,8 @@ impl State {
                 self.response_scroll.saturating_sub(segment.start)
             });
         let items = &self.items;
+        let growth = &self.file_growth;
+        let now = std::time::Instant::now();
         self.response_cache
             .segments
             .iter()
@@ -892,6 +918,11 @@ impl State {
                             && !row.header
                             && text.contains('\n')
                             && row.range.end == text.trim_end_matches('\n').len(),
+                        fresh: matches!(segment.kind, ItemKind::File(_))
+                            && !row.header
+                            && growth.get(&items[index].item_id).is_some_and(|(from, at)| {
+                                row.range.end > *from && now.duration_since(*at) < FRESH
+                            }),
                     }
                 })
             })

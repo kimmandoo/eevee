@@ -454,6 +454,12 @@ impl App {
                     self.evolution.transition = None;
                     self.set_form(index);
                     self.changed_task();
+                    if !auto_form {
+                        self.notice = format!(
+                            "Pinned {}: Auto off. /forms then a turns Auto back on.",
+                            crate::domain::FORMS[index].name
+                        );
+                    }
                 }
                 if index == 0 {
                     self.overlay = None;

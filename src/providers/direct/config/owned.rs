@@ -138,15 +138,20 @@ fn protocol(provider: Agent, value: &str) -> Result<Protocol, String> {
     }
 }
 
+fn check_expiry(expires_at: Option<u64>, now: u64) -> Result<(), String> {
+    if expires_at.is_some_and(|at| now >= at) {
+        return Err("OpenAI account connection expired. Reconnect using browser/device sign-in; no renewal or alternate account was attempted.".into());
+    }
+    Ok(())
+}
+
 pub(super) fn connection(provider: Agent, entry: Stored, now: u64) -> Result<Connection, String> {
     let protocol = protocol(provider, &entry.protocol)?;
     let base_url = validate_base(&entry.base_url)?;
     if provider == Agent::ChatGPT && base_url != CODEX_BASE {
         return Err("ChatGPT subscription access tokens are scoped to the official Codex backend; choose a separate API route for custom endpoints.".into());
     }
-    if entry.expires_at.is_some_and(|at| now >= at) {
-        return Err("OpenAI account connection expired. Reconnect using browser/device sign-in; no renewal or alternate account was attempted.".into());
-    }
+    check_expiry(entry.expires_at, now)?;
     if provider != Agent::ChatGPT && (entry.expires_at.is_some() || entry.residency.is_some()) {
         return Err(
             "Subscription credential metadata belongs only to the OpenAI account route.".into(),
@@ -204,7 +209,7 @@ pub(super) fn connection(provider: Agent, entry: Stored, now: u64) -> Result<Con
         account_id,
         residency,
         description: format!(
-            "{}: {:?}; explicit own native configuration; {}; configured only, not authenticated. Native Implement supports workspace filenames optionally restricted by /paths: reviewed create/replace, original-snapshot literal edits, irreversible exact regular-file delete and same-project no-overwrite rename (4 MiB per file). Each complete operation requires one-shot approval. Rust parsing is advisory, not verification. Plan/Review/metadata do not write. No shell, hooks, MCP or automatic repair/renewal/retry/account rotation.",
+            "{}: {:?}; explicit own native configuration; {}; configured only, not authenticated. Native Implement supports workspace filenames optionally restricted by /paths: reviewed create/replace, original-snapshot literal edits, irreversible exact regular-file delete and same-project no-overwrite rename (4 MiB per file). Review or user-created rules authorize create/edit; deletes/renames always need fresh review. Rust parsing is advisory, not verification. Plan/Review/metadata have no host writing tools. No implicit shells, hooks or MCP; only explicitly registered/selected unmanaged stdio MCP tools are offered with call review or an explicit MCP rule. No automatic repair/renewal/account rotation.",
             provider.label(),
             protocol,
             if entry.keyless {
@@ -229,7 +234,7 @@ pub(crate) fn setup(provider: Agent) -> Result<Setup, String> {
     let input = inputs();
     let (own, source_notice) = match load(provider, &input) {
         Ok(entry) => (entry, None),
-        Err(_) => (None, Some("Saved source is unsafe/unreadable. Enter a new key or choose explicit keyless; session-only needs no storage.".into())),
+        Err(reason) => (None, Some(reason)),
     };
     setup_from(provider, &input, own, source_notice)
 }
@@ -241,6 +246,18 @@ fn setup_from<F: Fn(&str) -> Option<String>>(
     mut source_notice: Option<String>,
 ) -> Result<Setup, String> {
     let (base_url, model, effort, effort_model, responses, keyless) = if let Some(entry) = own {
+        source_notice = source_notice.or_else(|| {
+            check_expiry(entry.expires_at, input.now)
+                .and_then(|()| {
+                    if provider == Agent::ChatGPT {
+                        token_claims(entry.secret.as_deref().unwrap_or_default(), input.now)
+                            .map(|_| ())
+                    } else {
+                        Ok(())
+                    }
+                })
+                .err()
+        });
         (
             entry.base_url,
             entry.model,

@@ -51,6 +51,10 @@ The installer and explicit downloader use the same pinned repository revision, u
 
 Online installation downloads and verifies the full set in the current user's platform cache (`eevee/sprites`) before publishing the executable. Existing matching files are reused, conflicting files are preserved, and failed downloads stop publication with a retry instruction. Offline archive installs do not download images. Startup and form selection read local assets only; no character image is packaged in `ev`. Native and cell renderers trim empty borders and use nearest-neighbor pixels, with integer enlargement and proportional reduction only where space requires it. Downloads and source availability are not evidence of permission to redistribute the downloaded images.
 
+### Item sprites (0.1.37)
+
+The same downloader then fetches eleven optional item sprites from the same pinned revision, under `sprites/items/`: `potion`, `oran-berry` and `tm-normal`, `tm-water`, `tm-electric`, `tm-fire`, `tm-psychic`, `tm-dark`, `tm-grass`, `tm-ice`, `tm-fairy`. `ITEMS` in `src/ui/artwork.rs` records each SHA-256. They are written only to `items/` inside the user's sprite cache, never overwrite an existing file, and are shown only when their bytes match the pinned hash; any other file, a missing file, `--images off` or an offline install shows the text icons `[+]`, `(o)`, `[TM]` and `[K]`. An item failure never fails the species setup or an installation. No item image is in the source tree, binary or packages. The same rights notice applies: copyright remains with The Pokémon Company and the other rights holders, and downloading or availability is not permission to redistribute. Item names (Potion, Berry, TM, Bag) label local actions only, never enter provider packets or handoffs, and are included in the naming review below.
+
 ## Names, endorsement, and distribution
 
 Eevee and other Pokémon names and character-related marks remain with their respective rights holders. This independent project is not affiliated with, sponsored by, or endorsed by The Pokémon Company, Nintendo, Game Freak, or Creatures. Its original wordmark is not an official Pokémon logo.

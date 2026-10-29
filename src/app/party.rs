@@ -390,6 +390,12 @@ impl App {
                             .is_some_and(|owner| owner.partner == partner)
                 })
             || self.cooperation.command_saves.contains_key(&partner)
+            || self.delegation.children.values().any(|child| {
+                child
+                    .bench
+                    .as_ref()
+                    .is_some_and(|owner| owner.partner == partner)
+            })
     }
 
     /// Roster-scoped command dispatch (`/add` and `/lead` inside the party overlay).

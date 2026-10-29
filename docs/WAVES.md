@@ -1,6 +1,6 @@
 # Implementation waves
 
-Updated2026-10-28. Waves1–7 passed all23 assigned tasks; all four separately authorized unassigned tasks GP10→GP08/GP09 and P05 passed scoped acceptance and shipped in public v0.1.33. The separately authorized native-transport/agent-usability follow-up shipped in v0.1.34 after exact-commit Check/all-five-native and downloaded package/install/runtime proof; it was not another implementation wave. Wave8 remains pending. Exact specifications remain in the [task index](../task.md); wave order is delivery priority, not an invented technical dependency.
+Updated2026-10-29. Waves1–7 and the separately authorized GP08/GP09/GP10/P05 are complete; U/L and RF04 shipped in public0.1.37. All nine X capabilities shipped in0.1.38 from `6794b50` after native40855031289 and release40859609274, with public-byte and downloaded-host installation/runtime acceptance. Wave8 remains pending. The [task index](../task.md) owns current work; wave order is delivery priority, not an invented technical dependency.
 
 | Wave | Outcome | Assigned tasks | Exit proof |
 |---|---|---|---|
@@ -21,20 +21,19 @@ Updated2026-10-28. Waves1–7 passed all23 assigned tasks; all four separately a
 - A04/A06 and live Q03/resource rows require separately permitted credentials and explicit live/paid authorization. Their blockers never block unrelated local waves or become synthetic passing evidence.
 - Wave 6 split retained-work navigation from draft/editor changes. Wave 7's two capabilities remained separate changes; its intentional GP07 design-contract amendment preceded implementation.
 - Every feature retains its exact task acceptance, neutral cancellation, immutable evidence and existing executor/store/approval authority. Each completed coherent task needs focused behavior tests, actual runtime proof, documentation and a conventional commit. A wave is complete only when all assigned task acceptance passes; partial evidence remains explicitly partial.
-- Reuse bounded native profiles instead of multiplying every new case across every platform. Release qualification remains exact-source Check/all five native jobs plus public package verification when publication is requested. The current request authorizes publication after the unassigned tasks and CI repair pass; Wave8 and paid/live calls remain unauthorized. English-only UI remains current; compact/wide journeys retain Unicode content coverage without restoring language selection.
+- Reuse bounded native profiles instead of multiplying unchanged cases across every platform. The new X capability boundaries run explicitly on all five native rows; release qualification requires same-source/same-attempt Check/all-five success and public-package verification. This request authorizes0.1.38 publication, not Wave8 or paid/live calls. English-only UI remains current; compact/wide journeys retain Unicode data.
 
 ## Just-in-time structure tasks
 
-These seven tasks remain assigned once here, not hidden or counted as completed. Trigger each only when the named responsibility actually obstructs related implementation. Record the decision/evidence in the checkpoint; otherwise retain it pending rather than performing an up-front cleanup wave.
+Six conditional structure tasks remain assigned, triggered only by their named responsibility. RF04 was implemented with the L game loop and shipped in0.1.37. Record decisions/evidence in the checkpoint; otherwise retain tasks pending rather than performing an up-front cleanup wave.
 
 | Task | First relevant wave/lane | Trigger |
 |---|---|---|
 | RF01 | Wave 2 controlled Codex integration | Remaining model/transport ownership needs separation for the changed route |
 | RF02 | Wave 8 ACP conformance | Framing/negotiation/model/transport separation is needed for the measured behavior |
-| RF04 | Wave 1/2 review surfaces | Layout/chrome responsibility genuinely blocks the changed surface |
 | RF06 | Wave 6 external editor | Existing process validation/capture/native ownership needs extraction |
 | RF07 | Wave 8 authentication/SDK evidence | Existing sidecar/auth/catalogue responsibility needs extraction |
 | RF08 | Wave 3/7 execution/repository integration | Existing workflow/execution/repository responsibility needs extraction |
 | RF09 | Wave 1 persistence fixtures | Existing legacy store-fixture ownership needs separation |
 
-Original coverage:23 implementation tasks + seven final-acceptance tasks + seven conditional structure tasks =37. All23 Wave1–7 tasks passed actual acceptance and were archived;14 assigned tasks remain (seven acceptance tasks and seven conditional structure tasks). GP08 (per-request reasoning-effort analysis), GP09 (todo-driven form selection), GP10 (route/model-neutral usage flow) and P05 (reference-trace history rewrite) were added2026-10-27 outside the waves and all four passed their authorized scoped acceptance. All14 total open tasks are therefore assigned; no unassigned implementation is left pending. The shared auth/editor native process owner was extracted to repair real Ctrl+C behavior; this did not complete RF06's runner validation/capture/transport separation or RF07's wider provider responsibility split.
+Original coverage was23 implementation + seven final-acceptance + seven conditional structure tasks. Wave1–7 and RF04 are complete, leaving13 assigned Wave8/conditional tasks. GP08/GP09/GP10/P05 and U/L completed outside the waves. XC01–XC09 intentionally amended their binding contracts alongside code and shipped in0.1.38 after native/public acceptance; XC07 absorbed VA09, leaving14 V audit tasks. Exact-source native qualification and public-package verification remain publication gates. The shared auth/editor process owner did not complete RF06's broader runner split or RF07's provider split; no later task starts automatically.

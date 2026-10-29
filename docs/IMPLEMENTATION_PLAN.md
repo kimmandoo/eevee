@@ -1,6 +1,6 @@
 # Eevee Implementation Plan
 
-Updated2026-10-28. Public v0.1.33 shipped Waves6–7 and all four authorized unassigned tasks GP10→GP08/GP09 plus P05. Public v0.1.34 shipped Run-owned native WebSocket retention and request-bound outcome/disconnect usability from `4faced3` after exact-source Check/all-five-native qualification. Both releases passed all public asset/qualified-archive identities and complete24-group/34-scenario downloaded installation proof;0.1.34 also passed downloaded WS20/disconnect20/full-native24 journeys. Source/runtime evidence and truthful account/history limits are in the checkpoint. This delivery is complete; Wave8 and paid/live calls remain outside scope.
+Updated2026-10-29. The X contract track and qualified0.1.38 release below are complete. Earlier qualified releases and their scoped evidence remain recorded separately; Wave8, unrelated audit tasks and paid/live provider calls remain outside this request.
 
 Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPATIBILITY.md). Live-provider conformance remains distinct from implemented transports and deterministic runtime proof.
 
@@ -9,8 +9,16 @@ Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPAT
 1. Replace raw/repeated structured todo response cards with a request/owner-bound readable projection while retaining raw observations and distinct malformed/refused output.
 2. Extend bounded local English/Korean intent rules for UI/tool improvements and compound inspect/fix requests; preserve manual appearance, explicit restrictions, busy ownership, adopted-step precedence and preview/Send equality.
 3. Flush actual pending source snapshots through existing transport polling and improve the code gutter/live edge without artificial token delays. Dock file decisions above the retained Request composer; preserve long-scope exposure, exact consent, safe typing and full Details inspection.
-4. Run pinned Rust source gates and actual compact/wide PTY progress/evolution/live-code/file-permission journeys against the changed binary with controlled local peers; inspect rendered surfaces. No live/paid provider calls, release, push, persistence migration or unrelated wave.
-5. Record observed fixes, verification and exact completion state in changelog/troubleshooting/checkpoint, verify no external reference identifiers entered product source/comments/commit messages, then commit scoped changes without user-owned `.DS_Store`.
+4. Preserve all concurrent0.1.38 contracts and implementation during integration, including automatic progress adoption, source-driven live-file effects, retries, steering, helpers, MCP, profiles, rules, moves and forward-compatible storage. Run pinned Rust gates and actual compact/wide UI, transport and contract journeys without paid/live provider calls or unrelated roadmap work.
+5. Commit/push the integrated0.1.39 source, require same-source/same-attempt Check and all five native qualification jobs, then publish a new annotated tag without replacing older tags/assets. Verify every public asset/qualified archive and downloaded host installation plus changed runtime paths; update handoff and release records.
+
+## Completed delivery — X contract track and qualified 0.1.38
+
+1. Resumed the interrupted XC03 working tree without dropping authored changes; bound steering/queued Sends to their exact owner/generation and retained returned draft bytes/carets.
+2. Amended the binding contracts alongside XC02 read-only delegated workers/linked receipts, XC05 explicitly selected unmanaged stdio MCP, XC06 visible neutral behavior profiles and XC07 typed parameter use/32-entry library (absorbing VA09). Kept one effect executor/store/approval authority and truthful unknown effects.
+3. Integrated all nine X capabilities, passed Rust1.90.0 strict Clippy/1,954 tests/two ignored/release build, and exercised controlled-peer PTY/ConPTY journeys plus existing native regressions. Repaired Windows temporary-file cleanup with an actual failing-before/passing-after Windows regression.
+4. Qualified exact source `6794b50` in native40855031289 attempt1 with Check/all five native jobs, then published annotated v0.1.38 in release40859609274 using only its five qualified artifact IDs. Earlier tags/releases/assets were not replaced.
+5. Verified all eight public asset digests, seven checksum rows, five exact qualified package identities and target headers, then passed downloaded-host installation24/installed-terminal34 and all five contract drivers at both sizes (four original passed drivers plus the separately corrected steering driver). Downloaded Windows MSVC also printed0.1.38. Fixture failures and their corrected evidence remain separately recorded; no paid/live or quality-improvement claim was made.
 
 
 ## Completed baseline — Qualified release0.1.33

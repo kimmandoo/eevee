@@ -61,7 +61,7 @@ impl App {
                 "Observed model: {}",
                 observed.unwrap_or("unreported")
             );
-            let _ = writeln!(detail, "Provider usage/cost: unknown (not reported).");
+            let _ = writeln!(detail, "{}", self.owner_usage_line(row.owner.partner));
             let _ = writeln!(
                 detail,
                 "Receipt below is local serialization/estimate, not billing."
@@ -359,6 +359,7 @@ mod tests {
     fn config() -> Config {
         Config {
             native_transport: crate::providers::NativeTransport::Auto,
+            retry: Default::default(),
             ascii: true,
             no_animation: true,
             animation_override: Some(false),
@@ -622,7 +623,10 @@ mod tests {
                     key(&mut app, KeyCode::PageDown);
                 }
                 assert!(shown.contains(&format!("request-model-{owner}")), "{shown}");
-                assert!(shown.contains("Provider usage/cost: unknown"), "{shown}");
+                assert!(
+                    shown.contains("Provider usage/cost: no request dispatched yet"),
+                    "{shown}"
+                );
                 assert!(
                     shown.contains(&format!("Owner {owner} local payload: {} B", owner * 111)),
                     "{shown}"

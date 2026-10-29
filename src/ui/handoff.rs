@@ -235,7 +235,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             .hint(crate::messages::Message::DesksHandoffExportJsonExportMarkdownImportHandoffPgup)
             .into()
     };
-    text(
+    super::choices(
         frame,
         row(
             content,
@@ -244,5 +244,6 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         ),
         &footer,
         paint.accent,
+        paint,
     );
 }

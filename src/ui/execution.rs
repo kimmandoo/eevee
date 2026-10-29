@@ -491,7 +491,7 @@ fn selected_commit_confirmation(frame: &mut Frame, area: Rect, state: &mut State
         " [Stay]    Approve exact selected commit "
     };
     let confirm_hint = "Left Stay · Right Approve · Enter confirms ONCE";
-    text(frame, row(area, 1, 1), choices, paint.surface);
+    super::choices(frame, row(area, 1, 1), choices, paint.surface, paint);
     let available = area.height.saturating_sub(5);
     state.set_viewport(available as usize);
     state.expose_selected_review(area.width, available, lines.len(), false);

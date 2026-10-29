@@ -4,11 +4,11 @@ Only unfinished work belongs here. Completed specifications and stable dependenc
 
 ## Current state
 
-- **Released:** [v0.1.34](https://github.com/kimmandoo/eevee/releases/tag/v0.1.34), source `4faced3`, native40579811277 attempt1 and release40583845470. Check/all five native jobs passed. All eight public assets/five qualified archives matched; downloaded installation passed24 groups/34 installed native terminal scenarios, WS20/disconnect20/full-native24 journeys passed on the exact public host bytes. [v0.1.33](https://github.com/kimmandoo/eevee/releases/tag/v0.1.33) shipped the unassigned tasks and real terminal screenshot; every earlier public asset remained unchanged.
+- **Released:** [v0.1.38](https://github.com/kimmandoo/eevee/releases/tag/v0.1.38), source `6794b50`, native40855031289 attempt1 and release40859609274; all nine X capabilities and the Windows editor cleanup repair shipped after Check/all-five native qualification. Public bytes and downloaded installation/runtime passed; exact evidence remains in the checkpoint.
 - **Included milestones:** A08 → UX04A → S04 and P04A → P04B → T01B shipped: actionable connection diagnostics, persistent text density, reviewed portable workflows, reviewed updates/safe rollback and exact local context comparison. Specifications remain in [COMPLETED.md](tasks/COMPLETED.md).
-- **Compatibility:** Public0.1.34 retains SQL20 and complete SDK bridge11 introduced by0.1.33, with TM1/formation2 unchanged. Strict auto effort, adopted progress, parked-draft/landmark and selected-commit metadata remain data-dependent reader contracts, not restored authority. Replace sidecar source/policy/dependencies together; bridge10 mixes refuse before dispatch. Public0.1.32 refused tested new data without changing database bytes; back up the whole directory before upgrading. Matching version numbers do not guarantee reader admission or lifecycle rollback.
-- **Remaining:** **14 tasks**, all assigned to Wave8 or conditional structure lanes. All23 Wave1–7 contracts and unassigned GP10→GP08/GP09 plus P05 passed scoped acceptance and were archived, then shipped in0.1.33. The separately authorized follow-up is not another implementation wave.
-- **Current request completed:** All four unassigned tasks, CI repairs, actual graphics-terminal README capture, native Run-owned WebSocket retention and concrete agent-usability improvements were implemented, qualified and published in0.1.33–34. Exact downloaded/runtime/checksum/history evidence is in the checkpoint. No implementation task is active; Wave8, conditional structure lanes and paid/live calls were not started.
+- **Compatibility:** Public0.1.38 retains SQL20, complete SDK bridge11 and formation2; parameterized moves use TM2 while literal TM1 imports remain supported. Ignorable task-workflow/receipt fields are preserved, but unknown declared critical fields refuse. Older releases did not gain forward compatibility retroactively; profiles/delegated receipts/expanded move metadata can still make them refuse. Replace sidecar source/policy/dependencies together; bridge10 mixes refuse before dispatch. Back up the whole data directory before upgrading; version/schema equality never restores grants, sessions or lifecycle rollback eligibility.
+- **Remaining:** **27 tasks**: 13 assigned F/H/conditional structure tasks and14 unassigned V audit tasks. All nine X implementations passed local source/runtime acceptance; XC07 absorbed VA09's typed parameters and portable TM2 contract.
+- **Current request active:** Integrated todo/tool presentation, live-code delivery, compact file consent and EN/KO intent fixes onto the complete0.1.38 baseline;0.1.39 source/runtime/native/release qualification is in progress. Existing releases remain unchanged. Wave8 and unrelated F/H/R/V tasks and paid/live provider calls remain outside scope.
 
 ## Completed Pokémon milestone
 
@@ -22,24 +22,26 @@ Party, formations, portable TMs, moves, summary, Dex, held references, ribbons, 
 |---|---|---:|
 | [F — Context and tools](tasks/F-context-tools.md) | Paired optimization quality benchmark | 1 |
 | [H — Acceptance](tasks/H-provider-acceptance.md) | Live-provider rows, composed quality/resource measurements and native distribution evidence | 6 |
-| [R — Structure](tasks/R-code-structure.md) | Responsibility-based, just-in-time extractions | 7 |
+| [R — Structure](tasks/R-code-structure.md) | Responsibility-based, just-in-time extractions | 6 |
+| [L — Game loop](tasks/L-game-loop.md) | Implemented 2026-10-28 (GL01/GL02/GL04/GL05); shipped in v0.1.37 | 0 |
+| [V — Audit gaps](tasks/V-audit-gaps.md) | Remaining implementation/acceptance gaps; VA09 completed by XC07's real typed parameters and TM2 | 14 |
+| [U — UX clarity](tasks/U-ux-clarity.md) | All eight implemented 2026-10-28 and included in v0.1.37 | 0 |
+| [X — Contract relaxation](tasks/X-contract-relaxation.md) | All nine implemented, natively qualified and shipped in v0.1.38 | 0 |
 
-A/B/C/D/E/G/I/J/K are entirely completed and archived; only F/H/R contain unfinished work.
+A/B/C/D/E/G/I/J/K/L/U/X are implemented; F/H/R and14 V tasks retain their explicit verification gates.
 
 ### Next order
 
-1. Public v0.1.34 and this query's implementation/CI/graphics/additional-release delivery are complete; do not restart archived Wave1–7 or unassigned tasks.
-2. Wave6 GP05/PK09/RX04/RX05/RX06, Wave7 GP06/GP07 and unassigned GP10→GP08/GP09/P05 shipped in0.1.33. Version0.1.34 retained SQL20/complete SDK bridge11 and added the separately qualified transport/outcome/diagnostic follow-up.
-3. [Wave plan](docs/WAVES.md) assigns all14 remaining tasks. Wave8 and conditional structure lanes remain pending; select new implementation only on a subsequent authorized request.
-4. Local Q01/Q02/P03 evidence remains independently actionable; authenticated rows and Q03 live trials require separate permission. Existing published assets stay unchanged.
+1. No release work remains. Select remaining F/H/R/V work only on a new authorized request; do not start Wave8 automatically.
+2. Local Q01/Q02/P03 evidence remains separate from full Wave8/live acceptance. Remaining F/H/R/V work is not implied complete by the X-track release.
 
 ## Execution rules
 
 - On a subsequent implementation request, select a ready task in the agreed track. `Needs` names unfinished prerequisites; `Builds on` names completed foundations in the archive. External prerequisites are explicitly identified in H.
 - Complete a coherent task with behavior-focused tests and an actual runtime demonstration, update changelog/checkpoint, and commit. A large responsibility extraction may use sequential commits; an arbitrary file count is not acceptance.
-- Reuse existing dispatch, recipes, shared file policy, store writer and provider transports. No parallel executor, parser, receipt authority or approval queue.
+- Reuse existing dispatch, recipes, shared file policy, store writer and provider transports. No parallel effect executor, parser, receipt authority or approval queue. Reviewed read-only delegated runs reuse the existing provider worker and receipt store; one lead may own up to three child slots minus other active partner requests, separately from the lead itself.
 - Preserve exact draft/caret/focus, cancellation, terminal restoration, source identity and truthful evidence. Navigation, imports, suggestions, formations and relays never execute or grant permission by themselves.
-- Keep partner flavor out of provider packets and portable handoffs; local imported definitions must not manufacture historical evidence. Missing usage remains unknown, not zero.
+- Keep names, nicknames, species lore and teaching provenance out of provider packets and portable handoffs. Enabled neutral form behavior profiles are visible, editable instruction context, frozen per Send and accounted separately; handoffs include them only by explicit selection. Local imported definitions must not manufacture historical evidence. Missing usage remains unknown, not zero.
 - Report fixture observations when suggestion, ranking or learning rules change. Keep local deterministic work separate from paid/live provider acceptance.
-- New persistence must start from current Schema20 and use the existing admission/migration/older-writer-refusal contract; preserve real Schema18/19 upgrade fixtures rather than reviving historical Schema7/14 planning.
+- New persistence must start from current Schema20 and use the existing admission/migration contract; new task-workflow fields are ignorable by older readers unless listed in `workflows.critical` (XC08), and an unknown critical field or a schema bump still refuses; preserve real Schema18/19 upgrade fixtures rather than reviving historical Schema7/14 planning.
 - Preserve the existing naming/art distribution review and its non-clearance limitation. New asset/name changes require a scoped rights review; Q01 still owns complete-product acceptance. T05 remains dropped, not completed.

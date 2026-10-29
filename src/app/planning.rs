@@ -160,6 +160,9 @@ pub struct State {
     pub following: bool,
     pub new_output: bool,
     response_cache: response::Layout,
+    /// Byte offset and arrival time of each live file item's newest received
+    /// lines. Display-only: it highlights real bytes, never delays them.
+    file_growth: HashMap<String, (usize, std::time::Instant)>,
     activity: &'static str,
     response_scroll: usize,
     response_max: usize,
@@ -179,9 +182,11 @@ pub struct State {
     submitted_instruction: Option<Arc<str>>,
     prior_plan: Option<Arc<NativeConversation>>,
     pub receipts: receipts::State,
+    pub(super) delegation: Option<crate::providers::delegation::Context>,
     pub context_plan: Option<context::optimizer::Plan>,
     pub screenshot: Option<context::screenshot::Attachment>,
     pub tool_catalog: Option<crate::providers::catalog::Selection>,
+    pub behavior_profile: Option<crate::workspace::form_profiles::Packet>,
     pub native_transport: crate::providers::NativeTransport,
     pub(super) plan_completed: bool,
     pub(super) failed_request: bool,
@@ -243,6 +248,14 @@ pub struct State {
     pub(super) remembered_pairing: Option<(i64, usize)>,
     pub(super) pairing_offer: bool,
     pub usage: usage::State,
+    /// Steering sent to the worker but not yet acknowledged as appended (XC03).
+    pub steering: Vec<String>,
+    pub steer_pending: Option<Request>,
+    /// Steering actually appended in this run, as `(round, text)`.
+    pub steered: Vec<(usize, String)>,
+    pub steer_generation: Option<u64>,
+    /// Exact terminal generation/outcome; never compare a queued Send to a cleared live generation.
+    pub last_outcome: Option<(u64, Outcome)>,
     selections: HashMap<Agent, ModelSelection>,
     preferences: preferences::Preferences,
     pub catalogues: HashMap<Agent, ModelCatalogue>,
@@ -324,11 +337,12 @@ impl State {
             context_plan: None,
             screenshot: None,
             tool_catalog: None,
+            behavior_profile: None,
             native_transport: crate::providers::NativeTransport::Auto,
             plan_completed: false,
             failed_request: false,
             connection_recovery: None,
-            following: true, new_output: false, response_cache: response::Layout::default(),
+            following: true, new_output: false, response_cache: response::Layout::default(), file_growth: HashMap::new(),
             activity: "Connecting",
             response_scroll: 0, response_max: 0,
             response_height: 0, response_body: ratatui::layout::Rect::default(),
@@ -349,6 +363,12 @@ impl State {
             failed_journal: VecDeque::new(), journal_notice: String::new(),
             journal_recovery: journal::Recovery::default(),
             receipt: Vec::new(),
+            delegation: None,
+            steering: Vec::new(),
+            steer_pending: None,
+            steered: Vec::new(),
+            steer_generation: None,
+            last_outcome: None,
             inspection: None, inspect_sessions: false,
             selection: ModelSelection::default(), selections: HashMap::new(),
             preferences: preferences::Preferences::default(),
@@ -414,6 +434,14 @@ impl State {
                     && (self.thread_id.is_some()
                         || !self.items.is_empty()
                         || self.handoff.is_some()))
+    }
+
+    /// A submitted provider request is running (XC03 steering eligibility).
+    pub(in crate::app) fn running(&self) -> bool {
+        self.active
+    }
+    pub(in crate::app) fn running_generation(&self) -> Option<u64> {
+        self.generation
     }
 
     pub fn busy(&self) -> bool {
@@ -951,7 +979,7 @@ impl State {
             }
             Event::Preview(mut preview) if self.accepts_preview(&preview) => {
                 self.awaiting_preview = false;
-                if self.recover_missing_model(&preview) {
+                if self.delegation.is_none() && self.recover_missing_model(&preview) {
                     return;
                 }
                 self.generation = Some(preview.generation);
@@ -1008,6 +1036,9 @@ impl State {
                 {
                     preview.blockers.push(error);
                 }
+                if let Some(child) = &self.delegation {
+                    self.receipts.link_parent(child);
+                }
                 self.preview = Some(preview);
                 self.notice = "Review request scope and effects; Stay is the default. Details remain inspectable.".into();
                 self.review_start();
@@ -1025,6 +1056,26 @@ impl State {
                 message,
             } if self.matches(generation, task_id) && self.active => {
                 self.notice = message;
+            }
+            Event::Steered {
+                generation,
+                task_id,
+                round,
+                texts,
+            } if self.matches(generation, task_id) && self.active => {
+                for text in texts {
+                    if let Some(index) = self.steering.iter().position(|known| *known == text) {
+                        self.steering.remove(index);
+                    }
+                    self.steered.push((round, text));
+                    let number = self.steered.len();
+                    self.receipt.push(format!(
+                        "Steer #{number} appended after round {round} (user-authored; provider delivery not independently confirmed)."
+                    ));
+                    self.notice = format!(
+                        "Steer #{number} appended at the boundary after round {round}; inspect this run's receipt. Provider delivery remains transport-dependent."
+                    );
+                }
             }
             Event::Models {
                 generation,
@@ -1131,6 +1182,18 @@ impl State {
                         && item.turn_id == turn_id
                         && item.item_id == item_id
                 });
+                if let ItemKind::File(_) = kind {
+                    let previous = position.map(|index| self.items[index].text.as_str());
+                    if previous != Some(text.as_str()) {
+                        // Newly arrived whole lines start after the previous
+                        // snapshot's last complete line.
+                        let from = previous
+                            .filter(|previous| text.starts_with(previous))
+                            .map_or(0, |previous| previous.rfind('\n').map_or(0, |at| at + 1));
+                        self.file_growth
+                            .insert(item_id.clone(), (from, std::time::Instant::now()));
+                    }
+                }
                 let index = if let Some(index) = position {
                     let item = &mut self.items[index];
                     let continued = !item.complete
@@ -1286,6 +1349,9 @@ impl State {
                 self.plan_completed = self.operation == Operation::Plan
                     && matches!(outcome, Outcome::Completed)
                     && !self.unknown_effects();
+                if !self.inspect_models && !self.inspect_sessions {
+                    self.last_outcome = Some((generation, outcome));
+                }
                 self.active = false;
                 self.awaiting_preview = false;
                 self.cancelling = false;
@@ -1749,15 +1815,9 @@ impl State {
                         self.complete_switch();
                         return true;
                     }
-                    if self.handoff.is_none() {
-                        match crate::workspace::handoff::from_task(task, excerpts, &[]) {
-                            Ok(document) => self.handoff = Some(document),
-                            Err(error) => {
-                                self.notice = error;
-                                return true;
-                            }
-                        }
-                    }
+                    // Ordinary requests already freeze the current committed
+                    // task/context. Only explicit import acceptance selects a
+                    // portable document; switching must not pin an old revision.
                     self.switch_to = Some(next);
                     self.review_start();
                 } else {

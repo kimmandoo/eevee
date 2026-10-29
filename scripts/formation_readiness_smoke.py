@@ -132,7 +132,7 @@ class Journey:
     def workspace(self):
         for _ in range(12):
             footer = self.session.display().rstrip().splitlines()[-1].strip()
-            if footer.startswith(('Type Request /', 'Type a request /', 'Enter Send /', 'Draft only /',
+            if footer.startswith(('Type Request |', 'Type a request |', 'Enter Send |', 'Draft only |',
                                   )):
                 return
             self.session.send(ESC)
@@ -227,7 +227,7 @@ class Journey:
             # This is deliberate ordinary Request submission, not a fabricated
             # database claim or a formation-triggered send.
             footer = self.session.display().rstrip().splitlines()[-1].strip()
-            if footer.startswith(('Type Request /', 'Type a request /', )):
+            if footer.startswith(('Type Request |', 'Type a request |', )):
                 self.session.send('\r')
             self.session.send(UP * 64 + HOME + (ESC + '[3~') * 4096)
             self.session.paste(request)
@@ -394,7 +394,7 @@ class Journey:
                   'actual remembered route committed without metadata discovery')
         self.workspace()
         footer = self.session.display().rstrip().splitlines()[-1].strip()
-        if footer.startswith(('Type Request /', 'Type a request /', )):
+        if footer.startswith(('Type Request |', 'Type a request |', )):
             self.session.send('\r')
         self.session.paste(DRAFT)
         self.session.send(HOME + RIGHT * 5 + '\x13')

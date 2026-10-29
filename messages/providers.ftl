@@ -264,12 +264,12 @@ providers-planning-edit-answers-send-answers-y-send-n-2 =
     { "Tab Choose / Enter Edit / d Details / Esc Cancel" }
 
 providers-planning-up-down-option-enter-choose-answer-type =
-    { "Up/Down Option / Enter Choose / /answer Type" }
-    { "Tab Question / /answers-review Review send / Esc Defer" }
+    { "Up/Down Option | Enter Choose | /answer Type" }
+    { "Tab Question | /answers-review Review send | Esc Defer" }
 
 providers-planning-pgup-dn-scroll-session-metadata-esc-cancel =
     { "PgUp/Dn Scroll session metadata" }
-    { "Esc Cancel / /quit Safe exit" }
+    { "Esc Cancel | /quit Safe exit" }
 
 providers-planning-pgup-dn-scroll-session-metadata-esc-messages =
     { "PgUp/Dn Scroll session metadata / Esc Messages" }

@@ -50,14 +50,14 @@ fn adoption_requires_visible_current_revision_and_never_dispatches() {
                 .progress
                 .as_ref()
                 .unwrap()
-                .active_label()
+                .focus_label()
                 .is_none()
         );
         app.workflow.todo_revision = Some(1);
         app.workflow.todo_reviewed = true;
         app.progress_command("todo-adopt", "");
         assert_eq!(
-            app.workflows.progress.as_ref().unwrap().active_label(),
+            app.workflows.progress.as_ref().unwrap().focus_label(),
             Some("오류 조사")
         );
         assert_eq!(
@@ -120,7 +120,7 @@ fn absent_source_is_visible_on_every_route() {
         let mut app = app();
         app.planning.agent = agent;
         app.progress_command("todo", "");
-        assert!(app.progress_card().contains("no step list from this route"));
+        assert!(app.progress_card().contains("No todo yet"));
         assert!(app.workflow.todo_view);
         assert!(app.pending_request.is_none() && app.planning.pending.is_none());
     }
@@ -141,6 +141,7 @@ fn literal_todo_arguments_win_over_matching_catalogue_labels() {
             selected: Some(0),
             choices: vec![Choice::new(name, "todo on off start exact label pending")],
             scope: None,
+            everyday: false,
         };
         assert_eq!(popup.argument(), Some((name, argument)));
         assert_eq!(popup.candidates().count(), 1);
@@ -148,7 +149,12 @@ fn literal_todo_arguments_win_over_matching_catalogue_labels() {
             let mut app = app();
             app.command_popup = Some(popup);
             app.command_popup_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-            assert!(app.workflows.progress.as_ref().unwrap().eager);
+            assert!(app.workflows.progress.as_ref().unwrap().eager());
+            let mut app = self::app();
+            assert!(app.progress_card().contains("prelude: on"), "on by default");
+            app.progress_command("todo-eager", "off");
+            assert!(!app.workflows.progress.as_ref().unwrap().eager());
+            assert!(app.progress_card().contains("prelude: off"));
             assert!(app.pending_request.is_none() && app.planning.pending.is_none());
         }
     }

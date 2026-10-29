@@ -18,13 +18,122 @@
 - **Context / Symptom:** The preserved binary displayed seven raw JSON Plan observations for repeated todo views/updates. Actual compact/wide file-creation journeys also showed that automatic file review removed the Request composer.
 - **Root Cause:** Every native todo call entered the generic transcript without a structured projection; a valid status snapshot and an ordinary tool result shared the same raw presentation. Planning review always selected a centered sheet and suppressed its underlying workspace/editor.
 - **Solution:** Retained original arguments/results while coalescing only qualified successful snapshots within the exact request/owner/task/generation/source. Refusals and malformed observations stay distinct, and `/verbose` exposes originals. File summaries now dock above the same composer, reserve response rows, retain full Details and fixed explicit decisions, and invalidate scope exposure on body-width/height changes or covering surfaces.
-- **Prevention / Reference:** Test both 60×18 and 120×36; a long scope must be traversed contiguously, not approved by jumping to its end. Preserve ordinary typing/paste as future draft content on unengaged arrival.
+- **Prevention / Reference:** Test both 60×18 and 120×36; a long scope must be traversed contiguously, not approved by jumping to its end. Unengaged typing/paste must never become consent; retain the existing future draft and caret.
 
 ### [2026-10-29] Natural UI improvement requests kept the previous automatic form
 
 - **Context / Symptom:** An actual local preview of `todo 툴 UI가 중복으로 출력돼. 이부분 개선해줘.` kept Eevee; after an earlier review, the same request kept Glaceon. The generic Implement fallback did not identify the requested specialty.
 - **Root Cause:** The bounded classifier lacked improvement verbs and development-surface objects, and later fix clauses could lose the diagnostic object supplied earlier in the request.
 - **Solution:** Extended the existing English/Korean vocabulary and bounded positive-clause context. UI-only improvements select Flareon; diagnosis-plus-improvement may keep Umbreon with Implement capability. Quoted/source text, negation, explicit restrictive policy, manual form and adopted-step precedence remain separate constraints.
+### [2026-10-29] Steering fixture moved the caret before Send committed
+
+- **Context / Symptom:** Downloaded public0.1.38 passed moves, MCP, profiles and delegation at both sizes; steering stopped before its first POST with `Draft changed while saving. Press Enter to send the current request.`
+- **Root Cause:** The fixture sent Left to dismiss the nonmodal evolution notice while the first request was still saving. Left also moves the composer caret, so the unchanged production draft-stability guard correctly refused that pending Send. Compact terminals additionally need the notice dismissed before the gated response text can be observed.
+- **Solution:** Required the exact first observed HTTP POST before sending that dismissal key, then still waited for the actual `First round is` response text. No resend, timeout increase, hidden error acceptance or production guard change was added.
+- **Prevention / Reference:** Preserved the original failure under `public-contracts/steering` and the intermediate compact-visibility diagnostic under `public-steering-fixed`; both final geometries passed separately in `public-steering-final` on the unchanged downloaded executable SHA256 `9c712bd6f9c0b116fbdb80c2fba565cb0af533258aac4dd8a91c405b9152814a`.
+
+### [2026-10-29] Installation acceptance treated the item-sprite directory as a file
+
+- **Context / Symptom:** Public0.1.38 asset integrity and offline host installation passed. The deeper installation driver then stopped after 11 groups at `verified_sprites`: `IsADirectoryError: .../cache/eevee/sprites/items`.
+- **Root Cause:** The cache snapshot predated item artwork and hashed every immediate directory entry as a regular file. The installed downloader correctly created the nested `items/` cache.
+- **Solution:** Snapshotted all regular files recursively, keyed by cache-relative paths, so subsequent first-launch/reinstall comparisons retain nested item bytes and mtimes as well as the nine already hash-validated species. No package, installer, download behavior or published asset changed.
+- **Prevention / Reference:** The original failed manifest remains in `target/release-038-recovery/public-installation/results.json`; complete corrected acceptance is recorded separately in the checkpoint.
+
+### [2026-10-29] Windows external editing could not remove its own temporary file
+
+- **Context / Symptom:** Native40848780657 passed Check and all Linux/macOS rows, while Windows profile editing failed before returned-candidate review: `Temporary cleanup FAILED: The process cannot access the file because it is being used by another process. (os error 32)`.
+- **Root Cause:** The temporary file was deliberately opened with read/write sharing but without delete sharing. Cleanup called `remove_file` before dropping that same owned file handle. Unix permits unlinking an open file, and the original subprocess editor regression was Unix-only, so earlier source gates missed the Windows lifetime defect.
+- **Solution:** Closed the file after directory revalidation and completed result collection, before removing its single temporary entry; kept the directory handle pinned through member removal, then closed it before removing the directory. Kept no-delete sharing during editing, exact identity/read validation, nonrecursive cleanup and failure preservation unchanged.
+- **Prevention / Reference:** Added an all-platform exact Unicode/CRLF temporary round-trip/cleanup regression. The cross-compiled Windows executable was executed through WSL interop and reproduced the original error 32 before the fix. Exact subsequent source/native/public acceptance is recorded in the checkpoint.
+
+### [2026-10-29] Remaining Windows MCP comparisons and early connection setup blocked 0.1.38
+
+- **Context / Symptom:** Native40839754352 failed Windows MCP at line 290 after a reviewed post-crash success; the first marker comparison already passed. Native40845292777 failed Linux arm64 profile setup with `missing state: API key:` while `/connect compatible` remained in the command palette.
+- **Root Cause:** The earlier path fix covered only the initial crash check; post-success and restart checks still compared canonical Windows paths as strings. Quiet-redraw key settling also allowed the profile fixture's first connection command before startup had committed its initial storage state; connection setup correctly requires that barrier.
+- **Solution:** Reused the same file-identity predicate for all three uncertainty checks. The shared connection helper now waits for the visible `Storage: saved` acknowledgment before issuing its one connection command. No repeated Enter, larger timeout, skipped driver, production permission change or release-qualification bypass was added.
+- **Prevention / Reference:** Exact failed artifact digests and local/native acceptance are recorded in `docs/WORK_CHECKPOINT.md`; retained evidence is under `target/release-038-recovery`. Startup readiness must be observed independently of terminal output quiescence.
+
+### [2026-10-29] Windows MCP smoke missed its own project in the uncertainty marker; contract step took 16–24 min
+
+- **Context / Symptom:** Native40830550690 failed `windows-x86_64` in "Exercise reviewed contract capabilities": `mcp_smoke.py` line 272 `assert str(journey.project.resolve()) in marker['uncertain_projects']`. On other targets the same step took 16–24 minutes.
+- **Root Cause:** The app records the canonical project path, which on Windows is the verbatim `\\?\D:\...` form, while Python's `resolve()` returns `D:\...`. The step ran five drivers sequentially at two sizes, and every PTY key waited a fixed 0.25 s (1,545 keys ≈ 390 s in `similar_moves_smoke.py` per size, per profile).
+- **Solution:** Compare marker entries with `os.path.samefile` after removing the verbatim prefix. `scripts/contract_smoke.py` runs the drivers three at a time; non-full targets run only 60×18; `EV_SMOKE_KEY_QUIET` lets keys settle once the redraw is quiet (capped at the old 0.25 s). `similar_moves` keeps fixed timing because its teach flow raced quiet settling; its connect/save helpers now wait for `Storage: saved` explicitly. Local compact run: 7 min total (was ~22 min sequential at both sizes).
+- **Prevention / Reference:** Never compare app-recorded paths as strings in smoke drivers on Windows. When speeding up key settling, add explicit waits for state (save acknowledgement, focused control) instead of relying on the fixed window.
+
+### [2026-10-29] Windows native tests failed on a Unix rule path and WSAECONNABORTED
+
+- **Context / Symptom:** Native40826124948 at `f635231` passed Check, Linux and arm64 but `Build / windows-x86_64` failed "Test locked dependencies": `workspace::rules::tests::launch_rules_are_not_persisted_and_invalid_files_load_nothing` panicked with `invalid command rule #1`, and `native_websocket_event_queue_overflow_retires_the_actual_consumer_without_continuation` saw `Io(Os { code: 10053, kind: ConnectionAborted })` while waiting for the retired socket to close.
+- **Root Cause:** The rules fixture used `/usr/bin/cargo`, which is not an absolute path on Windows, so rule validation correctly refused it. Windows reports a locally aborted WebSocket as `ConnectionAborted`, which the fixture's "closed without replay" helper did not accept alongside reset/broken pipe/EOF.
+- **Solution:** The fixture now uses a platform-absolute executable path (`C:\Tools\cargo.exe` on Windows), and the helper accepts `ConnectionAborted` as a retired connection. Production validation is unchanged.
+- **Prevention / Reference:** Linux-only local runs cannot catch path absoluteness; use `cfg(windows)` fixture paths for any test that builds an absolute path, and `cargo check --target x86_64-pc-windows-gnu --all-targets` before pushing.
+
+### [2026-10-29] Native qualification lacked generated move message variants
+
+- **Context / Symptom:** Native40824572443 at `85813f9` failed Check and all five targets during compilation: `Message::TmLibraryControls`, `TmParametersEditor`, `TmParametersBoundary` and `TmParametersControls` did not exist. No platform runtime or package from this run qualified.
+- **Root Cause:** Local builds consumed the edited root `messages/*.ftl` resources, but the feature commit staged source/scripts/docs and omitted `messages/tm.ftl` and `messages/desks.ftl`. Clean CI correctly generated the older enum from committed resources; this was not a platform or dependency failure.
+- **Solution:** Included both authored Fluent source resources, never generated `target` output. Requalified the tracked-source snapshot and required a new exact-source full native run; did not rerun partial jobs, create a tag or publish failed artifacts. The original failed run/evidence remains in `target/xc-038-release/native`.
+- **Prevention / Reference:** `build.rs` compiles message resources into Rust; message resources are required source inputs alongside their callsites. Local working-tree success alone cannot prove a complete source commit.
+
+### [2026-10-29] Cancelled native helpers retained a false local-effect barrier
+
+- **Context / Symptom:** Both terminal sizes closed all three held child HTTP sockets after parent cancellation, and all eight usage records were stored, but the parent durable claim and helper work rows remained. The lead was already Cancelled; child remote outcomes remained unknown.
+- **Root Cause:** Delegated preparation bypassed the ordinary preparation initializer and omitted its native request-owner identity. A lost native response was consequently classified as opaque external local effects, even though the child executor had no effect capability.
+- **Solution:** Initialized the same native owner identity during delegated preparation. Kept transport outcomes Unknown, without inventing remote completion, while allowing bounded read-only child persistence/claim settlement. Added a transition regression requiring three Unknown/error outcomes, retired children and an unchanged parent claim. The unchanged real cancellation journey still requires closed sockets, eight separate usage records, no continuation, no remaining durable claims and no changed project bytes.
+- **Prevention / Reference:** Retained failing evidence: `target/xc-038-final-20261029/delegation-2`. A new preparation path must preserve transport classification as well as task/owner/receipt identity; absence of output is not evidence of local effects.
+
+### [2026-10-29] Contract integration rejected delegated outcomes and parameterized move preparation
+
+- **Context / Symptom:** Actual 120×36/60×18 delegation ended with `Tool result is not an actual structured local outcome` after successful child reads. Parameterized move use never reached `Run once`; the displayed response was an earlier completed request, not a hidden new Send.
+- **Root Cause:** Delegated outcomes omitted the native result envelope's required string `message` and `path`. Move preparation compared the substituted Request with the saved literal rather than the exact instruction already reviewed by the user.
+- **Solution:** Added the normal bounded result envelope before delegation's serialized-size check, without weakening continuation validation. Froze the reviewed substituted instruction through save/acquisition/preparation while retaining original record/revision and changed-draft checks. Producer/consumer regressions cover result outcomes and all native continuation dialects; move regressions cover preparation and changed-draft cancellation. Failed evidence remains in `target/xc-038-proof-20261029/{delegation-2,moves-2}`.
+
+### [2026-10-29] Behavior-profile policy text concealed selected-source accounting
+
+- **Context / Symptom:** The existing actual native receipt journey retained the exact submitted HTTP body but failed because its selected capture was missing from `record.captures`.
+- **Root Cause:** The profile exception rewrote the native policy envelope's introduction. Wire-capture accounting, source-reference extraction and context comparison intentionally recognize that owned introduction together with the JSON boundary; all three therefore stopped decoding the context.
+- **Solution:** Kept the established native introduction and JSON boundary, with the profile exception stated inside that policy. The existing `receipts_smoke.py` remains an unchanged consumer regression for actual selected-capture identity, byte partition, restart and purge; no parser guard or assertion was relaxed. Original failure: `target/xc-038-proof-20261029/native/platform-tools-receipts/results.json`.
+
+### [2026-10-29] Terminal steering choices outlived their completed request
+
+- **Context / Symptom:** The full consumer regression could not Send an ordinary follow-up after the prior request finished; a stale busy-Send choice still owned Enter.
+- **Root Cause:** Terminal settlement cleared the live generation before steering checked ownership. Settlement also depended on provider polling rather than the common planning settlement path.
+- **Solution:** Retained terminal outcome together with its exact generation and settled steering centrally before later key handling. Queued Sends remain bound to task/partner/generation, never move front ownership and return exact unsent bytes when the owning run cannot dispatch them. The existing explicit-Run/follow-up regression and seven steering regressions passed before the final integrated gate.
+
+### [2026-10-29] Capability fixtures addressed the wrong terminal or protocol boundary
+
+- **Context / Symptom:** Profile editing returned `Inappropriate ioctl for device (os error 25)`; MCP rule creation keys were ignored or `/rules` was unavailable during active inference; a gated custom Chat stream ended as Unknown.
+- **Root Cause:** The editor fixture lacked a controlling terminal. Fresh asynchronous permission panes intentionally intercept keys until explicit engagement, and the rules browser requires idle work. Custom Chat plans own their terminal frames and had omitted `[DONE]`.
+- **Solution:** Reused the existing controlling-TTY wrapper for profile journeys, engaged and exposed exact permission scope before rule creation, inspected rule lists after settlement while retaining live creation receipts, and emitted authoritative Chat completion frames. Owned fixture gates now release before peer shutdown on failure. Exact approval, unknown-effects, source-byte and no-hidden-dispatch assertions stayed intact; no timeout or production authority gate changed.
+- **Codec boundary:** Forcing `PYTHONIOENCODING=cp1252` reproduced `UnicodeDecodeError: ... byte 0x81` for UTF-8 JSON containing `丁`. The stdio fixture now explicitly configures UTF-8 input/output rather than depending on ambient locale variables that launch intentionally clears. The same forced-codec subprocess then preserved exact CJK/Korean/emoji replies and event arguments; native Windows certification still comes from ConPTY CI.
+
+### [2026-10-28] v0.1.35 release upload failed without version changelog notes
+
+- **Context / Symptom:** Native run 40638360962 passed at `ad5c634`, but release run 40640741692 failed at "Upload all assets before publishing"; no GitHub release was created.
+- **Root Cause:** The upload step reads `## <version>` from CHANGELOG.md for release notes. Only dated `## 2026-10-28` entries existed for 0.1.35, so the split raised before `gh release create`.
+- **Solution:** Added a `## 0.1.35` section, pushed main, waited for a fresh native run on that commit, then moved the unpublished `v0.1.35` tag to it and pushed again.
+- **Prevention / Reference:** Add the `## <version>` changelog section together with the version bump, before tagging.
+
+### [2026-10-28] Accepted handoffs and tool selections still blocked Requests after ordinary saves or switches
+
+- **Context / Symptom:** After the provider-switch fix, two related paths still refused every later Send. An explicitly accepted same-task handoff failed with `Handoff task changed or belongs to another task; prepare and accept a fresh handoff` as soon as the composer saved the new Request (every Send does). A `/tools` selection made for one adapter returned `Finish catalog setup for this exact task/partner/adapter before dispatch` after switching provider, form partner or task, with no hint how to recover.
+- **Root Cause:** Handoff admission compared the raw task revision, which advances on request-only saves even though the Request text is not part of the portable document. The tool catalog treated a selection owned by another adapter/task/partner as an unfinished setup instead of non-portable state.
+- **Solution:** `validate_dispatch` admits a later revision only when the same task's goal, next action, criteria, derived portable facts/unresolved items and sources still match exactly; the document is never refreshed. Changed/foreign handoffs still fail closed and the refusal now names `/handoff-clear`. `tool_catalog::State::selection` excludes a foreign-owner selection (kept for its own owner) and errors only for the current owner's busy/failed setup.
+- **Prevention / Reference:** Regressions `later_revisions_admit_only_unchanged_portable_facts`, `accepted_imports_stay_exact_across_provider_switch_and_request_saves`, `foreign_owner_selection_is_excluded_without_blocking_or_forgetting`. When adding new task-bound request state, decide whether a request-only save or provider switch should drop, exclude or block it; blocking needs an actionable recovery command.
+
+### [2026-10-28] Provider switching blocked later Requests with stale handoff and empty JSON errors
+
+- **Context / Symptom:** A Windows PowerShell user reported `Handoff task changed or belongs to another task; prepare and accept a fresh handoff` together with `Invalid frozen request JSON: EOF while parsing a value at line 1 column 0`. Both were reproduced by consumer regressions before the fix (`artifact://7`, `artifact://10`).
+- **Root Cause:** Switching providers after an existing response/session implicitly selected a handoff at the old task revision, including when the switch was cancelled. Ordinary Request saving advanced that revision; strict handoff admission correctly refused it. Preparation therefore returned no payload, but receipt staging still parsed the empty body and appended EOF. This lifecycle code is platform-neutral, not a PowerShell JSON/encoding failure.
+- **Solution:** Removed implicit handoff selection during provider switching; ordinary preparation already freezes the current committed task/context. Kept deliberately imported documents exact and their stale/foreign refusal unchanged. Blocked preparation now retires any earlier staged receipt without creating a new one; malformed unblocked requests still fail. Older builds can use `/handoff-clear` to deselect the stale document and explicitly Send again without deleting the task or export.
+- **Prevention / Reference:** Rust1.90.0 full source gates passed1,841 tests/two ignored. Actual120×36/60×18 Implement journeys exercised cancelled/accepted provider switches, saved follow-ups, private/session restart and expiry inspection in `target/connection-fix-runtime-final`;18 exact loopback POSTs, no implicit sends. No native PowerShell or authenticated live-provider result was claimed.
+- **Verification-fixture distinction:** The first runtime attempt stopped on a helper's blanket `Eevee`-name ban: the fixed `eevee_run_command` schema legitimately described “Eevee's owned runner.” The session-only driver applied that context-leak check to actual context rather than static tool descriptions, retained full unmodified wire bodies, and then passed all four complete Implement journeys. Production packets, permanent helpers, deadlines and canonical role/text/authentication checks were unchanged.
+
+### [2026-10-28] Reopened account setup concealed an expired saved credential
+
+- **Context / Symptom:** The user also reported connections disappearing on later visits. Session-only setup intentionally retained no credential after process exit; saved account access tokens also expired. Separately, Account → Advanced settings displayed no saved-source expiry reason. The consumer regression reproduced `source diagnostic must survive setup: None` (`artifact://11`).
+- **Root Cause:** Authentication intentionally discarded refresh tokens and required explicit reconnect. Recovery setup copied nonsecret editable defaults without checking stored/JWT expiry, collapsed saved-source errors, and Account → Advanced then cleared its notice.
+- **Solution:** Preserved safe private-source errors, reused grant expiry admission and existing JWT claims checks for setup diagnostics, and carried those notices into Account Advanced. Session-only remained the default; explicit private plaintext storage remained opt-in and did not extend access-token lifetime. No automatic renewal, account rotation, credential-store mutation or inference retry was added.
+- **Prevention / Reference:** `/connect chatgpt` → Storage → SAVE private local plaintext before Browser/Device login retains only the access grant. Reconnect explicitly after expiry. Actual compact/wide isolated-HOME restarts proved session credentials absent, explicitly saved fixture credentials restored, zero startup replay, and visible expiry without network or saved-file mutation. Existing full-suite regression also covered JWT expiry and invalid stored JSON. The missing local `pyte` dependency was installed only in `/tmp/eevee-connection-fix-venv`; Rust LSP was restored by installing the missing rust-analyzer component and reloading it.
 
 ### [2026-10-28] An interrupted fixture socket read changed a round-limit result
 

@@ -14,8 +14,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Distinct English-UI scenarios run once; compact/wide rendering and native
-  # file/install boundaries keep explicit coverage on every supported target.
+  # Shared scenarios run once; compact/wide rendering and native file/install
+  # boundaries keep explicit real-binary coverage on every supported target.
   check:
     name: Check
     runs-on: ubuntu-22.04
@@ -138,11 +138,18 @@ jobs:
         run: python -m unittest discover -s scripts -p test_windows_conpty.py
       - name: Isolate current-run terminal evidence from compiler caches
         run: printf 'NATIVE_SMOKE_OUTPUT=%s/ev-native-workflows/%s-%s\n' "$RUNNER_TEMP" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" >> "$GITHUB_ENV"
-      - name: Exercise English native coverage profile
+      - name: Exercise native coverage profile
         run: |
           python scripts/native_workflows_smoke.py \
             --binary target/release/ev${{ runner.os == 'Windows' && '.exe' || '' }} \
             --output "$NATIVE_SMOKE_OUTPUT" --profile "${{ matrix.profile }}" --jobs 2
+      - name: Exercise reviewed contract capabilities
+        # Every size on the full-profile target; the compact size elsewhere.
+        run: |
+          python scripts/contract_smoke.py \
+            --binary target/release/ev${{ runner.os == 'Windows' && '.exe' || '' }} \
+            --output "$NATIVE_SMOKE_OUTPUT/contracts" --jobs 3 \
+            ${{ matrix.profile != 'full' && '--sizes 60x18' || '' }}
       - name: Retain platform file workflow evidence
         if: ${{ always() && env.NATIVE_SMOKE_OUTPUT != '' }}
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0

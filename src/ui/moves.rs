@@ -54,11 +54,12 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         frame,
         row(inner, 0, 1),
         &format!(
-            "{} / {} / {} / {} of 4 slots",
+            "{} / {} / {} / Library {}/32 / Quick {}/4",
             partner,
             form.name,
             form.element,
-            app.moves.active().count()
+            app.moves.active().count(),
+            app.moves.quick().count()
         ),
         paint.accent,
     );
@@ -66,7 +67,9 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         app.moves.failed_error.as_str()
     } else if app.moves.persistence_pending() {
         paint.hint(crate::messages::Message::DesksMovesLoadingSavingLocalMoveFactsNoAction)
-    } else if app.moves.editing() && app.moves.mode != Mode::Name && app.moves.insertion_rejected {
+    } else if matches!(app.moves.mode, Mode::ImportPath | Mode::ExportPath)
+        && app.moves.insertion_rejected
+    {
         paint.hint(crate::messages::Message::TmPathRefused)
     } else if app.moves.portable_exported {
         paint.hint(crate::messages::Message::TmExportSaved)
@@ -104,7 +107,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             paint,
         );
         app.moves.reviewed = body.height >= 4;
-        text(
+        super::choices(
             frame,
             footer,
             if !app.moves.failure_discard {
@@ -119,12 +122,13 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                 )
             },
             paint.accent,
+            paint,
         );
         return;
     }
     match app.moves.mode {
-        Mode::Menu => {
-            let active = app.moves.active();
+        Mode::Menu | Mode::Library => {
+            let active = app.moves.menu_records();
             if active.clone().next().is_none() {
                 text(
                     frame,
@@ -132,7 +136,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                     paint.hint(crate::messages::Message::DesksMovesNoMovesInThisFormYetTeach),
                     paint.surface,
                 );
-            } else if wide {
+            } else if wide && app.moves.mode == Mode::Menu {
                 let half = body.width / 2;
                 let height = (body.height / 2).max(1);
                 for (index, record) in active.enumerate().take(4) {
@@ -152,13 +156,20 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                         paint.accent
                     };
                     let title = format!(
-                        "{} {}",
+                        "{} Q{} {}",
                         if index == app.moves.selected {
                             ">"
                         } else {
                             " "
                         },
-                        clipped(&record.proposal.name, cell.width.saturating_sub(3) as usize)
+                        record
+                            .proposal
+                            .extra
+                            .0
+                            .get("quick_slot")
+                            .and_then(serde_json::Value::as_u64)
+                            .map_or(index + 1, |slot| slot as usize + 1),
+                        clipped(&record.proposal.name, cell.width.saturating_sub(6) as usize)
                     );
                     let last = app
                         .moves
@@ -202,7 +213,11 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             text(
                 frame,
                 footer,
-                paint.hint(crate::messages::Message::TmMenuControls),
+                paint.hint(if app.moves.mode == Mode::Library {
+                    crate::messages::Message::TmLibraryControls
+                } else {
+                    crate::messages::Message::TmMenuControls
+                }),
                 paint.accent,
             );
         }
@@ -283,7 +298,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                 );
                 app.moves.reviewed = body.height >= 4;
             }
-            text(
+            super::choices(
                 frame,
                 footer,
                 paint.hint(if app.moves.affirmative {
@@ -292,9 +307,29 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                     crate::messages::Message::TmExportControls
                 }),
                 paint.accent,
+                paint,
             );
         }
-        Mode::Name => render_name(frame, body, footer, &app.moves, paint),
+        Mode::Name | Mode::Parameters => render_name(frame, body, footer, &app.moves, paint),
+        Mode::ParameterReview => {
+            let details = std::mem::take(&mut app.moves.parameter_review);
+            render_details(frame, body, &details, &mut app.moves, paint);
+            app.moves.parameter_review = details;
+            app.moves.reviewed = body.height >= 4
+                && app.moves.parameter_current()
+                && app.moves.exposed_rows >= app.moves.scroll_max as usize + body.height as usize;
+            if !app.moves.reviewed {
+                app.moves.affirmative = false;
+            }
+            let controls = paint.hint(if !app.moves.reviewed {
+                crate::messages::Message::TmSemanticExpose
+            } else if app.moves.affirmative {
+                crate::messages::Message::DesksMovesStayConfirmLocalChangeEnterConfirmLeft
+            } else {
+                crate::messages::Message::DesksMovesStayConfirmLocalChangeEnterStayLeft
+            });
+            super::choices(frame, footer, controls, paint.accent, paint);
+        }
         Mode::Detail => {
             let details = app
                 .moves
@@ -560,7 +595,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                     .hint(crate::messages::Message::DesksMovesStayConfirmLocalChangeEnterStayLeft)
                     .into()
             };
-            text(frame, footer, &controls, paint.accent);
+            super::choices(frame, footer, &controls, paint.accent, paint);
         }
         Mode::TaskReview => {
             text(
@@ -589,7 +624,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             if !app.moves.reviewed {
                 app.moves.affirmative = false;
             }
-            text(
+            super::choices(
                 frame,
                 footer,
                 if !app.moves.reviewed {
@@ -604,6 +639,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                     )
                 },
                 paint.accent,
+                paint,
             );
         }
     }
@@ -644,8 +680,8 @@ fn render_details(frame: &mut Frame, area: Rect, details: &str, state: &mut Stat
     );
     state.scroll_max = max;
     state.scroll = state.scroll.min(max);
-    if state.mode == Mode::Review
-        && state.review_current()
+    if ((state.mode == Mode::Review && state.review_current())
+        || (state.mode == Mode::ParameterReview && state.parameter_current()))
         && state.scroll as usize <= state.exposed_rows
     {
         state.exposed_rows = state
@@ -655,7 +691,10 @@ fn render_details(frame: &mut Frame, area: Rect, details: &str, state: &mut Stat
 }
 fn render_name(frame: &mut Frame, body: Rect, footer: Rect, state: &State, paint: &Paint) {
     let learning = state.learning.as_ref();
-    let action = if state.mode == Mode::ImportPath {
+    let parameter_editor = state.mode == Mode::Parameters;
+    let action = if parameter_editor {
+        paint.hint(crate::messages::Message::TmParametersEditor)
+    } else if state.mode == Mode::ImportPath {
         paint.hint(crate::messages::Message::TmImportPath)
     } else if state.mode == Mode::ExportPath {
         paint.hint(crate::messages::Message::TmExportPath)
@@ -696,13 +735,21 @@ fn render_name(frame: &mut Frame, body: Rect, footer: Rect, state: &State, paint
         text(
             frame,
             row(body, body.height.saturating_sub(2), 2),
-            paint.hint(crate::messages::Message::TmPathBoundary),
+            paint.hint(if parameter_editor {
+                crate::messages::Message::TmParametersBoundary
+            } else {
+                crate::messages::Message::TmPathBoundary
+            }),
             paint.muted,
         );
         text(
             frame,
             footer,
-            paint.hint(crate::messages::Message::TmPathControls),
+            paint.hint(if parameter_editor {
+                crate::messages::Message::TmParametersControls
+            } else {
+                crate::messages::Message::TmPathControls
+            }),
             paint.accent,
         );
         return;
@@ -789,6 +836,17 @@ pub(super) fn proposal_details(proposal: &Proposal, paint: &Paint) -> String {
             }
         }
     }
+    match crate::workspace::moves::parameters::Template::of(proposal) {
+        Ok(Some(template)) => {
+            match template.review(&proposal.steps, &template.defaults_json()) {
+                Ok((_, details)) => text.push_str(&format!("\nTyped request template:\n{details}")),
+                Err(error) => text.push_str(&format!("\nUnavailable parameters: {error}\n")),
+            }
+            text.push_str(&crate::workspace::game::variant_review(&template.variants));
+        }
+        Err(error) => text.push_str(&format!("\nUnavailable parameters: {error}\n")),
+        Ok(None) => {}
+    }
     text.push_str(&format!(
         "Provenance task #{}\n",
         proposal.provenance.task_id
@@ -850,6 +908,24 @@ fn record_details(record: &Record, state: &State, paint: &Paint) -> String {
             ("completed", &(completed).to_string()),
         ],
     );
+    let quick_slot = record
+        .proposal
+        .extra
+        .0
+        .get("quick_slot")
+        .and_then(serde_json::Value::as_u64)
+        .map(|slot| slot as usize)
+        .or_else(|| {
+            (!state
+                .active()
+                .any(|record| record.proposal.extra.contains("quick_slot")))
+            .then(|| state.quick().position(|quick| quick.id == record.id))
+            .flatten()
+        });
+    text.push_str(&quick_slot.map_or_else(
+        || "\nLibrary only (not a quick move)\n".into(),
+        |slot| format!("\nQuick slot {} / library retained\n", slot + 1),
+    ));
     if let Some(last) = state.last_usage(record.id) {
         text.push_str(&format!(
             "Last: {} / revision {}\n",
@@ -995,6 +1071,13 @@ fn review_details(state: &State, partner: &str, paint: &Paint) -> (String, Strin
     details.push_str(paint.hint(crate::messages::Message::TmSemanticNew));
     details.push('\n');
     details.push_str(&proposal_details(proposal, paint));
+    if !review.variants.is_empty()
+        && !proposal
+            .extra
+            .contains(crate::workspace::moves::parameters::KEY)
+    {
+        details.push_str(&crate::workspace::game::variant_review(&review.variants));
+    }
     details.push('\n');
     details.push_str(paint.hint(crate::messages::Message::TmSemanticBoundary));
     if matches!(learning, Learning::Import(_)) {
@@ -1110,6 +1193,10 @@ fn semantic_changes(
             ),
             (ChangedField::Pins, ..) => paint.hint(Message::TmSemanticPins).into(),
             (ChangedField::Instruction, ..) => paint.hint(Message::TmSemanticInstruction).into(),
+            (ChangedField::Parameters, ..) => {
+                "Typed request slots/defaults/variants changed; inspect both exact templates below."
+                    .into()
+            }
             (ChangedField::Goal, ..) => paint.hint(Message::TmSemanticGoal).into(),
             _ => continue,
         };
@@ -1129,6 +1216,7 @@ mod tests {
             revision: 2,
             project: "project".into(),
             proposal: Proposal {
+                extra: Default::default(),
                 partner: 1,
                 form: 1,
                 name: "水の波".into(),
@@ -1245,7 +1333,7 @@ mod tests {
         assert!(details.contains("PROPOSED"));
         assert!(details.contains("Exact local recipient / partner #1 / Jolteon"));
         assert!(details.contains("Scope: Personal"));
-        assert!(details.contains("slot 1 of 4 / move #1 revision 2"));
+        assert!(details.contains("library slot 1 of 32 / move #1 revision 2"));
         assert!(!state.review.as_ref().unwrap().name_only);
         assert_eq!(
             state.records,
@@ -1257,6 +1345,7 @@ mod tests {
     fn config() -> Config {
         Config {
             native_transport: crate::providers::NativeTransport::Auto,
+            retry: Default::default(),
             ascii: true,
             no_animation: true,
             animation_override: Some(false),
@@ -1312,11 +1401,58 @@ mod tests {
                 });
             }
             let buffer = draw(&mut app, width, height);
-            assert!(buffer.contains("> Surf4"));
+            assert!(buffer.contains(if width >= 90 { "> Q4 Surf4" } else { "> Surf4" }));
             assert!(buffer.contains("Moves"));
             assert!(buffer.is_ascii());
         }
     }
+    #[test]
+    fn xc07_variant_review_exposes_exact_differences_and_slot_values_at_both_sizes() {
+        for (width, height) in [(120, 36), (60, 18)] {
+            let mut app = App::new("project".into(), width, height);
+            let mut proposal = record().proposal;
+            proposal.form = 3;
+            proposal.steps = Steps::Request {
+                instruction: "Fix bug in src/b.rs".into(),
+                pins: vec![],
+            };
+            app.moves.partner = 1;
+            app.moves.form = 3;
+            app.moves.mode = Mode::Review;
+            app.moves.name = proposal.name.clone();
+            app.moves.variants = vec![
+                "fix the bug in src/a.rs".into(),
+                "Fix bug in src/b.rs".into(),
+            ];
+            app.moves.learning = Some(Learning::Teach(proposal));
+            app.moves.review = Some(app.moves.prepare_review().unwrap());
+            let paint = Paint::new(&config(), &FORMS[3], 1);
+            let (_, details) = review_details(&app.moves, "Partner", &paint);
+            assert!(details.contains("Variant 1: \"fix the bug in src/a.rs\""));
+            assert!(details.contains("Variant 2: \"Fix bug in src/b.rs\""));
+            assert!(details.contains("path 1 = \"src/a.rs\""));
+            assert!(details.contains("path 1 = \"src/b.rs\""));
+            draw(&mut app, width, height);
+            assert!(!app.moves.affirmative);
+            if app.moves.scroll_max > 0 {
+                assert!(!app.moves.reviewed);
+            }
+            while !app.moves.reviewed {
+                app.moves.scroll = app
+                    .moves
+                    .scroll
+                    .saturating_add(app.moves.scroll_page)
+                    .min(app.moves.scroll_max);
+                draw(&mut app, width, height);
+            }
+            app.moves.variants.push("fix the bug in src/c.rs".into());
+            assert!(
+                !app.moves.review_current(),
+                "changed differences invalidate saved review"
+            );
+        }
+    }
+
     #[test]
     fn rendered_review_requires_contiguous_full_scope_exposure_before_consent() {
         let mut app = App::new("project".into(), 60, 18);
@@ -1381,5 +1517,65 @@ mod tests {
             usage_outcome(&state.usages[0]),
             "completed (not a correctness verdict)"
         );
+    }
+    #[test]
+    fn xc07_parameter_review_requires_full_exposure_and_revokes_stale_values() {
+        for (width, height) in [(120, 36), (60, 18)] {
+            let mut app = App::new("project".into(), width, height);
+            let mut record = record();
+            record.proposal.form = 3;
+            record.proposal.steps = Steps::Request {
+                instruction: "Fix bug in src/b.rs".into(),
+                pins: vec![],
+            };
+            let template = crate::workspace::moves::parameters::Template::derive(
+                &record.proposal.steps,
+                vec![
+                    "fix the bug in src/a.rs".into(),
+                    "Fix bug in src/b.rs".into(),
+                ],
+            )
+            .unwrap()
+            .unwrap();
+            template.store(&mut record.proposal).unwrap();
+            app.moves.partner = 1;
+            app.moves.form = 3;
+            app.moves.records.push(record.clone());
+            app.moves.parameter_record = Some(record.clone());
+            app.moves.name = "[\"src/c.rs\"]".into();
+            app.moves.parameter_values.clone_from(&app.moves.name);
+            let (instruction, details) = template
+                .review(&record.proposal.steps, &app.moves.name)
+                .unwrap();
+            app.moves.parameter_instruction = Some(instruction);
+            app.moves.parameter_review = details;
+            app.moves.mode = Mode::ParameterReview;
+            draw(&mut app, width, height);
+            assert!(!app.moves.affirmative);
+            if app.moves.scroll_max > 0 {
+                assert!(!app.moves.reviewed);
+            }
+            if app.moves.scroll_max as usize > app.moves.exposed_rows {
+                app.moves.scroll = app.moves.scroll_max;
+                draw(&mut app, width, height);
+                assert!(
+                    !app.moves.reviewed,
+                    "skipping hidden slot details cannot arm consent"
+                );
+                app.moves.scroll = 0;
+                draw(&mut app, width, height);
+            }
+            while !app.moves.reviewed {
+                app.moves.scroll = app
+                    .moves
+                    .scroll
+                    .saturating_add(app.moves.scroll_page)
+                    .min(app.moves.scroll_max);
+                draw(&mut app, width, height);
+            }
+            app.moves.name = "[\"src/d.rs\"]".into();
+            draw(&mut app, width, height);
+            assert!(!app.moves.reviewed && !app.moves.affirmative);
+        }
     }
 }

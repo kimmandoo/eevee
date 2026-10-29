@@ -675,3 +675,48 @@ fn deletion_preview_lists_exact_selected_and_removed_images_and_excludes_purged(
     let targets = state.preview_delete(&[task.id], None).unwrap();
     assert_eq!(targets[0].screenshots, vec![(second.capture.clone(), true)]);
 }
+
+#[test]
+fn opening_an_older_schema_keeps_a_bounded_pre_migration_copy() {
+    let fixture = Fixture::new();
+    let mut state = fixture.open();
+    let mut task = Snapshot::empty(fixture.project.clone());
+    task.goal = "Backed-up historical task".into();
+    state.save(task).unwrap();
+    drop(state);
+    let backups = super::super::tasks::backup_directory(&fixture.data);
+    assert!(!backups.exists(), "current schema needs no copy");
+    drop(fixture.open());
+    assert!(
+        !backups.exists(),
+        "reopening the current schema copies nothing"
+    );
+    for round in 0..4 {
+        Connection::open(fixture.data.join(DATABASE))
+            .unwrap()
+            .execute_batch("DROP TABLE screenshots; PRAGMA user_version=19;")
+            .unwrap();
+        drop(fixture.open());
+        let copies = fs::read_dir(&backups).unwrap().count();
+        assert_eq!(copies, (round + 1).min(3));
+        // Distinct second-resolution names; the oldest copy is pruned first.
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+    }
+    let copy = fs::read_dir(&backups)
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    let copy = Connection::open(copy).unwrap();
+    assert_eq!(
+        copy.pragma_query_value::<i64, _>(None, "user_version", |row| row.get(0))
+            .unwrap(),
+        19
+    );
+    let goal: String = copy
+        .query_row("SELECT goal FROM tasks", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(goal, "Backed-up historical task");
+    let _ = fs::remove_dir_all(&backups);
+}

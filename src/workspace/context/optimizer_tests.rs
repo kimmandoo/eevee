@@ -670,6 +670,10 @@ fn selected_note_edits_revision_provenance_and_selection_invalidate_frozen_input
     let plan = optimize(&report, &[], original.clone(), 8_000, &[]);
     let input = crate::providers::Input {
         native_transport: crate::providers::NativeTransport::Auto,
+        behavior_profile: None,
+        mcp: Vec::new(),
+        delegation_enabled: false,
+        delegation: None,
         task: task.clone(),
         work: None,
         local_only: true,

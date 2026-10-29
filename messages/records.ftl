@@ -88,7 +88,7 @@ records-controls = ↑↓ choose · PgUp/PgDn page · Home/End · Esc back
 records-dex-controls = ↑↓ signature · PgUp/PgDn page · r review Umbreon relay · /dex-resolve link · Esc
 records-habits-controls = ↑↓ proposal · /habit-approve memory review · /habit-dismiss · PgUp/PgDn · Esc
 records-pairing-controls = ↑↓ pairing · /save-pairing · /remove-pairing · PgUp/PgDn · Esc
-records-review-controls = { $stay } / { $action } · ←→ · Enter
+records-review-controls = { $stay } | { $action } | ←→ | Enter
     { $review }
     PgUp/PgDn details · Esc back
 records-discard-action = Discard unsaved write
@@ -156,8 +156,8 @@ ribbons-move = Original move #{ $id } / revision { $revision }
 ribbons-foreign-owner = Different producer or form. Enter opens the ordinary party/form picker only; no lead or form is changed.
 ribbons-open-artifact = Enter opens the source task's ordinary review/handoff inspector when already on that task; never exports or sends.
 ribbons-open-move = Enter opens ordinary move details/menu for this owner/form only. Deleted sources are not replaced.
-ribbons-controls = Up/Down select / h hide/show / Enter inspect
-    PgUp/PgDn page / Home/End / Esc back
+ribbons-controls = Up/Down select | h hide/show | Enter inspect
+    PgUp/PgDn page | Home/End | Esc back
 ribbons-visibility = historical-line visibility
 ribbons-visibility-detail = { $kind } / hidden = { $hidden }
     Only local summary visibility changes; no evidence is deleted.

@@ -868,6 +868,17 @@ impl State {
         self.error.clear();
         self.status = "Reading and validating selected source evidence…".into();
     }
+    /// Remove a consumed one-shot attachment without the interactive review.
+    /// Returns false while another store operation owns the queue.
+    pub fn remove_now(&mut self, task_id: i64, id: i64) -> bool {
+        if self.store_busy || self.pending_store.is_some() || self.screenshot_store_busy {
+            return false;
+        }
+        if self.basket.iter().any(|excerpt| excerpt.id == id) {
+            self.queue_store(task_id, store::ContextOperation::Remove(id));
+        }
+        true
+    }
     fn queue_store(&mut self, task_id: i64, operation: store::ContextOperation) {
         self.store_mutation = matches!(
             &operation,
@@ -2121,7 +2132,7 @@ impl State {
             String::new()
         };
         self.detail = format!(
-            "EXACT BASKET ENVELOPE / escaped display\n{} UTF-8 bytes / ~{} tokens ({})\nProvider history/config/agent-owned reads may add context; this basket does not constrain them. No provider is connected and nothing is sent.{}\nPage {} / bytes {}..{} / /page-next, /page-previous\n\n{:?}",
+            "EXACT BASKET ENVELOPE / escaped display\n{} UTF-8 bytes / ~{} tokens ({})\nProvider history/config/agent-owned reads may add context; this basket does not constrain them. No provider is connected and nothing is sent.{}\nPage {} / bytes {}..{} | /page-next, /page-previous\n\n{:?}",
             payload.bytes,
             payload.estimated_tokens,
             crate::workspace::receipt::ESTIMATOR,

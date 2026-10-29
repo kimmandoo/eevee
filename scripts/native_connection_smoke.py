@@ -177,6 +177,18 @@ class Peer:
                     self.reply(409, {'error': 'no planned inference'})
                     return
                 row['fixture_mode'] = mode
+                if mode == 'rate_limited':
+                    # Refused before processing: the client may resend the same body.
+                    encoded = json.dumps({'error': 'fixture rate limit'}).encode()
+                    self.send_response(429)
+                    self.send_header('Retry-After', '0')
+                    self.send_header('Content-Type', 'application/json')
+                    self.send_header('Content-Length', str(len(encoded)))
+                    self.send_header('Connection', 'close')
+                    self.end_headers()
+                    self.wfile.write(encoded)
+                    self.close_connection = True
+                    return
                 self.send_response(200)
                 self.send_header('Content-Type', 'text/event-stream')
                 self.send_header('Connection', 'close')
@@ -312,7 +324,7 @@ def decoded_payload(protocol, body):
 
 
 class Journey:
-    def __init__(self, binary, output, root, size, ascii_mode, route, protocol, keyless, persist, peer):
+    def __init__(self, binary, output, root, size, ascii_mode, route, protocol, keyless, persist, peer, *, controlling_tty=False):
         self.output, self.root, self.peer = output, root, peer
         self.route, self.protocol = route, protocol
         self.keyless, self.persist = keyless, persist
@@ -333,7 +345,7 @@ class Journey:
                            NO_PROXY='127.0.0.1,localhost', no_proxy='127.0.0.1,localhost', BROWSER='/bin/true')
         self.session = Session([str(binary), '--data-dir', str(self.data), '--images', 'off',
                                 '--color', 'mono', *(['--ascii'] if ascii_mode else [])],
-                               self.project, environment, size, output / 'tui')
+                               self.project, environment, size, output / 'tui', controlling_tty=controlling_tty)
         self.cases, self.assertions = [], []
 
     def redacted(self, text):
@@ -396,13 +408,13 @@ class Journey:
         # Escape only temporary drawers; bounded navigation is not an inference retry.
         for _ in range(8):
             footer = self.session.display().rstrip().splitlines()[-1].strip()
-            if footer.startswith(('Type Request /', 'Enter Send /', 'Draft only /')):
+            if footer.startswith(('Type Request |', 'Enter Send |', 'Draft only |')):
                 return footer
             self.session.send(ESC)
         raise AssertionError('Request owner not reachable\n' + self.session.display())
 
     def write_request(self, text):
-        if self.workspace().startswith('Type Request /'):
+        if self.workspace().startswith('Type Request |'):
             self.session.send('\r')
         self.session.send((ESC + '[A') * 16 + HOME + DELETE * 256)
         self.session.paste(text)
@@ -482,7 +494,10 @@ class Journey:
         assert isinstance(policy, str) and 'untrusted' in policy.lower() and 'tools' in policy.lower(), \
             label + ': missing separate system policy and untrusted task/source context'
         assert not any(answer in policy for answer in ANSWERS), 'assistant display/history copied into system policy'
-        encoded = json.dumps(body, ensure_ascii=False)
+        # Host tool declarations name the product's own runner; partner flavor
+        # must stay out of messages and policy, which is what this scan covers.
+        encoded = json.dumps({key: value for key, value in body.items() if key != 'tools'},
+                             ensure_ascii=False)
         for forbidden in (*self.secrets, PARTIAL, REASONING, 'Request: ', 'Response: ',
                           'Eevee', 'Vaporeon', 'Jolteon', 'Flareon', 'Espeon', 'Umbreon',
                           'Leafeon', 'Glaceon', 'Sylveon', 'Previous request:', 'Current request:',
@@ -497,11 +512,20 @@ class Journey:
         self.write_request(text)
         before = len(self.peer.snapshot('POST'))
         before_state = self.snapshot()
+        posts = 1
+        if mode == 'retry':
+            # XC04: one HTTP 429 is resent automatically with the identical body.
+            self.peer.plans.put(('rate_limited', None))
+            mode, posts = 'complete', 2
         self.peer.plans.put((mode, answer))
         self.capture(label + '-before-send')
         self.session.send('\r')
-        until(self.session, lambda: len(self.peer.snapshot('POST')) == before + 1,
-              label + ': ordinary send did not dispatch exactly once')
+        until(self.session, lambda: len(self.peer.snapshot('POST')) == before + posts,
+              label + ': ordinary send did not dispatch the expected attempts')
+        if posts == 2:
+            first, second = self.peer.snapshot('POST')[-2:]
+            assert first['body'] == second['body'], label + ': retried round changed its body'
+            assert first['fixture_mode'] == 'rate_limited', label + ': first attempt was not the refused one'
         self.assert_payload(self.peer.snapshot('POST')[-1], history + [('user', text)], label)
         if mode == 'cancel':
             until(self.session, self.peer.cancel_started.is_set, 'streaming cancellation boundary')
@@ -544,7 +568,7 @@ class Journey:
             'task_partner_ownership_unchanged': True,
         }
         self.session.pump(.3)
-        assert len(self.peer.snapshot('POST')) == before + 1, 'hidden resend after ' + label
+        assert len(self.peer.snapshot('POST')) == before + posts, 'hidden resend after ' + label
         self.capture(label + '-after-settlement')
         self.cases.append(label)
         if mode == 'incomplete':
@@ -725,6 +749,8 @@ class Journey:
         # The third request is checked for ALL exact earlier roles/facts/replies,
         # not a message count or an echoed fixture response.
         assert len(history) == 6
+        history = self.send('Rate limited once, then accepted.', history,
+                            'Fixture accepted after one automatic retry.', 'rate-limit-retried-same-body', 'retry')
         history = self.send('Cancel this partial turn.', history, '', 'cancel-partial-excluded', 'cancel')
         history = self.send('After cancellation retain completed facts only.', history,
                             'Fixture complete after cancellation.', 'post-cancel-canonical-content')

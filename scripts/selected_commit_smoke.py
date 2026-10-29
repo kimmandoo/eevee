@@ -139,7 +139,7 @@ def run(binary, output, size, keep):
         original_owner = j.snapshot()[0]["lead_partner"]
         head = j.head()
         request_draft = "Unsent GP07 request draft 東京 exact caret tail"
-        if j.workspace().startswith("Type Request /"):
+        if j.workspace().startswith("Type Request |"):
             j.session.send("\r")
         j.session.paste(request_draft)
         j.session.send(LEFT * 3)

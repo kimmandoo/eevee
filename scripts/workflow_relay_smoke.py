@@ -74,7 +74,7 @@ def main():
                            NO_PROXY="127.0.0.1,localhost", no_proxy="127.0.0.1,localhost")
 
                 def rows():
-                    with closing(sqlite3.connect(database.as_uri() + "?mode=ro", uri=True, timeout=1)) as db:
+                    with closing(sqlite3.connect(database.as_uri() + "?mode=ro", uri=True, timeout=10)) as db:
                         db.row_factory = sqlite3.Row
                         task = dict(db.execute("SELECT * FROM tasks ORDER BY id LIMIT 1").fetchone())
                         runs = [json.loads(r[0]) for r in db.execute("SELECT record FROM executions ORDER BY rowid")]
@@ -156,7 +156,7 @@ def main():
                 def workspace():
                     for _ in range(12):
                         footer = session.display().rstrip().splitlines()[-1].strip()
-                        if footer.startswith(("Type Request /", "Enter Send /")):
+                        if footer.startswith(("Type Request |", "Enter Send |")):
                             return footer
                         session.send(ESC)
                         session.pump(.15)
@@ -167,7 +167,7 @@ def main():
                     session.command(f"lead {partner}")
                     until(lambda: rows()[0]["lead_partner"] == partner, "draft owner was not fronted")
                     footer = workspace()
-                    if footer.startswith("Type Request /"):
+                    if footer.startswith("Type Request |"):
                         session.send("\r")  # Open the Request editor; never send its contents.
                     session.send(UP * 100 + HOME + DELETE * 512 + "\x13")
                     until(lambda: not any(d["text"] for d in rows()[0]["partner_drafts"].get(str(partner), {}).get("drafts", []) if d["field"] == "Request"), "recipient Request was not explicitly cleared")

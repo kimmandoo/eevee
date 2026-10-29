@@ -66,6 +66,7 @@ fn call(
 }
 fn proposal(task: &Snapshot, partner: i64, name: &str, scope: Scope) -> Proposal {
     Proposal {
+        extra: Default::default(),
         partner,
         form: 2,
         name: name.into(),
@@ -219,7 +220,7 @@ fn use_for(task: &Snapshot, record: &Record, id: &str, outcome: Outcome) -> Usag
 }
 
 #[test]
-fn four_slots_stale_atomic_replacement_and_relearn_survive_restart() {
+fn library_32_boundary_stale_atomic_replacement_and_relearn_survive_restart() {
     let fixture = Fixture::new();
     let mut store = fixture.open();
     let task = fixture.task(&mut store, 2);
@@ -228,8 +229,12 @@ fn four_slots_stale_atomic_replacement_and_relearn_survive_restart() {
         &task,
         proposal(&task, 1, "Thunderbolt", Scope::Project),
     );
-    for name in ["Spark", "Charge", "Volt Switch"] {
-        teach(&mut store, &task, proposal(&task, 1, name, Scope::Project));
+    for index in 1..32 {
+        teach(
+            &mut store,
+            &task,
+            proposal(&task, 1, &format!("Library {index}"), Scope::Project),
+        );
     }
     let fifth = proposal(&task, 1, "Discharge", Scope::Project);
     assert!(
@@ -244,7 +249,7 @@ fn four_slots_stale_atomic_replacement_and_relearn_survive_restart() {
             }
         )
         .unwrap_err()
-        .contains("four")
+        .contains("32")
     );
     let renamed = call(
         &mut store,
@@ -282,7 +287,7 @@ fn four_slots_stale_atomic_replacement_and_relearn_survive_restart() {
             .iter()
             .filter(|record| !record.forgotten)
             .count(),
-        4
+        32
     );
     let replaced = call(
         &mut store,
@@ -336,7 +341,7 @@ fn four_slots_stale_atomic_replacement_and_relearn_survive_restart() {
             .iter()
             .filter(|record| !record.forgotten)
             .count(),
-        4
+        32
     );
 }
 
@@ -1184,11 +1189,11 @@ fn personal_slots_are_counted_in_other_projects_and_project_purge_preserves_pers
         },
     )
     .unwrap();
-    for name in ["Other A", "Other B", "Other C"] {
+    for name in (1..32).map(|index| format!("Other {index}")) {
         teach(
             &mut store,
             &other_task,
-            proposal(&other_task, 1, name, Scope::Project),
+            proposal(&other_task, 1, &name, Scope::Project),
         );
     }
     store.project = fixture.project.clone();
@@ -1592,11 +1597,11 @@ fn new_personal_move_in_empty_project_cannot_overfill_a_different_project() {
     let fixture = Fixture::new();
     let mut store = fixture.open();
     let task_a = fixture.task(&mut store, 2);
-    for name in ["A1", "A2", "A3", "A4"] {
+    for name in (1..=32).map(|index| format!("A{index}")) {
         teach(
             &mut store,
             &task_a,
-            proposal(&task_a, 1, name, Scope::Project),
+            proposal(&task_a, 1, &name, Scope::Project),
         );
     }
     let project_b = fixture.root.join("project-b");
@@ -1637,7 +1642,7 @@ fn new_personal_move_in_empty_project_cannot_overfill_a_different_project() {
             .iter()
             .filter(|record| !record.forgotten)
             .count(),
-        4
+        32
     );
 }
 
@@ -2235,8 +2240,8 @@ fn portable_import_is_local_inert_restartable_and_atomic() {
         )
         .is_err()
     );
-    for name in ["Second", "Third", "Fourth"] {
-        call(&mut store, &task, 1, 2, import(name, Scope::Project, None)).unwrap();
+    for name in (1..32).map(|index| format!("Library {index}")) {
+        call(&mut store, &task, 1, 2, import(&name, Scope::Project, None)).unwrap();
     }
     assert!(
         call(
@@ -2263,7 +2268,7 @@ fn portable_import_is_local_inert_restartable_and_atomic() {
         .is_err()
     );
     let snapshot = call(&mut store, &task, 1, 2, Operation::Load).unwrap();
-    assert_eq!(snapshot.records.iter().filter(|r| !r.forgotten).count(), 4);
+    assert_eq!(snapshot.records.iter().filter(|r| !r.forgotten).count(), 32);
     let replaced = call(
         &mut store,
         &task,
@@ -2360,6 +2365,7 @@ fn every_tm_form_imports_across_projects_without_evidence_or_capture() {
             },
         };
         let definition = domain::portable::Definition {
+            parameters: None,
             schema_version: 1,
             name: format!("TM {form}"),
             form: crate::domain::FORMS[form].name.into(),
@@ -2737,4 +2743,112 @@ fn party_copy_binds_exact_teacher_record_and_revision_before_commit() {
         .is_err(),
         "a copy cannot bypass exact-source review via ordinary teaching"
     );
+}
+
+#[test]
+fn xc07_quick_assignment_is_explicit_revision_bound_and_restartable_without_tm_changes() {
+    let fixture = Fixture::new();
+    let mut store = fixture.open();
+    let task = fixture.task(&mut store, 2);
+    for index in 0..5 {
+        teach(
+            &mut store,
+            &task,
+            proposal(&task, 1, &format!("Quick {index}"), Scope::Project),
+        );
+    }
+    let before = call(&mut store, &task, 1, 2, Operation::Load).unwrap();
+    assert_eq!(before.records.len(), 5);
+    let chosen = &before.records[4];
+    let portable_before = domain::portable::Definition::from_proposal(&chosen.proposal)
+        .unwrap()
+        .encode()
+        .unwrap();
+    let assigned = call(
+        &mut store,
+        &task,
+        1,
+        2,
+        Operation::AssignQuick {
+            id: chosen.id,
+            revision: chosen.revision,
+            slot: 0,
+        },
+    )
+    .unwrap();
+    assert!(assigned.usages.is_empty());
+    assert_eq!(
+        assigned
+            .records
+            .iter()
+            .filter(|record| !record.forgotten)
+            .count(),
+        5
+    );
+    let selected = assigned
+        .records
+        .iter()
+        .find(|record| record.id == chosen.id)
+        .unwrap();
+    assert_eq!(
+        selected.proposal.extra.0.get("quick_slot"),
+        Some(&serde_json::json!(0))
+    );
+    assert_eq!(selected.proposal.steps, chosen.proposal.steps);
+    assert_eq!(
+        domain::portable::Definition::from_proposal(&selected.proposal)
+            .unwrap()
+            .encode()
+            .unwrap(),
+        portable_before
+    );
+    assert_eq!(
+        assigned
+            .records
+            .iter()
+            .filter(|record| record
+                .proposal
+                .extra
+                .0
+                .get("quick_slot")
+                .is_some_and(|slot| !slot.is_null()))
+            .count(),
+        4
+    );
+    assert!(
+        call(
+            &mut store,
+            &task,
+            1,
+            2,
+            Operation::AssignQuick {
+                id: chosen.id,
+                revision: chosen.revision,
+                slot: 1
+            }
+        )
+        .is_err()
+    );
+    assert!(
+        call(
+            &mut store,
+            &task,
+            1,
+            2,
+            Operation::AssignQuick {
+                id: chosen.id,
+                revision: selected.revision,
+                slot: 4
+            }
+        )
+        .is_err()
+    );
+    drop(store);
+    let mut store = fixture.open();
+    assert_eq!(
+        call(&mut store, &task, 1, 2, Operation::Load).unwrap(),
+        assigned
+    );
+    let decoded = domain::portable::Definition::decode(&portable_before);
+    assert!(decoded.is_ok(), "old TM1 remains admitted");
 }

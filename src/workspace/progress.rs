@@ -23,14 +23,20 @@ pub struct Step {
     pub status: Status,
 }
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct State {
     pub revision: u64,
     pub adopted_revision: Option<u64>,
     pub source: String,
     pub steps: Vec<Step>,
     pub adopted_steps: Vec<Step>,
+    /// Legacy opt-in flag; the prelude is now on unless `eager_off` is set.
     pub eager: bool,
+    /// Explicit `/todo-eager off`. Omitted while the default (on) applies.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub eager_off: bool,
+    /// Newer writers' fields, preserved (XC08).
+    #[serde(flatten)]
+    pub extra: super::forward::Extra,
 }
 fn label(text: &str) -> Result<(), String> {
     if text.trim() != text || text.is_empty() || text.len() > MAX_LABEL_BYTES || text.chars().any(|c| c.is_control() || matches!(c, '\u{061c}'|'\u{200e}'|'\u{200f}'|'\u{202a}'..='\u{202e}'|'\u{2066}'..='\u{2069}')) {
@@ -82,14 +88,33 @@ impl State {
         }
         Ok(())
     }
+    /// Whether native requests carry the phased-todo prelude (default on).
+    pub fn eager(&self) -> bool {
+        !self.eager_off
+    }
     pub fn active_step(&self) -> Option<&Step> {
         if self.adopted_revision != Some(self.revision) {
             return None;
         }
         self.steps.iter().find(|s| s.status == Status::Active)
     }
-    pub fn active_label(&self) -> Option<&str> {
-        self.active_step().map(|s| s.label.as_str())
+    /// The adopted step the next request continues: the active step, otherwise
+    /// the first pending one. Done/blocked/dropped steps never steer work.
+    pub fn focus_step(&self) -> Option<(usize, &Step)> {
+        if self.adopted_revision != Some(self.revision) {
+            return None;
+        }
+        let find = |status| self.steps.iter().position(|s| s.status == status);
+        let index = find(Status::Active).or_else(|| find(Status::Pending))?;
+        Some((index, &self.steps[index]))
+    }
+    pub fn focus_label(&self) -> Option<&str> {
+        self.focus_step().map(|(_, s)| s.label.as_str())
+    }
+    /// Compact "2/5 label" position of the focus step.
+    pub fn focus_position(&self) -> Option<String> {
+        self.focus_step()
+            .map(|(index, step)| format!("{}/{} {}", index + 1, self.steps.len(), step.label))
     }
     pub fn propose(&mut self, source: &str, steps: Vec<Step>) -> Result<bool, String> {
         validate_steps(&steps)?;
@@ -175,6 +200,11 @@ impl State {
         match self.active_step() {
             Some(step) => format!("adopted revision {} / {}", self.revision, step.label),
             None if self.revision == 0 => "no step list from this route".into(),
+            None if self.focus_step().is_some() => format!(
+                "adopted revision {} / next: {}",
+                self.revision,
+                self.focus_label().unwrap_or_default()
+            ),
             None => format!(
                 "revision {} / {} / no adopted active step",
                 self.revision,
@@ -283,22 +313,75 @@ mod tests {
                 ],
             )
             .unwrap();
-        assert!(state.active_label().is_none());
+        assert!(state.focus_label().is_none());
         state.adopt().unwrap();
-        assert_eq!(state.active_label(), Some("조사 오류"));
+        assert_eq!(state.focus_label(), Some("조사 오류"));
         let old = state.clone();
         assert!(state.operate("start", "fix code", vec![]).is_err());
         assert_eq!(state, old);
         state.operate("done", "조사 오류", vec![]).unwrap();
         state.operate("start", "fix code", vec![]).unwrap();
-        assert!(state.active_label().is_none());
+        assert!(state.focus_label().is_none());
         assert!(!state.diff().is_empty());
         state.adopt().unwrap();
-        assert_eq!(state.active_label(), Some("fix code"));
+        assert_eq!(state.focus_label(), Some("fix code"));
         assert_eq!(
             serde_json::from_str::<State>(&serde_json::to_string(&state).unwrap()).unwrap(),
             state
         );
+    }
+    #[test]
+    fn focus_follows_active_then_next_pending_adopted_step() {
+        let mut state = State::default();
+        state
+            .propose(
+                "fixture",
+                vec![
+                    step("오류 조사", Status::Done),
+                    step("코드 수정", Status::Pending),
+                    step("테스트 실행", Status::Pending),
+                ],
+            )
+            .unwrap();
+        assert!(
+            state.focus_step().is_none(),
+            "unadopted proposals never steer"
+        );
+        state.adopt().unwrap();
+        assert_eq!(state.focus_label(), Some("코드 수정"));
+        assert_eq!(state.focus_position().as_deref(), Some("2/3 코드 수정"));
+        assert_eq!(state.summary(), "adopted revision 1 / next: 코드 수정");
+        state.operate("start", "테스트 실행", vec![]).unwrap();
+        state.adopt().unwrap();
+        assert_eq!(state.focus_label(), Some("테스트 실행"));
+        for label in ["코드 수정", "테스트 실행"] {
+            state.operate("done", label, vec![]).unwrap();
+        }
+        state.adopt().unwrap();
+        assert!(
+            state.focus_step().is_none(),
+            "completed lists steer nothing"
+        );
+    }
+    #[test]
+    fn todo_prelude_defaults_on_and_only_an_explicit_off_is_persisted() {
+        let state = State::default();
+        assert!(state.eager());
+        let json = serde_json::to_string(&state).unwrap();
+        assert!(
+            !json.contains("eager_off"),
+            "default bytes stay legacy-readable"
+        );
+        // Legacy stored lists without the field (eager false) now use the default.
+        let legacy: State = serde_json::from_str(&json).unwrap();
+        assert!(legacy.eager());
+        let off = State {
+            eager_off: true,
+            ..State::default()
+        };
+        assert!(!off.eager());
+        let off: State = serde_json::from_str(&serde_json::to_string(&off).unwrap()).unwrap();
+        assert!(!off.eager());
     }
     #[test]
     fn malformed_native_tool_is_transactional_and_view_grants_nothing() {
@@ -318,7 +401,7 @@ mod tests {
             .apply_tool(&serde_json::json!({"operation":"view","label":"","steps":[]}))
             .unwrap();
         assert_eq!(state, before);
-        assert!(state.active_label().is_none());
+        assert!(state.focus_label().is_none());
     }
     #[test]
     fn adapters_agree_and_bounds_refuse() {

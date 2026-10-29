@@ -46,6 +46,7 @@ impl Drop for TestDirectory {
 fn config(path: &Path) -> Config {
     Config {
         native_transport: crate::providers::NativeTransport::Auto,
+        retry: Default::default(),
         ascii: false,
         no_animation: false,
         animation_override: None,
@@ -564,4 +565,29 @@ fn worker_starts_idle_and_reloads_local_images_without_network() {
     }
     assert!(!worker.busy());
     assert!(!directory.0.join("sources.json").exists());
+}
+
+#[test]
+fn item_sprites_are_optional_hash_pinned_and_fall_back_to_text_icons() {
+    use crate::app::game::Item;
+    let directory = TestDirectory::new();
+    let mut buffer = Buffer::empty(Rect::new(0, 0, 12, 6));
+    // No cache: every item uses its text icon.
+    let artwork = Artwork::load(&config(&directory.0));
+    for item in [Item::Potion, Item::Berry, Item::Tm(3), Item::Key] {
+        assert!(!artwork.render_item(item, Rect::new(0, 0, 12, 6), &mut buffer));
+    }
+    // A PNG that is not the pinned sprite is never shown, even if valid.
+    fs::create_dir(directory.0.join("items")).unwrap();
+    let other = RgbaImage::from_pixel(30, 30, Rgba([200, 30, 30, 255]));
+    fs::write(directory.0.join("items/potion.png"), png(&other)).unwrap();
+    let artwork = Artwork::load(&config(&directory.0));
+    assert!(!artwork.render_item(Item::Potion, Rect::new(0, 0, 12, 6), &mut buffer));
+    // Images off never reads the item cache.
+    let mut off = config(&directory.0);
+    off.images = ImageMode::Off;
+    assert!(!Artwork::load(&off).render_item(Item::Potion, Rect::new(0, 0, 12, 6), &mut buffer));
+    assert_eq!(item_sprite(Item::Tm(8)), Some(10));
+    assert_eq!(item_sprite(Item::Key), None);
+    assert!(ITEMS.iter().all(|(_, hash)| hash.len() == 64));
 }

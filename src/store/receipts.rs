@@ -222,23 +222,69 @@ impl State {
                 }
                 let existing: Option<(i64,i64,String,bool)> = transaction.query_row("SELECT task_id,partner,record,source IS NOT NULL FROM outgoing_receipts WHERE request_id=?1",[&record.request_id],|row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?))).optional().map_err(|e| e.to_string())?;
                 let available = if let Some((owner, partner, saved, available)) = existing {
-                    if owner != request.task_id || partner != request.partner || saved != json {
+                    let mut saved_record: Durable =
+                        serde_json::from_str(&saved).map_err(|e| e.to_string())?;
+                    let newly_submitted = !saved_record.submitted && record.submitted;
+                    if newly_submitted {
+                        saved_record.set_submitted(true);
+                    }
+                    saved_record
+                        .child_request_ids
+                        .clone_from(&record.child_request_ids);
+                    if owner != request.task_id
+                        || partner != request.partner
+                        || saved_record != *record
+                    {
                         return Err(
                             "Outgoing request identity cannot overwrite different owner or content"
                                 .into(),
                         );
                     }
+                    if newly_submitted {
+                        transaction
+                            .execute(
+                                "UPDATE outgoing_receipts SET record=?1 WHERE request_id=?2",
+                                params![json, record.request_id],
+                            )
+                            .map_err(|e| e.to_string())?;
+                    }
                     // Idempotent delayed retry is permitted, but NEVER resurrects source bytes.
                     available
                 } else {
+                    if !record.child_request_ids.is_empty() {
+                        return Err(
+                            "Only actual dispatched child receipts may create parent links".into(),
+                        );
+                    }
                     if task.archived {
                         return Err("Archived task cannot accept outgoing receipts".into());
                     }
-                    super::work::validate_live(&transaction, &record.claim())?;
+                    if let Some(parent_id) = &record.parent_request_id {
+                        let parent: Durable = transaction.query_row(
+                            "SELECT record FROM outgoing_receipts WHERE request_id=?1 AND task_id=?2 AND partner=?3",
+                            params![parent_id, record.task_id, record.owner.partner],
+                            |row| json_column(row, 0, MAX_RECORD_BYTES),
+                        ).map_err(|e| format!("Delegation parent receipt is unavailable: {e}"))?;
+                        if parent.parent_request_id.is_some()
+                            || parent.owner != record.owner
+                            || parent.agent != record.agent
+                            || record.operation != crate::providers::Operation::Plan
+                        {
+                            return Err(
+                                "Delegation child cannot borrow this receipt's ownership".into()
+                            );
+                        }
+                        super::work::validate_live(&transaction, &parent.claim())?;
+                    } else {
+                        super::work::validate_live(&transaction, &record.claim())?;
+                    }
                     let count: i64 = transaction
                         .query_row(
-                            "SELECT count(*) FROM outgoing_receipts WHERE task_id=?1",
-                            [request.task_id],
+                            "SELECT (SELECT count(*) FROM outgoing_receipts WHERE task_id=?1)
+                             + (SELECT count(*) FROM active_work w WHERE w.task_id=?1 AND w.kind='provider'
+                                AND w.request_id!=?2
+                                AND NOT EXISTS(SELECT 1 FROM outgoing_receipts r WHERE r.request_id=w.request_id))",
+                            params![request.task_id, record.request_id],
                             |r| r.get(0),
                         )
                         .map_err(|e| e.to_string())?;
@@ -247,9 +293,36 @@ impl State {
                     }
                     let available = source.is_some();
                     transaction.execute("INSERT INTO outgoing_receipts(request_id,task_id,partner,record,source) VALUES(?1,?2,?3,?4,?5)",params![record.request_id,record.task_id,record.owner.partner,json,source]).map_err(|e| format!("Outgoing receipt was not saved: {e}"))?;
-                    enforce_evidence_quota(&transaction, &self.data_dir, self.policy)?;
                     available
                 };
+                if record.submitted
+                    && let Some(parent_id) = &record.parent_request_id
+                {
+                    let mut parent: Durable = transaction
+                        .query_row(
+                            "SELECT record FROM outgoing_receipts WHERE request_id=?1",
+                            [parent_id],
+                            |row| json_column(row, 0, MAX_RECORD_BYTES),
+                        )
+                        .map_err(|e| e.to_string())?;
+                    if !parent.child_request_ids.contains(&record.request_id) {
+                        super::work::validate_live(&transaction, &parent.claim())?;
+                        parent.child_request_ids.push(record.request_id.clone());
+                        parent.child_request_ids.sort();
+                        parent.validate()?;
+                        let linked = serde_json::to_string(&parent).map_err(|e| e.to_string())?;
+                        if linked.len() > MAX_RECORD_BYTES {
+                            return Err("Delegation parent receipt metadata exceeds 64 KiB".into());
+                        }
+                        transaction
+                            .execute(
+                                "UPDATE outgoing_receipts SET record=?1 WHERE request_id=?2",
+                                params![linked, parent_id],
+                            )
+                            .map_err(|e| e.to_string())?;
+                    }
+                }
+                enforce_evidence_quota(&transaction, &self.data_dir, self.policy)?;
                 Response::Saved(Box::new(View {
                     record: record.clone(),
                     source_available: available,

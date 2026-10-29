@@ -102,9 +102,12 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         Message::LifecycleInspect
     };
     frame.render_widget(
-        Paragraph::new(paint.hint(controls))
-            .wrap(Wrap { trim: false })
-            .style(paint.accent),
+        Paragraph::new(choice_text(
+            paint.hint(controls),
+            paint.accent,
+            paint.selected,
+        ))
+        .wrap(Wrap { trim: false }),
         row(inner, inner.height.saturating_sub(3), 3),
     );
 }

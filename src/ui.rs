@@ -1,7 +1,9 @@
 mod agents;
 mod artifacts;
 pub mod artwork;
+mod bag;
 mod chips;
+mod chrome;
 mod composer;
 mod cooperation;
 mod execution;
@@ -9,26 +11,34 @@ mod external_editor;
 mod formations;
 mod handoff;
 mod held;
+mod layout;
+mod mcp;
 mod memory;
+mod meter;
 mod moves;
 mod parked_drafts;
 mod planning;
 mod records;
 mod retained;
+mod rules;
 mod sources;
 mod tool_catalog;
 mod tool_plans;
 mod updates;
 mod workflows;
+mod workspace;
 
+use chrome::*;
+use layout::*;
 use std::{borrow::Cow, cell::Cell};
+use workspace::*;
 
 use ratatui::{
     Frame,
     layout::{Alignment, Rect},
     style::{Color, Modifier, Style},
     symbols::border,
-    text::{Line, Span},
+    text::{Line, Span, Text},
     widgets::{Block, BorderType, Clear, Padding, Paragraph, Wrap},
 };
 use unicode_segmentation::UnicodeSegmentation;
@@ -71,6 +81,9 @@ const ASCII_BORDER: border::Set = border::Set {
 thread_local! {
     /// `/verbose` for the frame being drawn; set once at the start of `render`.
     static VERBOSE: Cell<bool> = const { Cell::new(false) };
+    /// Live-output effects for this frame: `Some((ascii, frame))` while real
+    /// provider work streams with motion enabled, otherwise `None`.
+    static LIVE_FX: Cell<Option<(bool, u8)>> = const { Cell::new(None) };
 }
 
 /// Coarse age of a Unix-millisecond timestamp ("just now", "5m ago", "3d ago").
@@ -230,105 +243,6 @@ pub fn image_background(config: &Config) -> Color {
     }
 }
 
-struct Shell {
-    header: Rect,
-    footer: Rect,
-    rail: Option<Rect>,
-    workspace: Rect,
-    composer: Rect,
-    inspector: Option<Rect>,
-}
-
-fn shell(area: Rect, linear: bool, focus: Pane) -> Shell {
-    let outer = area.inner(ratatui::layout::Margin::new(1, 0));
-    let header = row(outer, 0, 2);
-    let footer = row(outer, outer.height.saturating_sub(2), 2);
-    let composer_height = if area.height >= 26 { 7 } else { 5 };
-    let composer = row(
-        outer,
-        outer.height.saturating_sub(composer_height + 2),
-        composer_height,
-    );
-    let body = row(outer, 2, composer.y.saturating_sub(outer.y + 2));
-    // Keep the partner visible at roomy widths; focused details share its slot.
-    let inspector = (!linear && area.width >= 120 && focus == Pane::Inspector)
-        .then(|| Rect::new(body.right().saturating_sub(30), body.y, 30, body.height));
-    let rail = (!linear && area.width >= 90 && inspector.is_none()).then(|| {
-        Rect::new(
-            body.right().saturating_sub(26),
-            body.y,
-            26,
-            body.height.min(16),
-        )
-    });
-    let reserved = if inspector.is_some() {
-        32
-    } else if rail.is_some() {
-        28
-    } else {
-        0
-    };
-    Shell {
-        header,
-        footer,
-        rail,
-        workspace: Rect::new(
-            body.x,
-            body.y,
-            body.width.saturating_sub(reserved),
-            body.height,
-        ),
-        composer,
-        inspector,
-    }
-}
-
-fn companion_portrait(area: Rect) -> Rect {
-    Rect::new(
-        area.x + 2,
-        area.y + 3,
-        area.width.saturating_sub(4),
-        area.height.saturating_sub(6).min(10),
-    )
-}
-
-fn row(area: Rect, offset: u16, height: u16) -> Rect {
-    let offset = offset.min(area.height);
-    Rect::new(
-        area.x,
-        area.y.saturating_add(offset),
-        area.width,
-        height.min(area.height - offset),
-    )
-}
-
-fn centered(area: Rect, width: u16, height: u16) -> Rect {
-    let width = width.min(area.width.saturating_sub(2));
-    let available_height = area.height.saturating_sub(2);
-    let height = height.min(available_height);
-    Rect::new(
-        area.x + (area.width - width) / 2,
-        area.y + (area.height - height) / 2,
-        width,
-        height,
-    )
-}
-
-/// Temporary sheets leave the real status header and safe-return footer visible.
-fn sheet(area: Rect, width: u16, height: u16) -> Rect {
-    centered(area, width, height.min(area.height.saturating_sub(4)))
-}
-
-fn drawer(area: Rect) -> Rect {
-    let width = 46.min(area.width.saturating_sub(2));
-    Rect::new(
-        area.right().saturating_sub(width + 1),
-        area.y + 2,
-        width,
-        area.height.saturating_sub(4),
-    )
-}
-
 fn panel<'a>(title: &'a str, config: &Config, paint: &Paint, focused: bool) -> Block<'a> {
     let block = Block::bordered()
         .title(title)
@@ -345,72 +259,6 @@ fn panel<'a>(title: &'a str, config: &Config, paint: &Paint, focused: bool) -> B
             BorderType::Plain
         })
     }
-}
-
-fn inner(area: Rect) -> Rect {
-    area.inner(ratatui::layout::Margin::new(2, 1))
-}
-fn portrait(area: Rect) -> Rect {
-    let content = inner(area);
-    let width = 32.min(content.width);
-    let height = 16.min(content.height.saturating_sub(8));
-    Rect::new(
-        content.x + (content.width - width) / 2,
-        content.y + 2,
-        width,
-        height,
-    )
-}
-
-fn picker(area: Rect, app: &App) -> (Rect, bool) {
-    let grid = area.width >= 90 && area.height >= 30 && !app.linear;
-    (
-        sheet(
-            area,
-            if grid { 108 } else { 84 },
-            if grid { 32 } else { 25 },
-        ),
-        grid,
-    )
-}
-
-fn grid_cell(area: Rect, index: usize) -> Rect {
-    let grid = Rect::new(
-        area.x,
-        area.y + 2,
-        area.width * 3 / 5,
-        area.height.saturating_sub(2),
-    );
-    let col = index as u16 % 3;
-    let row_index = index as u16 / 3;
-    let x = grid.x + grid.width * col / 3;
-    let y = grid.y + grid.height * row_index / 3;
-    Rect::new(
-        x,
-        y,
-        grid.width * (col + 1) / 3 - grid.width * col / 3,
-        grid.height * (row_index + 1) / 3 - grid.height * row_index / 3,
-    )
-}
-
-fn thumbnail(area: Rect) -> Rect {
-    let content = inner(area);
-    Rect::new(
-        content.x,
-        content.y + 1,
-        content.width,
-        content.height.saturating_sub(2),
-    )
-}
-
-fn compact_picker_portrait(area: Rect) -> Rect {
-    let content = inner(area);
-    Rect::new(
-        content.x + content.width * 2 / 3,
-        content.y + 2,
-        content.width / 3,
-        5.min(content.height.saturating_sub(11)),
-    )
 }
 
 /// This layout pass runs before drawing. Only visible images are prepared, never
@@ -456,55 +304,6 @@ pub fn portrait_targets(app: &App, area: Rect, targets: &mut Vec<(usize, Rect)>)
     targets.retain(|&(_, target)| !occluded(area, app, target));
 }
 
-/// Center choices while reserving the header and footer at supported sizes.
-fn command_popup_area(area: Rect, _app: &App) -> Rect {
-    centered(area, 100, area.height.saturating_sub(4).min(22))
-}
-
-fn composer_menu_area(area: Rect, app: &App) -> Option<Rect> {
-    if app.composer_menu.is_none() || app.overlay.is_some() || app.confirmation.is_some() {
-        return None;
-    }
-    Some(centered(area, 84, area.height.saturating_sub(4).min(12)))
-}
-
-fn evolution_popup_area(area: Rect, app: &App) -> Option<Rect> {
-    if area.width < 60 || area.height < 18 || !app.evolution_popup_ready() {
-        return None;
-    }
-    let layout = shell(area, app.linear, app.effective_focus());
-    // At roomy sizes, use the quiet space below the companion rather than
-    // clearing any response text or withholding the native portrait.
-    if let Some(rail) = layout.rail {
-        let top = rail.bottom().saturating_add(1);
-        if layout.composer.y.saturating_sub(top) >= 7 {
-            return Some(Rect::new(rail.x, top, rail.width, 7));
-        }
-    }
-    // Compact/linear layouts keep the newest response rows and the entire
-    // composer visible. This receipt is anchored, never a centered modal.
-    Some(Rect::new(
-        layout.workspace.x,
-        layout.workspace.y,
-        layout.workspace.width,
-        6.min(layout.workspace.height),
-    ))
-}
-
-/// Native images draw above cells, so only portraits under a popup are withheld.
-fn occluded(area: Rect, app: &App, target: Rect) -> bool {
-    if app.nickname_editor.is_some()
-        || app.cooperation_ui.release.is_some()
-        || app.cooperation.cancel_review.is_some()
-        || app.cooperation.journal_discard.is_some()
-    {
-        return true;
-    }
-    app.command_popup.is_some() && command_popup_area(area, app).intersects(target)
-        || composer_menu_area(area, app).is_some_and(|menu| menu.intersects(target))
-        || evolution_popup_area(area, app).is_some_and(|popup| popup.intersects(target))
-}
-
 pub fn render(
     frame: &mut Frame,
     app: &mut App,
@@ -513,6 +312,10 @@ pub fn render(
     graphics_status: &str,
 ) {
     VERBOSE.set(app.verbose);
+    LIVE_FX.set(
+        (app.motion_enabled() && !config.no_animation && app.planning.activity_label().is_some())
+            .then_some((config.ascii, app.activity_frame)),
+    );
     app.planning.set_response_body(Rect::default());
     let area = frame.area();
     app.confirmation_reviewed = false;
@@ -666,6 +469,8 @@ pub fn render(
     footer(frame, shell.footer, app, &paint);
     if let Some(popup) = evolution_popup_area(area, app) {
         cooperation::evolution_popup(frame, popup, app, config, &paint);
+    } else if let Some(popup) = bag::notice_area(area, app) {
+        bag::notice(frame, popup, app, config, &paint, artwork);
     }
     if let Some(menu) = composer_menu_area(area, app) {
         composer::render(frame, menu, app, config, &paint);
@@ -676,6 +481,10 @@ pub fn render(
             Overlay::Help => help(frame, area, app, config, &paint),
             Overlay::EvolutionPreview => evolution_preview(frame, area, app, config, &paint),
             Overlay::Journey => journey(frame, area, app, config, &paint),
+            Overlay::Bag => bag::render(frame, area, app, config, &paint, artwork),
+            Overlay::Usage => meter::render(frame, area, app, config, &paint),
+            Overlay::Rules => rules::render(frame, area, app, config, &paint),
+            Overlay::Mcp => mcp::render(frame, area, app, config, &paint),
             Overlay::Preview => preview(frame, area, app, config, &paint),
             Overlay::Tasks => tasks(frame, area, app, config, &paint),
             Overlay::Criteria => criteria(frame, area, app, config, &paint),
@@ -780,521 +589,6 @@ fn text(frame: &mut Frame, area: Rect, value: &str, style: Style) {
     );
 }
 
-/// Provider, model and effort at a glance; `/verbose` adds observation caveats.
-fn selection_text(state: &crate::app::planning::State) -> String {
-    if VERBOSE.get() {
-        state.selection_label()
-    } else {
-        format!("{} · {}", state.agent.label(), state.selection.summary())
-    }
-}
-
-fn activity_marker(frame: u8, config: &Config, motion_enabled: bool) -> &'static str {
-    if !motion_enabled || config.no_animation {
-        "*"
-    } else if config.ascii {
-        ["|", "/", "-", "\\"][usize::from(frame) % 4]
-    } else {
-        ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"][usize::from(frame) % 10]
-    }
-}
-
-fn header(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &Paint) {
-    let project = std::path::Path::new(&app.cwd)
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or(&app.cwd);
-    let project = display_identity(project);
-    let mode = paint.hint(if app.lead().auto_form {
-        Message::CoreEvolutionAuto
-    } else {
-        Message::CoreEvolutionManual
-    });
-    let brand = if area.width >= 90 { " EEVEE " } else { "" };
-    let usable_width = usize::from(area.width).saturating_sub(brand.len());
-    {
-        let route = crate::providers::capabilities::route(app.planning.agent).short;
-        let effort = Span::styled(
-            format!(
-                "/{}",
-                clipped(
-                    app.planning
-                        .selection
-                        .effort
-                        .as_deref()
-                        .unwrap_or("default"),
-                    8
-                )
-            ),
-            paint.muted,
-        );
-        let model_name = app.planning.selection.model.as_deref().unwrap_or("default");
-        let model_hint_width = Span::raw(model_name).width().min(20);
-        let identity_budget = usable_width
-            .saturating_sub(Span::raw(route).width() + effort.width() + model_hint_width + 6);
-        let suffix = format!(" ({}) [{mode}]", FORMS[app.form()].name);
-        let name = App::partner_label(app.lead());
-        let identity = format!(
-            "{}{suffix}",
-            clipped(
-                &name,
-                identity_budget.saturating_sub(Span::raw(suffix.as_str()).width())
-            )
-        );
-        let spare = usable_width.saturating_sub(
-            Span::raw(identity.as_str()).width()
-                + Span::raw(route).width()
-                + effort.width()
-                + model_hint_width
-                + 6,
-        );
-        let context = if spare >= 7 {
-            format!("{identity} · {} · {route} · ", clipped(&project, spare - 3))
-        } else {
-            format!("{identity} · {route} · ")
-        };
-        let context = Span::styled(context, paint.muted);
-        let model_width = usable_width.saturating_sub(context.width() + effort.width());
-        let model = Span::styled(
-            clipped(
-                app.planning.selection.model.as_deref().unwrap_or("default"),
-                model_width,
-            ),
-            paint.accent,
-        );
-        frame.render_widget(
-            Paragraph::new(Line::from(vec![
-                Span::styled(brand, paint.selected),
-                context,
-                model,
-                effort,
-            ])),
-            row(area, 0, 1),
-        );
-    }
-    let waiting = app.approval_count() > 0;
-    let activity = if waiting {
-        paint.hint(Message::CoreWaitingForUser)
-    } else if app.planning.cancelling {
-        "Cancelling provider / /response Status"
-    } else if let Some(preview) = app.planning.preview.as_ref() {
-        if preview.blockers.is_empty() {
-            "Request prepared / /approvals Details"
-        } else {
-            "Request blocked / /approvals Details"
-        }
-    } else if app.planning.preference_error().is_some() {
-        "Model preference not saved / /storage-retry"
-    } else if let Some(activity) = app.planning.activity_label() {
-        activity
-    } else if app.planning.outcome_unknown() {
-        if area.width < 90 {
-            "Outcome unknown / /response"
-        } else {
-            "Provider outcome unknown / /response Inspect"
-        }
-    } else {
-        app.execution.activity_label()
-    };
-    let policy = match app.planning.explicit_operation() {
-        Some(crate::providers::Operation::Plan) => paint.hint(Message::CorePolicyReadonly),
-        Some(crate::providers::Operation::Review) => paint.hint(Message::CorePolicyReview),
-        // A standing grant must stay visible even when the chip has no room.
-        _ if app.planning.auto_approve => paint.hint(Message::AutoApprovePolicy),
-        _ => "",
-    };
-    let status = format!(
-        "{policy}{}{}  /  {} {activity}",
-        if policy.is_empty() { "" } else { " · " },
-        app.storage_label(),
-        if !waiting && app.planning.activity_label().is_some() {
-            activity_marker(app.activity_frame, config, app.motion_enabled())
-        } else {
-            ""
-        }
-    );
-    let line = row(area, 1, 1);
-    text(
-        frame,
-        line,
-        &clipped(&status, area.width as usize),
-        paint.muted,
-    );
-    // Capability chip (EV03A): lowest header priority, so it appears only in
-    // space the activity/storage text leaves free and never clips it.
-    let operation = if app.planning.busy() {
-        app.planning.operation
-    } else {
-        app.planning
-            .explicit_operation()
-            .unwrap_or(crate::providers::Operation::Implement)
-    };
-    let chip = format!(
-        "[{}] ",
-        paint.hint(match operation {
-            crate::providers::Operation::Plan | crate::providers::Operation::Review =>
-                Message::CoreCapabilityReadonly,
-            crate::providers::Operation::Implement => Message::CoreCapabilityReviewedCoding,
-        })
-    );
-    let chip = if app.planning.auto_approve && operation == crate::providers::Operation::Implement {
-        format!("[{}] ", paint.hint(Message::AutoApproveChip))
-    } else {
-        chip
-    };
-    let (chip_width, used) = (
-        Span::raw(chip.as_str()).width() as u16,
-        Span::raw(status.as_str()).width() as u16,
-    );
-    if used + 2 + chip_width <= line.width {
-        text(
-            frame,
-            Rect::new(line.right() - chip_width, line.y, chip_width, 1),
-            &chip,
-            paint.accent,
-        );
-    }
-}
-
-fn suggestion_line<'a>(app: &'a App, paint: &Paint) -> Option<Line<'a>> {
-    if app.planning.request.is_some() || (app.lead().auto_form && app.form() != 0) {
-        return None;
-    }
-    app.visible_suggestion().map(|suggestion| {
-        let mut spans = vec![
-            Span::raw("Suggested: "),
-            Span::raw(FORMS[suggestion.form.min(FORMS.len() - 1)].name),
-            Span::raw(" — "),
-            Span::raw(suggestion.reason.as_str()),
-        ];
-        if let Some(partner) = app.suggested_partner() {
-            spans.push(Span::raw(format!(
-                " · {} ({}) is free",
-                App::partner_label(partner),
-                FORMS[partner.form].name
-            )));
-        }
-        Line::from(spans).style(paint.accent)
-    })
-}
-
-/// Descriptive local evidence only; rendering never evaluates or selects a form.
-fn suggestion_strip(frame: &mut Frame, area: Rect, app: &App, paint: &Paint) -> Rect {
-    if app.planning.has_current_file_output() && !app.carry_over_explicit() {
-        return area;
-    }
-    if let Some(carry_over) = app.carry_over() {
-        // The precomputed ASCII summary fits the minimum workspace width.
-        // Give this transient record the existing strip slot, not a second row.
-        frame.render_widget(
-            Paragraph::new(carry_over.summary.as_str()).style(paint.accent),
-            row(area, 0, 1),
-        );
-        return row(area, 1, area.height.saturating_sub(1));
-    }
-    // A deliberate saved item takes the advisory slot; carry-over stays inspectable.
-    if app.held.target.is_some() && !app.held.dismissed {
-        return area;
-    }
-    let Some(line) = suggestion_line(app, paint) else {
-        return area;
-    };
-    let paragraph = Paragraph::new(line).wrap(Wrap { trim: false });
-    // A completed response needs Request, metadata, notice, two navigation
-    // rows and at least one body row. Advisory wrapping must not consume it.
-    let height = paragraph
-        .line_count(area.width.max(1))
-        .min(usize::from(area.height.saturating_sub(6))) as u16;
-    frame.render_widget(paragraph, row(area, 0, height));
-    row(area, height, area.height.saturating_sub(height))
-}
-
-fn workspace(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &Paint) {
-    let block = panel(
-        paint.hint(Message::CoreResponseTitle),
-        config,
-        paint,
-        app.effective_focus() == Pane::Workspace && !app.editing && app.overlay.is_none(),
-    );
-    let content = block.inner(area);
-    frame.render_widget(block, area);
-    let heading = if app.goal.trim().is_empty() {
-        Line::styled(paint.hint(Message::CoreRequestInvitation), paint.accent)
-    } else {
-        Line::from(vec![
-            Span::styled(paint.hint(Message::CoreTaskPrefix), paint.accent),
-            Span::styled(
-                clipped(
-                    app.goal.lines().next().unwrap_or(""),
-                    content.width.saturating_sub(6) as usize,
-                ),
-                paint.accent,
-            ),
-        ])
-    };
-    let form = app.form().min(8);
-    let mut lines = Vec::with_capacity(8);
-    lines.push(heading);
-    if app.text_density() == store::TextDensity::Comfortable && content.height >= 9 {
-        lines.push(Line::from(""));
-    }
-    if form == 0 {
-        lines.extend([
-            Line::from(paint.hint(Message::CoreRequestStart)),
-            Line::styled(paint.hint(Message::CoreRequestSave), paint.muted),
-        ]);
-    } else {
-        let (signature, action, label) = crate::domain::FIRST_ACTIONS[form];
-        lines.extend([
-            Line::from(format!(
-                "{} / {}: {signature}",
-                crate::domain::FORMS[form].name,
-                crate::domain::FORMS[form].element
-            )),
-            Line::styled(
-                match action {
-                    Some(command) => format!("/{command} {label}"),
-                    None => label.to_owned(),
-                },
-                paint.accent,
-            ),
-        ]);
-    }
-    lines.extend([
-        Line::from(""),
-        Line::styled(paint.hint(Message::CoreRequestContext), paint.muted),
-        Line::styled(paint.hint(Message::CoreRequestTasks), paint.muted),
-    ]);
-    if app
-        .drafts
-        .iter()
-        .any(|draft| draft.field != EditorField::Request)
-    {
-        lines.push(Line::styled(
-            paint.hint(Message::CoreRetainedTaskFact),
-            paint.muted,
-        ));
-    }
-    frame.render_widget(
-        Paragraph::new(lines)
-            .style(paint.surface)
-            .wrap(Wrap { trim: false }),
-        content,
-    );
-}
-
-fn compact_companion(
-    frame: &mut Frame,
-    area: Rect,
-    app: &App,
-    config: &Config,
-    paint: &Paint,
-    artwork: &mut Artwork,
-    show_image: bool,
-) {
-    let focused = app.effective_focus() == Pane::Companion;
-    let block = panel(" PARTNER ", config, paint, focused);
-    let content = block.inner(area);
-    frame.render_widget(block, area);
-    text(frame, row(content, 0, 1), &app.lead_label(), paint.accent);
-    text(
-        frame,
-        row(content, 1, 1),
-        FORMS[app.form()].element,
-        paint.muted,
-    );
-    let image = companion_portrait(area);
-    if show_image && app.nickname_editor.is_none() {
-        artwork.render(app.form(), image, frame.buffer_mut());
-    }
-    let status = if app.criteria.is_empty() {
-        Cow::Borrowed("No criteria yet")
-    } else {
-        let met = app
-            .criteria
-            .iter()
-            .filter(|criterion| criterion.met)
-            .count();
-        Cow::Owned(format!("Objectives {met}/{}", app.criteria.len()))
-    };
-    text(
-        frame,
-        row(content, content.height.saturating_sub(2), 1),
-        &status,
-        paint.muted,
-    );
-    text(
-        frame,
-        row(content, content.height.saturating_sub(1), 1),
-        if focused && app.last_carry_over().is_some() {
-            paint.hint(Message::CoreCarryOverControl)
-        } else if focused {
-            paint.hint(Message::CoreFormControl)
-        } else {
-            "/forms / /companion"
-        },
-        paint.accent,
-    );
-}
-
-fn companion(
-    frame: &mut Frame,
-    area: Rect,
-    app: &mut App,
-    config: &Config,
-    paint: &Paint,
-    artwork: &mut Artwork,
-    show_image: bool,
-) {
-    let block = panel(
-        " Companion ",
-        config,
-        paint,
-        app.effective_focus() == Pane::Companion || app.overlay == Some(Overlay::Companion),
-    );
-    let content = block.inner(area);
-    frame.render_widget(block, area);
-    let form = &FORMS[app.form()];
-    frame.render_widget(
-        Paragraph::new(app.lead_label())
-            .style(paint.accent)
-            .alignment(Alignment::Center),
-        row(content, 0, 1),
-    );
-    frame.render_widget(
-        Paragraph::new(if app.last_carry_over().is_some() {
-            "/forms /images  n Nickname  c Carry-over"
-        } else {
-            "/forms / /images / n Nickname"
-        })
-        .style(paint.accent)
-        .alignment(Alignment::Center),
-        row(content, 1, 1),
-    );
-    let image = portrait(area);
-    if show_image && app.nickname_editor.is_none() {
-        artwork.render(app.form(), image, frame.buffer_mut());
-    }
-    let details = row(
-        content,
-        2 + image.height,
-        content.height.saturating_sub(2 + image.height),
-    );
-    let mut lines = Vec::new();
-    if app.last_carry_over().is_some() {
-        lines.extend([
-            Line::styled("C=criteria met/total P=committed pins", paint.muted),
-            Line::styled("H=open hypotheses F=open findings", paint.muted),
-        ]);
-    }
-    lines.extend([
-        Line::styled(form.element, paint.muted),
-        Line::from(form.role),
-        Line::styled(artwork.status(app.form()), paint.muted),
-        Line::styled("/party Roster / /lead Front a partner", paint.accent),
-    ]);
-    scroll_text(
-        frame,
-        details,
-        Paragraph::new(lines)
-            .style(paint.surface)
-            .wrap(Wrap { trim: false }),
-        app,
-        ScrollSurface::Companion,
-    );
-}
-
-fn inspect(
-    frame: &mut Frame,
-    area: Rect,
-    app: &mut App,
-    config: &Config,
-    paint: &Paint,
-    artwork: &Artwork,
-    graphics_status: &str,
-) {
-    let drawer = app.overlay == Some(Overlay::Inspector);
-    let block = panel(
-        " Task and storage inspector ",
-        config,
-        paint,
-        drawer || app.effective_focus() == Pane::Inspector,
-    );
-    let content = block.inner(area);
-    frame.render_widget(block, area);
-    let project = std::path::Path::new(&app.cwd)
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or(&app.cwd);
-    let project = display_identity(project);
-    let task = if app.task_id > 0 {
-        format!("#{}", app.task_id)
-    } else {
-        "New / not committed".to_owned()
-    };
-    let value = if drawer {
-        let path = config.assets_dir.to_string_lossy();
-        let safe_path: String = path.chars().filter(|c| !c.is_control()).collect();
-        let updated = if app.updated_at > 0 {
-            ago(app.updated_at)
-        } else {
-            "Not committed yet".to_owned()
-        };
-        let quota = app.policy.quota_bytes;
-        let sampled = app.usage_bytes;
-        let retention = app.policy.retention_days;
-        format!(
-            "TASK\n{task} / {}\nUpdated: {updated}\nCriteria: {}/{} met\nRetained drafts: {}\nComplete means user-reviewed criteria, not verified command evidence.\n\nPROJECT DIRECTORY\n{}\n\nSTORAGE\n{}\nRevision {} / committed {}\nDirectory: {}\n{}\nRecovery: /storage-retry; --export-data FILE exports readable local records, not provider history.\nQuota: {quota} bytes. Last sample: {sampled} live SQLite, retained output and committed reservations; not physical database size.\nRetention: archived at least {retention} days; explicit purge only, no automatic eviction.\nSecret detection is best-effort. Volatile editor text may remain unmasked.\nArchive is reversible. Deletion affects selected local records and owned artifacts, not repository files, exports or provider sessions. Not forensic secure erasure.\n\nEXECUTION\n/provider opens connection selection. /run inspects local command evidence; /execute reviews a prepared command. /handoff opens portable handoff. Cancellation does not roll back files; approval is not a sandbox.\n\nARTWORK\n{}\n{}\n{}\n\nUp/Down scroll / Esc back",
-            if app.complete { "Complete" } else { "Open" },
-            app.criteria
-                .iter()
-                .filter(|criterion| criterion.met)
-                .count(),
-            app.criteria.len(),
-            app.drafts.len(),
-            app.cwd.escape_debug(),
-            app.storage_label(),
-            app.revision,
-            app.saved_revision,
-            config.data_dir.to_string_lossy().escape_debug(),
-            match &app.storage {
-                crate::app::StorageState::Failed(error) => error.as_str(),
-                _ => "",
-            }
-            .escape_debug(),
-            artwork.status(app.form()),
-            graphics_status,
-            safe_path
-        )
-    } else {
-        format!(
-            "PROJECT\n{project}\n\nTASK\n{task} / {}\nCriteria: {}/{} met\nRetained drafts: {}\n\nSTORAGE\n{}\n{}\n\n/provider Requests / /run Local checks / /handoff Handoff\nUp/Down scroll",
-            if app.complete { "Complete" } else { "Open" },
-            app.criteria
-                .iter()
-                .filter(|criterion| criterion.met)
-                .count(),
-            app.criteria.len(),
-            app.drafts.len(),
-            app.storage_label(),
-            match &app.storage {
-                crate::app::StorageState::Failed(error) => error.as_str(),
-                _ => "",
-            }
-            .escape_debug(),
-        )
-    };
-    scroll_text(
-        frame,
-        content,
-        Paragraph::new(value)
-            .style(paint.surface)
-            .wrap(Wrap { trim: false }),
-        app,
-        ScrollSurface::Inspector,
-    );
-}
-
 fn forms(
     frame: &mut Frame,
     area: Rect,
@@ -1314,13 +608,19 @@ fn forms(
     let content = block.inner(area);
     frame.render_widget(block, area);
     let current = FORMS[app.form()].name;
+    // The mode decides who picks the form at Send; say it and how to change it.
+    let mode = if app.lead().auto_form {
+        "Auto (Eevee picks at Send)".to_owned()
+    } else {
+        format!("Pinned: {current} · a Auto")
+    };
     let heading = match (app.visible_suggestion(), grid) {
         (Some(suggestion), false) => format!(
-            "Current: {current} / Suggested: {} / d Dismiss",
+            "Current: {current} · {mode} · Suggested: {} · d Dismiss",
             FORMS[suggestion.form].name
         ),
-        (Some(_), true) => format!("Current: {current} / d Dismiss suggestion"),
-        (None, _) => format!("Current: {current}"),
+        (Some(_), true) => format!("Current: {current} · {mode} · d Dismiss suggestion"),
+        (None, _) => format!("Current: {current} · {mode}"),
     };
     text(frame, row(content, 0, 1), &heading, paint.muted);
     text(
@@ -1464,7 +764,7 @@ fn form_details(
             0 => "Task cards and resumption: available",
             1 => "Source ranges/context basket: /files",
             2 => "Approved local commands/evidence: /run",
-            3 => "Reviewed selected-file implementation: /provider / /role",
+            3 => "Reviewed selected-file implementation: /provider | /role",
             4 => "Reviewed multi-agent planning: /provider",
             _ => "Provider specialist workflow: unavailable",
         },
@@ -1497,40 +797,6 @@ fn picker_moves(app: &App, form: usize, width: u16, paint: &Paint) -> String {
             value
         }
     }
-}
-
-fn repository(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &Paint) {
-    let area = sheet(area, 106, area.height);
-    frame.render_widget(Clear, area);
-    let block = panel(" Repository / read-only evidence ", config, paint, true);
-    let content = block.inner(area);
-    frame.render_widget(block, area);
-    text(frame, row(content, 0, 1), &app.repo_status, paint.accent);
-    let details = row(content, 1, content.height.saturating_sub(1));
-    let value = if app.repo_text.is_empty() {
-        if app.repo_loading {
-            "Reading repository on a bounded worker; task editing remains available after Esc."
-        } else {
-            "No repository evidence available. A non-Git directory still supports durable tasks."
-        }
-    } else {
-        &app.repo_text
-    };
-    let lines: Vec<_> = app
-        .repo_error
-        .lines()
-        .map(|line| Line::styled(line, paint.muted))
-        .chain(value.lines().map(Line::from))
-        .collect();
-    let max = selection_details(
-        frame,
-        details,
-        Paragraph::new(lines)
-            .style(paint.surface)
-            .wrap(Wrap { trim: false }),
-        app.scroll_for(ScrollSurface::Preview),
-    );
-    app.set_scroll_viewport(ScrollSurface::Preview, max, details.height);
 }
 
 fn tasks(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &Paint) {
@@ -1599,7 +865,7 @@ fn tasks(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &
         frame,
         row(content, list_rows, 1),
         &format!(
-            "{} cards / /archived View / {} / /delete / /prune Retention",
+            "{} cards | /archived View / {} | /delete | /prune Retention",
             count,
             if app.show_archived {
                 "/restore"
@@ -2023,12 +1289,20 @@ fn evolution_preview(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                 || format!("Effort: {} / {}", app.planning.selection.effort.as_deref().unwrap_or("provider default"), crate::providers::capabilities::route(app.planning.agent).effort),
                 |effort| effort.line(),
             ),
-            format!("Todo step: {}", preview.todo_step.as_deref().unwrap_or("no step list from this route")),
-            "Context: current task and reviewed selections; exact outgoing bytes reviewed before dispatch".into(),
+            format!("Todo step: {}", preview.todo_step.as_deref().filter(|step| *step != "no step list from this route").unwrap_or("none yet; the agent creates one when work starts")),
+            if VERBOSE.get() {
+                "Context: current task and reviewed selections; exact outgoing bytes reviewed before dispatch".into()
+            } else {
+                "Context: current task and reviewed selections".into()
+            },
             format!("Model capabilities: {}", crate::providers::capabilities::model_disclosure(app.planning.catalogues.get(&app.planning.agent), &app.planning.selection)),
             String::new(),
-            paint.hint(Message::CoreEvolutionPreviewGuard).into(),
-            String::new(),
+            // The guard repeats what every effect review enforces; /verbose shows it.
+            if VERBOSE.get() {
+                format!("{}\n", paint.hint(Message::CoreEvolutionPreviewGuard))
+            } else {
+                String::new()
+            },
             paint.hint(Message::CoreEvolutionPreviewControls).into(),
         ]
         .join("\n")
@@ -2079,125 +1353,6 @@ fn preview(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint:
         app,
         ScrollSurface::Preview,
     );
-}
-
-fn footer(frame: &mut Frame, area: Rect, app: &App, paint: &Paint) {
-    let value = if app.quit_after_save {
-        paint.hint(Message::CoreSavingExit)
-    } else if app.confirmation.is_some() {
-        paint.hint(Message::CoreConfirmationControl)
-    } else if app.reset_after_save {
-        paint.hint(Message::CoreSavingReset)
-    } else if app.transitioning {
-        paint.hint(Message::CoreApplyingTask)
-    } else if app.command_popup.is_some() {
-        paint.hint(Message::CoreCommandPickerControl)
-    } else if app.composer_menu.is_some() && app.overlay.is_none() {
-        paint.hint(Message::CoreFilePickerControl)
-    } else if app.approval_count() > 0 && app.approval_shortcut_available() {
-        if app.own_approval_pending()
-            && (app.composer_is_request() || app.effective_focus() == Pane::Workspace)
-        {
-            paint.hint(Message::CorePendingRequestControl)
-        } else {
-            paint.hint(Message::CorePendingReviewControl)
-        }
-    } else if app.editing && app.overlay.is_none() {
-        if app.composer_is_request() && app.planning.busy() {
-            paint.hint(Message::CoreRequestBusyControl)
-        } else if app.composer_is_request() && app.response_on_home() {
-            paint.hint(Message::CoreResponseRequestControl)
-        } else if app.composer_is_request() {
-            paint.hint(Message::CoreRequestControl)
-        } else {
-            paint.hint(Message::CoreTaskFactControl)
-        }
-    } else {
-        match app.overlay {
-            Some(Overlay::Forms) => paint.hint(Message::CoreFormsControl),
-            Some(Overlay::Criteria) if area.width < 70 => {
-                paint.hint(Message::CoreCriteriaControlCompact)
-            }
-            Some(Overlay::Criteria) => paint.hint(Message::CoreCriteriaControl),
-            Some(Overlay::Tasks) if area.width < 70 => paint.hint(Message::CoreTasksControlCompact),
-            Some(Overlay::Tasks) => paint.hint(Message::CoreTasksControl),
-            Some(Overlay::Planning)
-                if app.planning.request.is_some() || app.planning.preview.is_some() =>
-            {
-                paint.hint(Message::CoreApprovalsControl)
-            }
-            Some(Overlay::Planning) if app.planning.activity_label().is_some() => {
-                paint.hint(Message::CoreRequestActiveControl)
-            }
-            Some(Overlay::Sources) if app.sources.editor.is_some() => {
-                paint.hint(Message::CoreSourceFilterControl)
-            }
-            Some(
-                Overlay::Execution
-                | Overlay::Agents
-                | Overlay::Planning
-                | Overlay::Handoff
-                | Overlay::Workflows
-                | Overlay::Memory
-                | Overlay::Held
-                | Overlay::Updates
-                | Overlay::PartyBoard,
-            ) => paint.hint(Message::CoreOverlayControl),
-            Some(_) => paint.hint(Message::CoreOverlayScrollControl),
-            None => paint.hint(Message::CoreHomeControl),
-        }
-    };
-    let queued_notice = app
-        .approval_response_queued()
-        .then(|| paint.hint(Message::CoreResponseQueued));
-    let notice = if !app.notice.is_empty() {
-        Some(
-            app.motion_notice()
-                .or_else(|| app.density_notice())
-                .or_else(|| app.formation_notice())
-                .or_else(|| {
-                    [
-                        (
-                            Message::AutoApproveEnabled,
-                            Message::AutoApproveEnabledNotice,
-                        ),
-                        (Message::AutoApproveDisabled, Message::AutoApproveDisabled),
-                    ]
-                    .into_iter()
-                    .find_map(|(source, display)| (app.notice == source.text()).then_some(display))
-                })
-                .map_or_else(
-                    || brief(&app.notice),
-                    |message| Cow::Borrowed(paint.hint(message)),
-                ),
-        )
-    } else {
-        queued_notice.map(Cow::Borrowed)
-    };
-    if let Some(notice) = notice {
-        text(
-            frame,
-            row(area, 0, 1),
-            &clipped(&notice, area.width as usize),
-            paint.accent,
-        );
-        text(frame, row(area, 1, 1), value, paint.base);
-    } else if app.scroll() > 0 && !app.editing {
-        text(
-            frame,
-            area,
-            &paint.format(
-                Template::CoreDetailPosition,
-                &[("value", value), ("line", &(app.scroll() + 1).to_string())],
-            ),
-            paint.base,
-        );
-    } else {
-        // Hints sit on the bottom row so the notice row above stays free.
-        let lines = value.lines().count().max(1) as u16;
-        let top = area.height.saturating_sub(lines);
-        text(frame, row(area, top, area.height - top), value, paint.base);
-    }
 }
 
 /// Wrap graphemes once, retaining the exact insertion boundary even when a wide
@@ -2383,6 +1538,10 @@ fn composer_input(frame: &mut Frame, area: Rect, app: &App, config: &Config, pai
             ),
         ],
     );
+    let title = match composer_todo(app, frame.area().width) {
+        Some(todo) => format!("{} · {todo} ", title.trim_end()),
+        None => title,
+    };
     let mut block = panel(&title, config, paint, editing && app.overlay.is_none());
     let pairing_offer;
     if app.overlay.is_none() && app.records.failed.is_some() {
@@ -2424,6 +1583,20 @@ fn composer_input(frame: &mut Frame, area: Rect, app: &App, config: &Config, pai
     } else {
         1
     };
+    let profile_rows = u16::from(app.composer_is_request() && content.height > hint_rows + 1);
+    if profile_rows != 0 {
+        text(
+            frame,
+            row(content, 0, profile_rows),
+            &app.profile_chip(),
+            paint.muted,
+        );
+    }
+    let content = row(
+        content,
+        profile_rows,
+        content.height.saturating_sub(profile_rows),
+    );
     let attachment_rows = if app.sources.basket.is_empty() {
         0
     } else {
@@ -2593,276 +1766,6 @@ fn scroll_text(
         .min(u16::MAX as usize) as u16;
     app.set_scroll_viewport(surface, max, area.height);
     frame.render_widget(paragraph.scroll((app.scroll_for(surface), 0)), area);
-}
-
-fn confirmation(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &Paint) {
-    let Some(confirm) = app.confirmation.as_ref() else {
-        return;
-    };
-    if confirm.kind == ConfirmationKind::DeleteTasks {
-        delete_confirmation(frame, area, app, config, paint);
-        return;
-    }
-    let area = if area.width < 30 || area.height < 10 {
-        area
-    } else {
-        sheet(area, 62, 10)
-    };
-    frame.render_widget(Clear, area);
-    let block = panel(
-        match confirm.kind {
-            ConfirmationKind::Complete => " Confirm task completion ",
-            ConfirmationKind::Reopen(_) => " Reopen completed task ",
-            ConfirmationKind::DiscardDraft => " Review draft discard ",
-            ConfirmationKind::Quit => " Confirm exit ",
-            ConfirmationKind::ResetTask => " Reset local task ",
-            ConfirmationKind::ReplaceWithInit => " Prepare /init request ",
-            ConfirmationKind::ReturnToEevee => " Return to Eevee ",
-            ConfirmationKind::DeleteTasks => unreachable!("separate deletion preview"),
-        },
-        config,
-        paint,
-        true,
-    );
-    let content = if area.width < 8 || area.height < 5 {
-        area
-    } else {
-        block.inner(area)
-    };
-    frame.render_widget(block, area);
-    let (question, keep, discard) = match confirm.kind {
-        ConfirmationKind::DiscardDraft => (
-            "Discard this field's draft? Applied task data is kept.",
-            "Keep editing",
-            "Discard draft",
-        ),
-        ConfirmationKind::Complete => (
-            "Mark Complete based on your checklist review? This is not verified command evidence.",
-            "Stay",
-            "Complete task",
-        ),
-        ConfirmationKind::Reopen(_) => (
-            "Reopen this completed task before editing its goal or criteria?",
-            "Stay",
-            "Reopen and edit",
-        ),
-        ConfirmationKind::Quit if matches!(app.storage, crate::app::StorageState::Failed(_)) => (
-            "Storage failed. Unsaved edits may be lost; accepted saves may finish. Stay, then r retries.",
-            "Stay",
-            "Exit despite save failure",
-        ),
-        ConfirmationKind::Quit if app.sources.store_failed => (
-            "Context storage failed. The retained operation is not saved. Stay, fix storage, then v and s retry.",
-            "Stay",
-            "Exit despite unsaved context",
-        ),
-        ConfirmationKind::Quit if app.moves.learning.is_some() => (
-            "Exit and discard the unsaved move name/learning choice? Task drafts are saved; only committed moves survive.",
-            "Keep editing",
-            "Discard move draft and quit",
-        ),
-        ConfirmationKind::Quit => (
-            "Exit? Save the applied task and retained drafts before closing.",
-            "Stay",
-            "Save task/drafts and quit",
-        ),
-        ConfirmationKind::ResetTask => (
-            "Fresh local task? Save old task + draft in /tasks. No files, history or credentials erased. Active work must finish/cancel first.",
-            "Stay",
-            "Save and reset",
-        ),
-        ConfirmationKind::ReplaceWithInit => (
-            "Replace Request draft with /init proposal? Other drafts stay. Select Espeon / Plan, clear write paths. No send/write; review then Run.",
-            "Keep draft",
-            "Replace with /init",
-        ),
-        ConfirmationKind::ReturnToEevee => (
-            "Return to intake? Cancel provider work and wait for it to finish first. Drafts and evidence stay; cancellation does not roll back effects.",
-            "Stay",
-            "Cancel and wait",
-        ),
-        ConfirmationKind::DeleteTasks => unreachable!("separate deletion preview"),
-    };
-    text(frame, row(content, 0, 3), question, paint.surface);
-    text(
-        frame,
-        row(content, 3, 1),
-        &format!("[n] {keep}"),
-        if !confirm.destructive {
-            paint.selected
-        } else {
-            paint.surface
-        },
-    );
-    text(
-        frame,
-        row(content, 4, 1),
-        &format!("[y] {discard}"),
-        if confirm.destructive {
-            paint.selected
-        } else {
-            paint.surface
-        },
-    );
-    text(
-        frame,
-        row(content, 6, 2),
-        paint.hint(Message::CoreConfirmationControl),
-        paint.muted,
-    );
-    app.confirmation_reviewed = content.height >= 8
-        && content.width >= 44
-        && Paragraph::new(question)
-            .wrap(Wrap { trim: false })
-            .line_count(content.width.max(1))
-            <= 3;
-}
-
-fn delete_confirmation(
-    frame: &mut Frame,
-    area: Rect,
-    app: &mut App,
-    config: &Config,
-    paint: &Paint,
-) {
-    let area = sheet(area, 78, 26);
-    frame.render_widget(Clear, area);
-    let block = panel(" Review local task deletion ", config, paint, true);
-    let content = block.inner(area);
-    frame.render_widget(block, area);
-    let question = format!(
-        "Delete {} listed tasks, drafts, evidence, task memories and screenshot bytes? Shared memories, project files, exports and provider sessions stay. Not secure erasure. Page {}/{} (Home/End).",
-        app.delete_targets.len(),
-        app.delete_page + 1,
-        app.deletion_pages()
-    );
-    text(frame, row(content, 0, 4), &question, paint.surface);
-    let details = row(content, 4, content.height.saturating_sub(8));
-    enum Item<'a> {
-        Task(&'a crate::store::Snapshot),
-        Excerpt(i64, &'a str),
-        Screenshot(&'a crate::workspace::context::screenshot::Capture, bool),
-        Run(&'a str, bool),
-        Provider(&'a str, crate::providers::Agent),
-        Memory(&'a crate::workspace::memory::Record),
-    }
-    let lines: Vec<_> = app
-        .delete_preview
-        .iter()
-        .flat_map(|target| {
-            std::iter::once(Item::Task(&target.task))
-                .chain(
-                    target
-                        .excerpts
-                        .iter()
-                        .map(|(id, path)| Item::Excerpt(*id, path)),
-                )
-                .chain(
-                    target
-                        .screenshots
-                        .iter()
-                        .map(|(capture, available)| Item::Screenshot(capture, *available)),
-                )
-                .chain(
-                    target
-                        .runs
-                        .iter()
-                        .map(|(id, available)| Item::Run(id, *available)),
-                )
-                .chain(
-                    target
-                        .provider_records
-                        .iter()
-                        .map(|(id, agent)| Item::Provider(id, *agent)),
-                )
-                .chain(target.memories.iter().map(Item::Memory))
-        })
-        .skip(app.delete_page * crate::app::DELETE_PREVIEW_PAGE)
-        .take(crate::app::DELETE_PREVIEW_PAGE)
-        .map(|item| {
-            Line::from(match item {
-                Item::Task(task) => format!(
-                    "#{} {}",
-                    task.id,
-                    clipped(
-                        task.goal.lines().next().unwrap_or("Untitled task"),
-                        details.width.saturating_sub(24) as usize
-                    )
-                ),
-                Item::Excerpt(id, path) => format!(
-                    "  excerpt #{id} {}",
-                    clipped(path, details.width.saturating_sub(32) as usize)
-                ),
-                Item::Screenshot(capture, available) => format!(
-                    "  screenshot partner #{} {:?} / {} / {} B {}",
-                    capture.partner,
-                    capture.path,
-                    capture.format.label(),
-                    if available { capture.bytes } else { 0 },
-                    if available { "retained" } else { "unavailable" },
-                ),
-                Item::Run(id, available) => format!(
-                    "  run {id} / output {}",
-                    if available { "retained" } else { "unavailable" }
-                ),
-                Item::Provider(id, agent) => {
-                    format!("  provider {} / observation {id}", agent.label())
-                }
-                Item::Memory(record) => format!(
-                    "  task memory #{} {}",
-                    record.id,
-                    clipped(
-                        &record.proposal.content,
-                        details.width.saturating_sub(24) as usize
-                    )
-                ),
-            })
-        })
-        .collect();
-    let max = selection_details(
-        frame,
-        details,
-        Paragraph::new(lines)
-            .style(paint.surface)
-            .wrap(Wrap { trim: false }),
-        app.scroll_for(ScrollSurface::Preview),
-    );
-    app.set_scroll_viewport(ScrollSurface::Preview, max, details.height);
-    let selected = app
-        .confirmation
-        .is_some_and(|confirmation| confirmation.destructive);
-    text(
-        frame,
-        row(content, content.height.saturating_sub(4), 1),
-        "[n] Stay / keep all data",
-        if !selected {
-            paint.selected
-        } else {
-            paint.surface
-        },
-    );
-    text(
-        frame,
-        row(content, content.height.saturating_sub(3), 1),
-        "[y] Delete the listed local tasks",
-        if selected {
-            paint.selected
-        } else {
-            paint.surface
-        },
-    );
-    text(
-        frame,
-        row(content, content.height.saturating_sub(2), 2),
-        paint.hint(Message::CoreDeleteControl),
-        paint.muted,
-    );
-    app.confirmation_reviewed = content.height >= 8
-        && content.width >= 44
-        && Paragraph::new(question)
-            .wrap(Wrap { trim: false })
-            .line_count(content.width.max(1))
-            <= 4;
 }
 
 /// Escape only display-unsafe identities; ordinary Unicode paths stay borrowed.

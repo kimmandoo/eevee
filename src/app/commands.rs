@@ -53,7 +53,15 @@ pub struct Popup {
     pub selected: Option<usize>,
     pub choices: Vec<Choice>,
     pub scope: Option<Overlay>,
+    /// An empty query lists only everyday commands; Ctrl+K (or typing) shows all.
+    pub everyday: bool,
 }
+
+/// What a normal session needs; everything else is found by typing or Ctrl+K.
+/// Sized to one compact (60×18) palette page.
+const EVERYDAY: &[&str] = &[
+    "provider", "model", "effort", "files", "tasks", "todo", "forms", "help",
+];
 
 impl Popup {
     pub fn argument(&self) -> Option<(&str, &str)> {
@@ -75,11 +83,18 @@ impl Popup {
                 | "optimize"
                 | "compact"
                 | "tools"
+                | "mcp"
+                | "form-profile"
                 | "tool-setup"
                 | "tool-plan"
                 | "todo"
                 | "todo-edit"
                 | "todo-eager"
+                | "usage-meter"
+                | "usage-budget"
+                | "rule-allow"
+                | "rule-deny"
+                | "rule-revoke"
         ) && !argument.is_empty())
         .then_some((name, argument))
     }
@@ -95,7 +110,11 @@ impl Popup {
             .choices
             .iter()
             .any(|choice| choice.command.eq_ignore_ascii_case(query));
+        let everyday = self.everyday && self.scope.is_none() && query.is_empty();
         self.choices.iter().filter(move |choice| {
+            if everyday && !EVERYDAY.contains(&choice.command) {
+                return false;
+            }
             if let Some(name) = argument {
                 return choice.command == name;
             }
@@ -587,23 +606,73 @@ impl App {
                     .any(|(name, _, _)| *name == choice.command)
         });
         for (name, label) in [
-            ("provider", "Provider connection selector; nothing sent"),
+            ("provider", "Connect or switch provider; nothing sent"),
+            ("connect", "Provider connections; nothing sent"),
             ("model", "Choose model / optional exact ID"),
+            ("effort", "Reasoning level / optional value"),
             ("files", "Attach files / inspect source context"),
             ("tasks", "Saved tasks"),
+            ("todo", "Todo steps that guide the next evolution"),
+            ("bag", "Bag: Potions, Berries, TMs and held items"),
+            (
+                "usage",
+                "Tokens and estimated cost: request, task, this launch",
+            ),
+            ("usage-meter", "Show or hide the status-row usage meter"),
+            (
+                "usage-budget",
+                "One notice at a launch estimate in USD; never blocks",
+            ),
+            ("prices", "Reload user prices (usage.toml); estimates only"),
+            ("rules", "Project approval rules: list, disable, revoke"),
+            (
+                "mcp",
+                "Review unmanaged stdio MCP registration, connection and selected tools",
+            ),
+            (
+                "form-profile",
+                "Inspect, edit or disable neutral form behavior profiles",
+            ),
+            (
+                "queue-cancel",
+                "Return the queued next Send to the composer",
+            ),
+            (
+                "rule-allow",
+                "Allow requests like the one under review (N = keep N args, launch = until exit)",
+            ),
+            (
+                "rule-deny",
+                "Always deny requests like the one under review",
+            ),
+            ("rule-revoke", "Revoke a rule by id"),
+            ("berry", "Make an attachment one-shot for the next Send"),
+            ("learn-move", "Learn the repeated request Eevee proposed"),
+            (
+                "learn-dismiss",
+                "Don't offer that repeated request as a move",
+            ),
+            (
+                "evolution-preview",
+                "Explain next evolution and operation; nothing sent",
+            ),
+            ("forms", "Choose evolution"),
+            ("help", "Navigation help"),
             (
                 "response",
                 "Read continuous response / inspect pending request",
             ),
             ("approvals", "Focus oldest pending approval or question"),
-            ("cancel-all", "Review cancellation of all owned work"),
-            ("help", "Navigation help"),
-            ("connect", "Provider connections; nothing sent"),
-            ("update", "Review an application update; no replacement yet"),
+            ("new", "Send ordinary Request as a fresh conversation"),
             (
-                "rollback",
-                "Review a retained package and proven data compatibility",
+                "resume",
+                "Send ordinary Request using its owned conversation",
             ),
+            (
+                "chat-new",
+                "Reset local native conversation; keep draft and journal",
+            ),
+            ("cancel-all", "Review cancellation of all owned work"),
             (
                 "context-compare",
                 "Compare exact context selection bytes for this turn",
@@ -684,11 +753,6 @@ impl App {
             ("artifacts", "Inspect owned immutable tool output"),
             ("artifact-search", "Search retained tool output"),
             ("artifact-locations", "Inspect retained failure locations"),
-            ("new", "Send ordinary Request as a fresh conversation"),
-            (
-                "resume",
-                "Send ordinary Request using its owned conversation",
-            ),
             (
                 "session-new",
                 "Advanced: review exact fresh-session payload",
@@ -697,25 +761,15 @@ impl App {
                 "session-resume",
                 "Advanced: review exact owned-session payload",
             ),
-            (
-                "chat-new",
-                "Reset local native conversation; keep draft and journal",
-            ),
             ("reset", "Fresh local task; keep old task and drafts"),
             ("init", "Draft project guide request; review before sending"),
-            ("effort", "Reasoning level / optional value"),
             ("role", "Choose Plan / Implement / Review role"),
-            ("forms", "Choose evolution"),
             ("back-form", "Return to the previous form (Backspace)"),
             (
                 "suggestion-dismiss",
                 "Dismiss this task's current suggestion; no work",
             ),
             ("carry-over", "Reopen the last form carry-over; no work"),
-            (
-                "evolution-preview",
-                "Explain next evolution and operation; nothing sent",
-            ),
             (
                 "journey",
                 "Inspect canonical request steps and route disclosures",
@@ -729,9 +783,10 @@ impl App {
                 "formation-save",
                 "Review saving current forms and request drafts as a new formation file",
             ),
+            ("move", "This partner's four quick moves; nothing executed"),
             (
-                "move",
-                "This partner's four learned moves; nothing executed",
+                "move-library",
+                "All learned moves (up to 32); Enter opens ordinary use review",
             ),
             ("teach-move", "Review teaching the current approved action"),
             (
@@ -776,12 +831,11 @@ impl App {
             ("goal", "Edit goal"),
             ("criteria", "Acceptance criteria"),
             ("criteria-edit", "Edit acceptance criteria"),
-            ("todo", "Task card / proposed and adopted progress"),
             ("todo-adopt", "Adopt the inspected current todo revision"),
             ("todo-edit", "Edit proposed todo JSON steps"),
             (
                 "todo-eager",
-                "Native phased todo prelude on|off (default off)",
+                "Native phased todo prelude on|off (default on)",
             ),
             ("next", "Edit next action"),
             ("complete", "Review task completion"),
@@ -819,6 +873,11 @@ impl App {
             ("verbose", "Toggle brief / full explanations"),
             ("quit", "Leave Eevee"),
             ("task-new", "Create local task"),
+            ("update", "Review an application update; no replacement yet"),
+            (
+                "rollback",
+                "Review a retained package and proven data compatibility",
+            ),
         ] {
             if !choices.iter().any(|choice| choice.command == name) {
                 choices.push(Choice::new(name, label));
@@ -1306,6 +1365,7 @@ impl App {
                 selected: Some(0),
                 choices,
                 scope: self.overlay,
+                everyday: false,
             });
         }
     }
@@ -1327,6 +1387,7 @@ impl App {
             selected: None,
             choices: self.command_choices(),
             scope: self.overlay,
+            everyday: true,
         });
     }
     pub(super) fn command_popup_key(&mut self, key: KeyEvent) -> bool {
@@ -1334,7 +1395,13 @@ impl App {
             return false;
         }
         if key.code == KeyCode::Char('k') && key.modifiers == KeyModifiers::CONTROL {
-            self.open_commands();
+            // First Ctrl+K reveals every command; a second reopens the palette.
+            if let Some(popup) = self.command_popup.as_mut().filter(|popup| popup.everyday) {
+                popup.everyday = false;
+                popup.selected = None;
+            } else {
+                self.open_commands();
+            }
             return true;
         }
         if key
@@ -1429,8 +1496,23 @@ impl App {
             Some((name, argument)) => (name, argument.trim()),
             None => (query, ""),
         };
+        if name == "mcp" {
+            return self.mcp_command(argument);
+        }
+        if name == "form-profile" {
+            self.command_popup = None;
+            return self.form_profile_command(argument);
+        }
         if self.progress_command(name, argument) {
             return true;
+        }
+        if matches!(name, "rule-allow" | "rule-deny" | "rule-revoke") {
+            self.command_popup = None;
+            return self.rules_command(name, argument);
+        }
+        if matches!(name, "usage-meter" | "usage-budget") {
+            self.command_popup = None;
+            return self.usage_command(name, (!argument.is_empty()).then_some(argument));
         }
         if matches!(name, "project-search" | "landmarks" | "retained-responses") {
             self.command_popup = None;
@@ -1533,6 +1615,12 @@ impl App {
             return true;
         }
         self.command_popup = None;
+        if name == "mcp" {
+            return self.mcp_command("");
+        }
+        if name == "form-profile" {
+            return self.form_profile_command("");
+        }
         if self.progress_command(name, "") {
             return true;
         }
@@ -1591,6 +1679,7 @@ impl App {
         if matches!(
             name,
             "move"
+                | "move-library"
                 | "teach-move"
                 | "move-import"
                 | "move-export"
@@ -1636,6 +1725,27 @@ impl App {
         if name == "journey" {
             self.open_overlay(Overlay::Journey);
             return true;
+        }
+        if self.usage_command(name, None) || self.rules_command(name, "") {
+            return true;
+        }
+        if name == "queue-cancel" {
+            return self.queue_cancel();
+        }
+        match name {
+            "bag" | "berry" => {
+                self.open_bag();
+                return true;
+            }
+            "learn-move" => {
+                self.learn_proposed_move();
+                return true;
+            }
+            "learn-dismiss" => {
+                self.dismiss_proposed_move();
+                return true;
+            }
+            _ => {}
         }
         if name == "evolution-preview" {
             self.open_evolution_preview();
@@ -1702,6 +1812,7 @@ impl App {
                     })
                     .collect(),
                 scope: self.overlay,
+                everyday: false,
             });
             return true;
         }
@@ -2073,6 +2184,47 @@ mod tests {
         for character in name.chars() {
             key(app, KeyCode::Char(character));
         }
+    }
+
+    #[test]
+    fn empty_palette_lists_everyday_commands_and_ctrl_k_reveals_all() {
+        let mut app = App::new("/workspace".into(), 60, 18);
+        app.open_commands();
+        let popup = app.command_popup.as_ref().unwrap();
+        let visible: Vec<_> = popup.candidates().map(|choice| choice.command).collect();
+        assert!(
+            visible
+                .iter()
+                .all(|command| super::EVERYDAY.contains(command))
+        );
+        assert!(visible.contains(&"provider") && visible.contains(&"todo"));
+        assert!(visible.len() <= 8, "one compact page: {visible:?}");
+        let total = popup.choices.len();
+        app.update(Event::Key(KeyEvent::new(
+            KeyCode::Char('k'),
+            KeyModifiers::CONTROL,
+        )));
+        let popup = app.command_popup.as_ref().unwrap();
+        assert!(popup.candidates().count() > visible.len());
+        assert_eq!(popup.choices.len(), total);
+        // Typing still searches every command, everyday or not.
+        app.open_commands();
+        query(&mut app, "rollback");
+        assert!(
+            app.command_popup
+                .as_ref()
+                .unwrap()
+                .candidates()
+                .any(|choice| choice.command == "rollback")
+        );
+        // Aliases collapse to the canonical row.
+        app.open_commands();
+        query(&mut app, "connect");
+        let popup = app.command_popup.as_ref().unwrap();
+        assert!(
+            popup.candidates().all(|choice| choice.command != "connect")
+                || popup.candidates().count() == 1
+        );
     }
 
     #[test]

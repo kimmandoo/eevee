@@ -260,6 +260,11 @@ impl App {
         self.planning.tool_catalog =
             self.tool_catalog
                 .selection(self.planning.agent, task.id, task.lead_partner)?;
+        self.planning.behavior_profile = if self.profile_skip.contains(&task.lead_partner) {
+            None
+        } else {
+            self.form_profiles.selected(&task.project, task.form)?
+        };
         Ok(())
     }
 
@@ -286,6 +291,30 @@ impl App {
         request: store::receipts::Request,
         result: Result<store::receipts::Response, String>,
     ) {
+        if let store::receipts::Operation::Put(outgoing) = &request.operation
+            && let Some(child) = self.delegation.children.values_mut().find(|child| {
+                child
+                    .state
+                    .receipt_claim
+                    .as_ref()
+                    .is_some_and(|claim| claim.request_id == outgoing.record.request_id)
+            })
+        {
+            let refusal = if !outgoing.record.submitted {
+                result.as_ref().err().filter(|error| {
+                    error.starts_with("Outgoing receipt capacity reached;")
+                        || error.starts_with("Local storage quota exceeded (live SQLite + retained output + committed reservations);")
+                }).cloned()
+            } else {
+                None
+            };
+            child.state.receipts.event(request, result);
+            if let Some(error) = refusal {
+                child.refuse_reservation(error);
+            }
+            child.state.settle_work();
+            return;
+        }
         if let Some(state) = self.planning_state_mut(request.partner) {
             state.receipts.event(request, result);
             state.settle_work();

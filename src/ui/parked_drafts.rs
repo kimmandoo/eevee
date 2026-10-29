@@ -109,18 +109,21 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &App, config: &Config, 
     );
     let controls = if let Some(review) = &state.review {
         format!(
-            "Up/Down or PgUp/PgDn: read all · Left/Right: choose\n{} / {}{} · Enter: confirm choice · Esc: keep both",
+            "Up/Down or PgUp/PgDn: read all · Left/Right: choose\n{} / {} · Enter: confirm choice · Esc: keep both",
             if state.affirmative { "Stay" } else { "[Stay]" },
-            if review.discard { "Discard" } else { "Replace" },
-            if state.affirmative { " [selected]" } else { "" }
+            match (review.discard, state.affirmative) {
+                (true, true) => "[Discard]",
+                (true, false) => "Discard",
+                (false, true) => "[Replace]",
+                (false, false) => "Replace",
+            }
         )
     } else {
         "Up/Down: select/read · Enter: inspect · r: restore copy\nd: review discard · Esc: back · /park-draft: park Request".into()
     };
     frame.render_widget(
-        Paragraph::new(controls)
-            .wrap(Wrap { trim: false })
-            .style(paint.muted),
+        Paragraph::new(choice_text(&controls, paint.muted, paint.selected))
+            .wrap(Wrap { trim: false }),
         Rect::new(inner.x, inner.bottom().saturating_sub(3), inner.width, 3),
     );
 }
@@ -136,6 +139,7 @@ mod tests {
         for (width, height) in [(120, 36), (60, 18)] {
             let config = Config {
                 native_transport: crate::providers::NativeTransport::Auto,
+                retry: Default::default(),
                 ascii: true,
                 no_animation: true,
                 animation_override: Some(false),

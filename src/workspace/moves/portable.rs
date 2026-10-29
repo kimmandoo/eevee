@@ -11,16 +11,20 @@ pub struct Definition {
     pub name: String,
     pub form: String,
     pub steps: Steps,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parameters: Option<super::parameters::Template>,
 }
 
 impl Definition {
     pub fn from_proposal(proposal: &Proposal) -> Result<Self, String> {
         super::validate_proposal(proposal)?;
+        let parameters = super::parameters::Template::of(proposal)?;
         let definition = Self {
-            schema_version: 1,
+            schema_version: if parameters.is_some() { 2 } else { 1 },
             name: proposal.name.clone(),
             form: crate::domain::FORMS[proposal.form].name.into(),
             steps: proposal.steps.clone(),
+            parameters,
         };
         definition.validate()?;
         Ok(definition)
@@ -32,8 +36,11 @@ impl Definition {
             .ok_or_else(|| "TM form is unsupported".into())
     }
     pub fn validate(&self) -> Result<(), String> {
-        if self.schema_version != 1 {
-            return Err("Unsupported TM schema version; only version 1 is accepted".into());
+        if self.schema_version != if self.parameters.is_some() { 2 } else { 1 } {
+            return Err("TM1 is literal; TM2 requires a typed request parameter template".into());
+        }
+        if let Some(template) = &self.parameters {
+            template.validate(&self.steps)?;
         }
         super::validate_name(&self.name)?;
         super::validate_steps(self.form_index()?, &self.steps)?;
@@ -71,7 +78,8 @@ impl Definition {
     /// This is a new local learning source, not imported teacher or execution evidence.
     pub fn proposal(&self, task_id: i64, partner: i64, scope: Scope) -> Result<Proposal, String> {
         let digest = format!("{:x}", Sha256::digest(self.encode()?.as_bytes()));
-        let proposal = Proposal {
+        let mut proposal = Proposal {
+            extra: Default::default(),
             partner,
             form: self.form_index()?,
             name: self.name.clone(),
@@ -84,6 +92,9 @@ impl Definition {
                 teacher_name: None,
             },
         };
+        if let Some(template) = &self.parameters {
+            template.store(&mut proposal)?;
+        }
         super::validate_proposal(&proposal)?;
         Ok(proposal)
     }
@@ -125,6 +136,7 @@ mod tests {
     fn definitions() -> Vec<Definition> {
         (0..9)
             .map(|form| Definition {
+                parameters: None,
                 schema_version: 1,
                 name: format!("Portable {form}"),
                 form: crate::domain::FORMS[form].name.into(),
@@ -231,5 +243,48 @@ mod tests {
             assert!(write_new(&root.join("link.toml"), &definition).is_err());
         }
         std::fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn xc07_tm2_preserves_parameters_and_tm1_stays_literal() {
+        let steps = Steps::Request {
+            instruction: "fix the bug in src/b.rs".into(),
+            pins: vec![],
+        };
+        let mut proposal = definitions()
+            .remove(3)
+            .proposal(1, 1, Scope::Project)
+            .unwrap();
+        proposal.steps = steps;
+        let template = super::super::parameters::Template::derive(
+            &proposal.steps,
+            vec![
+                "fix the bug in src/a.rs".into(),
+                "fix the bug in src/b.rs".into(),
+            ],
+        )
+        .unwrap()
+        .unwrap();
+        template.store(&mut proposal).unwrap();
+        let definition = Definition::from_proposal(&proposal).unwrap();
+        assert_eq!(definition.schema_version, 2);
+        let encoded = definition.encode().unwrap();
+        let decoded = Definition::decode(&encoded).unwrap();
+        assert_eq!(decoded, definition);
+        let imported = decoded.proposal(2, 3, Scope::Personal).unwrap();
+        assert_eq!(
+            super::super::parameters::Template::of(&imported).unwrap(),
+            Some(template.clone())
+        );
+        assert_eq!(
+            template.fill(&imported.steps, "[\"src/c.rs\"]").unwrap(),
+            "fix the bug in src/c.rs"
+        );
+        let literal = definitions().remove(3);
+        assert_eq!(literal.schema_version, 1);
+        assert!(!literal.encode().unwrap().contains("parameters"));
+        assert!(
+            Definition::decode(&encoded.replace("schema_version = 2", "schema_version = 1"))
+                .is_err()
+        );
     }
 }

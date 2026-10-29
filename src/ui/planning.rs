@@ -123,7 +123,7 @@ pub(super) fn render_small(frame: &mut Frame, area: Rect, state: &mut State, pai
             .hint(Message::ProvidersPlanningPlanningTerminalTooSmallNeed60Columns)
             .into()
     };
-    text(frame, area, &value, paint.accent);
+    super::choices(frame, area, &value, paint.accent, paint);
 }
 
 pub(super) fn file_prompt_area(area: Rect, app: &App) -> Option<Rect> {
@@ -396,6 +396,8 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
     let mut value = String::new();
     let _ = writeln!(value, "{}\n", super::selection_text(state));
     let mut review = false;
+    // Line of the focused provider option, painted as the current choice.
+    let mut focused_line = None;
     if let Some(preview) = &state.preview {
         for blocker in &preview.blockers {
             let _ = writeln!(
@@ -468,6 +470,9 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                 value.push_str("PERMISSION / EXACT PROVIDER RESPONSE\n");
                 value.push_str(description);
                 for (index, option) in options.iter().enumerate() {
+                    if index == state.option {
+                        focused_line = Some(value.matches('\n').count() + 1);
+                    }
                     let _ = writeln!(
                         value,
                         "\n{} {}: {}",
@@ -544,6 +549,9 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                         )
                     );
                     for (index, option) in question.options.iter().enumerate() {
+                        if state.option == index {
+                            focused_line = Some(value.matches('\n').count());
+                        }
                         let _ = writeln!(
                             value,
                             "{} {}\n  {}",
@@ -553,6 +561,9 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                         );
                     }
                     if question.other || question.options.is_empty() {
+                        if state.option == question.options.len() {
+                            focused_line = Some(value.matches('\n').count());
+                        }
                         let _ = writeln!(
                             value,
                             "{}",
@@ -602,10 +613,37 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         value.push_str(inspection);
     }
     let details = row(content, 1, content.height.saturating_sub(6));
+    let lines: Vec<_> = value
+        .split('\n')
+        .enumerate()
+        .map(|(index, line)| {
+            if focused_line == Some(index) {
+                Line::styled(line, paint.selected)
+            } else {
+                Line::raw(line)
+            }
+        })
+        .collect();
+    // Keep the focused answer choice and its description on screen; consent
+    // reviews keep purely manual scrolling.
+    if let Some(line) = focused_line.filter(|_| !review) {
+        let rows = |end: usize| {
+            Paragraph::new(lines[..end.min(lines.len())].to_vec())
+                .wrap(Wrap { trim: false })
+                .line_count(details.width.max(1))
+                .min(u16::MAX as usize) as u16
+        };
+        let (top, bottom) = (rows(line), rows(line + 2));
+        if top < state.scroll {
+            state.scroll = top;
+        } else if bottom > state.scroll.saturating_add(details.height) {
+            state.scroll = bottom.saturating_sub(details.height).min(top);
+        }
+    }
     state.scroll_max = selection_details(
         frame,
         details,
-        Paragraph::new(value)
+        Paragraph::new(lines)
             .style(paint.surface)
             .wrap(Wrap { trim: false }),
         state.scroll,
@@ -936,7 +974,7 @@ fn review_summary(state: &State, paint: &Paint) -> Vec<String> {
             format!("Context: {} exact outgoing bytes / {usage} / {outcome}", preview.payload.len()),
             format!("Write scope: {scope} / {approvals}"),
             format!("{} / {artifacts} / d Details · /journey capabilities", preview_continuity(state, preview)),
-            "Provider network/billing and retained history; no retries or inherited grants; cancellation may not prove remote stop.".into(),
+            "Provider network/billing and retained history; no inherited grants; only provably unprocessed native HTTP rounds are retried; cancellation may not prove remote stop.".into(),
         ];
         return lines;
     }
@@ -1130,7 +1168,7 @@ fn review_controls(frame: &mut Frame, area: Rect, state: &State, paint: &Paint) 
     } else {
         3
     };
-    text(
+    super::choices(
         frame,
         row(
             area,
@@ -1139,6 +1177,7 @@ fn review_controls(frame: &mut Frame, area: Rect, state: &State, paint: &Paint) 
         ),
         controls,
         paint.accent,
+        paint,
     );
 }
 
@@ -1159,12 +1198,15 @@ fn response(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
             .as_ref()
             .and_then(|status| status.outcome_label());
         let mut metadata = if let ItemKind::File(phase) = item.kind {
+            // A live count of actually received lines makes generation visible.
+            let lines = item.text.lines().count().saturating_sub(1);
             format!(
-                "{}{}{} {}",
+                "{}{}{} {} · {lines} line{}",
                 outcome.unwrap_or(""),
                 if outcome.is_some() { " · " } else { "" },
                 paint.hint(Message::ProvidersPlanningFileLabel),
                 paint.hint(file_phase_message(phase)),
+                if lines == 1 { "" } else { "s" },
             )
         } else {
             format!(
@@ -1306,10 +1348,14 @@ fn response(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
                     Line::styled(row.text, style)
                 }
                 ItemKind::File(phase) => {
+                    let live = super::LIVE_FX.get();
+                    let fresh = row.fresh && live.is_some();
                     let marker = if row.header {
                         "+ "
                     } else if row.writing_edge {
                         "> "
+                    } else if fresh {
+                        "+ "
                     } else {
                         "| "
                     };
@@ -1319,10 +1365,12 @@ fn response(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
                         paint
                             .base
                             .add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
+                    } else if fresh {
+                        file_style(phase, paint).add_modifier(Modifier::BOLD)
                     } else {
                         paint.base
                     };
-                    let mut spans = Vec::with_capacity(3);
+                    let mut spans = Vec::with_capacity(4);
                     spans.push(Span::styled(marker, file_style(phase, paint)));
                     if !row.header
                         && let Some((number, code)) = row
@@ -1338,6 +1386,15 @@ fn response(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
                         ]);
                     } else {
                         spans.push(Span::styled(row.text, style));
+                    }
+                    if row.writing_edge
+                        && let Some((ascii, frame)) = live
+                        && frame % 4 < 2
+                    {
+                        spans.push(Span::styled(
+                            if ascii { "_" } else { "▌" },
+                            file_style(phase, paint),
+                        ));
                     }
                     Line::from(spans).style(paint.base)
                 }
@@ -1547,7 +1604,7 @@ fn picker(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
             &summary,
             paint,
         );
-        text(
+        super::choices(
             frame,
             row(area, area.height.saturating_sub(3), 3),
             if state.affirmative {
@@ -1556,6 +1613,7 @@ fn picker(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
                 paint.hint(Message::ProvidersPlanningKeepCurrentNewSessionYNewN2)
             },
             paint.accent,
+            paint,
         );
         return;
     }
@@ -1810,7 +1868,7 @@ fn switch(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
         );
         state.scroll = 0;
         state.scroll_max = 0;
-        text(
+        super::choices(
             frame,
             row(area, area.height.saturating_sub(3), 3),
             if state.affirmative {
@@ -1819,6 +1877,7 @@ fn switch(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
                 paint.hint(Message::ProvidersPlanningStaySwitchAgentYSwitchNStay2)
             },
             paint.accent,
+            paint,
         );
         return;
     }
@@ -1879,7 +1938,7 @@ fn journal(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
             ],
             paint,
         );
-        text(
+        super::choices(
             frame,
             row(area, area.height.saturating_sub(3), 3),
             if state.affirmative {
@@ -1888,6 +1947,7 @@ fn journal(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
                 paint.hint(Message::ProvidersPlanningKeepPurgeTaskJournalYPurgeN2)
             },
             paint.accent,
+            paint,
         );
         return;
     }
@@ -2037,11 +2097,12 @@ fn quit(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
     } else {
         paint.hint(Message::ProvidersPlanningStayCancelRemainingWorkAndExit2)
     };
-    text(
+    super::choices(
         frame,
         row(area, area.height.saturating_sub(3), 1),
         choice,
         paint.accent,
+        paint,
     );
     text(
         frame,
@@ -2128,6 +2189,7 @@ mod tests {
     fn config() -> Config {
         Config {
             native_transport: crate::providers::NativeTransport::Auto,
+            retry: Default::default(),
             ascii: true,
             no_animation: true,
             animation_override: Some(false),
@@ -2213,6 +2275,112 @@ mod tests {
             .map(|y| rendered_row(buffer, buffer.area, y))
             .collect::<Vec<_>>()
             .join("\n")
+    }
+
+    #[test]
+    fn item_notice_draws_in_the_notice_slot_and_yields_to_overlays() {
+        for (width, height) in [(120, 36), (60, 18)] {
+            let mut app = App::new("/workspace".into(), width, height);
+            app.show_notice(crate::app::game::Notice {
+                item: crate::app::game::Item::Tm(3),
+                title: "New move!".into(),
+                text: "Eevee #1 learned Ember!".into(),
+            });
+            let screen = draw_home(&mut app);
+            assert!(
+                screen.contains("New move!") && screen.contains("learned Ember"),
+                "{screen}"
+            );
+            assert!(
+                screen.contains("[TM]"),
+                "text icon without cached sprites:\n{screen}"
+            );
+            app.command("bag");
+            let screen = draw_home(&mut app);
+            assert!(!screen.contains("New move!"), "{screen}");
+            assert!(
+                screen.contains("Bag") && screen.contains("Potion"),
+                "{screen}"
+            );
+        }
+    }
+
+    #[test]
+    fn compact_layouts_keep_the_todo_line_without_a_companion() {
+        use crate::workspace::progress::{State as Progress, Status, Step};
+        for (width, height) in [(60, 18), (80, 24)] {
+            let mut app = App::new("/workspace".into(), width, height);
+            let screen = draw_home(&mut app);
+            assert!(!screen.contains("Todo "), "no todo, no line:\n{screen}");
+            let mut progress = Progress::default();
+            progress
+                .propose(
+                    "fixture",
+                    vec![Step {
+                        label: "Fix".into(),
+                        phase: None,
+                        status: Status::Active,
+                    }],
+                )
+                .unwrap();
+            progress.adopt().unwrap();
+            app.workflows.progress = Some(progress);
+            let screen = draw_home(&mut app);
+            assert!(
+                screen.contains("Todo 1/1 Fix"),
+                "{width}x{height}\n{screen}"
+            );
+        }
+    }
+
+    #[test]
+    fn home_companion_names_the_todo_step_that_steers_evolution() {
+        use crate::workspace::progress::{State as Progress, Status, Step};
+        // 60x18 has no companion pane; /todo and /evolution-preview remain.
+        for (width, height) in [(120, 36), (100, 30)] {
+            for automatic in [true, false] {
+                let mut app = App::new("/workspace".into(), width, height);
+                app.store_event(crate::store::Event::Loaded(crate::store::Project {
+                    tasks: Vec::new(),
+                    partners: vec![crate::store::Partner {
+                        auto_form: automatic,
+                        ..Default::default()
+                    }],
+                    active_id: None,
+                    usage_bytes: 0,
+                }));
+                let mut progress = Progress::default();
+                progress
+                    .propose(
+                        "fixture",
+                        vec![
+                            Step {
+                                label: "오류 조사".into(),
+                                phase: None,
+                                status: Status::Done,
+                            },
+                            Step {
+                                label: "코드 수정".into(),
+                                phase: None,
+                                status: Status::Pending,
+                            },
+                        ],
+                    )
+                    .unwrap();
+                app.workflows.progress = Some(progress.clone());
+                let screen = draw_home(&mut app);
+                assert!(screen.contains("Todo proposal waiting"), "{screen}");
+                progress.adopt().unwrap();
+                app.workflows.progress = Some(progress);
+                let screen = draw_home(&mut app);
+                let expected = if automatic {
+                    format!("→ {} · Todo 2/2", crate::domain::FORMS[3].name)
+                } else {
+                    "Todo 2/2".into()
+                };
+                assert!(screen.contains(&expected), "{expected}\n{screen}");
+            }
+        }
     }
 
     #[test]
@@ -2589,6 +2757,48 @@ mod tests {
     }
 
     #[test]
+    fn newly_received_file_lines_flash_only_while_live_and_never_hide_content() {
+        let (mut app, task) = preview(60, 18);
+        draw(&mut app);
+        key(&mut app, &task, KeyCode::Char('y'));
+        app.planning.pending.take();
+        let snapshot = |text: &str| Event::Item {
+            generation: 11,
+            task_id: 7,
+            thread_id: "thread".into(),
+            turn_id: "turn".into(),
+            item_id: "file".into(),
+            kind: ItemKind::File(FilePhase::Generating),
+            text: text.into(),
+            complete: false,
+        };
+        app.planning.event(snapshot("src/a.rs\nfn one() {}\n"));
+        app.planning.event(snapshot(
+            "src/a.rs\nfn one() {}\nfn two() {}\nfn three() {}\n",
+        ));
+        let fresh: Vec<_> = app
+            .planning
+            .response_display_rows(60, 12, false)
+            .filter(|row| row.fresh)
+            .map(|row| row.text.to_owned())
+            .collect();
+        assert!(fresh.iter().any(|row| row.contains("two")), "{fresh:?}");
+        assert!(fresh.iter().any(|row| row.contains("three")), "{fresh:?}");
+        assert!(!fresh.iter().any(|row| row.contains("one")), "{fresh:?}");
+        let paint = Paint::new(&config(), &crate::domain::FORMS[0], 0);
+        for live in [Some((true, 0)), None] {
+            super::super::LIVE_FX.set(live);
+            let screen = screen(&draw_response(&mut app.planning, 60, 18, &paint));
+            // Every received line is on screen either way; only styling differs.
+            for line in ["fn one", "fn two", "fn three"] {
+                assert!(screen.contains(line), "{screen}");
+            }
+            assert!(screen.contains("3 lines"), "{screen}");
+            assert_eq!(screen.contains("+ fn two"), live.is_some(), "{screen}");
+        }
+    }
+
+    #[test]
     fn paused_mid_file_rows_keep_gutter_identity_and_unicode_after_stage_and_resize() {
         for color in [ColorMode::TrueColor, ColorMode::Mono] {
             let (mut app, task) = preview(60, 18);
@@ -2879,6 +3089,7 @@ mod tests {
                 app.workflow.preview = true;
                 app.workflow.recipe = Some(Recipe {
                     schema_version: 1,
+                    profiles: Vec::new(),
                     name: "Scoped plan".into(),
                     scope: vec![],
                     context: vec![],
@@ -3257,7 +3468,12 @@ mod tests {
             assert!(dock.height <= 10 && dock.y >= 2);
             let rows: Vec<_> = observed.lines().collect();
             assert!(rows[composer.y as usize].contains("Request"));
-            assert!(rows[composer.y as usize + 1].contains(&draft.0));
+            assert!(
+                rows[composer.y as usize + 1..composer.bottom() as usize - 1]
+                    .iter()
+                    .any(|line| line.contains(&draft.0)),
+                "retained draft must remain visible below file choices"
+            );
             assert!(
                 rows[dock.y as usize..composer.y as usize]
                     .iter()
@@ -3500,6 +3716,96 @@ mod tests {
             },
         });
         (app, task)
+    }
+
+    fn styled_row(buffer: &ratatui::buffer::Buffer, needle: &str) -> Option<(u16, u16)> {
+        (0..buffer.area.height).find_map(|y| {
+            let line = rendered_row(buffer, buffer.area, y);
+            let column = line.find(needle)?;
+            Some((line[..column].chars().count() as u16, y))
+        })
+    }
+
+    #[test]
+    fn choice_lines_paint_only_the_bracketed_selection_as_a_button() {
+        let selected = Style::default().add_modifier(Modifier::REVERSED);
+        let text = super::super::choice_text(
+            "Stay / [Switch agent] · y Switch / n Stay\n[n] key [Back]",
+            Style::default(),
+            selected,
+        );
+        let spans: Vec<_> = text
+            .lines
+            .iter()
+            .flat_map(|line| &line.spans)
+            .filter(|span| span.style == selected)
+            .map(|span| span.content.as_ref())
+            .collect();
+        assert_eq!(spans, ["[Switch agent]", "[Back]"]);
+        assert_eq!(
+            text.lines
+                .iter()
+                .map(|line| line.to_string())
+                .collect::<Vec<_>>(),
+            [
+                "Stay / [Switch agent] · y Switch / n Stay",
+                "[n] key [Back]"
+            ]
+        );
+    }
+
+    #[test]
+    fn focused_question_option_and_selected_action_are_highlighted() {
+        let config = config();
+        let paint = Paint::new(&config, &crate::domain::FORMS[0], 0);
+        for (width, height) in [(120, 36), (60, 18)] {
+            let (mut app, _) =
+                bolt_prompt(PromptKind::Questions(vec![crate::providers::Question {
+                    id: "q".into(),
+                    header: "Scope".into(),
+                    question: "Which module?".into(),
+                    options: vec![
+                        crate::providers::QuestionOption {
+                            label: "Alpha".into(),
+                            description: "first".into(),
+                        },
+                        crate::providers::QuestionOption {
+                            label: "Beta".into(),
+                            description: "second".into(),
+                        },
+                    ],
+                    other: false,
+                    secret: false,
+                }]));
+            app.width = width;
+            app.height = height;
+            for focused in [0, 1] {
+                app.planning.option = focused;
+                let buffer = draw(&mut app);
+                let screen = screen(&buffer);
+                let label = ["Alpha", "Beta"][focused];
+                let on = styled_row(&buffer, label)
+                    .unwrap_or_else(|| panic!("focused option must stay visible:\n{screen}"));
+                assert_eq!(buffer[on].bg, paint.selected.bg.unwrap(), "{screen}");
+                assert!(screen.contains(["first", "second"][focused]), "{screen}");
+                if let Some(off) = styled_row(&buffer, ["Beta", "Alpha"][focused]) {
+                    assert_ne!(buffer[off].bg, paint.selected.bg.unwrap());
+                }
+            }
+        }
+
+        let (mut app, _) = bolt_prompt(PromptKind::Approval {
+            command: "cargo test".into(),
+            cwd: "/workspace".into(),
+            reason: "verify".into(),
+            allow_once: true,
+            deny_decision: "decline".into(),
+        });
+        let buffer = draw(&mut app);
+        let deny = styled_row(&buffer, "[Deny]").expect("default Deny choice");
+        assert_eq!(buffer[deny].bg, paint.selected.bg.unwrap());
+        let allow = styled_row(&buffer, "Allow once").unwrap();
+        assert_ne!(buffer[allow].bg, paint.selected.bg.unwrap());
     }
 
     fn screen(buffer: &ratatui::buffer::Buffer) -> String {

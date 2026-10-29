@@ -52,6 +52,7 @@ pub struct State {
     details_return: Option<(View, usize)>,
     lookups: BTreeMap<u64, SyncSender<Result<Response, String>>>,
     captures: BTreeMap<u64, SyncSender<Result<Record, String>>>,
+    capture_owners: BTreeMap<u64, String>,
 }
 impl State {
     pub fn visible(&self) -> bool {
@@ -117,8 +118,16 @@ impl State {
         capture: ToolCapture,
         reply: SyncSender<Result<Record, String>>,
     ) {
+        let owner = capture.request_id.clone();
         self.retain(task, capture);
         self.captures.insert(self.serial, reply);
+        self.capture_owners.insert(self.serial, owner);
+    }
+    pub(super) fn retention_pending(&self, request_id: &str) -> bool {
+        self.capture_owners.values().any(|owner| owner == request_id)
+            || self.failed.as_ref().is_some_and(|request| {
+                matches!(&request.operation, Operation::RetainTool(capture) if capture.request_id == request_id)
+            })
     }
     pub fn enqueue_lookup(
         &mut self,
@@ -197,6 +206,7 @@ impl State {
             return;
         }
         self.inflight = None;
+        self.capture_owners.remove(&request.request_id);
         if let Some(reply) = self.lookups.remove(&request.request_id) {
             let _ = reply.try_send(result);
             return;
@@ -619,6 +629,38 @@ impl State {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn child_capture_ownership_waits_for_queued_inflight_and_failed_retention() {
+        let mut state = State::default();
+        let (reply, received) = std::sync::mpsc::sync_channel(1);
+        state.retain_with_reply(
+            1,
+            ToolCapture {
+                request_id: "child-request".into(),
+                call_id: "read-1".into(),
+                tool: "eevee_read_file".into(),
+                partner: None,
+                text: "actual observation".into(),
+                failed: false,
+            },
+            reply,
+        );
+        assert!(state.retention_pending("child-request"));
+        assert!(!state.retention_pending("another-request"));
+        let request = state.queued.pop_front().unwrap();
+        state.inflight = Some((request.request_id, request.task_id));
+        assert!(state.retention_pending("child-request"));
+        state.store_event(request, Err("fixture storage failure".into()));
+        assert!(received.try_recv().unwrap().is_err());
+        assert!(
+            state.retention_pending("child-request"),
+            "transport cancellation cannot abandon a failed durable write"
+        );
+        let retry = state.failed.take().unwrap();
+        state.inflight = Some((retry.request_id, retry.task_id));
+        state.store_event(retry, Ok(Response::Retained(record("child-artifact"))));
+        assert!(!state.retention_pending("child-request"));
+    }
     fn key(code: KeyCode) -> KeyEvent {
         KeyEvent::new(code, crossterm::event::KeyModifiers::NONE)
     }

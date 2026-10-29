@@ -15,8 +15,10 @@ const MAX_LINKS: usize = 16;
 pub mod authoring;
 pub mod impact;
 
+/// Unknown fields from a newer writer are preserved in `extra` (XC08);
+/// `critical` names the ones an older reader must refuse instead.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
+#[serde(default)]
 pub struct State {
     pub hypotheses: Vec<Hypothesis>,
     pub refactor: Option<Refactor>,
@@ -41,6 +43,13 @@ pub struct State {
     pub parked_drafts: Vec<crate::store::parked_drafts::Entry>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub progress: Option<super::progress::State>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub game: Option<super::game::State>,
+    /// Fields an older reader that does not know them must refuse.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub critical: Vec<String>,
+    #[serde(flatten)]
+    pub extra: super::forward::Extra,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -592,11 +601,32 @@ pub struct ReviewGuard {
 }
 
 impl State {
+    /// Refuses an unknown field a newer writer declared critical (XC08).
+    pub fn check_forward(&self) -> Result<(), String> {
+        super::forward::check_critical(&self.critical, &self.extra, |head| match head {
+            "progress" => self.progress.as_ref().map(|progress| &progress.extra),
+            "game" => self.game.as_ref().map(|game| &game.extra),
+            _ => None,
+        })
+    }
+
     pub fn validate(&self, task_id: i64) -> Result<(), String> {
+        self.check_forward()?;
+        if self.critical.len() > 64
+            || self
+                .critical
+                .iter()
+                .any(|path| path.is_empty() || path.len() > 128)
+        {
+            return Err("Invalid critical task-field list".into());
+        }
         crate::store::retained::validate_landmarks(&self.landmarks)?;
         crate::store::parked_drafts::validate(&self.parked_drafts)?;
         if let Some(progress) = &self.progress {
             progress.validate()?;
+        }
+        if let Some(game) = &self.game {
+            game.validate()?;
         }
         if let Some(plan) = &self.tool_plans {
             plan.validate(task_id)?;
@@ -1183,6 +1213,9 @@ pub struct Recipe {
     pub completion_criteria: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub roles: Vec<FormationSlot>,
+    /// Imported neutral preferences; application never enables them automatically.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub profiles: Vec<super::form_profiles::Profile>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -1241,6 +1274,9 @@ impl RecipePreview {
         for criterion in &self.recipe.completion_criteria {
             text.push_str(&format!("Completion criterion (unverified): {criterion}\n"));
         }
+        for profile in &self.recipe.profiles {
+            text.push_str(&format!("Disabled behavior profile for {} ({} B): {:?}\nImport/application does not enable it; /form-profile recipe opens a separate explicit review.\n", crate::domain::FORMS[profile.form].name, profile.packet.instructions.len(), profile.packet.instructions));
+        }
         text
     }
 }
@@ -1284,6 +1320,16 @@ impl Recipe {
         }
         if self.roles.len() > 6 {
             return Err("A formation has at most six role slots".into());
+        }
+        if self.profiles.len() > 9 {
+            return Err("A recipe has at most nine disabled behavior profiles".into());
+        }
+        let mut forms = std::collections::BTreeSet::new();
+        for profile in &self.profiles {
+            if profile.form >= 9 || !forms.insert(profile.form) {
+                return Err("Recipe profiles require distinct existing forms".into());
+            }
+            profile.packet.validate()?;
         }
         let mut names = std::collections::HashSet::new();
         for slot in &self.roles {

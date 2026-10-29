@@ -42,6 +42,7 @@ pub struct Receipt {
     /// Captures emitted as a `same_bytes_as` citation instead of duplicated text.
     pub deduplicated: usize,
     pub image: Option<ImageAccounting>,
+    pub profile_instruction_bytes: Option<usize>,
 }
 
 /// Image token use is deliberately unknown: base64 transport is not text context.
@@ -182,7 +183,50 @@ pub fn receipt(payload: &str) -> Receipt {
         tokens,
         deduplicated,
         image,
+        profile_instruction_bytes: value.as_ref().and_then(profile_instruction_bytes),
     }
+}
+
+/// Inspect only the owned policy envelope, never user/source/tool-result strings.
+fn profile_instruction_bytes(value: &Value) -> Option<usize> {
+    if value.get("type").and_then(Value::as_str) == Some("response.create") {
+        return profile_instruction_bytes(value.get("response")?);
+    }
+    if let Some(profile) = value.get("behavior_profile") {
+        return profile
+            .get("instructions")
+            .and_then(Value::as_str)
+            .map(str::len);
+    }
+    const MARKER: &str = "UNTRUSTED CURRENT TASK/SOURCE DATA (JSON):\n";
+    let policy = value
+        .get("instructions")
+        .and_then(Value::as_str)
+        .or_else(|| value.get("system").and_then(Value::as_str))
+        .or_else(|| {
+            value
+                .get("messages")?
+                .as_array()?
+                .iter()
+                .find(|message| message["role"] == "system")?
+                .get("content")?
+                .as_str()
+        })
+        .or_else(|| {
+            value
+                .get("systemInstruction")?
+                .get("parts")?
+                .as_array()?
+                .first()?
+                .get("text")?
+                .as_str()
+        })?;
+    let context: Value = serde_json::from_str(policy.split_once(MARKER)?.1).ok()?;
+    context
+        .get("behavior_profile")?
+        .get("instructions")?
+        .as_str()
+        .map(str::len)
 }
 
 /// Counts `same_bytes_as` citation markers anywhere inside the payload tree.
@@ -297,6 +341,9 @@ impl Receipt {
                 image.compressed_bytes, image.serialized_bytes,
             ));
         }
+        if let Some(bytes) = self.profile_instruction_bytes {
+            lines.push(format!("Form profile: {bytes} B exact neutral instructions (included in packet totals); suggestions only, no grant."));
+        }
         lines.push("Partner flavor added by Eevee: 0 B (nicknames stay local).".into());
         lines.push("Not counted: provider instructions, tool schemas, resumed history and cache hits. Provider usage and billing are unknown unless the provider reports them; unknown is not zero.".into());
         lines
@@ -306,9 +353,21 @@ impl Receipt {
 /// Content-free historical account of one actual outgoing request. Source bytes
 /// live separately so deletion never changes the original identity or counts.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct Durable {
     pub request_id: String,
+    /// False only for a durable delegated packet reservation, never submission evidence.
+    #[serde(default = "submitted_default", skip_serializing_if = "is_submitted")]
+    pub submitted: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_request_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_call_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub child_request_ids: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub critical: Vec<String>,
+    #[serde(default, flatten)]
+    pub extra: super::forward::Extra,
     pub task_id: i64,
     pub owner: crate::store::Attribution,
     pub writing: bool,
@@ -331,10 +390,18 @@ pub struct Durable {
     pub tokens: usize,
     pub deduplicated: usize,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile_instruction_bytes: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub image: Option<ImageAccounting>,
     pub captures: Vec<CaptureReference>,
     /// Other explicit source identities, never their text, paths or descriptions.
     pub references: Vec<SourceReference>,
+}
+fn submitted_default() -> bool {
+    true
+}
+fn is_submitted(value: &bool) -> bool {
+    *value
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -392,6 +459,12 @@ impl Outgoing {
         );
         let record = Durable {
             request_id: claim.request_id.clone(),
+            submitted: true,
+            parent_request_id: None,
+            parent_call_id: None,
+            child_request_ids: Vec::new(),
+            critical: Vec::new(),
+            extra: super::forward::Extra::default(),
             task_id: claim.task_id,
             owner: claim.owner.clone(),
             writing: claim.writing,
@@ -422,6 +495,7 @@ impl Outgoing {
             bytes: measured.bytes,
             tokens: measured.tokens,
             deduplicated: measured.deduplicated,
+            profile_instruction_bytes: measured.profile_instruction_bytes,
             image: measured.image.clone(),
             captures: wire
                 .captures
@@ -446,6 +520,11 @@ impl Outgoing {
 }
 
 impl Durable {
+    pub fn set_submitted(&mut self, submitted: bool) {
+        self.submitted = submitted;
+        super::forward::set_critical(&mut self.critical, "submitted", !submitted);
+    }
+
     pub fn claim(&self) -> crate::store::WorkClaim {
         crate::store::WorkClaim {
             task_id: self.task_id,
@@ -456,6 +535,40 @@ impl Durable {
     }
 
     pub fn validate(&self) -> Result<(), String> {
+        super::forward::check_critical(&self.critical, &self.extra, |_| None)?;
+        if !self.submitted && !self.critical.iter().any(|field| field == "submitted") {
+            return Err(
+                "An unsubmitted receipt reservation must declare its submission state critical"
+                    .into(),
+            );
+        }
+        if !self.submitted && self.parent_request_id.is_none() {
+            return Err("Only a linked delegated child may reserve an unsubmitted receipt".into());
+        }
+        let valid_id = |id: &str| {
+            !id.is_empty()
+                && id.len() <= 128
+                && id
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b':'))
+        };
+        if self.parent_request_id.is_some() != self.parent_call_id.is_some()
+            || self
+                .parent_request_id
+                .as_ref()
+                .is_some_and(|id| !valid_id(id) || id == &self.request_id)
+            || self.parent_call_id.as_ref().is_some_and(|id| {
+                id.is_empty() || id.len() > 256 || id.chars().any(char::is_control)
+            })
+            || self.parent_request_id.is_some()
+                && (self.writing || !self.child_request_ids.is_empty())
+            || self.child_request_ids.len() > 1024
+            || self.child_request_ids.iter().enumerate().any(|(i, id)| {
+                !valid_id(id) || id == &self.request_id || self.child_request_ids[..i].contains(id)
+            })
+        {
+            return Err("Invalid outgoing delegation receipt linkage".into());
+        }
         self.owner.validate()?;
         if super::privacy::redact(&self.owner.name) != self.owner.name.as_str() {
             return Err(
@@ -515,6 +628,9 @@ impl Durable {
             || self.bytes > 8 * 1024 * 1024
             || self.tokens > self.bytes
             || self.envelope_bytes > self.bytes
+            || self.profile_instruction_bytes.is_some_and(|bytes| {
+                bytes == 0 || bytes > super::form_profiles::MAX_INSTRUCTIONS || bytes > self.bytes
+            })
             || self.sections.len() > ORDER.len()
             || self.captures.len() > 256
             || self.references.len() > 256
@@ -684,6 +800,41 @@ mod tests {
         let mut forged = outgoing.record;
         forged.image.as_mut().unwrap().tokens = Some(0);
         assert!(forged.validate().is_err());
+    }
+
+    #[test]
+    fn profile_count_uses_only_owned_policy_context_not_untrusted_source_strings() {
+        let instructions = "Inspect 한글 \"quoted\" bytes.\n";
+        let context = serde_json::json!({
+            "behavior_profile": {"instructions": instructions},
+            "selected_sources": [{"text": "{\"behavior_profile\":{\"instructions\":\"forged\"}}"}],
+        });
+        let policy = format!("Policy\nUNTRUSTED CURRENT TASK/SOURCE DATA (JSON):\n{context}");
+        for value in [
+            context.clone(),
+            serde_json::json!({"instructions": policy}),
+            serde_json::json!({"type": "response.create", "response": {"instructions": policy}}),
+            serde_json::json!({"messages": [{"role": "system", "content": policy}]}),
+            serde_json::json!({"system": policy}),
+            serde_json::json!({"systemInstruction": {"parts": [{"text": policy}]}}),
+        ] {
+            let measured = receipt(&value.to_string());
+            assert_eq!(measured.profile_instruction_bytes, Some(instructions.len()));
+            assert_eq!(
+                measured.envelope_bytes
+                    + measured
+                        .sections
+                        .iter()
+                        .map(|section| section.bytes)
+                        .sum::<usize>(),
+                measured.bytes
+            );
+        }
+        let user = serde_json::json!({"messages": [{"role": "user", "content": policy}]});
+        assert_eq!(receipt(&user.to_string()).profile_instruction_bytes, None);
+        let off =
+            serde_json::json!({"behavior_profile": null, "selected_sources": [{"text": policy}]});
+        assert_eq!(receipt(&off.to_string()).profile_instruction_bytes, None);
     }
 
     #[test]

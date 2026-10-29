@@ -426,6 +426,7 @@ impl App {
             .collect::<Vec<_>>();
         let recipe = Recipe {
             schema_version: 2,
+            profiles: Vec::new(),
             name: "Saved party arrangement".into(),
             steps: roles
                 .iter()

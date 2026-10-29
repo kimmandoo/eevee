@@ -1,30 +1,36 @@
-tm-menu-controls = i Import TM / e Export TM / t Teach
-    Arrows choose / Enter use / d Details / r Reminder / Esc
+tm-menu-controls = i Import TM | e Export TM | t Teach | l Library
+    Arrows choose | Enter use | d Details | r Reminder | Esc
+tm-library-controls = Library /32 | Enter Use | d Details | m Quick
+    Arrows choose | PgUp/PgDn Details | Esc Close
 tm-import-path = Import TM: literal file path
 tm-export-path = Export TM: NEW file path (never overwrite)
-tm-path-controls = Type literal path / Enter continue
-    Esc cancel / no effect
+tm-path-controls = Type literal path | Enter continue
+    Esc cancel | no effect
 tm-path-boundary = No links, secret paths, traversal or expansion; 64 KiB TOML only.
+tm-parameters-editor = Fill move parameters / JSON string array
+tm-parameters-boundary = One string per typed slot, in order; defaults are exact saved values. Maximum 4096 bytes. No Send or approval.
+tm-parameters-controls = Edit values | Enter review complete substituted request
+    Esc cancel | original Request draft stays untouched
 tm-import-title = Import TM / choose local partner
 tm-import-summary = { $name } / { $kind } / { $form }
 tm-import-partner = Learn for: { $partner }
-tm-import-controls = Up/Down partner / Enter name/scope
-    PgUp/PgDn steps / Esc cancel
+tm-import-controls = Up/Down partner | Enter name/scope
+    PgUp/PgDn steps | Esc cancel
 tm-import-boundary = Explicit local learning only. No old teacher, results or grants. Missing pins stay unavailable until ordinary capture review at use.
 tm-import-action = Import TM
 tm-export-title = Create-only TM export / no execution
 tm-export-details = Output: { $path }
     { $definition }
     Semantics only; no local IDs, teacher, evidence, sessions or approvals.
-tm-export-controls = [Stay] / Create NEW file / Enter Stay / y Create
-    Left/Right choose / PgUp/PgDn details / Esc cancel
+tm-export-controls = [Stay] | Create NEW file | Enter Stay | y Create
+    Left/Right choose | PgUp/PgDn details | Esc cancel
 tm-export-armed = Stay / [Create NEW file] / Enter Create
     Left/Right choose / PgUp/PgDn details / Esc cancel
 tm-path-refused = Path insertion refused: single literal line, at most 4096 UTF-8 bytes.
 tm-export-saved = Exported to a new TM file; no approvals or evidence included.
 cmd-move-import = Import a portable TM file; review local learning
 cmd-move-export = Review exporting a move to a new TM file
-tm-free-slot = Free slot { $slot } of 4 / explicit local learning
+tm-free-slot = Free library slot { $slot } of 32 / explicit local learning
 tm-semantic-old = OLD / move #{ $id }, revision { $revision }
 tm-semantic-new = PROPOSED / exact local definition
 tm-semantic-changed = Semantics changed; old usage stays with the original record. Taught copies remain independent.
@@ -44,7 +50,7 @@ tm-semantic-absent = <absent>
 tm-semantic-stale = Review is stale or unavailable. Cancel and open a fresh review; nothing changed.
 tm-semantic-expose = Confirm local change: PgDn all old/new details.
     Enter stays / Esc cancels; hidden scope cannot approve.
-tm-semantic-slot = Replaces local slot { $slot } of 4 / move #{ $id } revision { $revision }
+tm-semantic-slot = Replaces local library slot { $slot } of 32 / move #{ $id } revision { $revision }
 tm-semantic-teacher = Local teaching source: move #{ $id }, revision { $revision }. The source stays unchanged; this is an independent copy.
 tm-semantic-fresh = New local definition; no existing record is changed. No prior execution evidence is inherited.
 tm-semantic-literals = Quoted values are literal data, not shell syntax: "" is an empty value; <absent> is missing. Escapes preserve exact whitespace.

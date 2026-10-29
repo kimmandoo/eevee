@@ -319,6 +319,8 @@ fn worker(
             Err(mpsc::RecvTimeoutError::Disconnected) => break,
         };
         match request {
+            // Steering is native-only and arrives through the worker's own queue.
+            Request::Steer { .. } => {}
             Request::Preview(input) => {
                 prepared = None;
                 generation = generation.saturating_add(1);
@@ -567,6 +569,8 @@ fn payload(
         "task": { "id": input.task.id, "revision": input.task.revision, "goal": input.task.goal, "acceptance_criteria": input.task.criteria, "next_action": crate::workspace::handoff::without_local_provenance(&input.task.next_action) },
         "project_context": super::project_context(writes.ok_or("Codex project scope missing")?, input.agent),
         "request": input.instruction(),
+        "behavior_profile": input.behavior_profile,
+        "behavior_profile_policy": input.behavior_profile.as_ref().map(|_| crate::workspace::form_profiles::POLICY),
         "prior_plan": input.prior_plan_payload(),
         "public_context": input.public_context_payload(),
         "file_tool_policy": file_tool_instructions(input.operation),

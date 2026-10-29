@@ -325,10 +325,10 @@ class ProgressJourney(SurfaceJourney):
         screens = []
         for _ in range(30):
             screens.append(self.session.display())
-            if 'Todo progress' in screens[-1]:
+            if 'task progress' in screens[-1]:
                 break
             self.session.send(ESC + '[6~')
-        assert any('Todo progress' in screen for screen in screens), '\n'.join(screens)
+        assert any('task progress' in screen for screen in screens), '\n'.join(screens)
         self.session.send(ESC + '[F')
         screens.append(self.session.display())
         self.capture(label)
@@ -339,7 +339,14 @@ class ProgressJourney(SurfaceJourney):
 
     def adopt(self, label):
         before = self.progress()
-        assert before['revision'] > 0 and before['adopted_revision'] != before['revision'], before
+        assert before['revision'] > 0, before
+        if before['adopted_revision'] == before['revision']:
+            # Automatic form mode adopts provider proposals without /todo-adopt.
+            assert before['steps'] == before['adopted_steps'], before
+            self.capture_progress(label + '-auto-adopted')
+            self.evidence.append({'action': label + '-auto-adopted', 'revision': before['revision'],
+                                  'steps': before['steps']})
+            return
         self.capture_progress(label + '-proposed')
         count = self.dispatch_count()
         self.session.command('todo-adopt')
@@ -412,6 +419,7 @@ class ProgressJourney(SurfaceJourney):
                 current_form = in_flight['partners'][0]['form']
                 assert current_form == prediction['form'], 'provider progress evolved the active form mid-run'
                 adopted_revision = self.progress()['adopted_revision']
+                assert adopted_revision == self.progress()['revision'], 'automatic proposal was not adopted in flight'
                 held_count = self.dispatch_count()
                 self.session.command('todo-adopt')
                 until(self.session, lambda: any(reason in self.session.display() for reason in (
@@ -426,8 +434,10 @@ class ProgressJourney(SurfaceJourney):
                 assert self.state()['claims'][0] == frozen_owner, 'busy edits replaced frozen request ownership'
                 assert self.state()['partners'][0]['form'] == current_form
                 self.capture(label + '-busy-proposal-adoption-and-send-refused')
-                self.evidence.append({'action':'busy-progress-stays-inert','frozen_owner':frozen_owner,
-                                      'actual_form':current_form,'dispatches':held_count})
+                self.session.send(ESC)  # Keep the draft; do not steer or queue it.
+                self.evidence.append({'action':'busy-progress-keeps-frozen-authority','frozen_owner':frozen_owner,
+                                      'actual_form':current_form,'dispatches':held_count,
+                                      'adopted_revision':adopted_revision})
             finally:
                 (self.control / 'release').touch()
                 if gate is not None:
@@ -444,9 +454,13 @@ class ProgressJourney(SurfaceJourney):
         expected_progress = None
         if before:
             active = next((step for step in before['steps'] if step['status'] == 'active'), None)
+            pending = next((step for step in before['steps'] if step['status'] == 'pending'), None)
             if before['adopted_revision'] == before['revision'] and active:
                 expected_progress = f"adopted revision {before['revision']} / {active['label']}"
                 assert f"adopted revision {before['revision']}" in prediction['screen'], prediction['screen']
+            elif before['adopted_revision'] == before['revision'] and pending:
+                # The focus step falls back to the next pending step (0.1.35).
+                expected_progress = f"adopted revision {before['revision']} / next: {pending['label']}"
             elif before['revision'] == 0:
                 expected_progress = 'no step list from this route'
             else:
@@ -593,13 +607,19 @@ class ProgressJourney(SurfaceJourney):
         count = self.dispatch_count()
         self.session.command(command)
         until(self.session, lambda: self.progress()['revision'] == revision + 1,
-              'manual progress edit did not propose exactly one revision: ' + command)
+              'manual progress edit did not save exactly one revision: ' + command)
         assert self.dispatch_count() == count
-        self.adopt(label)
+        progress = self.progress()
+        assert progress['adopted_revision'] == progress['revision'], progress
+        assert progress['adopted_steps'] == progress['steps'], progress
+        self.capture_progress(label + '-user-adopted')
+        self.evidence.append({'action': label + '-user-adopted', 'revision': progress['revision'],
+                              'steps': progress['steps']})
 
     def continuity(self, old_binary, label):
         expected, count = self.progress(), self.dispatch_count()
-        assert expected['eager'] and expected['adopted_revision'] == expected['revision']
+        assert not expected.get('eager_off', False)
+        assert expected['adopted_revision'] == expected['revision']
         self.workspace()
         self.session.command('quit')
         confirm_exit(self.session)
@@ -657,6 +677,12 @@ class ProgressJourney(SurfaceJourney):
                          for i, text in enumerate(labels)]
         self.dispatch(initial_request, initial_steps, language + '-initial-proposal')
         assert self.progress()['steps'] == initial_steps
+        assert self.progress()['adopted_revision'] == self.progress()['revision']
+        assert self.progress()['adopted_steps'] == initial_steps
+        assert not self.progress().get('eager_off', False), 'native todo prelude must default on'
+        if self.progress_route == 'native':
+            policy, messages = decoded_payload('responses', self.peer.snapshot('POST')[-2]['body'])
+            assert EAGER_PRELUDE in policy + '\n'.join(str(message) for message in messages)
         self.adopt(language + '-initial-proposal')
         criterion = 'Actual verification evidence is still required' if language == 'en' else '실제 검증 증거가 필요함'
         self.session.command('criteria-edit')
@@ -677,8 +703,8 @@ class ProgressJourney(SurfaceJourney):
                   'actual provider snapshot was lost or duplicated')
             proposed = self.progress()
             assert proposed['steps'] == steps, proposed
-            assert proposed['adopted_revision'] == old.get('adopted_revision')
-            assert proposed['adopted_steps'] == old.get('adopted_steps', [])
+            assert proposed['adopted_revision'] == proposed['revision'], proposed
+            assert proposed['adopted_steps'] == steps, proposed
             self.adopt(language + '-stage-' + str(stage))
 
         # An adopted active fix must not override manual appearance or an
@@ -689,9 +715,19 @@ class ProgressJourney(SurfaceJourney):
         self.session.command('vaporeon')
         until(self.session, lambda: self.state()['partners'][0]['form'] == 1 and
               not self.state()['partners'][0]['auto_form'], 'manual specialist selection did not persist')
-        self.dispatch(REQUESTS[language][0], guard_steps, language + '-manual-form-guard')
+        pinned_steps = [dict(step, status=('done', 'pending', 'done')[i])
+                        for i, step in enumerate(guard_steps)]
+        before_pinned = self.dispatch(REQUESTS[language][0], pinned_steps, language + '-manual-form-guard')
+        proposed = self.progress()
+        assert proposed['revision'] == before_pinned['revision'] + 1, proposed
+        assert proposed['steps'] == pinned_steps, proposed
+        assert proposed['adopted_revision'] == before_pinned['adopted_revision'], proposed
+        assert proposed['adopted_steps'] == before_pinned['adopted_steps'], proposed
         assert self.evidence[-1]['actual_form'] == 1
         assert not self.state()['partners'][0]['auto_form']
+        self.adopt(language + '-manual-form-proposal')
+        self.manual('todo start ' + labels[1], language + '-manual-user-active-fix')
+        guard_steps = self.progress()['steps']
         self.session.command('eevee')
         until(self.session, lambda: bool(self.state()['partners'][0]['auto_form']),
               'explicit return to automatic form did not persist')
@@ -708,8 +744,8 @@ class ProgressJourney(SurfaceJourney):
         assert self.dispatch_count() == before_review
         self.manual('todo done ' + labels[1], language + '-guard-fix-complete-claim')
 
-        # User edits are proposals too: every changed exact-label operation is
-        # inspected and adopted. No prefix matching, inferred success or auto-run.
+        # Exact-label user operations are adopted immediately, even in manual
+        # form mode. They never infer success or dispatch provider work.
         self.manual('todo start ' + labels[2], language + '-restart-verification')
         self.manual('todo done ' + labels[2], language + '-done')
         self.manual('todo block ' + labels[1], language + '-blocked')
@@ -722,6 +758,10 @@ class ProgressJourney(SurfaceJourney):
                    'status': 'pending'} for text in labels]
         self.manual('todo-edit ' + json.dumps(edited, ensure_ascii=False), language + '-edit')
         assert self.progress()['steps'] == edited
+        count = self.dispatch_count()
+        pending = self.preview(REQUESTS[language][0], language + '-pending-focus')
+        assert pending['form'] == 5 and pending['operation'] == 'plan', pending
+        assert self.dispatch_count() == count, 'pending-step prediction dispatched inference'
 
         before = self.progress()
         self.session.command('todo start ' + edited[0]['label'][:-1])
@@ -753,6 +793,7 @@ class ProgressJourney(SurfaceJourney):
 
         # Malformed provider observations must not destroy an adopted list or
         # terminate the answer stream. Inspect the original response item too.
+        before = self.progress()
         malformed = [{'label': MALFORMED, 'phase': None, 'status': 'invalid_progress_status'}]
         self.dispatch('Explain this controlled progress observation; do not run tools or change files.',
                       malformed, language + '-malformed')
@@ -805,7 +846,7 @@ class ProgressJourney(SurfaceJourney):
         assert self.dispatch_count() == count, 'task purge replayed provider work'
         self.capture(language + '-task-purge-removes-progress-owner')
         self.session.command('todo')
-        wait_for(self.session, 'no step list from this route')
+        wait_for(self.session, 'No todo yet')
         self.evidence.append({'action':'neutral-then-explicit-task-purge-removes-progress','task_id':deleted_id})
         self.workspace()
         return self.evidence

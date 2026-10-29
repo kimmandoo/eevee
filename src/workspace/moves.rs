@@ -18,7 +18,10 @@ pub const MAX_MOVE_BYTES: usize = 64 * 1024;
 const MAX_NAME_BYTES: usize = 256;
 const MAX_NAME_GRAPHEMES: usize = 64;
 const MAX_SOURCES: usize = 16;
+pub const MAX_LIBRARY: usize = 32;
+pub const QUICK_SLOTS: usize = 4;
 
+pub mod parameters;
 pub mod portable;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -116,7 +119,6 @@ pub struct Provenance {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct Proposal {
     pub partner: i64,
     pub form: usize,
@@ -124,6 +126,9 @@ pub struct Proposal {
     pub scope: Scope,
     pub steps: Steps,
     pub provenance: Provenance,
+    /// Ignorable local inventory metadata; portable TM1 deliberately excludes it.
+    #[serde(default, flatten)]
+    pub extra: super::forward::Extra,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -193,6 +198,48 @@ pub fn validate_proposal(proposal: &Proposal) -> Result<(), String> {
     if proposal.partner <= 0 || proposal.provenance.task_id <= 0 {
         return Err("Save a task and choose an existing partner before teaching a move".into());
     }
+    let critical = proposal
+        .extra
+        .0
+        .get("critical")
+        .map(|value| {
+            value
+                .as_array()
+                .ok_or("Move critical metadata must be a bounded string array")
+        })
+        .transpose()?;
+    if let Some(fields) = critical {
+        if fields.len() > 32 {
+            return Err("Move critical metadata exceeds 32 fields".into());
+        }
+        for field in fields {
+            let name = field
+                .as_str()
+                .ok_or("Move critical metadata must contain field names")?;
+            if name != parameters::KEY {
+                return Err(format!(
+                    "This move uses unknown critical field {name:?} and needs a newer Eevee; nothing changed"
+                ));
+            }
+        }
+    }
+    if proposal.extra.contains(parameters::KEY)
+        && critical.is_none_or(|fields| {
+            !fields
+                .iter()
+                .any(|field| field.as_str() == Some(parameters::KEY))
+        })
+    {
+        return Err("Typed request parameters require their critical-field marker".into());
+    }
+    if proposal.extra.0.get("quick_slot").is_some_and(|value| {
+        !value.is_null() && value.as_u64().is_none_or(|slot| slot >= QUICK_SLOTS as u64)
+    }) {
+        return Err("Quick move slot must be 0 through 3".into());
+    }
+    if let Some(template) = parameters::Template::of(proposal)? {
+        template.validate(&proposal.steps)?;
+    }
     validate_name(&proposal.name)?;
     let provenance = &proposal.provenance;
     if provenance.sources.len() > MAX_SOURCES {
@@ -248,6 +295,7 @@ pub fn validate_steps(form: usize, steps: &Steps) -> Result<(), String> {
     // criteria. A move's display name never becomes an action or a provider packet.
     let mut recipe = Recipe {
         schema_version: 1,
+        profiles: Vec::new(),
         name: "Reusable local action".into(),
         scope: Vec::new(),
         context: Vec::new(),
@@ -467,6 +515,7 @@ pub enum ChangedField {
     Cwd,
     Pins,
     Instruction,
+    Parameters,
     Goal,
     Criterion(usize),
 }
@@ -1133,6 +1182,7 @@ mod tests {
 
     fn proposal(form: usize, steps: Steps) -> Proposal {
         Proposal {
+            extra: Default::default(),
             partner: 1,
             form,
             name: suggested_name(form, &steps, &[]),
@@ -1192,9 +1242,6 @@ mod tests {
     #[test]
     fn storage_shapes_refuse_capabilities_and_oversized_steps() {
         let proposal = proposal(2, run(&["cargo", "test", ""], "."));
-        let mut value = serde_json::to_value(&proposal).unwrap();
-        value["grant"] = serde_json::json!(true);
-        assert!(serde_json::from_value::<Proposal>(value).is_err());
         let mut value = serde_json::to_value(&proposal).unwrap();
         value["steps"]["Run"]["output"] = serde_json::json!("provider output");
         assert!(serde_json::from_value::<Proposal>(value).is_err());

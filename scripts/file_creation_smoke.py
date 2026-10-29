@@ -259,6 +259,16 @@ def file_review_pending(session):
     return any(button in view for button in ('[ Allow once ]', ))
 
 
+def expose_file_scope(session):
+    """Page the actual immutable summary without answering its decision."""
+    def exposed():
+        if 'review all scope before allowing' not in session.display():
+            return True
+        session.send(ESC + '[6~')
+        return False
+    until(session, exposed, 'file summary scope did not become completely visible', timeout=40)
+
+
 class CreationJourney(SurfaceJourney):
     # Shared label-based navigation covers primary/advanced native forms while
     # this journey continues to assert actual tools, authority and file bytes.
@@ -347,7 +357,7 @@ class CreationJourney(SurfaceJourney):
         body = self.peer.snapshot('POST')[before]['body']
         expected = {'eevee_list_files', 'eevee_read_file', 'eevee_structural_search',
                     'eevee_artifact_list', 'eevee_artifact_read', 'eevee_artifact_search',
-                    'eevee_artifact_locations', 'todo'}
+                    'eevee_artifact_locations', 'todo', 'eevee_delegate'}
         if writing:
             expected |= {'eevee_write_file', 'eevee_edit_file', 'eevee_delete_file',
                          'eevee_rename_file', 'eevee_run_command'}
@@ -404,6 +414,10 @@ class CreationJourney(SurfaceJourney):
             self.capture('enter-inspects-without-answer')
             self.session.send('d')  # Leave optional technical inspection; exact summary must render again.
         self.session.send(ESC + ('[C' if allow else '[D'))
+        if allow:
+            expose_file_scope(self.session)
+            assert len(self.peer.snapshot('POST')) == before, 'scope inspection answered the file request'
+            assert (target.read_bytes() if target.is_file() else None) == original, 'scope inspection changed file bytes'
         # The selected one-shot decision may immediately start the next HTTP
         # round. settled() waits for its real response and released ownership.
         self.session.send('\r', settle=False)
@@ -849,7 +863,7 @@ class CodexCreationJourney(cooperation_smoke.Journey):
         for _ in range(12):
             footer = self.session.display().rstrip().splitlines()[-1].strip()
             if 'Alt+A' in footer or footer.startswith(tuple(self.surface[key] for key in ('home', 'edit', 'draft'))):
-                return 'Type Request /' if footer.startswith(self.surface['home']) else 'Enter Send /'
+                return 'Type Request |' if footer.startswith(self.surface['home']) else 'Enter Send |'
             self.session.send(ESC)
         raise AssertionError('controlled request owner not reachable\n' + self.session.display())
 
@@ -922,6 +936,8 @@ def codex_mutations(journey, result):
             assert not any((row.get('result') or {}).get('success') for row in answers[1:]), \
                 'cancelled controlled mutation reported success'
         else:
+            if decision == 'allow':
+                expose_file_scope(journey.session)
             journey.session.send('a' if decision == 'allow' else 'n')
             journey.until(lambda: len(journey.peers('answer', marker)) == 2,
                           'controlled mutation result did not reach its exact peer call')
@@ -995,6 +1011,8 @@ def codex_case(binary, output, size, *, mutations=False):
             journey.session.send('d')
             journey.until(lambda: file_review_pending(journey.session),
                           'controlled file decision controls')
+            if allow:
+                expose_file_scope(journey.session)
             journey.session.send('a' if allow else 'n')
             journey.until(lambda: bool(journey.peers('answer', marker)), 'controlled tool result did not reach exact peer')
             answer = journey.peers('answer', marker)[-1]['result']
@@ -1040,6 +1058,7 @@ def codex_case(binary, output, size, *, mutations=False):
         journey.session.send('d')
         journey.until(lambda: file_review_pending(journey.session),
                       'controlled edit decision controls')
+        expose_file_scope(journey.session)
         journey.session.send('a')
         journey.until(lambda: len(journey.peers('answer', marker)) == 3, 'controlled edit did not return its result')
         assert journey.peers('answer', marker)[-1]['result']['success'] is True

@@ -159,7 +159,7 @@ class Journey(MovesJourney):
 
     def state(self):
         state = super().state()
-        with closing(sqlite3.connect(self.database.as_uri() + '?mode=ro', uri=True, timeout=1)) as db:
+        with closing(sqlite3.connect(self.database.as_uri() + '?mode=ro', uri=True, timeout=10)) as db:
             db.execute('PRAGMA query_only=ON')
             db.row_factory = sqlite3.Row
             available = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
@@ -187,7 +187,7 @@ class Journey(MovesJourney):
     def workspace(self, allow_offer=False):
         # Only identified, non-consent drawers may be closed. Each actual
         # permission/memory/resolution review below has its own explicit action.
-        prefixes = ('Type Request /', 'Type a request /', 'Enter Send /', 'Draft only /',
+        prefixes = ('Type Request |', 'Type a request |', 'Enter Send |', 'Draft only |',
                     )
         known = (SOURCE_TITLE, 'Specialist desk', 'Local command evidence; no command running',
                  'Approved memories', 'Task cards / committed snapshots', 'Repository / read-only evidence',
@@ -199,7 +199,7 @@ class Journey(MovesJourney):
             view = self.session.display()
             footer = view.rstrip().splitlines()[-1].strip()
             if footer.startswith(prefixes):
-                return 'Type Request /' if footer.startswith(('Type Request /', 'Type a request /', )) else 'Enter Send /'
+                return 'Type Request |' if footer.startswith(('Type Request |', 'Type a request |', )) else 'Enter Send |'
             assert any(title in view for title in known), 'refusing to dismiss unknown popup\n' + view
             consent = (RUN_REVIEW, 'Confirm local change', 'wants to learn a move!',
                        'LOCAL PREVIEW / no provider connection authorized',
@@ -398,7 +398,7 @@ class Journey(MovesJourney):
         # The durable row may be committed before the frame returning from the
         # source drawer. Esc against that stale drawer would discard Request.
         self.until(lambda: self.session.display().rstrip().splitlines()[-1].strip().startswith(
-            ('Type Request /', 'Type a request /', 'Enter Send /', 'Draft only /')),
+            ('Type Request |', 'Type a request |', 'Enter Send |', 'Draft only |')),
             'source attachment acknowledgement returned to Request')
         self.workspace()
         return next(row['record'] for row in self.state()['excerpts'] if row['record']['id'] not in before)
@@ -913,7 +913,7 @@ class Journey(MovesJourney):
             right = next(x for x in range(title_x + len(title), self.session.screen.columns)
                          if title_cells[x].data in ('┐', '╗', '╮', '+'))
             marker_y = next(y for y in range(title_y + 1, len(display))
-                            if 'cards / /archived' in ''.join(
+                            if 'cards | /archived' in ''.join(
                                 self.session.screen.buffer[y][x].data for x in range(left + 1, right)))
             rows = []
             for y in range(marker_y + 2, len(display)):
@@ -1174,7 +1174,7 @@ class Journey(MovesJourney):
             self.session.command('model ' + model)
             if 'Reasoning level' in self.session.display():
                 self.session.send('\r')
-            footer_prefixes = ('Type Request /', 'Type a request /', 'Enter Send /', 'Draft only /',
+            footer_prefixes = ('Type Request |', 'Type a request |', 'Enter Send |', 'Draft only |',
                                )
             self.until(lambda: self.session.display().rstrip().splitlines()[-1].strip().startswith(footer_prefixes),
                        'exact model selection acknowledges directly in the actual composer')

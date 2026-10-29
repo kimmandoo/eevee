@@ -8,7 +8,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
     let area = centered(area, 112, area.height.saturating_sub(2).min(32));
     frame.render_widget(Clear, area);
     let block = Block::default()
-        .title(" External Request editor ")
+        .title(" External text editor ")
         .borders(Borders::ALL)
         .style(paint.surface);
     let inner = block.inner(area);

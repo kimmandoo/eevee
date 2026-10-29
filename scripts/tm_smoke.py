@@ -129,7 +129,7 @@ class Driver:
 
     def state(self):
         try:
-            with closing(sqlite3.connect(self.database.as_uri() + "?mode=ro", uri=True, timeout=1)) as db:
+            with closing(sqlite3.connect(self.database.as_uri() + "?mode=ro", uri=True, timeout=10)) as db:
                 db.row_factory = sqlite3.Row
                 tables = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
                 result = {name: [dict(r) for r in db.execute('SELECT * FROM "' + name + '" ORDER BY rowid')] for name in TABLES if name in tables}
@@ -162,7 +162,7 @@ class Driver:
     def workspace(self):
         for _ in range(12):
             footer = self.session.display().rstrip().splitlines()[-1].strip()
-            if footer.startswith(("Type Request /", "Enter Send /", "Draft only /", )):
+            if footer.startswith(("Type Request |", "Enter Send |", "Draft only |", )):
                 return
             self.session.send(ESC)
         raise AssertionError("workspace not restored\n" + self.session.display())
@@ -281,7 +281,7 @@ class Driver:
     def clear_request(self):
         self.workspace()
         footer = self.session.display().rstrip().splitlines()[-1].strip()
-        if footer.startswith(("Type Request /", )):
+        if footer.startswith(("Type Request |", )):
             self.session.send("\r")
         self.session.send(UP * 20 + HOME + DELETE * 200 + "\x13")
         def cleared():
@@ -366,7 +366,7 @@ class Driver:
         assert self.state()["moves"] == before
         self.session.send(ESC)
         self.workspace()
-        for suffix in ("Second", "Third", "Fourth"):
+        for suffix in ("Library %02d" % index for index in range(2, 33)):
             self.learn(sources[0], 0, name=suffix)
         full = self.state()["moves"]
         self.import_preview(sources[0])

@@ -636,6 +636,14 @@ impl State {
         }
         true
     }
+    /// Opens the exact review so a matching Deny rule answers it like `/deny`.
+    pub fn open_rule_review(&mut self) -> bool {
+        !self
+            .prepared
+            .as_ref()
+            .is_some_and(|p| matches!(p.spec, runner::CommandSpec::SelectedCommit { .. }))
+            && self.open_approval()
+    }
     /// Closing consent is not rejection: the immutable command stays pending.
     pub fn defer_approval(&mut self) -> bool {
         if !matches!(self.confirmation, Some(Confirmation::Approval)) {

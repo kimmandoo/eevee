@@ -189,7 +189,7 @@ def main():
                 return session
 
             def rows():
-                with closing(sqlite3.connect(database.as_uri() + "?mode=ro", uri=True, timeout=1)) as db:
+                with closing(sqlite3.connect(database.as_uri() + "?mode=ro", uri=True, timeout=10)) as db:
                     db.row_factory = sqlite3.Row
                     tasks = [dict(row) for row in db.execute("SELECT id,goal,command,lead_partner,partner_drafts,complete,form FROM tasks ORDER BY id")]
                     runs = [dict(row) for row in db.execute("SELECT record,output_name,reserved FROM executions ORDER BY rowid")]

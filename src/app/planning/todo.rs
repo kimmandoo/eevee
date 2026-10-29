@@ -116,7 +116,7 @@ impl Observation {
         }
         let _ = write!(
             text,
-            " · {}\n{updates} update{} · provider claims",
+            " · {}\n{updates} update{}",
             self.source,
             if updates == 1 { "" } else { "s" }
         );
@@ -247,6 +247,7 @@ mod tests {
                 text.contains("[x] 오류 조사 e\u{301}") && text.contains("[ ] Verify tests"),
                 "{text}"
             );
+            assert!(!text.contains("provider claims"), "{text}");
             assert!(
                 text.contains("Final answer stays visible") && !text.contains("\"arguments\""),
                 "{text}"
@@ -314,8 +315,11 @@ mod tests {
         let mut other_generation = native(&request, "todo-6-0", false);
         Arc::make_mut(other_generation.status.as_mut().unwrap()).generation = 8;
         state.items.push(other_generation);
+        let mut other_task = native(&request, "todo-7-0", false);
+        Arc::make_mut(other_task.status.as_mut().unwrap()).task_id = 2;
+        state.items.push(other_task);
         let text = transcript(&mut state, 120, false);
-        assert_eq!(text.matches("Todo progress").count(), 4, "{text}");
+        assert_eq!(text.matches("Todo progress").count(), 5, "{text}");
         let unwrapped = text.split_whitespace().collect::<Vec<_>>().join(" ");
         assert!(
             text.contains("refused")
@@ -344,8 +348,18 @@ mod tests {
             let mut state = State::default();
             state.items.push(item(agent, &request, id, kind, text.clone()));
             let display = transcript(&mut state, 60, false);
-            assert!(display.contains("Todo progress · 1/2 done") && display.contains("[>] Verify tests"), "{display}");
-            if agent == Agent::Codex { assert!(display.contains("Keep the explanation")); }
+            assert!(
+                display.contains("Todo progress · 1/2 done")
+                    && display.contains("[>] Verify tests"),
+                "{display}"
+            );
+            if agent == Agent::Codex {
+                assert!(display.contains("Keep the explanation"));
+            }
+            let raw = transcript(&mut state, 60, true);
+            assert!(!raw.contains("Todo progress"), "{raw}");
+            assert_eq!(state.items[0].text, text);
+            assert_eq!(transcript(&mut state, 60, false), display);
             state.items[0].item_id = "unqualified".into();
             state.items[0].kind = ItemKind::Message;
             state.response_cache.invalidate();
@@ -435,5 +449,72 @@ mod tests {
                 && text.contains("Transport stopped after the observed todo; no replay"),
             "{text}"
         );
+    }
+
+    #[test]
+    fn compact_todo_metadata_keeps_the_active_step_near_the_top() {
+        let request: Arc<str> = "Plan".into();
+        let mut state = State::default();
+        let mut observation = native(&request, "todo-0-0", false);
+        observation.owner = Some(crate::store::Attribution {
+            partner: 1,
+            name: "Lead".into(),
+            form: 0,
+        });
+        state.items.push(observation);
+        let rows = state
+            .response_display_rows(60, 18, false)
+            .map(|row| row.text.to_owned())
+            .collect::<Vec<_>>();
+        assert!(rows[0].contains("native todo"), "{rows:?}");
+        assert!(
+            rows[1].contains("1 update") && rows[1].contains("Lead"),
+            "{rows:?}"
+        );
+        assert!(
+            rows.iter().take(4).any(|row| row.starts_with("[>]")),
+            "{rows:?}"
+        );
+        assert!(!rows.join("\n").contains("provider claims"), "{rows:?}");
+    }
+
+    #[test]
+    fn todo_projection_and_raw_inspection_keep_source_driven_file_effects() {
+        let request: Arc<str> = "Implement".into();
+        let mut state = State::default();
+        state.items.push(native(&request, "todo-0-0", false));
+        state.items.push(native(&request, "todo-1-0", true));
+        let source = "src/main.rs\nold line\nnew line\n";
+        state.items.push(item(
+            Agent::Compatible,
+            &request,
+            "file-preview",
+            ItemKind::File(crate::providers::FilePhase::Generating),
+            source.into(),
+        ));
+        state.file_growth.insert(
+            "file-preview".into(),
+            (source.find("new line").unwrap(), std::time::Instant::now()),
+        );
+        for verbose in [false, true, false] {
+            let rows = state
+                .response_display_rows(60, 18, verbose)
+                .collect::<Vec<_>>();
+            assert_eq!(
+                rows.iter()
+                    .filter(|row| row.todo && row.text.starts_with("Todo progress"))
+                    .count(),
+                usize::from(!verbose)
+            );
+            assert!(rows.iter().any(|row| {
+                row.kind == ItemKind::File(crate::providers::FilePhase::Generating)
+                    && row.text == "new line"
+                    && row.fresh
+                    && row.writing_edge
+                    && !row.todo
+            }));
+            assert!(!rows.iter().any(|row| row.text == "old line" && row.fresh));
+        }
+        assert_eq!(state.items[2].text, source);
     }
 }

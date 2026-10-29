@@ -34,7 +34,7 @@ def save(path, value):
 
 
 def rows(database):
-    with closing(sqlite3.connect(database.as_uri() + '?mode=ro', uri=True, timeout=1)) as connection:
+    with closing(sqlite3.connect(database.as_uri() + '?mode=ro', uri=True, timeout=10)) as connection:
         connection.row_factory = sqlite3.Row
         task = dict(connection.execute('SELECT * FROM tasks ORDER BY id DESC LIMIT 1').fetchone())
         task['workflows'] = json.loads(task['workflows'])

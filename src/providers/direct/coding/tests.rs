@@ -3,6 +3,7 @@ use crate::providers::{Agent, ModelSelection};
 use std::io::{Read, Write};
 use std::net::TcpListener;
 
+mod delegation_tests;
 mod websocket_tests;
 
 struct Fixture {
@@ -87,6 +88,10 @@ impl Fixture {
         result.unwrap();
         let input = Input {
             native_transport: crate::providers::NativeTransport::Auto,
+            behavior_profile: None,
+            mcp: Vec::new(),
+            delegation_enabled: false,
+            delegation: None,
             effort_resolution: None,
             screenshot: None,
             public_context: None,
@@ -433,10 +438,15 @@ fn run_with_handler(
     // rounds must use their own deadlines, not this dispatch-time timestamp.
     let control = Control {
         wire_alive: None,
+        steering: None,
         stopped: &stopped,
         cancelled: &cancelled,
         generation: 7,
-        deadline: Instant::now() - Duration::from_secs(1),
+        deadline: if run.input.delegation.is_some() {
+            Instant::now() + delegation::CHILD_WALL
+        } else {
+            Instant::now() - Duration::from_secs(1)
+        },
     };
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -943,6 +953,7 @@ fn exact_permission_rejects_foreign_replayed_or_augmented_answers_and_closes_onc
     let cancelled = AtomicU64::new(0);
     let control = Control {
         wire_alive: None,
+        steering: None,
         stopped: &stopped,
         cancelled: &cancelled,
         generation: 7,
@@ -991,6 +1002,7 @@ fn permission_expiry_and_cancellation_never_create_missing_parents() {
         let cancelled = AtomicU64::new(if cancel { 7 } else { 0 });
         let control = Control {
             wire_alive: None,
+            steering: None,
             stopped: &stopped,
             cancelled: &cancelled,
             generation: 7,
@@ -1483,6 +1495,7 @@ fn local_receipt_keeps_exact_native_body_but_cannot_dispatch() {
         let cancelled = AtomicU64::new(0);
         let control = Control {
             wire_alive: None,
+            steering: None,
             stopped: &stopped,
             cancelled: &cancelled,
             generation: run.generation,
@@ -1769,6 +1782,82 @@ fn invalid_content_batch_does_not_enroll_workspace_targets_or_create_parents() {
         assert!(crate::providers::writes::semantic_proposal_refusal(&error));
         assert_eq!(writes.payload(&[]), original);
         assert!(!fixture.workspace.project.join("new").exists());
+    }
+}
+
+#[test]
+fn partial_file_previews_keep_scope_private_ids_and_poll_output_is_file_only() {
+    for protocol in [
+        Protocol::Responses,
+        Protocol::ChatCompletions,
+        Protocol::Messages,
+    ] {
+        let fixture = Fixture::new(&[]);
+        let (run, _) = fixture.prepare(protocol, "https://example.invalid/v1");
+        let events = Arc::new(Mutex::new(VecDeque::new()));
+        let mut stream = Stream::new(protocol);
+        stream
+            .append("Public prose stays on the source-event path ")
+            .unwrap();
+        let arguments =
+            r#"{"path":"generated/main.rs","content":"fn generated() {}\npassword=private-tail"#;
+        let frames = match protocol {
+            Protocol::Responses => vec![
+                json!({"type":"response.output_item.added","output_index":0,"item":{"type":"function_call","id":"private-item-id","call_id":"private-call-id","name":crate::providers::writes::TOOL_NAME,"arguments":"","status":"in_progress"}}),
+                json!({"type":"response.function_call_arguments.delta","output_index":0,"item_id":"private-item-id","delta":arguments}),
+            ],
+            Protocol::ChatCompletions => vec![
+                json!({"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"private-call-id","type":"function","function":{"name":crate::providers::writes::TOOL_NAME,"arguments":arguments}}]}}]}),
+            ],
+            Protocol::Messages => vec![
+                json!({"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"private-call-id","name":crate::providers::writes::TOOL_NAME,"input":{}}}),
+                json!({"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":arguments}}),
+            ],
+            _ => unreachable!(),
+        };
+        for frame in frames {
+            stream.event("", &frame.to_string()).unwrap();
+        }
+        stream.publish_file_previews(&events, &run).unwrap();
+        let first = events.lock().drain(..).collect::<Vec<_>>();
+        assert_eq!(first.len(), 1);
+        let first_id = match &first[0] {
+            Event::Item {
+                item_id,
+                kind: ItemKind::File(FilePhase::Generating),
+                text,
+                complete: false,
+                ..
+            } => {
+                assert!(text.starts_with("generated/main.rs\n"));
+                assert!(text.contains("fn generated() {}"));
+                assert!(!text.contains("private-tail"));
+                item_id.clone()
+            }
+            _ => panic!("only an actual partial file preview may be published by polling"),
+        };
+        for _ in 0..100 {
+            stream.publish_file_previews(&events, &run).unwrap();
+        }
+        assert!(
+            events.lock().is_empty(),
+            "no new source means no artificial output"
+        );
+        stream.publish_partial(&events, &run).unwrap();
+        let retained = events.lock();
+        assert!(retained.iter().any(|event| matches!(event,
+            Event::Item { item_id, kind: ItemKind::File(FilePhase::Interrupted), text, .. }
+            if item_id == &first_id && !text.contains("private-tail"))));
+        assert!(first.iter().chain(retained.iter()).all(|event| {
+            !matches!(
+                event,
+                Event::Prompt { .. } | Event::Journal { .. } | Event::NativeCompleted { .. }
+            ) && !matches!(event, Event::Item { text, item_id, .. }
+                    if text.contains("private-call-id") || text.contains("private-item-id")
+                        || text.contains("private-tail") || item_id.contains("private-call-id")
+                        || item_id.contains("private-item-id"))
+        }));
+        assert!(!fixture.workspace.project.join("generated").exists());
     }
 }
 
@@ -2423,6 +2512,7 @@ fn command_wait_has_no_http_deadline_and_lost_ack_is_not_a_refusal() {
     let cancelled = AtomicU64::new(0);
     let control = Control {
         wire_alive: None,
+        steering: None,
         stopped: &stopped,
         cancelled: &cancelled,
         generation: run.generation,

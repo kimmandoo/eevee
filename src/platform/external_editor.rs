@@ -9,7 +9,7 @@ use std::{
 };
 
 pub const LIMIT: usize = 4096;
-pub const DISCLOSURE: &str = "Only this Request is exported as plaintext, and it may contain secrets. The external editor is NOT sandboxed: it inherits your environment (which may contain credentials) and may read files, create backups or use the network. Removing Eevee's temporary file does not erase editor-owned copies. Eevee does not copy conversation history, credential stores or selected context into this file, and sends no provider request. The editor must save in place; replaced files, links and changed ownership are refused.";
+pub const DISCLOSURE: &str = "Only the reviewed Request or form-profile text is exported as plaintext, and it may contain secrets. The external editor is NOT sandboxed: it inherits your environment (which may contain credentials) and may read files, create backups or use the network. Removing Eevee's temporary file does not erase editor-owned copies. Eevee does not copy conversation history, credential stores or selected context into this file, and sends no provider request. The editor must save in place; replaced files, links and changed ownership are refused.";
 pub const CONFIG_HELP: &str = "VISUAL takes precedence over EDITOR. Supported values: one executable without whitespace, or a JSON array of executable and literal arguments (for example [\"code\",\"--wait\"]). The exact temporary filename is appended. No shell, interpolation, tilde expansion or placeholders are applied.";
 
 pub struct Plan {
@@ -420,6 +420,9 @@ impl Temporary {
 
     fn cleanup(self) -> Result<(), String> {
         self.directory_unchanged()?;
+        // Windows denies deletion while our no-delete-share file handle is open.
+        // Keep the directory pinned until its single member has been removed.
+        drop(self.file);
         // Remove only this entry, never follow an editor-created link or recurse into backups.
         #[cfg(unix)]
         let removed = {
@@ -445,7 +448,7 @@ impl Temporary {
             .parent()
             .ok_or("Missing temporary parent")?
             .to_path_buf();
-        drop(self);
+        drop(self.directory);
         fs::remove_dir(parent).map_err(|error| error.to_string())
     }
 }
@@ -469,6 +472,30 @@ mod tests {
             assert!(validate(text).is_err());
         }
         assert!(validate(&"a".repeat(LIMIT + 1)).is_err());
+    }
+    #[test]
+    fn temporary_round_trip_preserves_bytes_and_removes_owned_files() {
+        let mut random = [0_u8; 16];
+        getrandom::getrandom(&mut random).unwrap();
+        let parent = fs::canonicalize(env::temp_dir())
+            .unwrap()
+            .join(format!("ev-editor-test-{:x}", u128::from_ne_bytes(random)));
+        let path = parent.join("request.txt");
+        let text = "한글😀\r\nlast\n\n";
+        let mut temporary = Temporary::create(&path).unwrap();
+        temporary.file.write_all(text.as_bytes()).unwrap();
+        temporary.file.sync_all().unwrap();
+        assert_eq!(temporary.read().unwrap(), text);
+        let result = temporary.cleanup();
+        let retained = parent.exists();
+        if retained {
+            fs::remove_dir_all(&parent).unwrap();
+        }
+        assert_eq!(result, Ok(()));
+        assert!(
+            !retained,
+            "successful import retained its temporary directory"
+        );
     }
     #[cfg(unix)]
     #[test]

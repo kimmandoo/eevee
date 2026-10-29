@@ -359,7 +359,7 @@ pub(super) fn render(
             ),
         }
     };
-    text(
+    super::choices(
         frame,
         row(
             content,
@@ -368,6 +368,7 @@ pub(super) fn render(
         ),
         &footer,
         paint.accent,
+        paint,
     );
 }
 
