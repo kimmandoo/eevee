@@ -109,7 +109,7 @@ Each task below **breaks a binding rule on purpose**. It names the exact rule, t
 
 ### XC04 — Bounded automatic retry for provably unprocessed failures
 
-- [ ] Retry an inference round automatically when the failure proves the provider did not process it.
+- [x] Retry an inference round automatically when the failure proves the provider did not process it.
 - **Priority:** 1. **Needs:** —. **Builds on:** `http_client` with `retry::never()` ([src/providers/direct.rs:1035](../src/providers/direct.rs#L1035)), `http_status` ([src/providers/direct.rs:1042-1050](../src/providers/direct.rs#L1042-L1050)), connection diagnostics, WebSocket session.
 - **Today:** a single 429 or a dropped connection before any response ends the whole Run, often after many approved tool rounds; the user must resend and repeat work.
 - **Contract to change:**
@@ -125,6 +125,7 @@ Each task below **breaks a binding rule on purpose**. It names the exact rule, t
 - **Receipt:** one logical dispatch with an attempts list (time, status, wait); billing/usage notes that rejected attempts usually are not billed but this is provider-reported, not proven.
 - **Accept:** loopback server returning 429 twice then 200 → one logical run, three attempts in the receipt; 500 → no retry; 503 after 10 SSE bytes → unknown, no retry; `Retry-After: 120` → no retry, message names the wait; Esc during backoff → Cancelled; `--retry off` restores today's behavior; tool effects from earlier rounds are never re-executed.
 - **Watch out:** idempotency is the provider's claim; keep the eligible list narrow and per-protocol. Never retry model listing pages silently beyond the same rules.
+- **Implemented as (2026-10-29):** `providers::direct::retry` (policy, eligibility, backoff) and `send_inference` replace the single-attempt `wait_inference` for every native HTTP round. Design fixes: (1) WebSocket rounds are **not** retried — the request-owned socket thread has no safe re-handshake point and an unsubmitted WS failure already ends as Failed with "no model frame attempted"; (2) the policy is a launch option only (`--retry off|safe`), not a saved preference, so no stored-data change was needed; (3) a final 503/529 keeps today's Unknown outcome rather than claiming Failed; (4) status events coalesce, so the visible line is the latest wait and then "accepted after N automatic retries"; the completion message lists every attempt.
 
 ---
 

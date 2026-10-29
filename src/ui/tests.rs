@@ -45,6 +45,7 @@ fn all_true_color_forms_keep_readable_text_and_selection() {
     for theme in [Theme::Dark, Theme::Light] {
         let config = Config {
             native_transport: crate::providers::NativeTransport::Auto,
+            retry: Default::default(),
             ascii: false,
             no_animation: false,
             animation_override: None,
@@ -201,6 +202,7 @@ fn compact_palette_shows_blocker_and_keys_without_mutating_draft() {
 
     let config = Config {
         native_transport: crate::providers::NativeTransport::Auto,
+        retry: Default::default(),
         ascii: true,
         no_animation: false,
         animation_override: None,
@@ -261,6 +263,7 @@ fn compact_palette_shows_blocker_and_keys_without_mutating_draft() {
 fn home_config() -> Config {
     Config {
         native_transport: crate::providers::NativeTransport::Auto,
+        retry: Default::default(),
         ascii: true,
         no_animation: true,
         animation_override: Some(false),

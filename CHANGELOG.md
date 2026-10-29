@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-10-29
+
+- feat(providers): resent a native HTTP model round automatically, at most three times with the same body and a visible cancellable wait, only when the provider refused it before processing (connection refused, HTTP 429/503/529, `Retry-After` up to 60 s); added `--retry off|safe` (default safe) and listed every retry in the completion message.
+- test(smoke): added a rate-limited-then-accepted journey to `native_connection_smoke.py` and stopped its flavor scan from matching the product name inside host tool declarations.
+
 ## 2026-10-28
 
 - feat(game): added the bag, Potions, one-shot Berries, repetition-proposed moves, hash-pinned item sprites and static item notices.

@@ -109,6 +109,9 @@ async fn inference_rounds(
     let mut public = String::new();
     let mut call_count = 0usize;
     let mut seen_calls = HashSet::new();
+    let retry_policy = retry::policy();
+    let mut dispatched = false;
+    let mut retries = Vec::new();
     let mut progress = run
         .input
         .task
@@ -177,44 +180,24 @@ async fn inference_rounds(
                 .round(wire, &mut stream, run, events, &round_control)
                 .await
         } else {
-            let response = connection
-                .request(http, "POST", &connection.inference_url(&model))
-                .header("Content-Type", "application/json")
-                .header("Accept", "text/event-stream")
-                .body(wire)
-                .send();
-            let mut response = if round == 1 {
-                wait_inference(response, run, events, &round_control).await
-            } else {
-                wait_http(response, &round_control).await
-            }
-            .map_err(|error| {
-                if round > 1 && !round_control.cancelled() {
-                    connection_failure(events, run, super::super::diagnostics::Failure::Transport);
-                }
-                (
-                    Outcome::Unknown,
-                    format!("{error}; remote outcome unknown after dispatch; no retry"),
-                )
-            })?;
-            if !response.status().is_success() {
-                let status = response.status().as_u16();
-                if round > 1 {
-                    connection_failure(
-                        events,
-                        run,
-                        super::super::diagnostics::Failure::Http(status),
-                    );
-                }
-                return Err((
-                    if (400..500).contains(&status) {
-                        Outcome::Failed
-                    } else {
-                        Outcome::Unknown
-                    },
-                    http_status(status),
-                ));
-            }
+            let mut response = send_inference(
+                || {
+                    connection
+                        .request(http, "POST", &connection.inference_url(&model))
+                        .header("Content-Type", "application/json")
+                        .header("Accept", "text/event-stream")
+                        .body(wire.clone())
+                        .send()
+                },
+                run,
+                events,
+                &round_control,
+                round,
+                retry_policy,
+                &mut dispatched,
+                &mut retries,
+            )
+            .await?;
             stream
                 .read(&mut response, &round_control, |stream| {
                     stream.publish(events, run)
@@ -266,7 +249,7 @@ async fn inference_rounds(
                 .publish_final(events, run, &connection.conversation_scope())
                 .map_err(|error| (Outcome::Failed, error))?;
             return Ok(format!(
-                "Native response completed after {round} {} round(s); requested model {model}; observed model {}. {}",
+                "Native response completed after {round} {} round(s); requested model {model}; observed model {}. {}{}",
                 if websocket { "WebSocket" } else { "HTTP" },
                 stream
                     .model
@@ -276,7 +259,8 @@ async fn inference_rounds(
                     "File effects are recorded only by the actual Eevee-mediated tool results."
                 } else {
                     "Only bounded source read/list tools were available; no local writes executed."
-                }
+                },
+                retry::summary(&retries)
             ));
         }
         // Each completed model round is a chronological display segment.

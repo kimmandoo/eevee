@@ -907,7 +907,7 @@ fn review_summary(state: &State, paint: &Paint) -> Vec<String> {
             format!("Context: {} exact outgoing bytes / {usage} / {outcome}", preview.payload.len()),
             format!("Write scope: {scope} / {approvals}"),
             format!("{} / {artifacts} / d Details · /journey capabilities", preview_continuity(state, preview)),
-            "Provider network/billing and retained history; no retries or inherited grants; cancellation may not prove remote stop.".into(),
+            "Provider network/billing and retained history; no inherited grants; only provably unprocessed native HTTP rounds are retried; cancellation may not prove remote stop.".into(),
         ];
         return lines;
     }
@@ -2098,6 +2098,7 @@ mod tests {
     fn config() -> Config {
         Config {
             native_transport: crate::providers::NativeTransport::Auto,
+            retry: Default::default(),
             ascii: true,
             no_animation: true,
             animation_override: Some(false),

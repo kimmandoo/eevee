@@ -139,6 +139,7 @@ mod tests {
         for (width, height) in [(120, 36), (60, 18)] {
             let config = Config {
                 native_transport: crate::providers::NativeTransport::Auto,
+                retry: Default::default(),
                 ascii: true,
                 no_animation: true,
                 animation_override: Some(false),

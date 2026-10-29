@@ -1354,22 +1354,46 @@ fn inference_headers_prove_one_frozen_dispatch_even_for_http_errors() {
             "authcode=private-provider-sentinel Bearer private-token-sentinel".into(),
         );
         let connection = config::test_connection(protocol, &url, Some("fixture-model"));
-        let response = runtime.block_on(async {
+        let result = runtime.block_on(async {
             let client = http_client().unwrap();
-            wait_inference(
-                connection
-                    .request(&client, "POST", &connection.inference_url("fixture-model"))
-                    .body("reviewed instruction")
-                    .send(),
+            let mut dispatched = false;
+            let mut attempts = Vec::new();
+            send_inference(
+                || {
+                    connection
+                        .request(&client, "POST", &connection.inference_url("fixture-model"))
+                        .body("reviewed instruction")
+                        .send()
+                },
                 &run,
                 &events,
                 &control,
+                1,
+                retry::Policy::Off,
+                &mut dispatched,
+                &mut attempts,
             )
             .await
-            .unwrap()
+            .map(|response| response.status().as_u16())
         });
         server.join().unwrap();
-        assert_eq!(response.status().as_u16(), status);
+        match result {
+            Ok(observed) => assert_eq!((observed, status), (200, 200)),
+            Err((outcome, message)) => {
+                assert_ne!(status, 200);
+                assert_eq!(
+                    outcome,
+                    if status < 500 {
+                        Outcome::Failed
+                    } else {
+                        Outcome::Unknown
+                    }
+                );
+                if status == 429 {
+                    assert!(message.contains("--retry off"), "{message}");
+                }
+            }
+        }
         let events = events.lock();
         assert_eq!(events.len(), if status == 200 { 1 } else { 2 });
         assert!(matches!(
@@ -1412,14 +1436,257 @@ fn failed_local_admission_and_unproven_transport_never_emit_dispatch_receipts() 
 
     // Cancellation before response headers, including a partially transmitted
     // request, supplies no authoritative receipt and does not invent one.
-    let result = runtime().block_on(wait_inference(
-        std::future::pending::<Result<reqwest::Response, reqwest::Error>>(),
+    let (mut dispatched, mut attempts) = (false, Vec::new());
+    let result = runtime().block_on(send_inference(
+        std::future::pending::<Result<reqwest::Response, reqwest::Error>>,
         &run,
         &events,
         &control,
+        1,
+        retry::Policy::Safe,
+        &mut dispatched,
+        &mut attempts,
     ));
-    assert!(result.is_err());
-    assert!(events.lock().is_empty());
+    assert!(matches!(result, Err((Outcome::Unknown, _))));
+    assert!(events.lock().is_empty() && attempts.is_empty());
+}
+
+/// Serves one canned response per connection, in order; returns how many
+/// connections were accepted before `responses` ran out or 3 s passed.
+fn http_sequence_fixture(
+    responses: Vec<(u16, &'static str, String)>,
+) -> (String, JoinHandle<usize>) {
+    use std::io::{Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let url = format!("http://{}/fixture", listener.local_addr().unwrap());
+    let server = thread::spawn(move || {
+        let mut served = 0;
+        for (status, headers, body) in responses {
+            let deadline = Instant::now() + Duration::from_secs(8);
+            let mut socket = loop {
+                match listener.accept() {
+                    Ok((socket, _)) => break socket,
+                    Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                        if Instant::now() >= deadline {
+                            return served;
+                        }
+                        thread::sleep(Duration::from_millis(2));
+                    }
+                    Err(error) => panic!("fixture accept failed: {error}"),
+                }
+            };
+            socket.set_nonblocking(false).unwrap();
+            socket
+                .set_read_timeout(Some(Duration::from_secs(1)))
+                .unwrap();
+            let mut request = Vec::new();
+            let mut buffer = [0u8; 4096];
+            while !request.windows(4).any(|bytes| bytes == b"\r\n\r\n") {
+                let count = socket.read(&mut buffer).unwrap();
+                assert!(count > 0, "fixture request headers incomplete");
+                request.extend_from_slice(&buffer[..count]);
+            }
+            write!(socket, "HTTP/1.1 {status} Fixture\r\nContent-Type: text/event-stream\r\n{headers}Content-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
+            served += 1;
+        }
+        served
+    });
+    (url, server)
+}
+
+type Sequence = (
+    Result<u16, (Outcome, String)>,
+    Vec<Event>,
+    Vec<retry::Attempt>,
+    usize,
+);
+
+fn send_sequence(
+    responses: Vec<(u16, &'static str, String)>,
+    policy: retry::Policy,
+    cancel_during_backoff: bool,
+) -> Sequence {
+    let mut run = prepared();
+    *run.input = crate::providers::tests::claimed(Agent::Compatible, Operation::Plan, false);
+    let events = Arc::new(Mutex::new(VecDeque::new()));
+    let stopped = AtomicBool::new(false);
+    let cancelled = AtomicU64::new(0);
+    let control = control(&stopped, &cancelled);
+    let (url, server) = http_sequence_fixture(responses);
+    let connection = config::test_connection(Protocol::Responses, &url, Some("fixture-model"));
+    let (mut dispatched, mut attempts) = (false, Vec::new());
+    let result = runtime().block_on(async {
+        let client = http_client().unwrap();
+        let canceller = async {
+            if cancel_during_backoff {
+                tokio::time::sleep(Duration::from_millis(300)).await;
+                cancelled.store(7, Ordering::Release);
+            }
+            std::future::pending::<()>().await
+        };
+        tokio::select! {
+            result = send_inference(
+                || {
+                    connection
+                        .request(&client, "POST", &connection.inference_url("fixture-model"))
+                        .body("frozen round body")
+                        .send()
+                },
+                &run,
+                &events,
+                &control,
+                1,
+                policy,
+                &mut dispatched,
+                &mut attempts,
+            ) => result.map(|response| response.status().as_u16()),
+            () = canceller => unreachable!(),
+        }
+    });
+    let events = events.lock().iter().cloned().collect();
+    (result, events, attempts, server.join().unwrap())
+}
+
+#[test]
+fn rate_limits_are_retried_with_the_same_body_and_one_dispatch_receipt() {
+    let (result, events, attempts, served) = send_sequence(
+        vec![
+            (429, "Retry-After: 0\r\n", String::new()),
+            (503, "", String::new()),
+            (200, "", String::new()),
+        ],
+        retry::Policy::Safe,
+        false,
+    );
+    assert_eq!(result.unwrap(), 200);
+    assert_eq!(served, 3);
+    let dispatched = events
+        .iter()
+        .filter(|event| matches!(event, Event::Dispatched { .. }))
+        .count();
+    assert_eq!(dispatched, 1, "{events:?}");
+    assert!(
+        !events
+            .iter()
+            .any(|event| matches!(event, Event::ConnectionFailed { .. }))
+    );
+    let statuses = events
+        .iter()
+        .filter_map(|event| match event {
+            Event::Status { message, .. } => Some(message.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    // Status events coalesce to the latest one.
+    assert_eq!(
+        statuses,
+        ["Native round 1: accepted after 2 automatic retries"]
+    );
+    assert_eq!(attempts.len(), 2);
+    assert_eq!(
+        (attempts[0].cause.as_str(), attempts[0].wait),
+        ("HTTP 429", Duration::ZERO)
+    );
+    assert_eq!(attempts[1].cause, "HTTP 503");
+    assert!(attempts[1].wait >= Duration::from_secs(1));
+}
+
+#[test]
+fn ineligible_or_long_waits_are_not_retried() {
+    let (result, events, attempts, served) = send_sequence(
+        vec![(500, "", String::new()), (200, "", String::new())],
+        retry::Policy::Safe,
+        false,
+    );
+    assert!(matches!(result, Err((Outcome::Unknown, _))));
+    assert_eq!((served, attempts.len()), (1, 0));
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, Event::ConnectionFailed { .. }))
+    );
+
+    let (result, _, attempts, served) = send_sequence(
+        vec![
+            (429, "Retry-After: 120\r\n", String::new()),
+            (200, "", String::new()),
+        ],
+        retry::Policy::Safe,
+        false,
+    );
+    let (outcome, message) = result.unwrap_err();
+    assert_eq!(outcome, Outcome::Failed);
+    assert!(message.contains("longer than 60 s"), "{message}");
+    assert_eq!((served, attempts.len()), (1, 0));
+
+    let (result, _, _, served) = send_sequence(
+        vec![(429, "", String::new()), (200, "", String::new())],
+        retry::Policy::Off,
+        false,
+    );
+    assert!(result.unwrap_err().1.contains("--retry off"));
+    assert_eq!(served, 1);
+}
+
+#[test]
+fn cancelling_during_backoff_is_a_cancellation_not_an_unknown() {
+    let (result, _, attempts, served) = send_sequence(
+        vec![(429, "", String::new()), (200, "", String::new())],
+        retry::Policy::Safe,
+        true,
+    );
+    let (outcome, message) = result.unwrap_err();
+    assert_eq!(outcome, Outcome::Cancelled);
+    assert!(message.contains("retry backoff"), "{message}");
+    assert_eq!((served, attempts.len()), (1, 1));
+}
+
+#[test]
+fn refused_connections_are_retried_until_exhausted() {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://{}/fixture", listener.local_addr().unwrap());
+    drop(listener);
+    let mut run = prepared();
+    *run.input = crate::providers::tests::claimed(Agent::Compatible, Operation::Plan, false);
+    let events = Arc::new(Mutex::new(VecDeque::new()));
+    let stopped = AtomicBool::new(false);
+    let cancelled = AtomicU64::new(0);
+    let mut control = control(&stopped, &cancelled);
+    control.deadline = Instant::now() + Duration::from_secs(30);
+    let connection = config::test_connection(Protocol::Responses, &url, Some("fixture-model"));
+    let (mut dispatched, mut attempts) = (false, Vec::new());
+    let result = runtime().block_on(async {
+        let client = http_client().unwrap();
+        send_inference(
+            || {
+                connection
+                    .request(&client, "POST", &connection.inference_url("fixture-model"))
+                    .body("frozen round body")
+                    .send()
+            },
+            &run,
+            &events,
+            &control,
+            1,
+            retry::Policy::Safe,
+            &mut dispatched,
+            &mut attempts,
+        )
+        .await
+        .map(|_| ())
+    });
+    let (outcome, message) = result.unwrap_err();
+    assert_eq!(outcome, Outcome::Unknown);
+    assert!(message.contains("after 3 automatic retries"), "{message}");
+    assert_eq!(attempts.len(), retry::MAX_RETRIES);
+    assert!(!dispatched);
+    assert!(
+        !events
+            .lock()
+            .iter()
+            .any(|event| matches!(event, Event::Dispatched { .. }))
+    );
 }
 
 fn usage_reports(events: &Events) -> Vec<Report> {

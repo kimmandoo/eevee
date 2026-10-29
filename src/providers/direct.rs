@@ -1,6 +1,7 @@
 //! Reviewed native HTTP/Responses WebSocket requests with request-local file tools.
 mod coding;
 pub(crate) mod config;
+pub mod retry;
 mod tools;
 mod websocket;
 
@@ -306,7 +307,7 @@ fn worker(
                 current.store(generation, Ordering::Release);
                 owner = Some((generation, input.task.id));
                 let mut preview = Preview { transport: None, comparison_scope: None, arrival: super::approval_arrival(), destination: None, requires_connection_review: false, generation, task_id: input.task.id, thread_id: None, trust: vec![
-                    "Native request; no provider executable, project hooks, shell commands, MCP, retries or transport fallback. Canonical chat is bounded completed public user/assistant memory, not a provider thread; /chat-new resets it locally.".into(),
+                    "Native request; no provider executable, project hooks, shell commands, MCP or transport fallback. HTTP rounds refused before processing (connect refused, HTTP 429/503/529) are resent at most three times unchanged unless launched with --retry off; nothing is resent after a response starts. Canonical chat is bounded completed public user/assistant memory, not a provider thread; /chat-new resets it locally.".into(),
                     "The actual initial wire packet and destination below are frozen. HTTP continuations carry the bounded full transcript; WebSocket continuations carry only actual acknowledged tool outputs with the completed response ID on this Run's single connection. Implement effects require exact one-shot approval; credentials stay scoped headers.".into(),
                     "Cancellation retires the request-owned connection; remote completion is not confirmed stopped. Each model round has a bounded deadline; file permission has a separate five-minute expiry. No connection or private response chain survives this logical Run.".into(),
                 ], payload: String::new(), blockers: Vec::new() };
@@ -1044,25 +1045,33 @@ fn http_status(status: u16) -> String {
         401 => "HTTP 401: credentials were rejected or expired; update the selected connection's authentication and review again".into(),
         403 => "HTTP 403: account, organization, model or endpoint access denied; check provider permissions".into(),
         404 => "HTTP 404: endpoint or exact model is unavailable; check base URL and model selection".into(),
-        429 => "HTTP 429: provider quota or rate limit exceeded; no automatic retry was attempted".into(),
+        429 => "HTTP 429: provider quota or rate limit exceeded".into(),
         400 | 422 => format!("HTTP {status}: provider rejected the reviewed request or its explicit model/effort; check supported request settings"),
         300..=399 => format!("HTTP {status}: redirect refused to keep authentication scoped to the reviewed endpoint"),
         _ => format!("HTTP {status}: provider request failed; no response body or credentials retained"),
+    }
+}
+async fn wait_attempt<T>(
+    future: impl Future<Output = Result<T, reqwest::Error>>,
+    control: &Control<'_>,
+) -> Result<Result<T, reqwest::Error>, String> {
+    let mut future = std::pin::pin!(future);
+    loop {
+        control.check()?;
+        // Timing out a borrow preserves the pending operation, avoiding retries/re-dispatch.
+        match tokio::time::timeout(Duration::from_millis(20), &mut future).await {
+            Ok(result) => return Ok(result),
+            Err(_) => continue,
+        }
     }
 }
 async fn wait_http<T>(
     future: impl Future<Output = Result<T, reqwest::Error>>,
     control: &Control<'_>,
 ) -> Result<T, String> {
-    let mut future = std::pin::pin!(future);
-    loop {
-        control.check()?;
-        // Timing out a borrow preserves the pending operation, avoiding retries/re-dispatch.
-        match tokio::time::timeout(Duration::from_millis(20), &mut future).await {
-            Ok(result) => return result.map_err(|_| "Native HTTP transport failed or timed out; check connectivity and endpoint. No automatic retry was attempted".into()),
-            Err(_) => continue,
-        }
-    }
+    wait_attempt(future, control).await?.map_err(|_| {
+        "Native HTTP transport failed or timed out; check connectivity and endpoint".into()
+    })
 }
 fn connection_failure(events: &Events, run: &Prepared, failure: super::diagnostics::Failure) {
     let _ = emit(
@@ -1076,30 +1085,138 @@ fn connection_failure(events: &Events, run: &Prepared, failure: super::diagnosti
     );
 }
 
-async fn wait_inference(
-    future: impl Future<Output = Result<reqwest::Response, reqwest::Error>>,
+/// One model round's inference POST. Response headers prove transmission even
+/// when HTTP rejects the request; transport errors alone cannot prove
+/// submission and retain their unknown outcome. Only failures that prove the
+/// provider did not process the round (connection refused before sending,
+/// HTTP 429/503/529 before any body) are retried, with the same frozen body.
+#[allow(clippy::too_many_arguments)]
+async fn send_inference<F, Fut>(
+    mut send: F,
     run: &Prepared,
     events: &Events,
     control: &Control<'_>,
-) -> Result<reqwest::Response, String> {
-    let response = wait_http(future, control).await.inspect_err(|_| {
-        if !control.cancelled() {
-            connection_failure(events, run, super::diagnostics::Failure::Transport);
+    round: usize,
+    policy: retry::Policy,
+    dispatched: &mut bool,
+    attempts: &mut Vec<retry::Attempt>,
+) -> Result<reqwest::Response, (Outcome, String)>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Result<reqwest::Response, reqwest::Error>>,
+{
+    let mut done = 0;
+    loop {
+        let attempt = wait_attempt(send(), control).await.map_err(|error| {
+            (
+                Outcome::Unknown,
+                format!("{error}; remote outcome unknown after dispatch; no retry"),
+            )
+        })?;
+        let (cause, requested, failure, base) = match attempt {
+            Ok(response) => {
+                if round == 1 && !*dispatched {
+                    if let Some(event) = run.input.dispatched(run.generation) {
+                        emit(events, event).map_err(|error| (Outcome::Failed, error))?;
+                    }
+                    *dispatched = true;
+                }
+                let status = response.status().as_u16();
+                if response.status().is_success() {
+                    if done > 0 {
+                        emit(
+                            events,
+                            Event::Status {
+                                generation: run.generation,
+                                task_id: run.input.task.id,
+                                message: format!(
+                                    "Native round {round}: accepted after {done} automatic retr{}",
+                                    if done == 1 { "y" } else { "ies" }
+                                ),
+                            },
+                        )
+                        .map_err(|error| (Outcome::Failed, error))?;
+                    }
+                    return Ok(response);
+                }
+                let outcome = if (400..500).contains(&status) {
+                    Outcome::Failed
+                } else {
+                    Outcome::Unknown
+                };
+                if !retry::retryable_status(status) {
+                    connection_failure(events, run, super::diagnostics::Failure::Http(status));
+                    return Err((outcome, http_status(status)));
+                }
+                (
+                    format!("HTTP {status}"),
+                    retry::retry_after(response.headers()),
+                    (outcome, super::diagnostics::Failure::Http(status)),
+                    http_status(status),
+                )
+            }
+            Err(error) => {
+                let base =
+                    "Native HTTP transport failed or timed out; check connectivity and endpoint"
+                        .to_string();
+                if !error.is_connect() {
+                    if !control.cancelled() {
+                        connection_failure(events, run, super::diagnostics::Failure::Transport);
+                    }
+                    return Err((
+                        Outcome::Unknown,
+                        format!(
+                            "{base}; the request may have been received, so it was not retried; remote outcome unknown after dispatch"
+                        ),
+                    ));
+                }
+                (
+                    "connection failed before sending".to_string(),
+                    None,
+                    (Outcome::Unknown, super::diagnostics::Failure::Transport),
+                    base,
+                )
+            }
+        };
+        match retry::decide(policy, done, requested, control.deadline, retry::jitter()) {
+            retry::Decision::Retry(wait) => {
+                emit(
+                    events,
+                    Event::Status {
+                        generation: run.generation,
+                        task_id: run.input.task.id,
+                        message: format!(
+                            "Native round {round}: {cause}; retrying the same request in {} s (attempt {}/{}) · Esc stops",
+                            wait.as_secs().max(1),
+                            done + 2,
+                            retry::MAX_RETRIES + 1
+                        ),
+                    },
+                )
+                .map_err(|error| (Outcome::Failed, error))?;
+                attempts.push(retry::Attempt { round, cause, wait });
+                retry::backoff(wait, control)
+                    .await
+                    .map_err(|error| (Outcome::Cancelled, error))?;
+                done += 1;
+            }
+            retry::Decision::Stop(reason) => {
+                let (outcome, failure) = failure;
+                if !control.cancelled() {
+                    connection_failure(events, run, failure);
+                }
+                let tried = if done == 0 {
+                    String::new()
+                } else {
+                    format!(
+                        " after {done} automatic retr{}",
+                        if done == 1 { "y" } else { "ies" }
+                    )
+                };
+                return Err((outcome, format!("{base}{tried}; {reason}")));
+            }
         }
-    })?;
-    // Headers prove transmission even when HTTP rejects the request. Transport
-    // errors alone cannot prove submission and retain their unknown outcome.
-    if let Some(event) = run.input.dispatched(run.generation) {
-        emit(events, event)?;
     }
-    if !response.status().is_success() {
-        connection_failure(
-            events,
-            run,
-            super::diagnostics::Failure::Http(response.status().as_u16()),
-        );
-    }
-    Ok(response)
 }
 
 fn validate_prepared(

@@ -166,6 +166,7 @@ fn app(task: &store::Snapshot, capture: context::Excerpt, width: u16, height: u1
 fn config() -> Config {
     Config {
         native_transport: crate::providers::NativeTransport::Auto,
+        retry: Default::default(),
         ascii: true,
         no_animation: true,
         animation_override: Some(false),

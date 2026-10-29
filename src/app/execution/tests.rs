@@ -1818,6 +1818,7 @@ fn selected_commit_root_review_pages_to_consent_at_supported_sizes_and_refuses_b
     use ratatui::{Terminal, backend::TestBackend};
     let config = Config {
         native_transport: crate::providers::NativeTransport::Auto,
+        retry: Default::default(),
         ascii: true,
         no_animation: true,
         animation_override: Some(false),

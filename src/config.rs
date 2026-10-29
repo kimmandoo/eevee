@@ -45,6 +45,7 @@ pub struct Config {
     pub context_exclusions: Vec<PathBuf>,
     pub capture_capacity: u64,
     pub native_transport: crate::providers::NativeTransport,
+    pub retry: crate::providers::direct::retry::Policy,
 }
 
 #[derive(Debug)]
@@ -119,6 +120,8 @@ Options:
   --exclude-context PATH Exclude a repository-relative prefix (repeatable, conservative case-insensitive)
   --spool-kib N        Per-command capture reservation (default: 64; range: 1..16384 KiB)
   --native-transport auto|http|websocket Native inference wire (default: auto; external agents unchanged)
+  --retry off|safe     Native HTTP retry of provably unprocessed failures: connect refused,
+                       HTTP 429/503/529 (default: safe; at most 3 per round, never after a response)
   -h, --help           Show this help
   -V, --version        Show the version
 
@@ -222,6 +225,7 @@ fn parse_with(
     let mut context_exclusions = Vec::new();
     let mut capture_capacity = 64 * 1024;
     let mut native_transport = crate::providers::NativeTransport::Auto;
+    let mut retry = crate::providers::direct::retry::Policy::Safe;
     let mut download = false;
     let mut action = None;
     while let Some(argument) = args.next() {
@@ -352,6 +356,13 @@ fn parse_with(
                     _ => return Err("--native-transport requires auto, http or websocket".into()),
                 };
             }
+            "--retry" => {
+                retry = match value(flag, attached, &mut args)?.as_ref() {
+                    "off" => crate::providers::direct::retry::Policy::Off,
+                    "safe" => crate::providers::direct::retry::Policy::Safe,
+                    _ => return Err("--retry requires off or safe".into()),
+                };
+            }
             "--spool-kib" => {
                 let amount = value(flag, attached, &mut args)?
                     .parse::<u64>()
@@ -442,6 +453,7 @@ fn parse_with(
         context_exclusions,
         capture_capacity,
         native_transport,
+        retry,
     };
     Ok(if download {
         Command::Download(config)
@@ -603,6 +615,20 @@ mod tests {
         match parse(args, variables).unwrap() {
             Command::Run(config) => config,
             _ => panic!("expected runnable configuration"),
+        }
+    }
+
+    #[test]
+    fn retry_launch_policy_defaults_safe_and_is_strict() {
+        use crate::providers::direct::retry::Policy;
+        assert_eq!(config(&[], &[]).retry, Policy::Safe);
+        assert_eq!(config(&["--retry", "off"], &[]).retry, Policy::Off);
+        assert_eq!(
+            config(&["--retry=off", "--retry=safe"], &[]).retry,
+            Policy::Safe
+        );
+        for args in [vec!["--retry"], vec!["--retry", "always"]] {
+            assert!(parse(&args, &[]).is_err());
         }
     }
 
