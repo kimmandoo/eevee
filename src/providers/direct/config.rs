@@ -988,6 +988,22 @@ pub(super) fn resolve(provider: Agent) -> Result<Connection, String> {
     resolve_with(provider, &input)
 }
 
+/// Whether the resolved endpoint is on this machine (local inference, no
+/// provider bill). Unresolvable configuration is not local.
+pub(crate) fn loopback(provider: Agent) -> bool {
+    let Ok(connection) = resolve(provider) else {
+        return false;
+    };
+    let Ok(url) = reqwest::Url::parse(&connection.base_url) else {
+        return false;
+    };
+    let host = url.host_str().unwrap_or("").trim_matches(['[', ']']);
+    host.eq_ignore_ascii_case("localhost")
+        || host
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|ip| ip.is_loopback())
+}
+
 #[cfg(test)]
 pub(super) fn test_connection(
     protocol: Protocol,

@@ -7,6 +7,7 @@ pub mod held;
 pub mod locations;
 pub mod memory;
 pub mod moves;
+pub mod pricing;
 pub mod privacy;
 pub mod progress;
 pub mod receipt;

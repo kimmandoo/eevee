@@ -40,6 +40,7 @@ mod events;
 pub mod evolution;
 mod evolution_motion;
 mod keys;
+mod meter;
 mod motion;
 mod move_staging;
 mod overlays;
@@ -99,6 +100,7 @@ pub enum Overlay {
     ParkedDrafts,
     Retained,
     Bag,
+    Usage,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -274,6 +276,7 @@ pub struct App {
     pub sources: sources::State,
     pub held: held::State,
     pub bag: game::Bag,
+    pub meter: meter::State,
     pub item_notice: Option<game::Notice>,
     berry_removals: Vec<i64>,
     pub execution: execution::State,
@@ -426,6 +429,7 @@ impl App {
             sources: sources::State::default(),
             held: held::State::default(),
             bag: game::Bag::default(),
+            meter: meter::State::default(),
             item_notice: None,
             berry_removals: Vec::new(),
             execution: execution::State::default(),

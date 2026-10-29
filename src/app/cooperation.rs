@@ -535,6 +535,7 @@ impl App {
         }
         self.settle_cooperation();
         changed |= self.reconcile_permission_review();
+        changed |= self.observe_usage();
         (changed, more)
     }
 

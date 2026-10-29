@@ -88,6 +88,8 @@ impl Popup {
                 | "todo"
                 | "todo-edit"
                 | "todo-eager"
+                | "usage-meter"
+                | "usage-budget"
         ) && !argument.is_empty())
         .then_some((name, argument))
     }
@@ -607,6 +609,16 @@ impl App {
             ("tasks", "Saved tasks"),
             ("todo", "Todo steps that guide the next evolution"),
             ("bag", "Bag: Potions, Berries, TMs and held items"),
+            (
+                "usage",
+                "Tokens and estimated cost: request, task, this launch",
+            ),
+            ("usage-meter", "Show or hide the status-row usage meter"),
+            (
+                "usage-budget",
+                "One notice at a launch estimate in USD; never blocks",
+            ),
+            ("prices", "Reload user prices (usage.toml); estimates only"),
             ("berry", "Make an attachment one-shot for the next Send"),
             ("learn-move", "Learn the repeated request Eevee proposed"),
             (
@@ -1459,6 +1471,10 @@ impl App {
         if self.progress_command(name, argument) {
             return true;
         }
+        if matches!(name, "usage-meter" | "usage-budget") {
+            self.command_popup = None;
+            return self.usage_command(name, (!argument.is_empty()).then_some(argument));
+        }
         if matches!(name, "project-search" | "landmarks" | "retained-responses") {
             self.command_popup = None;
             return self.retained_command(name, argument);
@@ -1662,6 +1678,9 @@ impl App {
         }
         if name == "journey" {
             self.open_overlay(Overlay::Journey);
+            return true;
+        }
+        if self.usage_command(name, None) {
             return true;
         }
         match name {

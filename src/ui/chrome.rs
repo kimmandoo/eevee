@@ -235,6 +235,19 @@ pub(super) fn header(frame: &mut Frame, area: Rect, app: &App, config: &Config, 
             &chip,
             paint.accent,
         );
+        // Usage meter (XC09): left of the capability chip, only in spare room.
+        if let Some(meter) = app.meter_chip(area.width) {
+            let meter = format!("{meter} ");
+            let width = Span::raw(meter.as_str()).width() as u16;
+            if used + 3 + chip_width + width <= line.width {
+                text(
+                    frame,
+                    Rect::new(line.right() - chip_width - width, line.y, width, 1),
+                    &meter,
+                    paint.muted,
+                );
+            }
+        }
     }
 }
 

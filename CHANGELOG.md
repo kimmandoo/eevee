@@ -2,6 +2,7 @@
 
 ## 2026-10-29
 
+- feat(usage): added a status-row meter of this launch's provider-reported tokens with a labelled local cost estimate (`Launch 48.2k tok · est. $0.31`, live `Req` count while running), a `/usage` panel with request/task/launch, per-partner and per-model breakdowns, `/usage-meter`, a non-blocking `/usage-budget` notice, user price rows in `<data dir>/usage.toml` reloaded by `/prices`, and real counters on the party board instead of a fixed "unknown".
 - feat(providers): resent a native HTTP model round automatically, at most three times with the same body and a visible cancellable wait, only when the provider refused it before processing (connection refused, HTTP 429/503/529, `Retry-After` up to 60 s); added `--retry off|safe` (default safe) and listed every retry in the completion message.
 - test(smoke): added a rate-limited-then-accepted journey to `native_connection_smoke.py` and stopped its flavor scan from matching the product name inside host tool declarations.
 

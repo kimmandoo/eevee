@@ -13,6 +13,7 @@ mod handoff;
 mod held;
 mod layout;
 mod memory;
+mod meter;
 mod moves;
 mod parked_drafts;
 mod planning;
@@ -468,6 +469,7 @@ pub fn render(
             Overlay::EvolutionPreview => evolution_preview(frame, area, app, config, &paint),
             Overlay::Journey => journey(frame, area, app, config, &paint),
             Overlay::Bag => bag::render(frame, area, app, config, &paint, artwork),
+            Overlay::Usage => meter::render(frame, area, app, config, &paint),
             Overlay::Preview => preview(frame, area, app, config, &paint),
             Overlay::Tasks => tasks(frame, area, app, config, &paint),
             Overlay::Criteria => criteria(frame, area, app, config, &paint),
