@@ -1,5 +1,13 @@
 # Work Checkpoint
 
+## 2026-10-29 — Contract-relaxation task track added (planning only)
+
+- **Request:** Propose functional-flexibility work that becomes possible only by deliberately changing existing contracts, and make each proposal concrete as tasks. Baseline `17267e9`; nothing implemented.
+- **Added:** `tasks/X-contract-relaxation.md` XC01–XC08: persistent scoped approval rules, read-only delegated sub-runs, visible steering and queued Send, bounded retry for provably unprocessed failures, stdio MCP client, form behavior profiles in packets, similar-request moves with a larger library, forward-compatible storage with critical-field marking. Each task quotes the rule it changes (DESIGN_RULES/task.md/README/prompt strings with file:line), the replacement wording, retained safety floors, design, acceptance and risks. task.md remaining 28 → 36; WAVES notes the unassigned track and recommended order.
+- **Not changed:** DESIGN_RULES itself — amendments are specified inside each task and land only with its implementation, so the binding contract still matches the shipped code.
+- **Verification:** documentation only; no build or tests needed. Cited line numbers were checked against the current source.
+- **Next action:** On an authorized implementation request, start with XC04 (no storage), then XC08 before any persisted X feature.
+
 ## 2026-10-28 — L game loop implemented; v0.1.36 published; v0.1.37 release
 
 - **Request:** Implement all of `tasks/L-game-loop.md` and release. Baseline `36593a1`.
