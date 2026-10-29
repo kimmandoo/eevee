@@ -382,6 +382,9 @@ impl Session {
                 if !self.alive.load(Ordering::Acquire) {
                     return Err("WebSocket IO ended without attributable completion".into());
                 }
+                if stream.calls.has_pending_previews() {
+                    stream.publish_file_previews(events, run)?;
+                }
                 tokio::time::sleep(Duration::from_millis(5)).await;
                 continue;
             };

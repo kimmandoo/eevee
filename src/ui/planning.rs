@@ -126,6 +126,38 @@ pub(super) fn render_small(frame: &mut Frame, area: Rect, state: &mut State, pai
     text(frame, area, &value, paint.accent);
 }
 
+pub(super) fn file_prompt_area(area: Rect, app: &App) -> Option<Rect> {
+    let state = &app.planning;
+    if app.overlay != Some(crate::app::Overlay::Planning)
+        || area.width < 60
+        || area.height < 18
+        || state.review_details
+        || state.quit_review
+        || state.journal_mode
+        || state.preview.is_some()
+        || state.picker.is_some()
+        || state.switch_to.is_some()
+        || state.selection_change.is_some()
+        || state.paths_editor.is_some()
+        || state.custom_model.is_some()
+        || state.editing
+        || !matches!(
+            state.request.as_ref().map(|request| &request.kind),
+            Some(PromptKind::Permission { file: Some(_), .. })
+        )
+    {
+        return None;
+    }
+    let shell = super::shell(area, app.linear, app.effective_focus());
+    let height = if area.height >= 26 { 10 } else { 8 };
+    Some(Rect::new(
+        shell.workspace.x,
+        shell.composer.y.saturating_sub(height),
+        shell.workspace.width.min(88),
+        height,
+    ))
+}
+
 pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &Paint) {
     app.planning.set_response_body(Rect::default());
     let approval_header = app.approval_position().map(|(position, total)| {
@@ -217,7 +249,9 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
     } else {
         area.height.saturating_sub(2)
     };
-    let area = super::sheet(area, if compact_picker { 80 } else { 112 }, height);
+    let dock = file_prompt_area(area, app);
+    let area =
+        dock.unwrap_or_else(|| super::sheet(area, if compact_picker { 80 } else { 112 }, height));
     frame.render_widget(Clear, area);
     let form = app.form();
     let state = &mut app.planning;
@@ -244,7 +278,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         )
     };
     let title = match editing.as_deref().filter(|_| !local_picker) {
-        Some(editing) if area.width < 90 => format!(" {editing} "),
+        Some(editing) if dock.is_some() || area.width < 90 => format!(" {editing} "),
         Some(editing) => format!("{title} / {editing} "),
         None => title,
     };
@@ -293,19 +327,26 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         paint.hint(Message::ProvidersPlanningSessionMetadataNotASelectableDecisionOr)
     };
     let header = approval_header.as_deref().unwrap_or(header);
-    text(
-        frame,
-        row(content, 0, 1),
-        &clipped(header, content.width as usize),
-        paint.accent,
-    );
+    if dock.is_none() {
+        text(
+            frame,
+            row(content, 0, 1),
+            &clipped(header, content.width as usize),
+            paint.accent,
+        );
+    }
     if is_review && !state.review_details {
-        let body = row(content, 1, content.height.saturating_sub(4));
+        let header_rows = u16::from(dock.is_none());
+        let body = row(
+            content,
+            header_rows,
+            content.height.saturating_sub(3 + header_rows),
+        );
         if matches!(
             state.request.as_ref().map(|request| &request.kind),
             Some(PromptKind::Permission { file: Some(_), .. })
         ) {
-            state.reviewed = render_file_summary(frame, body, state, paint);
+            state.reviewed = render_file_summary(frame, body, state, paint, dock.is_some());
         } else {
             let mut summary = review_summary(state, paint);
             let blocked = state
@@ -633,37 +674,50 @@ fn syntax_message(syntax: crate::providers::RustSyntaxReview) -> Message {
 
 /// Scope can wrap and scroll without hiding the fixed decision controls.
 /// Consent requires contiguous exposure of every immutable scope row.
-fn render_file_summary(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) -> bool {
+fn render_file_summary(
+    frame: &mut Frame,
+    area: Rect,
+    state: &mut State,
+    paint: &Paint,
+    docked: bool,
+) -> bool {
     let file: &FileReview = match state.request.as_ref().map(|request| &request.kind) {
         Some(PromptKind::Permission {
             file: Some(file), ..
         }) => file,
         _ => return false,
     };
-    let mut scope = [
-        paint.hint(file_kind_message(file.kind)).to_owned(),
-        paint.format(Template::ProvidersPlanningFilePath, &[("path", &file.path)]),
-        if file.directories.is_empty() {
-            paint
-                .hint(Message::ProvidersPlanningFileNoParents)
-                .to_owned()
-        } else {
-            paint.format(
-                Template::ProvidersPlanningFileParents,
-                &[("paths", &file.directories.join(", "))],
-            )
-        },
+    let parents = if file.directories.is_empty() {
+        paint
+            .hint(Message::ProvidersPlanningFileNoParents)
+            .to_owned()
+    } else {
         paint.format(
-            match file.kind {
-                FileReviewKind::Delete => Template::ProvidersPlanningFileRemovedBytes,
-                FileReviewKind::Rename => Template::ProvidersPlanningFileMovedBytes,
-                _ if file.edit => Template::ProvidersPlanningFileReplacementBytes,
-                _ => Template::ProvidersPlanningFileContentBytes,
-            },
-            &[("bytes", &file.bytes.to_string())],
-        ),
-    ]
-    .join("\n");
+            Template::ProvidersPlanningFileParents,
+            &[("paths", &file.directories.join(", "))],
+        )
+    };
+    let bytes = paint.format(
+        match file.kind {
+            FileReviewKind::Delete => Template::ProvidersPlanningFileRemovedBytes,
+            FileReviewKind::Rename => Template::ProvidersPlanningFileMovedBytes,
+            _ if file.edit => Template::ProvidersPlanningFileReplacementBytes,
+            _ => Template::ProvidersPlanningFileContentBytes,
+        },
+        &[("bytes", &file.bytes.to_string())],
+    );
+    let path = paint.format(Template::ProvidersPlanningFilePath, &[("path", &file.path)]);
+    let mut scope = if docked {
+        format!("{path}\n{bytes} · {parents}")
+    } else {
+        [
+            paint.hint(file_kind_message(file.kind)).to_owned(),
+            path,
+            parents,
+            bytes,
+        ]
+        .join("\n")
+    };
     if let Some(destination) = &file.destination {
         scope.push('\n');
         scope.push_str(&paint.format(
@@ -671,7 +725,10 @@ fn render_file_summary(frame: &mut Frame, area: Rect, state: &mut State, paint: 
             &[("path", destination)],
         ));
     }
-    if let Some(syntax) = file.syntax {
+    if let Some(syntax) = file
+        .syntax
+        .filter(|syntax| !docked || *syntax != crate::providers::RustSyntaxReview::Unsupported)
+    {
         scope.push('\n');
         scope.push_str(paint.hint(syntax_message(syntax)));
         if syntax != crate::providers::RustSyntaxReview::Unsupported {
@@ -688,17 +745,27 @@ fn render_file_summary(frame: &mut Frame, area: Rect, state: &mut State, paint: 
         footer.push_str(paint.hint(Message::ProvidersPlanningFileExternal));
         footer.push('\n');
     }
-    footer.push_str(paint.hint(Message::ProvidersPlanningFileDetails));
+    if !docked {
+        footer.push_str(paint.hint(Message::ProvidersPlanningFileDetails));
+    }
     let footer_paragraph = Paragraph::new(footer.as_str())
         .style(paint.muted)
         .wrap(Wrap { trim: false });
-    let footer_rows = footer_paragraph.line_count(area.width.max(1));
+    let footer_rows = if footer.is_empty() {
+        0
+    } else {
+        footer_paragraph.line_count(area.width.max(1))
+    };
     let required_rows = scope_rows + footer_rows;
-    if state.file_consent.width != area.width || state.file_consent.scope_rows != required_rows {
+    if state.file_consent.width != area.width
+        || state.file_consent.height != area.height
+        || state.file_consent.scope_rows != required_rows
+    {
         if state.file_consent.width != 0 {
             state.file_consent.choice = None;
         }
         state.file_consent.width = area.width;
+        state.file_consent.height = area.height;
         state.file_consent.scope_rows = required_rows;
         state.file_consent.seen_rows = 0;
         state.scroll = 0;
@@ -1101,7 +1168,7 @@ fn response(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
             )
         } else {
             format!(
-                "{}{}{}{} {}/{} · {}{}",
+                "{}{}{}{}{} · {}{}",
                 outcome.unwrap_or(""),
                 if outcome.is_some() { " · " } else { "" },
                 if previous {
@@ -1119,8 +1186,11 @@ fn response(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
                         ItemKind::File(_) => paint.hint(Message::ProvidersPlanningFilePreview),
                     }
                 },
-                state.selected + 1,
-                state.items.len(),
+                if super::VERBOSE.get() {
+                    format!(" {}/{}", state.selected + 1, state.items.len())
+                } else {
+                    String::new()
+                },
                 if let ItemKind::File(phase) = item.kind {
                     paint.hint(file_phase_message(phase))
                 } else if item.text.is_empty() && outcome.is_some() {
@@ -1221,31 +1291,56 @@ fn response(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
         let lines: Vec<Line<'_>> = state
             .response_display_rows(body.width, body.height, super::VERBOSE.get())
             .map(|row| match row.kind {
-                ItemKind::File(phase) => Line::from(vec![
-                    Span::styled(
-                        if row.header {
-                            "+ "
-                        } else if row.writing_edge {
-                            "> "
-                        } else {
-                            "| "
-                        },
-                        file_style(phase, paint),
-                    ),
-                    Span::styled(
-                        row.text,
-                        if row.header {
-                            file_style(phase, paint)
-                        } else if row.writing_edge {
-                            paint
-                                .base
-                                .add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
-                        } else {
-                            paint.base
-                        },
-                    ),
-                ])
-                .style(paint.base),
+                _ if row.todo => {
+                    let style = if row.text.starts_with("Todo progress") {
+                        paint.accent.add_modifier(Modifier::BOLD)
+                    } else if row.text.starts_with("[>]") {
+                        paint.accent
+                    } else if row.text.starts_with("[!]") {
+                        paint.accent.add_modifier(Modifier::BOLD)
+                    } else if row.text.starts_with("[x]") || row.text.starts_with("[-]") {
+                        paint.muted
+                    } else {
+                        paint.base
+                    };
+                    Line::styled(row.text, style)
+                }
+                ItemKind::File(phase) => {
+                    let marker = if row.header {
+                        "+ "
+                    } else if row.writing_edge {
+                        "> "
+                    } else {
+                        "| "
+                    };
+                    let style = if row.header {
+                        file_style(phase, paint)
+                    } else if row.writing_edge {
+                        paint
+                            .base
+                            .add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
+                    } else {
+                        paint.base
+                    };
+                    let mut spans = Vec::with_capacity(3);
+                    spans.push(Span::styled(marker, file_style(phase, paint)));
+                    if !row.header
+                        && let Some((number, code)) = row
+                            .text
+                            .split_once(" │ ")
+                            .or_else(|| row.text.split_once(" | "))
+                        && !number.trim().is_empty()
+                        && number.trim().bytes().all(|byte| byte.is_ascii_digit())
+                    {
+                        spans.extend([
+                            Span::styled(&row.text[..row.text.len() - code.len()], paint.muted),
+                            Span::styled(code, style),
+                        ]);
+                    } else {
+                        spans.push(Span::styled(row.text, style));
+                    }
+                    Line::from(spans).style(paint.base)
+                }
                 _ => Line::raw(row.text),
             })
             .collect();
@@ -2344,6 +2439,81 @@ mod tests {
     }
 
     #[test]
+    fn todo_cards_are_readable_at_compact_and_wide_sizes_without_nerd_fonts() {
+        super::super::VERBOSE.set(false);
+        for (width, height) in [(60, 18), (120, 36)] {
+            for color in [ColorMode::TrueColor, ColorMode::Mono] {
+                let mut config = config();
+                config.color = color;
+                let paint = Paint::new(&config, &crate::domain::FORMS[0], 0);
+                let mut state = State::default();
+                let request: std::sync::Arc<str> = "Inspect the error".into();
+                let status = std::sync::Arc::new(crate::app::planning::RequestStatus {
+                    generation: 7,
+                    task_id: 1,
+                    agent: crate::providers::Agent::Compatible,
+                    operation: Operation::Plan,
+                    model: None,
+                    transport: None,
+                    outcome: None,
+                    reason: String::new(),
+                    public_context: None,
+                });
+                for index in 0..3 {
+                    state.items.push(crate::app::planning::Item {
+                        thread_id: "native-7".into(), turn_id: format!("round-{index}"),
+                        item_id: format!("todo-{index}-0"), kind: ItemKind::Plan,
+                        text: serde_json::json!({"tool":"todo","arguments":{"operation":"view","steps":[],"label":""},
+                            "result":{"status":"success","steps":[
+                                {"label":"오류 조사","status":"done"},{"label":"Verify tests","status":"active"}
+                            ]}}).to_string(),
+                        complete: true, request: std::sync::Arc::clone(&request), owner: None,
+                        status: Some(std::sync::Arc::clone(&status)),
+                    });
+                }
+                let visible = screen(&draw_response(&mut state, width, height, &paint));
+                assert_eq!(visible.matches("Todo progress").count(), 1, "{visible}");
+                assert!(
+                    visible.contains("1/2 done") && visible.contains("3 updates"),
+                    "{visible}"
+                );
+                assert!(
+                    visible.contains("[x] 오류 조사") && visible.contains("[>] Verify tests"),
+                    "{visible}"
+                );
+                assert!(
+                    !visible.contains("\"arguments\"")
+                        && !visible
+                            .chars()
+                            .any(|ch| ('\u{e000}'..='\u{f8ff}').contains(&ch)),
+                    "{visible}"
+                );
+                state.items.push(crate::app::planning::Item {
+                    thread_id: "native-7".into(),
+                    turn_id: "round-3".into(),
+                    item_id: "answer".into(),
+                    kind: ItemKind::Message,
+                    text: "Final answer remains visible.".into(),
+                    complete: true,
+                    request,
+                    owner: None,
+                    status: Some(status),
+                });
+                let final_screen = screen(&draw_response(&mut state, width, height, &paint));
+                assert!(
+                    final_screen.contains("Final answer remains visible."),
+                    "{final_screen}"
+                );
+                assert_eq!(
+                    state.items.len(),
+                    4,
+                    "projection never removes observations"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn file_panel_is_typed_not_inferred_from_prose_in_color_and_monochrome() {
         for (width, height) in [(60, 18), (120, 36)] {
             for color in [ColorMode::TrueColor, ColorMode::Mono] {
@@ -3027,6 +3197,112 @@ mod tests {
                 app.planning.pending.is_none(),
                 "closed request cannot replay approval"
             );
+        }
+    }
+
+    #[test]
+    fn docked_file_decisions_keep_the_draft_and_require_contiguous_scope() {
+        for (width, height) in [(60, 18), (120, 36)] {
+            let (mut app, task) = preview(width, height);
+            draw(&mut app);
+            key(&mut app, &task, KeyCode::Char('y'));
+            app.planning.pending.take();
+            app.planning.event(Event::Prompt {
+                generation: 11,
+                task_id: 7,
+                request: Prompt {
+                    arrival: crate::providers::approval_arrival(),
+                    request_id: serde_json::json!(43),
+                    thread_id: "thread".into(),
+                    turn_id: "turn".into(),
+                    item_id: "file".into(),
+                    kind: PromptKind::Permission {
+                        description: "Create a.py with exact proposed bytes".into(),
+                        file: Some(FileReview {
+                            path: "a.py".into(),
+                            destination: None,
+                            syntax: None,
+                            kind: FileReviewKind::Create,
+                            directories: vec![],
+                            bytes: 12,
+                            excerpt: "print('hi')".into(),
+                            edit: false,
+                            external: false,
+                        }),
+                        options: vec![
+                            PermissionOption {
+                                label: "Deny".into(),
+                                description: "No change".into(),
+                                answer: serde_json::json!({"permission":"deny"}),
+                            },
+                            PermissionOption {
+                                label: "Allow once".into(),
+                                description: "One change".into(),
+                                answer: serde_json::json!({"permission":"once"}),
+                            },
+                        ],
+                    },
+                },
+            });
+            app.overlay = Some(crate::app::Overlay::Planning);
+            app.input = "future 한글e\u{301} draft".into();
+            app.cursor = "future 한글".len();
+            app.planning.auto_permission_review = true;
+            let draft = (app.input.clone(), app.cursor);
+            let area = Rect::new(0, 0, width, height);
+            let dock = file_prompt_area(area, &app).unwrap();
+            let composer = super::super::shell(area, app.linear, app.effective_focus()).composer;
+            let observed = draw_home(&mut app);
+            assert_eq!(dock.bottom(), composer.y);
+            assert!(dock.height <= 10 && dock.y >= 2);
+            let rows: Vec<_> = observed.lines().collect();
+            assert!(rows[composer.y as usize].contains("Request"));
+            assert!(rows[composer.y as usize + 1].contains(&draft.0));
+            assert!(
+                rows[dock.y as usize..composer.y as usize]
+                    .iter()
+                    .any(|line| line.contains("Deny") && line.contains("Allow"))
+            );
+            assert_eq!((&app.input, app.cursor), (&draft.0, draft.1));
+            assert!(app.planning.reviewed && app.planning.file_consent.choice.is_none());
+            key(&mut app, &task, KeyCode::Right);
+            draw_home(&mut app);
+            assert_eq!(app.planning.file_consent.choice, Some(1));
+            if let PromptKind::Permission {
+                file: Some(file), ..
+            } = &mut app.planning.request.as_mut().unwrap().kind
+            {
+                file.path = format!("{}a.py", "deep/".repeat(600));
+            }
+            draw_home(&mut app);
+            assert!(!app.planning.reviewed && app.planning.file_consent.choice.is_none());
+            key(&mut app, &task, KeyCode::End);
+            draw_home(&mut app);
+            assert!(
+                !app.planning.reviewed,
+                "jumping over scope must not arm consent"
+            );
+            key(&mut app, &task, KeyCode::Char('y'));
+            assert!(app.planning.pending.is_none());
+            key(&mut app, &task, KeyCode::Home);
+            draw_home(&mut app);
+            while !app.planning.reviewed {
+                let seen = app.planning.file_consent.seen_rows;
+                key(&mut app, &task, KeyCode::PageDown);
+                draw_home(&mut app);
+                assert!(
+                    app.planning.file_consent.seen_rows > seen,
+                    "paging must reveal contiguous scope even in a short dock"
+                );
+            }
+            assert_eq!(
+                app.planning.file_consent.seen_rows,
+                app.planning.file_consent.scope_rows
+            );
+            app.height = if height == 18 { 36 } else { 18 };
+            draw_home(&mut app);
+            assert!(app.planning.file_consent.choice.is_none());
+            assert_eq!((&app.input, app.cursor), (&draft.0, draft.1));
         }
     }
 

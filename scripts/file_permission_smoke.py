@@ -95,6 +95,15 @@ def run_case(binary, output, root, size, route, protocol, form):
                 assert current() == original, 'proposal changed bytes before consent'
                 posts = len(peer.snapshot('POST'))
                 journey.capture(f'{sequence}-automatic-file-popup')
+                rows = session.display().splitlines()
+                composer_row = next((index for index, row in enumerate(rows)
+                                     if 'Request / ' in row), None)
+                assert composer_row is not None, 'File decision hid the Request composer'
+                assert any('Deny' in row and 'Allow' in row
+                           for row in rows[max(2, composer_row - 8):composer_row]), (
+                    'File decisions were not attached above Request\n' + session.display())
+                border = rows[composer_row - 1].strip()
+                assert border.startswith(('└', '╚', '+')), 'File decision was separated from the composer'
                 session.send('ay')
                 session.paste('a\ny')
                 assert current() == original and len(peer.snapshot('POST')) == posts
@@ -104,7 +113,8 @@ def run_case(binary, output, root, size, route, protocol, form):
                     session.send('\t')
                 else:
                     session.send(RIGHT if allow else LEFT)
-                until(session, lambda: not file_review_pending(session),
+                until(session, lambda: any(marker in session.display()
+                                          for marker in ('> [ Deny ]', '> [ Allow once ]')),
                       'explicit decision selection did not engage the popup')
                 pages = 0
                 if allow and any(label in session.display() for label in unavailable):

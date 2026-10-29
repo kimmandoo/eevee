@@ -21,6 +21,8 @@ pub struct ResponseRow<'a> {
     pub text: &'a str,
     pub kind: ItemKind,
     pub header: bool,
+    /// A cached projection of a qualified todo, never a text-prefix guess.
+    pub todo: bool,
     /// Last visible source fragment of this actual file snapshot, not a timer.
     pub writing_edge: bool,
 }
@@ -33,6 +35,11 @@ struct Segment {
     kind: ItemKind,
     rows: Vec<Row>,
     start: usize,
+    observation_valid: bool,
+    todo: Option<super::todo::Observation>,
+    todo_updates: usize,
+    display: Option<String>,
+    suppressed: bool,
 }
 
 struct Anchor {
@@ -52,6 +59,7 @@ pub(super) struct Layout {
     comfortable: bool,
     anchor: Option<Anchor>,
     total: usize,
+    grouping_dirty: bool,
 }
 
 fn wrap(rows: &mut Vec<Row>, text: &str, width: usize, header: bool, spaced: bool) {
@@ -115,25 +123,31 @@ impl Layout {
     }
 
     pub(super) fn item_changed(&mut self, index: usize) {
+        self.grouping_dirty = true;
         if let Some(segment) = self.segments.get_mut(index) {
             segment.valid = false;
+            segment.observation_valid = false;
         }
     }
 
     pub(super) fn settlement_changed(&mut self, index: usize) {
+        self.grouping_dirty = true;
         if let Some(segment) = self.segments.get_mut(index) {
             segment.valid = false;
             segment.header_valid = false;
+            segment.todo_updates = 0;
         }
     }
 
     pub(super) fn remove(&mut self, index: usize) {
+        self.grouping_dirty = true;
         if index < self.segments.len() {
             self.segments.remove(index);
         }
     }
 
     pub(super) fn move_to_end(&mut self, index: usize) {
+        self.grouping_dirty = true;
         if index < self.segments.len() {
             let segment = self.segments.remove(index);
             self.segments.push(segment);
@@ -148,6 +162,8 @@ impl Layout {
         verbose: bool,
         comfortable: bool,
     ) {
+        let mut regroup =
+            self.grouping_dirty || self.verbose != verbose || self.segments.len() != items.len();
         let attributed = items.len() > 1;
         let reflow = self.width != width
             || self.verbose != verbose
@@ -177,6 +193,11 @@ impl Layout {
                     kind: item.kind,
                     rows: Vec::new(),
                     start: 0,
+                    observation_valid: false,
+                    todo: None,
+                    todo_updates: 0,
+                    display: None,
+                    suppressed: false,
                 };
                 if index < self.segments.len() {
                     self.segments[index] = segment;
@@ -185,7 +206,71 @@ impl Layout {
                 }
             }
             let segment = &mut self.segments[index];
+            if !segment.observation_valid {
+                regroup = true;
+                segment.todo = super::todo::Observation::read(item);
+                segment.observation_valid = true;
+                segment.display = None;
+                segment.header_valid = false;
+                segment.todo_updates = 0;
+            }
+        }
+        // Collapse only qualified successful todo snapshots within one immutable
+        // request/owner/worker. Errors, malformed data and ordinary tools remain.
+        for (index, item) in items.iter().enumerate() {
+            if regroup {
+                let todo = self.segments[index].todo.as_ref();
+                let suppressed = !verbose
+                    && todo.is_some_and(|todo| {
+                        self.segments[index + 1..]
+                            .iter()
+                            .zip(&items[index + 1..])
+                            .any(|(next, other)| {
+                                next.todo
+                                    .as_ref()
+                                    .is_some_and(|next| next.source == todo.source)
+                                    && super::todo::same_request(item, other)
+                            })
+                    });
+                let updates = if !verbose && !suppressed {
+                    todo.map_or(0, |todo| {
+                        self.segments[..=index]
+                            .iter()
+                            .zip(&items[..=index])
+                            .filter(|(previous, other)| {
+                                previous
+                                    .todo
+                                    .as_ref()
+                                    .is_some_and(|previous| previous.source == todo.source)
+                                    && super::todo::same_request(item, other)
+                            })
+                            .count()
+                    })
+                } else {
+                    0
+                };
+                let segment = &mut self.segments[index];
+                if segment.suppressed != suppressed || segment.todo_updates != updates {
+                    segment.valid = false;
+                    segment.header_valid = false;
+                    segment.suppressed = suppressed;
+                    segment.todo_updates = updates;
+                    segment.display = if updates > 0 {
+                        segment
+                            .todo
+                            .as_ref()
+                            .map(|todo| todo.display(updates, item))
+                    } else {
+                        None
+                    };
+                }
+            }
+            let segment = &mut self.segments[index];
             segment.start = self.total;
+            if segment.suppressed {
+                segment.rows.clear();
+                continue;
+            }
             if reflow || !segment.valid {
                 if !segment.header_valid
                     || segment.kind != item.kind
@@ -193,7 +278,9 @@ impl Layout {
                     || self.attributed != attributed
                 {
                     segment.header.clear();
-                    if let ItemKind::File(phase) = item.kind {
+                    if segment.display.is_some() {
+                        // The structured summary already names source and owner.
+                    } else if let ItemKind::File(phase) = item.kind {
                         let _ = write!(
                             segment.header,
                             "{} {}",
@@ -248,7 +335,8 @@ impl Layout {
                             ])
                             .expect("validated transcript template");
                     }
-                    if let Some(status) = &item.status
+                    if segment.display.is_none()
+                        && let Some(status) = &item.status
                         && let Some(outcome) = status.outcome_label()
                     {
                         let context = match status.public_context {
@@ -297,6 +385,7 @@ impl Layout {
                     segment.kind = item.kind;
                     segment.header_valid = true;
                 }
+                let content = segment.display.as_deref().unwrap_or(&item.text);
                 segment.rows.clear();
                 // The file-only panel gutter is painted separately on every row,
                 // including wrapped continuations and a viewport starting mid-code.
@@ -317,7 +406,8 @@ impl Layout {
                 if comfortable
                     && matches!(item.kind, ItemKind::Message | ItemKind::Plan)
                     && !segment.header.is_empty()
-                    && !item.text.is_empty()
+                    && !content.is_empty()
+                    && segment.display.is_none()
                 {
                     segment.rows.push(Row {
                         range: 0..0,
@@ -327,15 +417,18 @@ impl Layout {
                 }
                 wrap(
                     &mut segment.rows,
-                    &item.text,
+                    content,
                     usize::from(content_width),
                     false,
-                    comfortable && matches!(item.kind, ItemKind::Message | ItemKind::Plan),
+                    comfortable
+                        && segment.display.is_none()
+                        && matches!(item.kind, ItemKind::Message | ItemKind::Plan),
                 );
                 segment.valid = true;
             }
             self.total += segment.rows.len();
         }
+        self.grouping_dirty = false;
         self.width = width;
         self.verbose = verbose;
         self.attributed = attributed;
@@ -787,12 +880,13 @@ impl State {
                     let text = if row.header {
                         &segment.header
                     } else {
-                        &items[index].text
+                        segment.display.as_deref().unwrap_or(&items[index].text)
                     };
                     ResponseRow {
                         text: &text[row.range.clone()],
                         kind: segment.kind,
                         header: row.header,
+                        todo: segment.display.is_some(),
                         writing_edge: segment.kind
                             == ItemKind::File(crate::providers::FilePhase::Generating)
                             && !row.header

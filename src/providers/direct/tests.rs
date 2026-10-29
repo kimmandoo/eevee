@@ -796,6 +796,77 @@ fn http_gated_fixture(
 }
 
 #[test]
+fn quiet_http_tool_stream_flushes_actual_partial_code_before_terminal() {
+    let partial = r#"{"path":"src/live.rs","content":"let "#;
+    let arguments = r#"{"path":"src/live.rs","content":"let answer = 42;\n"}"#;
+    let item = json!({
+        "type":"function_call","id":"item-live","call_id":"call-live",
+        "name":"eevee_write_file","arguments":partial
+    });
+    let completed_item = json!({
+        "type":"function_call","id":"item-live","call_id":"call-live",
+        "name":"eevee_write_file","arguments":arguments,"status":"completed"
+    });
+    let body = [
+        json!({"type":"response.output_item.added","output_index":0,"item":item}),
+        json!({"type":"response.function_call_arguments.delta","output_index":0,"item_id":"item-live","delta":"answer "}),
+    ].into_iter().map(frame).collect::<String>();
+    let trailer = [
+        json!({"type":"response.function_call_arguments.delta","output_index":0,"item_id":"item-live","delta":"= 42;\\n\"}"}),
+        json!({"type":"response.function_call_arguments.done","output_index":0,"item_id":"item-live","arguments":arguments}),
+        json!({"type":"response.output_item.done","output_index":0,"item":completed_item}),
+        json!({"type":"response.completed","response":{"status":"completed","output":[completed_item]}}),
+    ].into_iter().map(frame).collect::<String>();
+    let (ready, pending) = mpsc::sync_channel(1);
+    let (url, server) = http_gated_fixture(200, body, Some((pending, trailer)));
+    let mut ready = Some(ready);
+    let stopped = AtomicBool::new(false);
+    let cancelled = AtomicU64::new(0);
+    let control = control(&stopped, &cancelled);
+    let mut stream = Stream::new(Protocol::Responses);
+    let mut snapshots = Vec::new();
+    runtime().block_on(async {
+        let mut response = wait_http(http_client().unwrap().get(url).send(), &control)
+            .await
+            .unwrap();
+        stream
+            .read(&mut response, &control, |stream, source_event| {
+                // Leave the second source snapshot pending even on a busy runner;
+                // only a quiet-wire poll may release the server's terminal frame.
+                if source_event && ready.is_some() && !snapshots.is_empty() {
+                    return Ok(());
+                }
+                let complete = stream.complete;
+                stream.calls.visit_previews(|_, phase, text| {
+                    if !source_event && text.contains("let answer ") {
+                        assert!(!complete);
+                        assert_eq!(phase, FilePhase::Generating);
+                        ready.take().unwrap().send(()).unwrap();
+                    }
+                    snapshots.push((phase, text));
+                    Ok(())
+                })
+            })
+            .await
+            .unwrap();
+    });
+    server.join().unwrap();
+    assert!(
+        ready.is_none(),
+        "a quiet wire stranded the actual code delta"
+    );
+    assert!(snapshots.iter().any(|(phase, text)|
+        *phase == FilePhase::Received && text.contains("let answer = 42;")
+    ));
+    let calls = stream.calls.finish(true).unwrap();
+    assert_eq!(calls.len(), 1);
+    assert!(
+        matches!(&calls[0].tool, crate::providers::writes::FileTool::Write { content, .. }
+        if content == "let answer = 42;\n")
+    );
+}
+
+#[test]
 fn real_response_reader_rejects_eof_without_completion_and_cancels_between_chunks() {
     let runtime = runtime();
     for cancel_after_output in [false, true] {
@@ -812,9 +883,9 @@ fn real_response_reader_rejects_eof_without_completion_and_cancels_between_chunk
             let client = http_client().unwrap();
             let mut response = wait_http(client.get(url).send(), &control).await.unwrap();
             stream
-                .read(&mut response, &control, |stream| {
+                .read(&mut response, &control, |stream, source_event| {
                     stream.publish(&events, &run)?;
-                    if cancel_after_output {
+                    if cancel_after_output && source_event {
                         cancelled.store(7, Ordering::Release);
                     }
                     Ok(())
@@ -1787,7 +1858,7 @@ fn gemini_http_reader_consumes_usage_after_stop_and_rejects_later_errors() {
                 .await
                 .unwrap();
             stream
-                .read(&mut response, &control, |stream| {
+                .read(&mut response, &control, |stream, _| {
                     if stream.complete
                         && let Some(ready) = ready.take()
                     {
@@ -1896,7 +1967,7 @@ fn gemini_usage_at_eof_without_stop_remains_partial() {
             .await
             .unwrap();
         stream
-            .read(&mut response, &control, |_| Ok(()))
+            .read(&mut response, &control, |_, _| Ok(()))
             .await
             .unwrap_err()
     });

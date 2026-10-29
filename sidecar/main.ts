@@ -131,6 +131,18 @@ function inputMetadata(input: unknown) {
   return { path, bytes: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex') };
 }
 
+function toolText(value: Record<string, unknown>): string {
+  let text = JSON.stringify(value);
+  // Optional progress display must not turn an otherwise retained SDK result
+  // into a host item-limit failure. Its separate progress event is unchanged.
+  if (value.progress !== undefined && Buffer.byteLength(text) > 32 * 1024) {
+    delete value.progress;
+    value.observation = 'Argument metadata only; todo display exceeds the retained-item budget. Separate progress observation unchanged';
+    text = JSON.stringify(value);
+  }
+  return text;
+}
+
 async function run(command: z.infer<typeof RunSchema>) {
   if (started) throw new Error('One sidecar accepts exactly one query; follow-up turns are not queued');
   started = true;
@@ -322,7 +334,7 @@ async function run(command: z.infer<typeof RunSchema>) {
   let promptReleased = false;
   let streamingMessage = '';
   const streaming = new Map<string, { text: string; at: number; bytes: number }>();
-  const toolCalls = new Map<string, { tool: string; input: unknown }>();
+  const toolCalls = new Map<string, { tool: string; input: unknown; progress: boolean }>();
   try {
     // Authentication/tool policy and explicit model acknowledgments precede prompt release.
     const { catalogue, approvedModel } = await prepareModels(current, command.selection, account, expectedProvider,
@@ -384,12 +396,13 @@ async function run(command: z.infer<typeof RunSchema>) {
               await previewFrames(filePreviews.complete(block.id, block.name, block.input));
             }
             if (toolCalls.has(block.id) || toolCalls.size >= 128 || Buffer.byteLength(JSON.stringify(block.input)) > FRAME_LIMIT / 2) throw new Error('SDK tool input retention bound');
-            toolCalls.set(block.id, { tool: block.name, input: block.input });
-            await emit({ type: 'item', ...meta(), session_id: message.session_id, item_id: block.id, kind: 'tool', text: JSON.stringify({ provider: 'Claude Agent SDK', sdk_version: sdkVersion, tool: block.name, observation: 'Argument metadata only; exact input is reviewed separately for consent', input: inputMetadata(block.input), status: 'requested' }), complete: false });
+            const progress = block.name === 'TodoWrite' && message.parent_tool_use_id == null &&
+              !('isReplay' in message && message.isReplay === true);
+            toolCalls.set(block.id, { tool: block.name, input: block.input, progress });
+            await emit({ type: 'item', ...meta(), session_id: message.session_id, item_id: block.id, kind: 'tool', text: toolText({ provider: 'Claude Agent SDK', sdk_version: sdkVersion, tool: block.name, observation: progress ? 'Todo arguments retained as provider progress claims, never permission or execution evidence' : 'Argument metadata only; exact input is reviewed separately for consent', input: inputMetadata(block.input), progress: progress ? block.input : undefined, status: 'requested' }), complete: false });
             // Observe complete provider arguments, never permission callbacks,
             // partial JSON, resumed replay, or a delegated agent's task list.
-            if (block.name === 'TodoWrite' && message.parent_tool_use_id == null &&
-              !('isReplay' in message && message.isReplay === true)) {
+            if (progress) {
               await emit({ type: 'progress', ...meta(), session_id: message.session_id, item_id: block.id, tool: block.name, input: block.input });
             }
           }
@@ -405,11 +418,11 @@ async function run(command: z.infer<typeof RunSchema>) {
             throw new Error('SDK write result lacks exact approved authority or a verified filesystem outcome');
           }
           await previewFrames(filePreviews.phase(block.tool_use_id, block.is_error === true ? 'reported_failed' : 'reported'));
-          await emit({ type: 'item', ...meta(), session_id: message.session_id, item_id: block.tool_use_id, kind: 'tool', text: JSON.stringify({
+          await emit({ type: 'item', ...meta(), session_id: message.session_id, item_id: block.tool_use_id, kind: 'tool', text: toolText({
             provider: 'Claude Agent SDK', sdk_version: sdkVersion, cli_version: cliVersion, coverage: call?.tool === COMMAND_TOOL ?
               'Provider-visible copy of a correlated Eevee owned-run result; authoritative run/artifact records remain host-owned. Not a confinement or task-completion guarantee.' :
               'provider-native tool result; not an Eevee local command/check or proof of confinement',
-            tool: call?.tool, observation: 'Argument metadata only; exact input was reviewed separately for consent', input: inputMetadata(call?.input), result: block.content, is_error: block.is_error, status: block.is_error ? 'failed' : 'completed',
+            tool: call?.tool, observation: call?.progress ? 'Todo arguments retained as provider progress claims, never permission or execution evidence' : 'Argument metadata only; exact input was reviewed separately for consent', input: inputMetadata(call?.input), progress: call?.progress ? call.input : undefined, result: block.content, is_error: block.is_error, status: block.is_error ? 'failed' : 'completed',
           }), complete: true });
         }
       } else if (message.type === 'result') {

@@ -4,6 +4,15 @@ Updated2026-10-28. Public v0.1.33 shipped Waves6–7 and all four authorized una
 
 Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPATIBILITY.md). Live-provider conformance remains distinct from implemented transports and deterministic runtime proof.
 
+## Active request — Tool presentation, live code, anchored consent and prompt intent (2026-10-29)
+
+1. Replace raw/repeated structured todo response cards with a request/owner-bound readable projection while retaining raw observations and distinct malformed/refused output.
+2. Extend bounded local English/Korean intent rules for UI/tool improvements and compound inspect/fix requests; preserve manual appearance, explicit restrictions, busy ownership, adopted-step precedence and preview/Send equality.
+3. Flush actual pending source snapshots through existing transport polling and improve the code gutter/live edge without artificial token delays. Dock file decisions above the retained Request composer; preserve long-scope exposure, exact consent, safe typing and full Details inspection.
+4. Run pinned Rust source gates and actual compact/wide PTY progress/evolution/live-code/file-permission journeys against the changed binary with controlled local peers; inspect rendered surfaces. No live/paid provider calls, release, push, persistence migration or unrelated wave.
+5. Record observed fixes, verification and exact completion state in changelog/troubleshooting/checkpoint, verify no external reference identifiers entered product source/comments/commit messages, then commit scoped changes without user-owned `.DS_Store`.
+
+
 ## Completed baseline — Qualified release0.1.33
 
 1. Completed the binding canonical-journey, explicit local-auto effort and adopted-progress amendment before implementation. Reused Schema20 writer, adapter events, approvals and receipts; strict SDK progress IPC advanced the complete bridge to11.

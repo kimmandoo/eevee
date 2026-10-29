@@ -1213,13 +1213,22 @@ impl State {
                 return true;
             }
         }
+        let page = if !self.review_details
+            && matches!(
+                self.request.as_ref().map(|request| &request.kind),
+                Some(PromptKind::Permission { file: Some(_), .. })
+            ) {
+            self.file_consent.height.clamp(1, 5)
+        } else {
+            5
+        };
         match key.code {
             KeyCode::PageUp => {
-                self.scroll = self.scroll.saturating_sub(5);
+                self.scroll = self.scroll.saturating_sub(page);
                 return true;
             }
             KeyCode::PageDown => {
-                self.scroll = self.scroll.saturating_add(5).min(self.scroll_max);
+                self.scroll = self.scroll.saturating_add(page).min(self.scroll_max);
                 return true;
             }
             KeyCode::Home => {

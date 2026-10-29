@@ -18,7 +18,7 @@ from terminal_smoke import confirm_exit
 from workbench_smoke import wait_for
 
 PATH = 'generated/live.py'
-CONTENT = 'value = "한글界e\u0301"\r\n# STREAM_STAGE_ONE\r\nvalue += " actual bytes"\r\n# STREAM_STAGE_TWO\r\n'
+CONTENT = 'live = "PART_ONE PART_TWO PART_THREE "\r\nvalue = "한글界e\u0301"\r\n# STREAM_STAGE_ONE\r\nvalue += " actual bytes"\r\n# STREAM_STAGE_TWO\r\n'
 OLD = '\n'.join('OLD_RESPONSE_ANCHOR_%02d' % number for number in range(1, 31)) + '\nOLD_RESPONSE_END'
 FUTURE = 'future draft 한글界e\u0301Z-end'
 SECRET = 'sk-' + 'A' * 48
@@ -74,6 +74,48 @@ def gated_plan(peer, path, content, call_id='live-preview'):
     return ('custom', reply), first, final
 
 
+def paced_plan(peer, path, content):
+    """Send actual JSON fragments slowly, then hold three unfinished-line edges."""
+    base, first, final = gated_plan(peer, path, content)
+    tokens = [(marker, files.Gate()) for marker in ('PART_ONE ', 'PART_TWO ', 'PART_THREE ')]
+
+    def reply(handler, event, row):
+        received = ''
+        row['paced_fragment_count'] = 0
+        row['paced_source_gates'] = []
+
+        def emit(value, name=None):
+            nonlocal received
+            fragment = argument_fragment(peer.protocol, value)
+            if not fragment:
+                event(value, name)
+                return
+            for char in fragment:
+                copied = deepcopy(value)
+                if peer.protocol == 'responses':
+                    copied['delta'] = char
+                elif peer.protocol == 'chat_completions':
+                    copied['choices'][0]['delta']['tool_calls'][0]['function']['arguments'] = char
+                else:
+                    copied['delta']['partial_json'] = char
+                event(copied, name)
+                received += char
+                row['paced_fragment_count'] += 1
+                for marker, gate in tokens:
+                    if received.endswith(marker):
+                        row['paced_source_gates'].append(marker)
+                        if not gate.hold(peer):
+                            return
+                # Fixture pacing only: every emitted byte comes from the actual
+                # proposed arguments, including split escapes and surrogate pairs.
+                if peer.stopped.wait(.004):
+                    return
+
+        return base[1](handler, emit, row)
+
+    return ('custom', reply), first, final, tokens
+
+
 def visible(journey, marker):
     files.until(journey.session, lambda: marker in journey.session.display(),
                 'actual generated code was not visible before argument completion: ' + marker, timeout=10)
@@ -107,12 +149,30 @@ def run(binary, output, root, size, ascii_mode, protocol, ):
             seed_gate.release.set()
             journey.settled('OLD_RESPONSE_END', before + 1)
             plain_rows = [line.lstrip() for line in journey.session.display().splitlines()
-                          if 'OLD_RESPONSE_ANCHOR_' in line]
+                          if 'OLD_RESPONSE_ANCHOR_' in line or 'OLD_RESPONSE_END' in line]
             assert plain_rows and all(not line.startswith('| ') for line in plain_rows), 'plain response received a file gutter'
-            plan, first, final = gated_plan(peer, PATH, CONTENT)
-            gates.extend([first, final])
+            if protocol == 'gemini':
+                plan, first, final = gated_plan(peer, PATH, CONTENT)
+                tokens = []
+            else:
+                plan, first, final, tokens = paced_plan(peer, PATH, CONTENT)
+            gates.extend([first, final, *(gate for _, gate in tokens)])
             before = journey.begin('Generate a Python file generated/live.py with the requested code.', [
                 plan, files.response_plan(peer, text='ACTUAL_FILE_APPLIED', number=1)])
+            for index, (marker, gate) in enumerate(tokens):
+                files.until(journey.session, gate.ready.is_set, 'paced source gate missing: ' + marker)
+                visible(journey, marker.rstrip())
+                view = journey.session.display()
+                assert 'STREAM_STAGE_ONE' not in view, 'fixture reached a newline before the within-line sample'
+                if index + 1 < len(tokens):
+                    assert tokens[index + 1][0].rstrip() not in view, 'later source appeared before it was emitted'
+                assert not files.file_review_pending(journey.session), 'partial arguments opened a file approval'
+                assert not (journey.project / PATH).exists() and not (journey.project / PATH).parent.exists(), 'partial token preview created source or parents'
+                assert len(peer.snapshot('POST')) == before + 1, 'partial token preview dispatched a continuation'
+                journey.capture('actual-partial-token-' + str(index + 1))
+                gate.release.set()
+            if tokens:
+                result['cases'].append('three actual within-line code deltas, including a quiet-wire pending tail, appeared before a source newline, complete arguments, terminal response or permission')
             if protocol == 'gemini':
                 files.until(journey.session, final.ready.is_set, 'whole-call proposal did not reach the gate')
             else:
@@ -161,6 +221,12 @@ def run(binary, output, root, size, ascii_mode, protocol, ):
             journey.session.send(response_smoke.ALT_END)
             journey.settled('ACTUAL_FILE_APPLIED', before + 2)
             assert (journey.project / PATH).read_bytes() == CONTENT.encode(), 'reviewed write changed literal Unicode or CRLF bytes'
+            if protocol != 'gemini':
+                row = peer.snapshot('POST')[before]
+                assert row['paced_fragment_count'] > 100 and row['paced_source_gates'] == [marker for marker, _ in tokens], 'fixture did not send delayed actual argument fragments'
+                wire = ''.join(argument_fragment(protocol, entry['data'])
+                               for entry in row['tool_fixture_events'])
+                assert json.loads(wire) == {'path': PATH, 'content': CONTENT}, 'terminal tool scope differed from the streamed source'
             drafts = [draft for task in journey.snapshot()['tasks'] for state in task['partner_drafts'].values() for draft in state['drafts']]
             assert any(draft['text'] == FUTURE and draft['cursor'] == len(FUTURE.encode()) - 3 for draft in drafts), 'generation/approval lost future draft or caret'
             assert all(FUTURE not in json.dumps(row['body'], ensure_ascii=False) for row in peer.snapshot('POST')), 'future draft entered a submitted body'

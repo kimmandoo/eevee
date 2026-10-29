@@ -66,7 +66,6 @@ pub(crate) struct Stream {
     path_done: bool,
     content: String,
     content_seen: bool,
-    line_revision: usize,
 }
 impl Stream {
     pub(crate) fn new(edit: bool) -> Self {
@@ -86,7 +85,6 @@ impl Stream {
             path_done: false,
             content: String::new(),
             content_seen: false,
-            line_revision: 0,
         }
     }
     pub(crate) fn push(&mut self, fragment: &str) {
@@ -114,11 +112,6 @@ impl Stream {
             return None;
         }
         Some(display(&self.path, &self.content, complete && self.done))
-    }
-    /// A decoded line boundary can be published immediately without reparsing
-    /// or repeatedly rendering every byte of an unfinished code token.
-    pub(super) fn line_revision(&self) -> usize {
-        self.line_revision
     }
     fn character(&mut self, ch: char) {
         if let Some(mut quoted) = self.quoted.take() {
@@ -359,9 +352,6 @@ impl Stream {
         } else {
             text.push(ch);
         }
-        if field == Field::Content && ch == '\n' {
-            self.line_revision += 1;
-        }
     }
     fn value(&mut self, ch: char) {
         let field = if self.stack.len() == 1 {
@@ -422,9 +412,14 @@ impl Stream {
 }
 
 fn normalized(text: &str, complete: bool, path: bool) -> String {
-    let redacted = crate::workspace::privacy::redact_stream(text, complete);
-    let mut chars = redacted.chars().peekable();
-    let mut out = String::with_capacity(redacted.len());
+    normalize(
+        &crate::workspace::privacy::redact_stream(text, complete),
+        path,
+    )
+}
+fn normalize(text: &str, path: bool) -> String {
+    let mut chars = text.chars().peekable();
+    let mut out = String::with_capacity(text.len());
     while let Some(ch) = chars.next() {
         if !path && ch == '\r' && chars.peek() == Some(&'\n') {
             continue;
@@ -454,22 +449,26 @@ fn suffix(text: &str, limit: usize) -> &str {
 /// Redact the entire cumulative value before choosing a bounded, numbered code tail.
 pub(crate) fn display(path: &str, content: &str, complete: bool) -> String {
     let path = normalized(path, true, true);
-    let content = normalized(content, complete, false);
+    let content = crate::workspace::privacy::redact_stream(content, complete);
     let mut out = prefix(&path, PATH_LIMIT).to_owned();
     let count = content.lines().count();
     let first = count.saturating_sub(TAIL_LINES);
-    let lines: Vec<_> = content.lines().skip(first).collect();
+    let shown = count - first;
     if first > 0 {
         out.push_str(&format!("\n… {first} earlier lines"));
     }
-    let overhead = lines.len() * 24;
+    let overhead = shown * 24;
     let mut remaining = DISPLAY_LIMIT.saturating_sub(out.len() + overhead);
     // Long individual lines share the available budget; never clip before redaction.
-    for (offset, line) in lines.iter().enumerate() {
-        let budget = remaining / (lines.len() - offset);
-        let tail = suffix(line, budget.saturating_sub(4));
+    for (offset, line) in content.lines().skip(first).enumerate() {
+        let budget = remaining / (shown - offset);
+        // Redaction retains the full preceding context. Only then clip and
+        // normalize the bounded visible tail, never copy the cumulative file.
+        let raw_tail = suffix(line, budget.saturating_sub(4));
+        let normalized = normalize(raw_tail, false);
+        let tail = suffix(&normalized, budget.saturating_sub(4));
         out.push_str(&format!("\n{:>4} │ ", first + offset + 1));
-        if tail.len() < line.len() {
+        if raw_tail.len() < line.len() || tail.len() < normalized.len() {
             out.push_str("… ");
         }
         out.push_str(tail);
@@ -513,17 +512,59 @@ mod tests {
     }
 
     #[test]
-    fn decoded_line_boundaries_are_ready_even_when_the_wire_goes_quiet() {
+    fn decoded_line_boundaries_release_safe_code_across_split_escapes() {
         for escape in [r"\n", r"\u000a", r"\u000A"] {
             let mut stream = Stream::new(false);
             stream.push(r#"{"path":"short.rs","content":"fn short() {}"#);
-            assert_eq!(stream.line_revision(), 0);
             stream.push(&escape[..escape.len() - 1]);
-            assert_eq!(stream.line_revision(), 0);
             stream.push(&escape[escape.len() - 1..]);
-            assert_eq!(stream.line_revision(), 1);
             assert!(stream.text(false).unwrap().contains("fn short() {}"));
         }
+    }
+
+    #[test]
+    fn partial_unicode_and_secret_tails_keep_their_decoding_and_privacy_boundaries() {
+        let mut stream = Stream::new(false);
+        stream.push(r#"{"path":"src/live.rs","content":"return "#);
+        assert!(stream.text(false).unwrap().contains("return "));
+        for fragment in [r"\uD8", r"40", r"\uD", r"C00"] {
+            stream.push(fragment);
+            let text = stream.text(false).unwrap();
+            assert!(!text.contains('\u{fffd}'));
+            assert!(!text.contains(r"\u"));
+            assert!(!text.contains('\u{20000}'));
+        }
+        stream.push(" ");
+        assert!(stream.text(false).unwrap().contains("return \u{20000} "));
+        for fragment in ["password=", r#"\""#, "private", " ", "tail"] {
+            stream.push(fragment);
+            let text = stream.text(false).unwrap();
+            assert!(!text.contains("private"));
+            assert!(!text.contains("tail"));
+        }
+        stream.push(r#"\"\nnext "#);
+        let text = stream.text(false).unwrap();
+        assert!(text.contains("[REDACTED]"));
+        assert!(text.contains("next"));
+        assert!(!text.contains("private"));
+    }
+
+    #[test]
+    fn long_code_tail_normalizes_only_bounded_visible_bytes_after_redaction() {
+        let content = format!(
+            "password=\"{}\nprivate tail\"\n{}\npublic {}",
+            "hidden\n".repeat(100),
+            "ordinary source\n".repeat(100),
+            "\u{001b}界".repeat(20_000)
+        );
+        let text = display("safe.rs", &content, true);
+        assert!(text.len() <= DISPLAY_LIMIT);
+        assert!(!text.contains("private tail"));
+        assert!(!text.contains("hidden"));
+        assert!(!text.contains('\u{001b}'));
+        assert!(text.contains('\u{fffd}'));
+        assert!(text.contains("earlier lines"));
+        assert!(text.contains("… "));
     }
 
     #[test]

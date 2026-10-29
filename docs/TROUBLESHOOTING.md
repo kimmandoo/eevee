@@ -1,5 +1,31 @@
 # Troubleshooting
 
+### [2026-10-29] Compact file-review paging skipped required scope rows
+
+- **Context / Symptom:** Actual 60×18 file-approval journeys could select Allow once but could not complete long nested-path review; repeated PageDown reached the end without ever arming consent. The same journeys passed at 120×36.
+- **Root Cause:** The small dock left three scope rows, while the existing keyboard path always advanced five. That skipped unseen rows, so the correctly enforced contiguous-exposure gate never became satisfied.
+- **Solution:** Limited file-summary page movement to the rendered scope-body height, retaining the existing five-row maximum and separate Details behavior. Added a regression that rejects an End jump across unseen scope and then requires ordinary paging to expose every required row at both sizes. No scope row, approval guard or timeout was removed.
+- **Prevention / Reference:** Use actual scope geometry for navigation as well as rendering. The focused raw-todo driver similarly traverses its disclosed transcript position rather than assuming a fixed page count; native live item IDs are not durable journal row identities.
+
+### [2026-10-29] Short code bursts remained buffered while the provider paused
+
+- **Context / Symptom:** The preserved pre-change binary failed actual loopback Responses, Chat Completions and Messages journeys: `PART_ONE` was not visible before tool-argument completion. Gemini remained a whole-proposal observation, not a streaming route.
+- **Root Cause:** Preview eligibility was decided only when source fragments arrived. A last fragment inside the batching interval could stay pending until another fragment or terminal event. Preview formatting also normalized/copied the cumulative source before selecting its bounded visible tail.
+- **Solution:** Flushed only source-dirty previews from existing HTTP/WebSocket polling, retained immediate terminal delivery and bounded live batching, and normalized the bounded tail only after cumulative privacy filtering. No artificial typing, idle animation, permission or filesystem effects were added. Delayed-character PTY journeys and a quiet-wire HTTP regression cover delivery before completion.
+
+### [2026-10-29] Structured tool updates flooded the response and file consent hid the draft
+
+- **Context / Symptom:** The preserved binary displayed seven raw JSON Plan observations for repeated todo views/updates. Actual compact/wide file-creation journeys also showed that automatic file review removed the Request composer.
+- **Root Cause:** Every native todo call entered the generic transcript without a structured projection; a valid status snapshot and an ordinary tool result shared the same raw presentation. Planning review always selected a centered sheet and suppressed its underlying workspace/editor.
+- **Solution:** Retained original arguments/results while coalescing only qualified successful snapshots within the exact request/owner/task/generation/source. Refusals and malformed observations stay distinct, and `/verbose` exposes originals. File summaries now dock above the same composer, reserve response rows, retain full Details and fixed explicit decisions, and invalidate scope exposure on body-width/height changes or covering surfaces.
+- **Prevention / Reference:** Test both 60×18 and 120×36; a long scope must be traversed contiguously, not approved by jumping to its end. Preserve ordinary typing/paste as future draft content on unengaged arrival.
+
+### [2026-10-29] Natural UI improvement requests kept the previous automatic form
+
+- **Context / Symptom:** An actual local preview of `todo 툴 UI가 중복으로 출력돼. 이부분 개선해줘.` kept Eevee; after an earlier review, the same request kept Glaceon. The generic Implement fallback did not identify the requested specialty.
+- **Root Cause:** The bounded classifier lacked improvement verbs and development-surface objects, and later fix clauses could lose the diagnostic object supplied earlier in the request.
+- **Solution:** Extended the existing English/Korean vocabulary and bounded positive-clause context. UI-only improvements select Flareon; diagnosis-plus-improvement may keep Umbreon with Implement capability. Quoted/source text, negation, explicit restrictive policy, manual form and adopted-step precedence remain separate constraints.
+
 ### [2026-10-28] An interrupted fixture socket read changed a round-limit result
 
 - **Context / Symptom:** Native40574273330 passed Check/Linux-arm64/macOS×2/Windows. Linux-x86_64 failed `round_limit_refuses_the_terminal_call_set_without_executing_it`: the HTTP peer panicked at a raw read with `Os { code: 4, kind: Interrupted, message: "Interrupted system call" }`, so the consumer correctly observed transport Unknown rather than the expected deliberate round-limit refusal.

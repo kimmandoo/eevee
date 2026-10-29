@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-10-29
+
+- fix(ui): replaced repeated structured todo argument cards with one readable request-owned progress projection, retained distinct refusals and original observations through verbose inspection, and removed raw item counters from ordinary response chrome.
+- fix(forms): recognized English/Korean UI and tool improvements and compound inspection-plus-fix requests while preserving quoted-source, negation, manual appearance, adopted-step and explicit read-only policy boundaries.
+- fix(streaming): flushed pending observed code through existing HTTP/WebSocket polling after short quiet bursts, bounded live snapshot cadence, and normalized only the already-redacted visible tail without artificial typing delays.
+- fix(ui): docked file decisions immediately above the retained Request composer, separated muted code line numbers from the live edge, and retained explicit choices, full Details inspection and contiguous scope exposure across resizing.
+
 ## 2026-10-28
 
 - feat(sdk)!: advanced the complete SDK bridge to11 for structured progress events and refused older mixed components before dispatch.

@@ -196,9 +196,23 @@ def run(binary, output, root, size, ascii_mode, ):
             model = files.MODEL
             metadata = len(peer.snapshot('GET'))
             predictions = [
-                ('"Create evil.py" is quoted source. Explain the text.', 0, 'Eevee', False),
-                ('Continue explaining.', 0, 'Eevee', False),
+                # Unclassified source/continuation keeps Eevee and the ordinary
+                # initial Implement fallback; quotation itself grants no intent.
+                ('"Create evil.py" is quoted source. Explain the text.', 0, 'Eevee', True),
+                ('Continue explaining.', 0, 'Eevee', True),
                 ('Review the code and fix src/main.rs.', 7, 'Glaceon', True),
+                ('todo 툴 UI가 중복으로 출력돼. 이부분 개선해줘.', 3, 'Flareon', True),
+                ('Improve the todo tool UI and remove duplicate display rows.', 3, 'Flareon', True),
+                ('Inspect tool UI; improve its spacing.', 3, 'Flareon', True),
+                ('Diagnose the error and improve the tool UI.', 5, 'Umbreon', True),
+                ('Diagnose the error; then fix it.', 5, 'Umbreon', True),
+                ('UI를 분석해서 레이아웃을 개선해줘.', 5, 'Umbreon', True),
+                ('Review tool UI, then fix its layout.', 7, 'Glaceon', True),
+                ('Review the patch, then fix it.', 7, 'Glaceon', True),
+                (' #1 todo 툴같은거 ui가 안예쁘게 잡히네. 중복으로 계속 출력되고. 이부분 개선해주고, 프롬프트 의도 분석해서 이브이 진화체 자동전환도 점검해서 개선해줘', 5, 'Umbreon', True),
+                ('Review tool UI without improving it.', 7, 'Glaceon', False),
+                ('UI를 개선하지 말고 점검해줘.', 5, 'Umbreon', False),
+                ('UI 개선은 하지 말고 점검만 해줘.', 5, 'Umbreon', False),
             ]
             for index, (draft, form, appearance, writing) in enumerate(predictions):
                 journey.preview(draft, appearance, 'Implement' if writing else 'Plan', 'intent-' + str(index))
@@ -206,7 +220,7 @@ def run(binary, output, root, size, ascii_mode, ):
                 before = journey.begin(draft, [files.response_plan(peer, text=answer)], writing=writing)
                 journey.settled(answer, before + 1)
                 journey.assert_mode(form, True)
-            result['cases'].append('quoted source and ambiguous drafts kept their policy; mixed review-plus-fix predicted appearance separately from the actual dispatched writing capability')
+            result['cases'].append('quoted source and ambiguous drafts kept their policy; EN/KO UI improvements and compound inspect/diagnose/review-plus-fix predicted appearance and dispatched capability without dropping mutation or negation')
             request = 'Create a new Python file generated/automatic.py with the requested code.'
             answer = 'AUTOMATIC_FILE_CREATED'
             journey.preview(request, 'Flareon', 'Implement', 'automatic-implementation')
@@ -318,7 +332,7 @@ def run(binary, output, root, size, ascii_mode, ):
             journey.capture('evolved-automatic-mode-survived-restart')
             result['cases'].append('Eevee return re-enabled automatic routing; evolved form plus automatic mode survived a real restart')
             requests = peer.snapshot('POST')
-            assert len(requests) == 20, 'unrequested inference/classifier HTTP call'
+            assert len(requests) == 17 + len(predictions), 'unrequested inference/classifier HTTP call'
             assert all(row['body']['model'] == model for row in requests), 'automatic routing switched the model'
             assert len(peer.snapshot('GET')) == metadata + 1, 'restart/evolution silently browsed metadata'
             result['evidence'] = {

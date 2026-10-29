@@ -1192,3 +1192,47 @@ fn unfinished_file_lines_advance_each_frame_without_waiting_for_a_newline() {
     preview.feed(TOOL_NAME, &wire, false);
     assert!(preview.snapshot().is_none());
 }
+
+#[test]
+fn quiet_wire_flushes_pending_code_and_terminal_bypasses_only_the_frame_delay() {
+    let mut preview = FilePreview::new();
+    let mut wire = String::from(r#"{"path":"src/main.rs","content":"let first = 1; "#);
+    preview.feed(TOOL_NAME, &wire, false);
+    assert!(preview.snapshot().unwrap().1.contains("let first = 1;"));
+    wire.push_str(&"x".repeat(300));
+    wire.push_str(r"\n");
+    preview.feed(TOOL_NAME, &wire, false);
+    // Neither a large token burst nor a newline bypasses the bounded cadence.
+    assert!(preview.snapshot().is_none());
+    assert!(preview.dirty);
+    preview.published_at = Some(Instant::now() - PREVIEW_INTERVAL);
+    // No further feed: the transport's pending-source poll releases the tail.
+    assert!(preview.snapshot().unwrap().1.contains(&"x".repeat(300)));
+    assert!(!preview.dirty);
+    assert!(preview.snapshot().is_none());
+    wire.push_str(r#""}"#);
+    preview.feed(TOOL_NAME, &wire, true);
+    assert_eq!(preview.snapshot().unwrap().0, FilePhase::Received);
+    assert!(preview.snapshot().is_none());
+}
+
+#[test]
+fn unchanged_secret_tail_is_deduplicated_without_retaining_a_display_copy() {
+    let mut preview = FilePreview::new();
+    let mut wire = String::from(r#"{"path":"safe.rs","content":"visible "#);
+    preview.feed(TOOL_NAME, &wire, false);
+    assert!(preview.snapshot().unwrap().1.contains("visible"));
+    for fragment in ["sk-", "AAA", "AAAA"] {
+        wire.push_str(fragment);
+        preview.feed(TOOL_NAME, &wire, false);
+        preview.published_at = Some(Instant::now() - PREVIEW_INTERVAL);
+        assert!(preview.snapshot().is_none());
+        assert!(!preview.dirty);
+    }
+    wire.push_str(r#""}"#);
+    preview.feed(TOOL_NAME, &wire, true);
+    let (phase, text) = preview.snapshot().unwrap();
+    assert_eq!(phase, FilePhase::Received);
+    assert!(text.contains("[REDACTED]"));
+    assert!(!text.contains("AAA"));
+}

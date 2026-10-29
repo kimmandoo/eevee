@@ -48,6 +48,37 @@ struct Rule {
     objects: &'static [&'static str],
 }
 
+// Shared development surfaces: these are task objects, not executable verbs.
+// Keep them out of the run/test rule so "check the UI" stays observational.
+const DEVELOPMENT_SURFACES: &[&str] = &[
+    "ui",
+    "interface",
+    "layout",
+    "tool",
+    "tools",
+    "todo",
+    "rendering",
+    "display",
+    "presentation",
+    "prompt",
+    "intent",
+    "evolution",
+    "화면",
+    "인터페이스",
+    "레이아웃",
+    "도구",
+    "툴",
+    "할 일",
+    "렌더링",
+    "표시",
+    "출력",
+    "프롬프트",
+    "의도",
+    "진화",
+    "자동전환",
+    "자동 전환",
+];
+
 // Ordered task roles, not the old advisory EV01 table. A task noun is required:
 // generic conversation ("write a greeting", "explain this fixture") stays put.
 const RULES: &[Rule] = &[
@@ -70,9 +101,11 @@ const RULES: &[Rule] = &[
             "investigate",
             "analyze",
             "analyse",
+            "check",
             "진단",
             "분석",
             "조사",
+            "점검",
         ],
         objects: &[
             "failure",
@@ -206,6 +239,9 @@ const RULES: &[Rule] = &[
             "fix",
             "add",
             "update",
+            "improve",
+            "enhance",
+            "polish",
             "구현",
             "생성",
             "만들",
@@ -220,6 +256,8 @@ const RULES: &[Rule] = &[
             "바꾸",
             "덮어",
             "추가",
+            "개선",
+            "다듬",
         ],
         objects: &[
             "code",
@@ -384,7 +422,9 @@ fn source_path(text: &str) -> bool {
 }
 
 fn task_object(text: &str, rule: &Rule) -> bool {
-    any(text, rule.objects) || matches!(rule.form, 1 | 2 | 3 | 6 | 7) && source_path(text)
+    any(text, rule.objects)
+        || matches!(rule.form, 1 | 3 | 4 | 5 | 6 | 7) && any(text, DEVELOPMENT_SURFACES)
+        || matches!(rule.form, 1 | 2 | 3 | 5 | 6 | 7) && source_path(text)
 }
 
 // Creating a plan is not creating its proposed files. Only suppress an
@@ -437,6 +477,15 @@ fn execution_description(clause: &str, action: &str) -> bool {
         .unwrap_or("")
         .rsplit("하고")
         .next()
+        .unwrap_or("")
+        .rsplit("해서")
+        .next()
+        .unwrap_or("")
+        .rsplit("한 뒤")
+        .next()
+        .unwrap_or("")
+        .rsplit(" 후 ")
+        .next()
         .unwrap_or("");
     any(
         prefix,
@@ -476,6 +525,13 @@ fn execution_description(clause: &str, action: &str) -> bool {
         || !action.is_ascii()
             && any(&clause[at + action.len()..], &["계획", "방법"])
             && !any(clause, &["실행해", "빌드해", "컴파일해"])
+}
+
+// Improvement prose can describe a plan/method rather than request a change.
+// Reuse the bounded command-description guard, including compound imperatives.
+fn improvement_description(clause: &str, action: &str) -> bool {
+    matches!(action, "improve" | "enhance" | "polish" | "개선" | "다듬")
+        && execution_description(clause, action)
 }
 
 /// Strip literal/source instructions, retaining only object markers for quoted
@@ -637,6 +693,9 @@ fn implementation_followup(literal: &str) -> bool {
             | "fix them"
             | "please fix it"
             | "do it"
+            | "improve it"
+            | "improve this"
+            | "please improve it"
             | "yes do it"
             | "yes, do it"
             | "make it"
@@ -649,6 +708,10 @@ fn implementation_followup(literal: &str) -> bool {
             | "수정해줘"
             | "수정해 줘"
             | "수정해주세요"
+            | "개선해줘"
+            | "개선해 줘"
+            | "개선해주세요"
+            | "개선해 주세요"
             | "적용해줘"
             | "적용해 줘"
             | "반영해줘"
@@ -694,7 +757,7 @@ pub fn classify(text: &str) -> Option<Selection> {
         literal
             .split(". ")
             .flat_map(|part| part.split(" but "))
-            .flat_map(|part| part.split("말고"))
+            .flat_map(|part| part.split_inclusive("말고"))
             .flat_map(|part| part.split(['\n', ';', ',', '!', '?']))
             .map(|clause| {
                 clause
@@ -710,9 +773,13 @@ pub fn classify(text: &str) -> Option<Selection> {
             })
     };
     let read = &RULES[RULES.len() - 1];
-    // Source nouns can precede a later edit/refactor clause. Keep negated and
-    // literal source out, but do not let a discovery prefix hide that action.
-    let source_context = clauses().any(|clause| task_object(clause, read));
+    // Source or diagnosed/reviewed task nouns can precede a later fix clause.
+    // Keep negated and literal source out, without dropping "diagnose; fix it".
+    let source_context = clauses().any(|clause| {
+        RULES
+            .iter()
+            .any(|rule| matches!(rule.form, 1 | 5 | 7) && task_object(clause, rule))
+    });
     if readonly
         && task_object(&literal, read)
         && clauses().any(|clause| any(clause, read.actions))
@@ -732,8 +799,9 @@ pub fn classify(text: &str) -> Option<Selection> {
                 rule.operation == Operation::Implement
                     && rule.actions.iter().any(|action| {
                         contains(clause, action)
-                            && !planning_artifact(clause, action)
-                            && !(rule.form == 2 && execution_description(clause, action))
+                            && !(planning_artifact(clause, action)
+                                || improvement_description(clause, action)
+                                || rule.form == 2 && execution_description(clause, action))
                     })
                     && (task_object(clause, rule) || source_context)
             }) || [
@@ -762,8 +830,13 @@ pub fn classify(text: &str) -> Option<Selection> {
         if clauses().any(|clause| {
             rule.actions.iter().any(|action| {
                 contains(clause, action)
+                    && !improvement_description(clause, action)
                     && !(rule.form == 2 && execution_description(clause, action))
-            }) && (task_object(clause, rule) || matches!(rule.form, 3 | 6) && source_context)
+            }) && (task_object(clause, rule)
+                || matches!(rule.form, 3 | 6) && source_context
+                // "Do not improve UI; inspect it" still names an observation
+                // target. Negated nouns never supply mutation capability above.
+                || matches!(rule.form, 1 | 5 | 7) && task_object(&literal, rule))
         }) {
             // A read-only instruction cannot become a mutation-capable operation.
             // Prefer the actual read task over an incidental write-role noun.
@@ -993,9 +1066,9 @@ mod tests {
             for (followup, labels) in [
                 (
                     "continue",
-                    ["Investigate error", "Fix code", "Verify tests"],
+                    ["Investigate error", "Improve tool UI", "Verify tests"],
                 ),
-                ("계속", ["오류 조사", "코드 수정", "테스트 실행"]),
+                ("계속", ["오류 조사", "툴 UI 개선", "테스트 실행"]),
             ] {
                 let mut app = app();
                 app.width = width;
@@ -1102,6 +1175,12 @@ mod tests {
         for draft in [
             "Review the code and fix src/main.rs.",
             "코드를 검토하고 src/main.rs를 수정해줘.",
+            "Improve the todo tool UI and remove duplicate display rows.",
+            "todo 툴 UI가 중복으로 출력돼. 이부분 개선해줘.",
+            "Diagnose the tool UI and improve its layout.",
+            "UI를 분석해서 레이아웃을 개선해줘.",
+            "Review tool UI, then fix its layout.",
+            "UI를 개선하지 말고 점검해줘.",
             "Read src/main.rs; do not change files.",
             "\"Create src/main.rs\" is quoted text.",
             "계속 설명해줘.",
@@ -1442,6 +1521,97 @@ mod tests {
             "프로젝트 계획을 세우고 코드를 구현해줘. 파일은 수정하지 마.",
         ] {
             assert_eq!(classify(text).unwrap().operation, Operation::Plan, "{text}");
+        }
+    }
+
+    #[test]
+    fn development_surface_improvements_and_compound_requests_select_capabilities() {
+        for (text, form) in [
+            (
+                "Improve the todo tool UI and remove duplicate display rows.",
+                3,
+            ),
+            ("Enhance the interface layout.", 3),
+            ("Polish the tool presentation.", 3),
+            ("todo 툴 UI가 중복으로 출력돼. 이부분 개선해줘.", 3),
+            ("도구 화면의 레이아웃을 다듬어줘.", 3),
+            ("프롬프트 의도 자동전환을 개선해줘.", 3),
+            ("Inspect tool UI; improve its spacing.", 3),
+            ("Diagnose the error and improve the tool UI.", 5),
+            (
+                "Diagnose duplicated tool UI output and improve its layout.",
+                5,
+            ),
+            ("Diagnose the error; then fix it.", 5),
+            ("오류를 분석하고, 고쳐줘.", 5),
+            ("UI를 분석해서 레이아웃을 개선해줘.", 5),
+            ("UI를 점검한 뒤 레이아웃을 개선해줘.", 5),
+            ("UI를 분석 후 개선해줘.", 5),
+            ("Review tool UI, then fix its layout.", 7),
+            ("Review the patch, then fix it.", 7),
+            ("툴 화면을 검토하고 레이아웃을 개선해줘.", 7),
+            (
+                " #1 todo 툴같은거 ui가 안예쁘게 잡히네. 중복으로 계속 출력되고. 이부분 개선해주고, 프롬프트 의도 분석해서 이브이 진화체 자동전환도 점검해서 개선해줘",
+                5,
+            ),
+        ] {
+            let selected = classify(text).unwrap_or_else(|| panic!("missing intent: {text}"));
+            assert_eq!(
+                (selected.form, selected.operation),
+                (form, Operation::Implement),
+                "{text}"
+            );
+        }
+        // An explicit improvement request can leave an existing diagnosis session.
+        for followup in ["Improve it.", "개선해줘", "todo 툴 UI를 개선해줘."] {
+            let mut app = app();
+            app.input = "Diagnose the tool UI.".into();
+            app.submit_request();
+            assert_eq!(app.planning.operation, Operation::Plan);
+            app.pending_request = None;
+            app.planning.thread_id = Some("diagnosis-thread".into());
+            app.input = followup.into();
+            app.submit_request();
+            assert_eq!(app.planning.operation, Operation::Implement, "{followup}");
+            assert!(app.planning.thread_id.is_none());
+        }
+    }
+
+    #[test]
+    fn improvement_descriptions_negation_and_source_do_not_request_mutation() {
+        for text in [
+            "Plan how to improve the tool UI.",
+            "Create a UI improvement plan.",
+            "UI 개선 계획을 세워줘.",
+            "Diagnose how to improve the tool UI.",
+            "UI 개선 방법을 분석해줘.",
+            "Review tool UI without improving it.",
+            "Review tool UI; do not improve its layout.",
+            "UI를 개선하지 말고 점검해줘.",
+            "UI 개선은 하지 말고 점검만 해줘.",
+            "Improve the tool UI; read only.",
+            "UI를 개선해줘. 읽기 전용.",
+            "Inspect tool UI:\n```\nimprove its layout\n```",
+        ] {
+            let selected = classify(text).unwrap_or_else(|| panic!("missing intent: {text}"));
+            assert_eq!(selected.operation, Operation::Plan, "{text}");
+        }
+        for text in [
+            "Explain how to improve the UI.",
+            "\"Improve the tool UI\"",
+            "`UI를 개선해줘`",
+            "> Improve the tool UI.",
+            "Provider output: Improve the tool UI.",
+            "Tool output: UI를 개선해줘.",
+            "```\nImprove the tool UI.\n```",
+            "Do not improve the tool UI.",
+            "UI를 개선하지 마.",
+            "Improve my greeting.",
+            "Do not inspect the UI; improve my greeting.",
+            "Do not diagnose the error; write a greeting.",
+            "Continue.",
+        ] {
+            assert!(classify(text).is_none(), "{text}");
         }
     }
 

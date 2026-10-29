@@ -216,8 +216,12 @@ async fn inference_rounds(
                 ));
             }
             stream
-                .read(&mut response, &round_control, |stream| {
-                    stream.publish(events, run)
+                .read(&mut response, &round_control, |stream, source_event| {
+                    if source_event {
+                        stream.publish(events, run)
+                    } else {
+                        stream.publish_file_previews(events, run)
+                    }
                 })
                 .await
         };
@@ -395,21 +399,24 @@ async fn inference_rounds(
                     } else if let crate::providers::writes::FileTool::Todo { input } = &call.tool {
                         (|| -> Result<Value, String> {
                             validate_active(workspace, run, connection, control, revalidate)?;
-                            let raw = serde_json::to_string(&json!({"tool":"todo","arguments":input})).map_err(|e| e.to_string())?;
-                            emit(events, Event::Item { generation: run.generation, task_id: run.input.task.id, thread_id: format!("native-{}", run.generation), turn_id: format!("round-{round}"), item_id: format!("todo-{round}-{index}"), kind: ItemKind::Plan, text: raw, complete: true })?;
                             let operation = input.get("operation").and_then(Value::as_str);
-                            match progress.apply_tool(input) {
+                            let result = match progress.apply_tool(input) {
                                 Ok(()) => {
                                     if operation != Some("view") {
                                         emit(events, Event::Progress { generation: run.generation, task_id: run.input.task.id, source: "native todo".into(), steps: Ok(progress.steps.clone()) })?;
                                     }
-                                    Ok(json!({"status":"success","path":"","message":"Progress claims only; changed revisions require explicit user adoption. No criteria, files, command or network effects.","steps":progress.steps}))
+                                    json!({"status":"success","path":"","message":"Progress claims only; changed revisions require explicit user adoption. No criteria, files, command or network effects.","steps":progress.steps})
                                 }
                                 Err(error) => {
                                     emit(events, Event::Progress { generation: run.generation, task_id: run.input.task.id, source: "native todo".into(), steps: Err(error.clone()) })?;
-                                    Ok(json!({"status":"refused","path":"","message":error}))
+                                    json!({"status":"refused","path":"","message":error})
                                 }
-                            }
+                            };
+                            // Keep the literal call and actual result in the raw
+                            // transcript; the response cache projects successes.
+                            let raw = serde_json::to_string(&json!({"tool":"todo","arguments":input,"result":result})).map_err(|e| e.to_string())?;
+                            emit(events, Event::Item { generation: run.generation, task_id: run.input.task.id, thread_id: format!("native-{}", run.generation), turn_id: format!("round-{round}"), item_id: format!("todo-{round}-{index}"), kind: ItemKind::Plan, text: raw, complete: true })?;
+                            Ok(result)
                         })()
                     } else if let crate::providers::writes::FileTool::RunCommand { cwd, command } = &call.tool {
                         (|| -> Result<Value, String> {

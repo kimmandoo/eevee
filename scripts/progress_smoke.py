@@ -487,6 +487,107 @@ class ProgressJourney(SurfaceJourney):
                               'actual_form': partner['form'], 'previous_revision': before.get('revision', 0), 'receipt': receipt})
         return before
 
+    def presentation(self, language):
+        """Native host-tool updates in one request, using the production PTY."""
+        labels = LABELS[language]
+        steps = [{'label': label, 'status': 'active' if i == 0 else 'pending'}
+                 for i, label in enumerate(labels)]
+        request = ('Investigate the error; explain only, do not change files.'
+                   if language == 'en' else '오류를 조사하고 설명만 해 주세요. 파일은 변경하지 마세요.')
+        arguments = [
+            {'operation': 'init', 'label': '', 'steps': steps},
+            *[{'operation': 'view', 'label': '', 'steps': []} for _ in range(2)],
+            {'operation': 'done', 'label': labels[0], 'steps': []},
+            {'operation': 'start', 'label': labels[1], 'steps': []},
+            *[{'operation': 'view', 'label': '', 'steps': []} for _ in range(2)],
+            {'operation': 'start', 'label': 'Missing exact todo label', 'steps': []},
+            {'operation': 'view', 'label': '', 'steps': []},
+        ]
+        gate = Gate()
+        answer = 'TODO_PRESENTATION_FINAL: provider claims are not verification.'
+        posts = len(self.peer.snapshot('POST'))
+        for index, arguments_value in enumerate(arguments):
+            self.peer.plans.put(response_plan(self.peer, calls=[{
+                'id': 'presentation-' + str(index), 'name': 'todo', 'arguments': arguments_value}],
+                gate=gate if index == 7 else None))
+        self.peer.plans.put(response_plan(self.peer, text=answer))
+        self.write_request(request)
+        self.session.send('\r', settle=False)
+        approved = False
+
+        def held():
+            nonlocal approved
+            if gate.ready.is_set():
+                return True
+            if not approved and permission_run_available(self.session):
+                self.session.send('y', settle=False)
+                approved = True
+            elif not approved and inspect_permission_scope(self.session):
+                pass
+            elif 'Alt+A' in self.session.display():
+                self.session.send(ESC + 'a')
+            return False
+
+        try:
+            until(self.session, held, 'native repeated todo request did not reach held round', timeout=90)
+            self.session.command('response')
+            self.session.send(ESC + '[1;3H')
+            self.session.pump(.2)
+            visible = self.session.display()
+            self.capture('presentation-repeated-updates')
+            save(self.output / 'presentation-held-state.json', self.state())
+            assert visible.count('Todo progress') == 1, 'Repeated todo snapshots did not become one readable card\n' + visible
+            assert '1/3 done' in visible and '7 updates' in visible, visible
+            assert labels[1] in visible, 'Compact todo metadata hid the actual active step\n' + visible
+            assert '"arguments"' not in visible and '"operation"' not in visible, visible
+            assert not any(0xE000 <= ord(c) <= 0xF8FF for c in visible), 'Nerd Font dependency in todo view'
+        finally:
+            gate.release.set()
+        until(self.session, lambda: not self.state()['claims'] and 'Storage: saved' in self.session.display(),
+              'native presentation request did not settle', timeout=90)
+        self.session.send(ESC + '[1;3F')
+        until(self.session,
+              lambda: re.sub(r'\s+', '', answer) in re.sub(r'\s+', '', self.session.display()),
+              'final answer was not visible after latest-output navigation')
+        self.capture('presentation-final-answer-visible')
+        observed = self.peer.snapshot('POST')
+        assert len(observed) == posts + len(arguments) + 1, 'Native loop retried or skipped calls'
+        results = tool_results('responses', observed[-1]['body'])
+        values = {key: json.loads(value) if isinstance(value, str) else value for key, value in results.items()}
+        assert len(values) == len(arguments), values
+        assert values['presentation-7']['status'] == 'refused', values
+        assert all(value['status'] == 'success' for key, value in values.items() if key != 'presentation-7'), values
+        save(self.output / 'presentation-native-tool-results.json', values)
+        self.session.command('verbose')
+        self.session.command('response')
+        self.session.send(ESC + '[1;3H')
+        screens = []
+        previous_start = None
+        while True:
+            screen = self.session.display()
+            position = re.search(r'(?:Paused|Following|New output) (\d+)-(\d+)/(\d+)', screen)
+            assert position, 'Raw transcript did not disclose its paging position'
+            start, end, total = map(int, position.groups())
+            assert previous_start is None or start > previous_start, 'Raw transcript paging stopped before its end'
+            screens.append(screen)
+            if end == total:
+                break
+            previous_start = start
+            self.session.send(ESC + '[6~')
+        save(self.output / 'presentation-raw-inspection-screens.json', screens)
+        joined = '\n'.join(screens)
+        compact = re.sub(r'\s+', '', joined)
+        assert '"arguments"' in compact and 'refused' in compact and 'Missing' in compact, joined
+        observed_ids = set(re.findall(r'todo-\d+-\d+', compact))
+        assert len(observed_ids) == len(arguments), 'Raw inspection lost early or repeated calls'
+        self.session.command('verbose')
+        self.workspace()
+        self.evidence.append({'action': 'native-todo-readable-coalescing',
+                              'raw_calls': len(observed_ids), 'operations': [value['operation'] for value in arguments],
+                              'final_answer': answer, 'executions': self.state()['executions']})
+        assert self.state()['executions'] == 0
+        return self.evidence
+
     def manual(self, command, label):
         revision = self.progress()['revision']
         count = self.dispatch_count()
@@ -719,7 +820,8 @@ def run(args, route, size, language, output):
             try:
                 journey = ProgressJourney(args.binary, output, Path(temporary).resolve(), size,
                                           route, peer, args.node, args.sidecar)
-                result['evidence'] = journey.exercise(language, args.old_binary)
+                result['evidence'] = (journey.presentation(language) if args.presentation_only
+                                      else journey.exercise(language, args.old_binary))
                 journey.session.command('quit')
                 confirm_exit(journey.session)
                 assert journey.session.wait_exit() == 0
@@ -750,8 +852,12 @@ def main(argv=None):
     parser.add_argument('--node', type=Path, default=shutil.which('node'))
     parser.add_argument('--sidecar', type=Path, default=Path(__file__).resolve().parents[1] / 'sidecar')
     parser.add_argument('--routes', nargs='+', choices=ROUTES, default=list(ROUTES))
+    parser.add_argument('--presentation-only', action='store_true',
+                        help='focused native init/status/repeated view/refusal/raw-history TUI journey')
     args = parser.parse_args(argv)
     args.binary, args.output, args.sidecar = (p.resolve() for p in (args.binary, args.output, args.sidecar))
+    if args.presentation_only:
+        args.routes = ['native']
     if os.name != 'posix':
         parser.error('this opt-in driver requires POSIX PTYs; no physical Windows claim')
     if not args.binary.is_file() or not os.access(args.binary, os.X_OK):

@@ -33,6 +33,7 @@ mod preferences;
 pub mod receipts;
 mod response;
 mod review;
+mod todo;
 mod usage;
 
 const ANSWER_BYTES: usize = 4096;
@@ -139,6 +140,7 @@ pub struct FileConsent {
     pub seen_rows: usize,
     pub scope_rows: usize,
     pub width: u16,
+    pub height: u16,
 }
 
 pub struct State {

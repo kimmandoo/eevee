@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 
 use serde::Deserialize;
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 
 use super::{BODY_LIMIT, Protocol};
 #[cfg(test)]
@@ -93,10 +94,9 @@ struct FilePreview {
     seen: usize,
     received: bool,
     checked_complete: bool,
-    ready: bool,
-    published_bytes: usize,
+    dirty: bool,
     published_at: Option<Instant>,
-    published: Option<(FilePhase, String)>,
+    published: Option<(FilePhase, [u8; 32])>,
 }
 impl FilePreview {
     fn new() -> Self {
@@ -105,8 +105,7 @@ impl FilePreview {
             seen: 0,
             received: false,
             checked_complete: false,
-            ready: true,
-            published_bytes: 0,
+            dirty: false,
             published_at: None,
             published: None,
         }
@@ -118,18 +117,8 @@ impl FilePreview {
             return;
         }
         let delta = &arguments[self.seen..];
-        let lines = self.stream.line_revision();
         self.stream.push(delta);
-        self.ready |= self.published.is_none()
-            || arguments.len().saturating_sub(self.published_bytes) >= 256
-            // Decoded boundaries include split escapes and Unicode newlines.
-            // A useful completed line must not wait for another wire frame.
-            || self.stream.line_revision() != lines
-            // Slow token streams still advance the unfinished line every frame.
-            || (!delta.is_empty()
-                && self
-                    .published_at
-                    .is_none_or(|at| at.elapsed() >= PREVIEW_INTERVAL));
+        self.dirty |= !delta.is_empty();
         self.seen = arguments.len();
         if complete && !self.checked_complete {
             self.checked_complete = true;
@@ -137,15 +126,19 @@ impl FilePreview {
                 .ok()
                 .and_then(|args| FileTool::parse(name, args).ok())
                 .is_some();
-            self.ready = true;
+            self.dirty = true;
         }
     }
     fn snapshot(&mut self) -> Option<(FilePhase, String)> {
-        if !self.ready {
+        if !self.dirty
+            || (!self.checked_complete
+                && self
+                    .published_at
+                    .is_some_and(|at| at.elapsed() < PREVIEW_INTERVAL))
+        {
             return None;
         }
-        self.ready = false;
-        self.published_bytes = self.seen;
+        self.dirty = false;
         self.published_at = Some(Instant::now());
         let text = self.stream.text(self.received)?;
         let phase = if self.received {
@@ -155,14 +148,15 @@ impl FilePreview {
         } else {
             FilePhase::Generating
         };
+        let digest: [u8; 32] = Sha256::digest(text.as_bytes()).into();
         if self
             .published
             .as_ref()
-            .is_some_and(|previous| previous.0 == phase && previous.1 == text)
+            .is_some_and(|previous| previous.0 == phase && previous.1 == digest)
         {
             return None;
         }
-        self.published = Some((phase, text.clone()));
+        self.published = Some((phase, digest));
         Some((phase, text))
     }
 }
@@ -296,6 +290,11 @@ impl Calls {
                 .map(|(index, _)| index)
                 .collect(),
         }
+    }
+
+    /// Only already received source can schedule a display flush.
+    pub(super) fn has_pending_previews(&self) -> bool {
+        self.previews.values().any(|preview| preview.dirty)
     }
 
     pub(super) fn visit_previews(

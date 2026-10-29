@@ -145,6 +145,8 @@ Responses retain their own outcome and context-admission status after later requ
 
 `/todo` opens the task's structured provider progress. **e** edits bounded step JSON; **a** or `/todo-adopt` adopts the inspected revision. A later provider revision needs review and re-adoption. In automatic form mode, an ambiguous explicit follow-up such as `continue` can follow the adopted active step; an explicit request, read-only policy or pinned form wins. Progress is a provider claim, never verification or completed criteria. Nothing continues automatically. `/todo-eager on` optionally adds a disclosed phased-list instruction to native requests; it is off by default.
 
+The response shows one readable todo card per request as valid updates arrive, with step markers and completion counts instead of repeated argument JSON. Refused/malformed observations stay visible; `/verbose` exposes the original tool observations. File code follows actual incoming source fragments with a numbered live tail—no artificial typing delay. File decisions stay in a small panel immediately above Request, preserving your future draft. Choose Deny or Allow once deliberately; long path/directory scope must be reviewed before allowing, and `d` opens the full change.
+
 ```sh
 ev --theme light          # light palette
 ev --ascii --color mono   # plain terminals
@@ -221,6 +223,7 @@ Your data lives in `~/.local/share/eevee` (Linux), `~/Library/Application Suppor
 Your companion is more than decoration — but never a permission system.
 
 - **Nine forms** chosen automatically from what you ask (or pinned manually), with a small evolution moment when the specialty changes.
+- **Local intent routing** recognizes English/Korean UI and tool improvements, including inspection followed by an explicit fix. Appearance and capability remain separate: a diagnosis-and-fix can keep Umbreon while requesting approved implementation; manual appearance and explicit Plan/Review remain protected. Inspect `/evolution-preview` before Send.
 - **Party and cooperation** — up to three partners can work on one task with separate drafts and approvals; only one may edit at a time.
 - **Moves and TMs** — save reusable steps per form, export/import them as portable TOML.
 - **Held context, formations, ribbons and records** — remember files and notes, save party setups, and browse source-linked history.

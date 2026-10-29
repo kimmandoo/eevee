@@ -1881,16 +1881,27 @@ impl Stream {
         &mut self,
         response: &mut reqwest::Response,
         control: &Control<'_>,
-        mut publish: impl FnMut(&mut Self) -> Result<(), String>,
+        mut publish: impl FnMut(&mut Self, bool) -> Result<(), String>,
     ) -> Result<(), String> {
         let mut sse = Sse::default();
         loop {
-            let Some(chunk) = wait_http(response.chunk(), control)
-                .await
-                .inspect_err(|_| {
-                    self.transport_failed = !control.cancelled();
-                })?
-            else {
+            let mut next = std::pin::pin!(response.chunk());
+            let chunk = loop {
+                control.check()?;
+                // Keep the same read alive while flushing only already received
+                // source. A quiet wire must not strand a coalesced code delta.
+                match tokio::time::timeout(Duration::from_millis(20), &mut next).await {
+                    Ok(result) => {
+                        break result.map_err(|_| {
+                            self.transport_failed = !control.cancelled();
+                            "Native HTTP transport failed or timed out; check connectivity and endpoint. No automatic retry was attempted".to_string()
+                        })?;
+                    }
+                    Err(_) if self.calls.has_pending_previews() => publish(self, false)?,
+                    Err(_) => {}
+                }
+            };
+            let Some(chunk) = chunk else {
                 return if self.complete && sse.pending.is_empty() && sse.data.is_empty() {
                     Ok(())
                 } else {
@@ -1905,7 +1916,7 @@ impl Stream {
             for (event, data) in sse.feed(&chunk)? {
                 control.check()?;
                 self.event(&event, &data)?;
-                publish(self)?;
+                publish(self, true)?;
                 // Drain the complete HTTP response before any effects. A late
                 // error, malformed frame or usage trailer still belongs here.
             }
@@ -1977,13 +1988,17 @@ impl Stream {
     }
     fn publish(&mut self, events: &Events, run: &Prepared) -> Result<(), String> {
         self.publish_model(events, run)?;
+        self.publish_file_previews(events, run)?;
+        self.publish_text(events, run, false)
+    }
+    fn publish_file_previews(&mut self, events: &Events, run: &Prepared) -> Result<(), String> {
         if native_writing(&run.input) {
             let round = self.round;
             self.calls.visit_previews(|index, phase, text| {
                 publish_file(events, run, round, index, phase, text)
             })?;
         }
-        self.publish_text(events, run, false)
+        Ok(())
     }
     fn publish_text(&self, events: &Events, run: &Prepared, complete: bool) -> Result<(), String> {
         if self.text.is_empty() {

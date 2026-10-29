@@ -594,6 +594,7 @@ pub fn render(
         return;
     }
     let shell = shell(area, app.linear, app.effective_focus());
+    let file_prompt = planning::file_prompt_area(area, app);
     header(frame, shell.header, app, config, &paint);
     if app.cooperation.journal_discard.is_some() {
         cooperation::journal_discard(frame, area, app, config, &paint);
@@ -607,8 +608,8 @@ pub fn render(
         cooperation::release(frame, area, app, config, &paint);
         return;
     }
-    // A provider review owns its modal; do not wrap hidden response output.
-    if app.overlay != Some(Overlay::Planning) {
+    // Compact file decisions stay attached to the draft and live response.
+    if app.overlay != Some(Overlay::Planning) || file_prompt.is_some() {
         if let Some(rail) = shell.rail {
             compact_companion(
                 frame,
@@ -627,6 +628,16 @@ pub fn render(
             );
         }
         let workspace_area = cooperation::header(frame, shell.workspace, app, &paint);
+        let workspace_area = if let Some(prompt) = file_prompt {
+            Rect {
+                height: workspace_area
+                    .height
+                    .min(prompt.y.saturating_sub(workspace_area.y)),
+                ..workspace_area
+            }
+        } else {
+            workspace_area
+        };
         let workspace_area = cooperation::strip(frame, workspace_area, app, &paint, artwork);
         let workspace_area = if matches!(app.overlay, Some(Overlay::Tasks | Overlay::Forms)) {
             workspace_area
@@ -754,6 +765,9 @@ pub fn render(
     }
     if app.confirmation.is_some() {
         confirmation(frame, area, app, config, &paint);
+    }
+    if consent_obscured {
+        app.planning.invalidate_review();
     }
 }
 
