@@ -16,18 +16,21 @@ pub enum Berry {
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
+#[serde(default)]
 pub struct State {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub berries: Vec<Berry>,
     /// Loose-key digests of repeated instructions the user chose not to learn.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub dismissed_moves: Vec<String>,
+    /// Newer writers' fields, preserved (XC08).
+    #[serde(flatten)]
+    pub extra: super::forward::Extra,
 }
 
 impl State {
     pub fn is_empty(&self) -> bool {
-        self.berries.is_empty() && self.dismissed_moves.is_empty()
+        self.berries.is_empty() && self.dismissed_moves.is_empty() && self.extra.is_empty()
     }
 
     pub fn validate(&self) -> Result<(), String> {

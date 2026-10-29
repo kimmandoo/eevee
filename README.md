@@ -67,7 +67,7 @@ ev uninstall        # remove the binary; your data stays
 ```
 
 > [!IMPORTANT]
-> Before upgrading, exit every running `ev` and back up the **whole data directory**. Data formats can change between versions even when the schema number does not; `ev` refuses data it cannot read safely rather than converting it.
+> Before upgrading, exit every running `ev` and back up the **whole data directory**. Data formats can change between versions even when the schema number does not; `ev` refuses data it cannot read safely rather than converting it. From 0.1.38, task data a newer `ev` added is kept and written back unless that version marked it critical, and opening an older schema first saves a copy in `<data dir>-backups/`.
 
 ### Offline and pinned installs
 

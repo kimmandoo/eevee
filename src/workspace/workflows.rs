@@ -15,8 +15,10 @@ const MAX_LINKS: usize = 16;
 pub mod authoring;
 pub mod impact;
 
+/// Unknown fields from a newer writer are preserved in `extra` (XC08);
+/// `critical` names the ones an older reader must refuse instead.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
+#[serde(default)]
 pub struct State {
     pub hypotheses: Vec<Hypothesis>,
     pub refactor: Option<Refactor>,
@@ -43,6 +45,11 @@ pub struct State {
     pub progress: Option<super::progress::State>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub game: Option<super::game::State>,
+    /// Fields an older reader that does not know them must refuse.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub critical: Vec<String>,
+    #[serde(flatten)]
+    pub extra: super::forward::Extra,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -594,7 +601,25 @@ pub struct ReviewGuard {
 }
 
 impl State {
+    /// Refuses an unknown field a newer writer declared critical (XC08).
+    pub fn check_forward(&self) -> Result<(), String> {
+        super::forward::check_critical(&self.critical, &self.extra, |head| match head {
+            "progress" => self.progress.as_ref().map(|progress| &progress.extra),
+            "game" => self.game.as_ref().map(|game| &game.extra),
+            _ => None,
+        })
+    }
+
     pub fn validate(&self, task_id: i64) -> Result<(), String> {
+        self.check_forward()?;
+        if self.critical.len() > 64
+            || self
+                .critical
+                .iter()
+                .any(|path| path.is_empty() || path.len() > 128)
+        {
+            return Err("Invalid critical task-field list".into());
+        }
         crate::store::retained::validate_landmarks(&self.landmarks)?;
         crate::store::parked_drafts::validate(&self.parked_drafts)?;
         if let Some(progress) = &self.progress {

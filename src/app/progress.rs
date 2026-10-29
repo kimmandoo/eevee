@@ -96,6 +96,12 @@ impl App {
         match result.and_then(|_| state.validate()) {
             Ok(()) => {
                 let mut workflows = self.workflows.clone();
+                // An older reader that ignored the opt-out would resend the prelude.
+                crate::workspace::forward::set_critical(
+                    &mut workflows.critical,
+                    "progress.eager_off",
+                    state.eager_off,
+                );
                 workflows.progress = Some(state);
                 match workflows.validate(self.task_id) {
                     Ok(()) => {

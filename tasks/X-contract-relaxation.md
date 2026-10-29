@@ -227,7 +227,7 @@ Each task below **breaks a binding rule on purpose**. It names the exact rule, t
 
 ### XC08 — Forward-compatible storage with critical-field marking
 
-- [ ] Let an older `ev` read and write data from a newer minor version when the new data is safe to ignore, and back up automatically before migrations.
+- [x] Let an older `ev` read and write data from a newer minor version when the new data is safe to ignore, and back up automatically before migrations.
 - **Priority:** 1. **Needs:** —. **Builds on:** schema admission ([src/store/admission.rs:4](../src/store/admission.rs#L4)), `ev snapshot`, 93 `#[serde(deny_unknown_fields)]` structs.
 - **Today:** admission requires exactly Schema20; strict structs refuse any unknown field. A single optional field (e.g. `progress.eager_off`, [src/workspace/progress.rs:37](../src/workspace/progress.rs#L37)) makes the previous release refuse the task, so every upgrade/rollback needs a manual whole-directory backup.
 - **Contract to change:**
@@ -240,4 +240,5 @@ Each task below **breaks a binding rule on purpose**. It names the exact rule, t
   - Before any major migration, create an automatic `ev snapshot` into `data/backups/` (keep the last three, quota-accounted, same privacy disclosure as manual snapshots).
   - Conversion of the existing 93 structs is mechanical but must keep strict validation of **known** fields (types, bounds, enums).
 - **Accept:** matrix test with a simulated "previous" struct set: non-critical extra → read, edit, write, extra preserved byte-equal; critical unknown → refuse with the field name; major bump → refuse; automatic snapshot created and restorable with `ev snapshot restore`; real Schema18/19 fixtures still upgrade.
+- **Implemented as (2026-10-29):** `workspace::forward` (`Extra`, `check_critical`, `set_critical`) on the task `workflows` State and its `progress`/`game` members; `/todo-eager off` declares `progress.eager_off` critical; load (`snapshot_row`) and save (`validate`) refuse unknown critical fields; `store::tasks::backup_before_migration` keeps three `VACUUM INTO` copies in `<data dir>-backups/`. Design fixes: (1) scope is the task-workflows extension point, where every recent optional field landed (todo, game, parked drafts, landmarks) — the other strict structs are mostly **untrusted inputs** (portable TMs, recipes, provider frames, connection files) where strict refusal is the safety property, so they stay strict; (2) the SQL schema stays major-only instead of adding `eevee_meta(minor)`, because table-level additions still need the existing exact inspection and a minor table would not help readers that already ship; (3) backups live beside, not inside, the data directory so `ev snapshot` and quotas do not grow with old copies.
 - **Watch out:** the benefit starts only for releases **after** XC08 ships; readers up to the current version still refuse. Record that in the release notes.

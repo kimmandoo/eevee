@@ -23,7 +23,6 @@ pub struct Step {
     pub status: Status,
 }
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct State {
     pub revision: u64,
     pub adopted_revision: Option<u64>,
@@ -35,6 +34,9 @@ pub struct State {
     /// Explicit `/todo-eager off`. Omitted while the default (on) applies.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub eager_off: bool,
+    /// Newer writers' fields, preserved (XC08).
+    #[serde(flatten)]
+    pub extra: super::forward::Extra,
 }
 fn label(text: &str) -> Result<(), String> {
     if text.trim() != text || text.is_empty() || text.len() > MAX_LABEL_BYTES || text.chars().any(|c| c.is_control() || matches!(c, '\u{061c}'|'\u{200e}'|'\u{200f}'|'\u{202a}'..='\u{202e}'|'\u{2066}'..='\u{2069}')) {
