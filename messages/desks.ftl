@@ -65,7 +65,7 @@ desks-moves-loading-the-chosen-partner-s-actual-move = Loading the chosen partne
 
 desks-moves-esc-back-wait-for-the-local-store = Esc Back / wait for the local store
 
-desks-moves-four-slots-are-occupied-across-project-and = Four slots are occupied across project and personal scope.
+desks-moves-four-slots-are-occupied-across-project-and = All 32 library entries are occupied across project and personal scope.
 
 desks-moves-up-down-choose-enter-review-exact-replacement = Up/Down Choose / Enter Review exact replacement
     Esc Give up / nothing changes until explicit confirmation
@@ -367,7 +367,7 @@ desks-workflows-commands-left-right-tabs-up-down-actions = / Commands / Left/Rig
     PgUp/PgDn details / Esc Back
 
 desks-moves-action-controls = Up/Down Action: > { $action } | Enter
-    PgUp/PgDn Details | u Use | r Rename | f Forget | t Teach | Esc
+    1-4 Assign quick slot | u Use | r Rename | f Forget | Esc
 
 desks-moves-learn-details = { $partner } wants to learn a move!
     { $sources-count } observed sources (not a correctness verdict)

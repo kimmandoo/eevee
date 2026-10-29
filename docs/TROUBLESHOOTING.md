@@ -1,5 +1,12 @@
 # Troubleshooting
 
+### [2026-10-29] Native qualification lacked generated move message variants
+
+- **Context / Symptom:** Native40824572443 at `85813f9` failed Check and all five targets during compilation: `Message::TmLibraryControls`, `TmParametersEditor`, `TmParametersBoundary` and `TmParametersControls` did not exist. No platform runtime or package from this run qualified.
+- **Root Cause:** Local builds consumed the edited root `messages/*.ftl` resources, but the feature commit staged source/scripts/docs and omitted `messages/tm.ftl` and `messages/desks.ftl`. Clean CI correctly generated the older enum from committed resources; this was not a platform or dependency failure.
+- **Solution:** Included both authored Fluent source resources, never generated `target` output. Requalified the tracked-source snapshot and required a new exact-source full native run; did not rerun partial jobs, create a tag or publish failed artifacts. The original failed run/evidence remains in `target/xc-038-release/native`.
+- **Prevention / Reference:** `build.rs` compiles message resources into Rust; message resources are required source inputs alongside their callsites. Local working-tree success alone cannot prove a complete source commit.
+
 ### [2026-10-29] Cancelled native helpers retained a false local-effect barrier
 
 - **Context / Symptom:** Both terminal sizes closed all three held child HTTP sockets after parent cancellation, and all eight usage records were stored, but the parent durable claim and helper work rows remained. The lead was already Cancelled; child remote outcomes remained unknown.
