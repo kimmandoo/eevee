@@ -4,11 +4,11 @@ Only unfinished work belongs here. Completed specifications and stable dependenc
 
 ## Current state
 
-- **Released:** [v0.1.37](https://github.com/kimmandoo/eevee/releases/tag/v0.1.37), source `cc6aca8`, native40666421649 and release40669569836; L game loop and RF04 shipped after all-five native qualification. Exact package/runtime history remains in the checkpoint.
+- **Released:** [v0.1.38](https://github.com/kimmandoo/eevee/releases/tag/v0.1.38), source `6794b50`, native40855031289 attempt1 and release40859609274; all nine X capabilities and the Windows editor cleanup repair shipped after Check/all-five native qualification. Public bytes and downloaded installation/runtime passed; exact evidence remains in the checkpoint.
 - **Included milestones:** A08 → UX04A → S04 and P04A → P04B → T01B shipped: actionable connection diagnostics, persistent text density, reviewed portable workflows, reviewed updates/safe rollback and exact local context comparison. Specifications remain in [COMPLETED.md](tasks/COMPLETED.md).
-- **Compatibility:** Public0.1.34 retains SQL20 and complete SDK bridge11 introduced by0.1.33, with TM1/formation2 unchanged. Strict auto effort, adopted progress, parked-draft/landmark and selected-commit metadata remain data-dependent reader contracts, not restored authority. Replace sidecar source/policy/dependencies together; bridge10 mixes refuse before dispatch. Public0.1.32 refused tested new data without changing database bytes; back up the whole directory before upgrading. Matching version numbers do not guarantee reader admission or lifecycle rollback.
+- **Compatibility:** Public0.1.38 retains SQL20, complete SDK bridge11 and formation2; parameterized moves use TM2 while literal TM1 imports remain supported. Ignorable task-workflow/receipt fields are preserved, but unknown declared critical fields refuse. Older releases did not gain forward compatibility retroactively; profiles/delegated receipts/expanded move metadata can still make them refuse. Replace sidecar source/policy/dependencies together; bridge10 mixes refuse before dispatch. Back up the whole data directory before upgrading; version/schema equality never restores grants, sessions or lifecycle rollback eligibility.
 - **Remaining:** **27 tasks**: 13 assigned F/H/conditional structure tasks and14 unassigned V audit tasks. All nine X implementations passed local source/runtime acceptance; XC07 absorbed VA09's typed parameters and portable TM2 contract.
-- **Current request active:** Implementation and local acceptance are complete; qualify and publish v0.1.38, then verify public packages and the downloaded host installation/runtime. Intentional design amendments were authorized. Wave8 and unrelated V/conditional tasks remain outside scope; no paid/live provider calls are authorized.
+- **Current request completed:** Repaired CI, published v0.1.38 and verified all public packages plus downloaded host installation/runtime. Wave8 and unrelated V/conditional tasks remain outside scope; no paid/live provider calls were made or authorized.
 
 ## Completed Pokémon milestone
 
@@ -26,16 +26,14 @@ Party, formations, portable TMs, moves, summary, Dex, held references, ribbons, 
 | [L — Game loop](tasks/L-game-loop.md) | Implemented 2026-10-28 (GL01/GL02/GL04/GL05); shipped in v0.1.37 | 0 |
 | [V — Audit gaps](tasks/V-audit-gaps.md) | Remaining implementation/acceptance gaps; VA09 completed by XC07's real typed parameters and TM2 | 14 |
 | [U — UX clarity](tasks/U-ux-clarity.md) | All eight implemented 2026-10-28 and included in v0.1.37 | 0 |
-| [X — Contract relaxation](tasks/X-contract-relaxation.md) | All nine implemented and locally accepted; v0.1.38 native qualification/publication in progress | 0 |
+| [X — Contract relaxation](tasks/X-contract-relaxation.md) | All nine implemented, natively qualified and shipped in v0.1.38 | 0 |
 
 A/B/C/D/E/G/I/J/K/L/U/X are implemented; F/H/R and14 V tasks retain their explicit verification gates.
 
 ### Next order
 
-1. Commit/push the locally accepted0.1.38 candidate and require same-source/same-attempt Check/all five native jobs, including contract capability journeys.
-2. Publish a new annotated v0.1.38 tag only after qualification, without changing earlier releases/tags/assets.
-3. Verify public assets/checksums and the downloaded host binary/installation/runtime; commit exact source/run/release evidence in the checkpoint.
-4. Local Q01/Q02/P03 evidence remains separate from full Wave8/live acceptance. Remaining F/H/R/V work is not implied complete by an X-track release.
+1. No release work remains. Select remaining F/H/R/V work only on a new authorized request; do not start Wave8 automatically.
+2. Local Q01/Q02/P03 evidence remains separate from full Wave8/live acceptance. Remaining F/H/R/V work is not implied complete by the X-track release.
 
 ## Execution rules
 

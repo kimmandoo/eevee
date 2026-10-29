@@ -55,11 +55,15 @@ def run(binary, output, size):
             journey.write_request('Inspect note.txt and explain its contents.')
             session.send('\r', settle=False)
             def first_started():
+                # Dismissing the nonmodal notice moves the caret. It must not
+                # invalidate the save barrier before the actual first POST.
+                if len(peer.snapshot('POST')) != 1:
+                    return False
                 view = session.display()
                 if 'Evolution!' in view and 'Keep typing' in view:
                     session.send(ESC + '[D', settle=False)
                     return False
-                return len(peer.snapshot('POST')) == 1 and 'First round is' in view
+                return 'First round is' in view
             until(session, first_started, 'actual active first round')
             author(session, STEER, ESC)
             assert 'Read only note.txt' in session.display(), 'neutral choice lost authored draft'

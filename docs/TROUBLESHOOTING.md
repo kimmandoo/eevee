@@ -1,5 +1,19 @@
 # Troubleshooting
 
+### [2026-10-29] Steering fixture moved the caret before Send committed
+
+- **Context / Symptom:** Downloaded public0.1.38 passed moves, MCP, profiles and delegation at both sizes; steering stopped before its first POST with `Draft changed while saving. Press Enter to send the current request.`
+- **Root Cause:** The fixture sent Left to dismiss the nonmodal evolution notice while the first request was still saving. Left also moves the composer caret, so the unchanged production draft-stability guard correctly refused that pending Send. Compact terminals additionally need the notice dismissed before the gated response text can be observed.
+- **Solution:** Required the exact first observed HTTP POST before sending that dismissal key, then still waited for the actual `First round is` response text. No resend, timeout increase, hidden error acceptance or production guard change was added.
+- **Prevention / Reference:** Preserved the original failure under `public-contracts/steering` and the intermediate compact-visibility diagnostic under `public-steering-fixed`; both final geometries passed separately in `public-steering-final` on the unchanged downloaded executable SHA256 `9c712bd6f9c0b116fbdb80c2fba565cb0af533258aac4dd8a91c405b9152814a`.
+
+### [2026-10-29] Installation acceptance treated the item-sprite directory as a file
+
+- **Context / Symptom:** Public0.1.38 asset integrity and offline host installation passed. The deeper installation driver then stopped after 11 groups at `verified_sprites`: `IsADirectoryError: .../cache/eevee/sprites/items`.
+- **Root Cause:** The cache snapshot predated item artwork and hashed every immediate directory entry as a regular file. The installed downloader correctly created the nested `items/` cache.
+- **Solution:** Snapshotted all regular files recursively, keyed by cache-relative paths, so subsequent first-launch/reinstall comparisons retain nested item bytes and mtimes as well as the nine already hash-validated species. No package, installer, download behavior or published asset changed.
+- **Prevention / Reference:** The original failed manifest remains in `target/release-038-recovery/public-installation/results.json`; complete corrected acceptance is recorded separately in the checkpoint.
+
 ### [2026-10-29] Windows external editing could not remove its own temporary file
 
 - **Context / Symptom:** Native40848780657 passed Check and all Linux/macOS rows, while Windows profile editing failed before returned-candidate review: `Temporary cleanup FAILED: The process cannot access the file because it is being used by another process. (os error 32)`.

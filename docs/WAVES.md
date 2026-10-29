@@ -1,6 +1,6 @@
 # Implementation waves
 
-Updated2026-10-29. Waves1–7 and the separately authorized GP08/GP09/GP10/P05 are complete; U/L and RF04 shipped in public0.1.37. All nine X capabilities passed local acceptance for0.1.38 and await exact-source native qualification/publication. Wave8 remains pending. The [task index](../task.md) owns current work; wave order is delivery priority, not an invented technical dependency.
+Updated2026-10-29. Waves1–7 and the separately authorized GP08/GP09/GP10/P05 are complete; U/L and RF04 shipped in public0.1.37. All nine X capabilities shipped in0.1.38 from `6794b50` after native40855031289 and release40859609274, with public-byte and downloaded-host installation/runtime acceptance. Wave8 remains pending. The [task index](../task.md) owns current work; wave order is delivery priority, not an invented technical dependency.
 
 | Wave | Outcome | Assigned tasks | Exit proof |
 |---|---|---|---|
@@ -36,4 +36,4 @@ Six conditional structure tasks remain assigned, triggered only by their named r
 | RF08 | Wave 3/7 execution/repository integration | Existing workflow/execution/repository responsibility needs extraction |
 | RF09 | Wave 1 persistence fixtures | Existing legacy store-fixture ownership needs separation |
 
-Original coverage was23 implementation + seven final-acceptance + seven conditional structure tasks. Wave1–7 and RF04 are complete, leaving13 assigned Wave8/conditional tasks. GP08/GP09/GP10/P05 and U/L completed outside the waves. XC01–XC09 intentionally amended their binding contracts alongside code and passed local acceptance for0.1.38; XC07 absorbed VA09, leaving14 V audit tasks. Exact-source native qualification and public-package verification remain publication gates. The shared auth/editor process owner did not complete RF06's broader runner split or RF07's provider split; no later task starts automatically.
+Original coverage was23 implementation + seven final-acceptance + seven conditional structure tasks. Wave1–7 and RF04 are complete, leaving13 assigned Wave8/conditional tasks. GP08/GP09/GP10/P05 and U/L completed outside the waves. XC01–XC09 intentionally amended their binding contracts alongside code and shipped in0.1.38 after native/public acceptance; XC07 absorbed VA09, leaving14 V audit tasks. Exact-source native qualification and public-package verification remain publication gates. The shared auth/editor process owner did not complete RF06's broader runner split or RF07's provider split; no later task starts automatically.

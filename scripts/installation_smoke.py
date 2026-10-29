@@ -221,7 +221,8 @@ def main():
             )
             assert data[:8] == b"\x89PNG\r\n\x1a\n"
             assert (int.from_bytes(data[16:20], "big"), int.from_bytes(data[20:24], "big")) == (96, 96)
-        return {path.name: (sha(path), path.stat().st_mtime_ns) for path in sprite_cache.iterdir()}
+        return {str(path.relative_to(sprite_cache)): (sha(path), path.stat().st_mtime_ns)
+                for path in sprite_cache.rglob("*") if path.is_file()}
 
     def run_case(name, action):
         action()

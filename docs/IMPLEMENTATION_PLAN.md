@@ -1,16 +1,16 @@
 # Eevee Implementation Plan
 
-Updated2026-10-29. The active delivery is the X contract track and qualified0.1.38 release below. Earlier qualified releases and their scoped evidence remain recorded separately; Wave8, unrelated audit tasks and paid/live provider calls remain outside this request.
+Updated2026-10-29. The X contract track and qualified0.1.38 release below are complete. Earlier qualified releases and their scoped evidence remain recorded separately; Wave8, unrelated audit tasks and paid/live provider calls remain outside this request.
 
 Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPATIBILITY.md). Live-provider conformance remains distinct from implemented transports and deterministic runtime proof.
 
-## Active delivery — X contract track and qualified 0.1.38
+## Completed delivery — X contract track and qualified 0.1.38
 
-1. Resume the interrupted XC03 working tree without dropping authored changes; bind steering/queued Sends to their exact owner/generation and retain returned draft bytes/carets.
-2. Amend the binding contracts alongside XC02 read-only delegated workers/linked receipts, XC05 explicitly selected unmanaged stdio MCP, XC06 visible neutral behavior profiles and XC07 typed parameter use/32-entry library (absorbing VA09). Keep one effect executor/store/approval authority and truthful unknown effects.
-3. Integrate before one minimum-toolchain full source gate. Exercise new controlled-peer PTY/ConPTY journeys at 120×36 and 60×18 plus the existing native regression profile. No paid/live provider call or quality-improvement claim is authorized.
-4. Commit/push the exact candidate, require same-attempt Check/all five native jobs including the new capability journeys, and publish a new annotated 0.1.38 tag through the existing qualified-artifact workflow. Never move earlier tags or replace public assets.
-5. Check version-specific release notes before tagging; verify public asset/checksum identities and the actual downloaded host binary/installation/runtime. Record source/run/release/limits in the checkpoint, then close only tasks with observed acceptance.
+1. Resumed the interrupted XC03 working tree without dropping authored changes; bound steering/queued Sends to their exact owner/generation and retained returned draft bytes/carets.
+2. Amended the binding contracts alongside XC02 read-only delegated workers/linked receipts, XC05 explicitly selected unmanaged stdio MCP, XC06 visible neutral behavior profiles and XC07 typed parameter use/32-entry library (absorbing VA09). Kept one effect executor/store/approval authority and truthful unknown effects.
+3. Integrated all nine X capabilities, passed Rust1.90.0 strict Clippy/1,954 tests/two ignored/release build, and exercised controlled-peer PTY/ConPTY journeys plus existing native regressions. Repaired Windows temporary-file cleanup with an actual failing-before/passing-after Windows regression.
+4. Qualified exact source `6794b50` in native40855031289 attempt1 with Check/all five native jobs, then published annotated v0.1.38 in release40859609274 using only its five qualified artifact IDs. Earlier tags/releases/assets were not replaced.
+5. Verified all eight public asset digests, seven checksum rows, five exact qualified package identities and target headers, then passed downloaded-host installation24/installed-terminal34 and all five contract drivers at both sizes (four original passed drivers plus the separately corrected steering driver). Downloaded Windows MSVC also printed0.1.38. Fixture failures and their corrected evidence remain separately recorded; no paid/live or quality-improvement claim was made.
 
 
 ## Completed baseline — Qualified release0.1.33

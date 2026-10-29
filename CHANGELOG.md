@@ -2,6 +2,9 @@
 
 ## 2026-10-29
 
+- docs(release): published v0.1.38 from `6794b50` after native40855031289 and release40859609274, verified all eight public assets against qualified packages and passed downloaded installation24/installed-terminal34 plus both-size contract journeys without replacing earlier releases.
+- fix(verification): waited for the actual first inference POST before dismissing the nonmodal evolution notice in steering journeys, preventing fixture caret movement from invalidating Send's save barrier while retaining compact-response visibility checks.
+- fix(verification): snapshotted nested item-sprite cache files by relative path during installation checks, preserving full cache byte/mtime comparisons instead of trying to hash the `items` directory as a file.
 - fix(editor): closed the validated temporary file handle before removing it, allowing Windows external Request and form-profile edits to finish without weakening identity checks or recursively deleting editor-owned copies.
 - fix(ci): compared every retained MCP uncertainty marker by file identity on Windows and waited for the initial committed storage state before opening connection setup, preserving all native qualification checks.
 - fix(ci): compared the MCP smoke's uncertain-project marker by file identity so Windows verbatim paths match, ran the five contract drivers concurrently through `scripts/contract_smoke.py` with quiet-redraw key settling, and limited non-full targets to the compact 60×18 size.
