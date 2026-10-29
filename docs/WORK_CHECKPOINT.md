@@ -1,5 +1,12 @@
 # Work Checkpoint
 
+## 2026-10-29 — Token/cost meter task added (planning only)
+
+- **Request:** Add a task that shows the token cost used in the current session in the UI.
+- **Added:** XC09 in `tasks/X-contract-relaxation.md`: Launch ("this session")/Task/Request token totals from existing provider-reported usage records and live snapshots, truthful aggregation (attributable counters, subset semantics, unknown/unreported as lower bounds), a dated compiled-in plus user-editable price table labelled `est.`, `plan`/`local`/`no price` route kinds, status-row chip, `/usage` panel, party-board fix for its fixed "unknown" line, optional non-blocking budget notice. Contract change: DESIGN_RULES:300 billing stays unknown but a labelled estimate is allowed. task.md 36 → 37; WAVES order XC04/XC09 first.
+- **Verification:** documentation only; cited code locations checked against the current source.
+- **Next action:** Unchanged: start an X task only on an authorized implementation request (XC04 or XC09 first).
+
 ## 2026-10-29 — Contract-relaxation task track added (planning only)
 
 - **Request:** Propose functional-flexibility work that becomes possible only by deliberately changing existing contracts, and make each proposal concrete as tasks. Baseline `17267e9`; nothing implemented.

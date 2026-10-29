@@ -20,6 +20,7 @@ Each task below **breaks a binding rule on purpose**. It names the exact rule, t
 ## Recommended order
 
 1. **XC04** (retry) — smallest, no storage, removes the most common dead end.
+   **XC09** (token/cost meter) — independent and equally small; may run alongside XC04. It reads existing usage records and also gives VA08 its measurement surface.
 2. **XC08** (forward-compatible storage) — makes every later persisted feature (XC01, XC03, XC06, XC07) cheaper and non-breaking for the next upgrade.
 3. **XC01** (approval rules) — largest daily effect; easier after XC08.
 4. **XC03** (steering and queued Send).
@@ -173,6 +174,50 @@ Each task below **breaks a binding rule on purpose**. It names the exact rule, t
 - **Similarity rule (deterministic):** tokenize; replace paths, quoted text, numbers and identifiers with typed slots; strip a closed list of Korean particles/endings and English articles; group when slot-normalized token sequences are equal **and** classifier form/operation are equal **and** the leading verb token is equal. No embeddings or model calls.
 - **Accept:** "fix the bug in src/a.rs" / "Fix bug in src/b.rs" group into one parameterized move; "delete src/a.rs" never groups with "fix src/a.rs"; Korean fixtures ("a.rs 버그 고쳐줘" / "b.rs의 버그 고쳐줘"); saving shows the variant table; library over 32 routes through the existing forget/replace review; old TMs import unchanged.
 - **Watch out:** false grouping is the risk; every proposal stays dismissible and nothing is learned without the existing teach review.
+
+---
+
+## Visibility
+
+### XC09 — Live token and estimated cost meter for this launch, task and request
+
+- [ ] Show how many tokens this `ev` launch, the current task and the running request have used, and a labelled cost estimate, in the always-visible chrome.
+- **Priority:** 1. **Needs:** —. **Builds on:** provider-reported usage (`workspace::usage::{Counters, Semantics, Report, Record}`, [src/workspace/usage.rs](../src/workspace/usage.rs)), live per-request snapshots (`planning::State::usage_report`, [src/app/planning/usage.rs:52](../src/app/planning/usage.rs#L52)), durable `records::Operation::Usage` rows ([src/store/records.rs:536](../src/store/records.rs#L536)), status row ([src/ui/chrome.rs](../src/ui/chrome.rs)).
+- **Today:** usage counters are already collected per request (input/output/cache read/cache write/reasoning, with subset semantics) and saved, but nothing sums them or shows them while you work. Cost is never computed: the usage module states "These are neither local estimates nor prices" ([src/workspace/usage.rs:1](../src/workspace/usage.rs#L1)), and the party board prints a fixed "Provider usage/cost: unknown (not reported)" even when the provider did report usage ([src/app/cooperation_ui.rs:64](../src/app/cooperation_ui.rs#L64)).
+- **Contract to change:**
+  - DESIGN_RULES:300 "Unknown totals, tokenizer, remote completion and billing remain unknown" → "Unknown totals, tokenizer, remote completion and **billing** remain unknown. A local cost **estimate** computed from reported counters and a dated price table may be shown; it is always labelled `est.`, names its price source and date, and is never called billing."
+  - `usage.rs` module doc: counters stay raw provider data; estimates live in a separate `workspace::pricing` module and are never written back into usage records.
+  - DESIGN_RULES:219 "Visible cost … never hides per-partner cost" — **kept**; the meter adds a per-partner breakdown, never merges it away.
+- **Scopes ("session" defined):**
+  - **Launch** — every request dispatched since this `ev` process started, across tasks and partners. This is "the current session". In memory only; resets on restart. Provider-side sessions (`/session-new`) are a different concept and are not used for this.
+  - **Task** — every saved usage record of the current task, including earlier launches (read from the store).
+  - **Request** — the running or last request, updated live from partial snapshots.
+- **Aggregation rules (truthful sums):**
+  - Sum `Measurement::attributable` only; cumulative-scope reports without a known baseline count as **unknown**, never as their raw cumulative value.
+  - Use `Semantics` to avoid double counting: cached-read and reasoning tokens are shown as parts of input/output when the provider says they are subsets, as separate amounts when it says they are not, and the request's **cost** is unknown when the relation is unknown (tokens are still shown, marked `?`).
+  - A request with no reported usage (e.g. ACP routes without accounting) adds to an "unreported" count instead of adding zero. Totals with any unknown part are shown with a lower-bound mark: `≥ 48.2k tok`.
+- **Pricing:**
+  - `Price { provider, model (exact or prefix), input, cached_input, cache_write, output, reasoning (defaults to output), unit: per 1M tokens, currency: USD, source: BuiltIn { as_of } | User }`.
+  - The built-in table is compiled in with an `as_of` date and covers the common native API models. It is **never fetched over the network** (startup stays offline). `ev --version` and `/usage` show its date; after 90 days the estimate is labelled stale.
+  - `/prices` opens the table as reviewed TOML in the external editor; user rows override built-in ones; stored as a preference. The meter recomputes immediately.
+  - Route kinds: **API-key routes** → token × price; **account/subscription routes** (ChatGPT account, Codex/Claude CLI logins) → tokens only, cost shown as `plan`; **loopback/local endpoints** (Ollama, LM Studio, vLLM on loopback) → `local`, no cost; **unknown model** → tokens only, `no price`.
+  - Long-context or tiered prices: one optional `above_tokens` tier per row; anything more complex is a user row or `no price`.
+- **UX:**
+  - Status row, right side (before the mode chip): `Launch 48.2k tok · est. $0.31`. While a request runs: `Req 6.1k ↑ · Launch 48.2k · est. $0.31`, refreshed on the existing activity tick without delaying provider bytes.
+  - Compact (<90 columns): `48k · $0.31`; below 70 columns the chip moves into `/usage` only, never pushing route/model out of the header.
+  - Unknown parts: `≥48.2k tok · est. $0.31+?`; `plan`/`local` replace the dollar amount.
+  - `/usage` panel: rows Request / Task / Launch × columns input · cached · output · reasoning · est. cost; per-partner and per-model breakdown; unreported-request count; price source/date per row; `d` shows the exact counters of the selected request.
+  - Fix the party board: show the owner's actual reported counters and estimate instead of the fixed "unknown" line, keeping "not billing".
+  - `/usage-meter off|on` hides/shows the chip (saved preference). Optional `/usage-budget <USD>`: a one-time notice when the launch estimate crosses it; it never blocks, pauses or cancels work.
+- **Storage:** none for Launch/Request (memory) or Task (existing records). New preference fields: user price rows, meter visibility, budget. Before XC08 these follow the current strict preference contract (older readers refuse a non-default value; record that in release notes).
+- **Accept:**
+  - Unit fixtures: Responses report with cached tokens inside input → cached not added twice; Anthropic-style cache write separate → priced separately; reasoning-in-output true/false/unknown → three different, correct displays; cumulative report without baseline → unknown, not counted.
+  - Live: loopback provider streaming three partial usage snapshots → the request chip updates on each and the final total equals the saved record.
+  - Launch total spans two tasks and two partners, per-partner breakdown sums correctly, and resets after restart; Task total survives restart.
+  - Unreported ACP-style request → `≥` mark and "1 request unreported"; account route → `plan`; loopback endpoint → `local`; unknown model → `no price`.
+  - Editing `/prices` recomputes without restart; stale built-in date shows the stale label; no network request at startup (existing offline startup test).
+  - Party board shows the real counters; PTY captures at 120×36 and 60×18 while idle, during a live request and with unknown parts.
+- **Watch out:** a stale or wrong price is worse than none. Always show the source and date, never round a missing price to zero, and keep the word "estimate" in every surface. Bytes and local token estimates in the context basket remain a separate, pre-send measure and must not be mixed into the reported totals.
 
 ---
 
