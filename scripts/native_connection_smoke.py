@@ -543,7 +543,7 @@ class Journey:
         def settled():
             state = self.snapshot()
             view = self.session.display()
-            response = any(re.search(r'\bResponse \d+/\d+.*\b' + expected_state + r'\b', line)
+            response = any(re.search(r'\bResponse(?: \d+/\d+)? · ' + expected_state + r'\b', line)
                            for line in view.splitlines())
             unknown = re.search(r'\b(?:Provider )?[Oo]utcome unknown\b', view) is not None
             activity_settled = unknown if mode != 'complete' else ('Local work idle' in view or unknown)

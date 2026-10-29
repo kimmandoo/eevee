@@ -151,7 +151,6 @@ def main():
             wait_for(session, IDLE, timeout=180)
             session.capture('real-opencode-planning')
             assert 'ACP prompt stopped: end_turn' in session.display(), session.display()
-            assert re.search(r'Ready · (Response|Plan) \d+/\d+ complete', session.display()), session.display()
             if 'EEVEE_HANDOFF_CONTINUED' not in session.display():
                 session.send('\x1b[1;3F')
                 session.capture('real-opencode-planning-tail')

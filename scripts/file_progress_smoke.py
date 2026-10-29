@@ -7,6 +7,7 @@ Peers send arguments only: the application performs every tested file effect.
 import argparse
 import hashlib
 import json
+import re
 from copy import deepcopy
 from pathlib import Path
 import tempfile
@@ -182,7 +183,7 @@ def run(binary, output, root, size, ascii_mode, protocol, ):
             assert any(label in '\n'.join(preview_rows) for label in ('[FILE]', )), 'file preview lacked explicit file identity'
             marker = 'STREAM_STAGE_ONE' if protocol != 'gemini' else 'STREAM_STAGE_TWO'
             code_rows = [line.lstrip() for line in preview_rows if marker in line]
-            assert any(line.startswith(('| ', '> ')) for line in code_rows), 'generated source looked like ordinary prose'
+            assert any(re.match(r'^[+|>]\s+\d+\s+│\s*', line) for line in code_rows), 'generated source lacked its numbered code gutter'
             if protocol != 'gemini':
                 assert any(line.startswith('> ') for line in code_rows), 'actual arriving code lacked its writing-edge indicator'
             if protocol != 'gemini':

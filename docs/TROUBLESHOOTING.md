@@ -3,9 +3,9 @@
 ### [2026-10-29] Compact file-review paging skipped required scope rows
 
 - **Context / Symptom:** Actual 60×18 file-approval journeys could select Allow once but could not complete long nested-path review; repeated PageDown reached the end without ever arming consent. The same journeys passed at 120×36.
-- **Root Cause:** The small dock left three scope rows, while the existing keyboard path always advanced five. That skipped unseen rows, so the correctly enforced contiguous-exposure gate never became satisfied.
-- **Solution:** Limited file-summary page movement to the rendered scope-body height, retaining the existing five-row maximum and separate Details behavior. Added a regression that rejects an End jump across unseen scope and then requires ordinary paging to expose every required row at both sizes. No scope row, approval guard or timeout was removed.
-- **Prevention / Reference:** Use actual scope geometry for navigation as well as rendering. The focused raw-todo driver similarly traverses its disclosed transcript position rather than assuming a fixed page count; native live item IDs are not durable journal row identities.
+- **Root Cause:** The small dock left three scope rows, while the existing keyboard path always advanced five. After geometry-aware paging was added, an actual existing transcript exposed a second cause: rendering that transcript behind the dock overwrote the shared review scroll offset with the transcript's independent tail position. Empty-transcript rendering tests did not expose that collision.
+- **Solution:** Limited file-summary page movement to the rendered scope-body height, retaining the existing five-row maximum and separate Details behavior. Preserved the review offset and limit around read-only backdrop rendering. Strengthened the regression with a populated prior transcript and real app-level PageDown dispatch; it failed before the backdrop fix. End jumps still cannot authorize unseen rows. No scope row, approval guard or timeout was removed.
+- **Prevention / Reference:** Use actual scope geometry for navigation and keep backdrop navigation independent of the modal foreground. The focused raw-todo driver traverses its disclosed transcript position rather than assuming a fixed page count; native live item IDs are not durable journal row identities. Runtime header consumers now navigate without requiring diagnostic item counters; obsolete counter-wording assertions were removed.
 
 ### [2026-10-29] Short code bursts remained buffered while the provider paused
 

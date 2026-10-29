@@ -188,7 +188,7 @@ def response_view(session):
     surface = session.surface
     header_pattern = (
         rf"(?:{re.escape(surface['previous'])}|{re.escape(surface['response'])}"
-        rf"|(?:Previous )?Request outcome|(?:Previous )?Plan|(?:Previous )?Tool output) \d+/\d+"
+        rf"|(?:Previous )?Request outcome|(?:Previous )?Plan|(?:Previous )?Tool output)(?: \d+/\d+)? · "
     )
     header = next((index for index, row in enumerate(rows)
                    if re.search(header_pattern, row)), None)

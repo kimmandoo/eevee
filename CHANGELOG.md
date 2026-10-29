@@ -5,7 +5,7 @@
 - fix(ui): replaced repeated structured todo argument cards with one readable request-owned progress projection, retained distinct refusals and original observations through verbose inspection, and removed raw item counters from ordinary response chrome.
 - fix(forms): recognized English/Korean UI and tool improvements and compound inspection-plus-fix requests while preserving quoted-source, negation, manual appearance, adopted-step and explicit read-only policy boundaries.
 - fix(streaming): flushed pending observed code through existing HTTP/WebSocket polling after short quiet bursts, bounded live snapshot cadence, and normalized only the already-redacted visible tail without artificial typing delays.
-- fix(ui): docked file decisions immediately above the retained Request composer, separated muted code line numbers from the live edge, and retained explicit choices, full Details inspection and contiguous scope exposure across resizing.
+- fix(ui): docked file decisions immediately above the retained Request composer, separated muted code line numbers from the live edge, preserved independent review scrolling behind an existing transcript, and retained explicit choices, full Details inspection and contiguous scope exposure across resizing.
 - docs(release): published v0.1.38 from `6794b50` after native40855031289 and release40859609274, verified all eight public assets against qualified packages and passed downloaded installation24/installed-terminal34 plus both-size contract journeys without replacing earlier releases.
 - fix(verification): waited for the actual first inference POST before dismissing the nonmodal evolution notice in steering journeys, preventing fixture caret movement from invalidating Send's save barrier while retaining compact-response visibility checks.
 - fix(verification): snapshotted nested item-sprite cache files by relative path during installation checks, preserving full cache byte/mtime comparisons instead of trying to hash the `items` directory as a file.
@@ -316,7 +316,7 @@
 
 - fix(ui): consolidated qualified native, Codex, ACP and SDK todo updates into readable request-owned cards with counts and status markers, while preserving original observations through `/verbose` and keeping refusals/errors distinct.
 - fix(streaming): flushed actual pending code after quiet provider bursts through existing HTTP/WebSocket polling, bounded snapshot cadence and retained source-driven arrival emphasis without delayed or fabricated text.
-- fix(approvals): attached compact file decisions immediately above Request, kept the draft and response visible, retained complete Details and exact scope guards, and matched paging to the short review body so every required path/directory row could be reviewed.
+- fix(approvals): attached compact file decisions immediately above Request, kept the draft and response visible with independent scroll positions, retained complete Details and exact scope guards, and matched paging to the short review body so every required path/directory row could be reviewed.
 - fix(forms): recognized English/Korean UI/tool improvement and compound diagnosis/review-plus-fix requests without dropping latest automatic todo adoption, pinned appearance or explicit restrictive policy.
 - chore(release): advanced the package to 0.1.39 and preserved all qualified 0.1.38 capabilities and existing release assets during concurrent-upstream integration.
 

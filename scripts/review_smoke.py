@@ -114,7 +114,6 @@ def main():
                 wait_for(session, IDLE, timeout=180)
                 session.send("\x1b[1;3H")
                 wait_for(session, "Thread:")
-                assert re.search(r"Ready · (Response|Plan) \d+/\d+ complete", session.display()), session.display()
                 thread = re.search(r"Thread: *([0-9a-f-]{36})", session.display())
                 assert thread, "completed review did not expose its actual session identity"
                 observation = []

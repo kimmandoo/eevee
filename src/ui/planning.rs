@@ -3418,6 +3418,16 @@ mod tests {
             draw(&mut app);
             key(&mut app, &task, KeyCode::Char('y'));
             app.planning.pending.take();
+            app.planning.event(Event::Item {
+                generation: 11,
+                task_id: 7,
+                thread_id: "thread".into(),
+                turn_id: "turn".into(),
+                item_id: "response".into(),
+                kind: ItemKind::Message,
+                text: "Earlier response remains behind consent.\n".repeat(40),
+                complete: true,
+            });
             app.planning.event(Event::Prompt {
                 generation: 11,
                 task_id: 7,
@@ -3504,7 +3514,13 @@ mod tests {
             draw_home(&mut app);
             while !app.planning.reviewed {
                 let seen = app.planning.file_consent.seen_rows;
-                key(&mut app, &task, KeyCode::PageDown);
+                app.update_at(
+                    crossterm::event::Event::Key(KeyEvent::new(
+                        KeyCode::PageDown,
+                        KeyModifiers::NONE,
+                    )),
+                    std::time::Instant::now(),
+                );
                 draw_home(&mut app);
                 assert!(
                     app.planning.file_consent.seen_rows > seen,

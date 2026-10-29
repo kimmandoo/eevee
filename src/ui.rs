@@ -448,10 +448,16 @@ pub fn render(
             suggestion_strip(frame, workspace_area, app, &paint)
         };
         let workspace_area = held::strip(frame, workspace_area, app, &paint);
+        let review_scroll = file_prompt.map(|_| (app.planning.scroll, app.planning.scroll_max));
         if app.response_on_home() {
             planning::render_workspace(frame, workspace_area, app, config, &paint);
         } else {
             workspace(frame, workspace_area, app, config, &paint);
+        }
+        if let Some((scroll, scroll_max)) = review_scroll {
+            // The transcript backdrop must not move the file-review viewport.
+            app.planning.scroll = scroll;
+            app.planning.scroll_max = scroll_max;
         }
         composer_input(frame, shell.composer, app, config, &paint);
         if let Some(inspector) = shell.inspector {
