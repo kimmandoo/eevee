@@ -12,6 +12,7 @@ mod formations;
 mod handoff;
 mod held;
 mod layout;
+mod mcp;
 mod memory;
 mod meter;
 mod moves;
@@ -472,6 +473,7 @@ pub fn render(
             Overlay::Bag => bag::render(frame, area, app, config, &paint, artwork),
             Overlay::Usage => meter::render(frame, area, app, config, &paint),
             Overlay::Rules => rules::render(frame, area, app, config, &paint),
+            Overlay::Mcp => mcp::render(frame, area, app, config, &paint),
             Overlay::Preview => preview(frame, area, app, config, &paint),
             Overlay::Tasks => tasks(frame, area, app, config, &paint),
             Overlay::Criteria => criteria(frame, area, app, config, &paint),
@@ -1567,6 +1569,20 @@ fn composer_input(frame: &mut Frame, area: Rect, app: &App, config: &Config, pai
     } else {
         1
     };
+    let profile_rows = u16::from(app.composer_is_request() && content.height > hint_rows + 1);
+    if profile_rows != 0 {
+        text(
+            frame,
+            row(content, 0, profile_rows),
+            &app.profile_chip(),
+            paint.muted,
+        );
+    }
+    let content = row(
+        content,
+        profile_rows,
+        content.height.saturating_sub(profile_rows),
+    );
     let attachment_rows = if app.sources.basket.is_empty() {
         0
     } else {

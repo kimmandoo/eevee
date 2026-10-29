@@ -2923,6 +2923,7 @@ mod tests {
                 app.workflow.preview = true;
                 app.workflow.recipe = Some(Recipe {
                     schema_version: 1,
+                    profiles: Vec::new(),
                     name: "Scoped plan".into(),
                     scope: vec![],
                     context: vec![],

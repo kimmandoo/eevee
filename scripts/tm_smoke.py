@@ -366,7 +366,7 @@ class Driver:
         assert self.state()["moves"] == before
         self.session.send(ESC)
         self.workspace()
-        for suffix in ("Second", "Third", "Fourth"):
+        for suffix in ("Library %02d" % index for index in range(2, 33)):
             self.learn(sources[0], 0, name=suffix)
         full = self.state()["moves"]
         self.import_preview(sources[0])

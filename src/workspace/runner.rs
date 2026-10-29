@@ -902,7 +902,7 @@ fn validate_spec(spec: &CommandSpec) -> Result<(), String> {
     }
     Ok(())
 }
-fn prepare(
+pub(crate) fn prepare(
     request_id: String,
     task_id: i64,
     spec: CommandSpec,
@@ -1663,7 +1663,7 @@ pub(crate) mod native {
         pub fn spawn_piped_env(prepared: &Prepared, env: &[(String, String)]) -> io::Result<Self> {
             Self::spawn_inner(prepared, true, env, false)
         }
-        pub(super) fn spawn_piped_clean_env(
+        pub(crate) fn spawn_piped_clean_env(
             prepared: &Prepared,
             env: &[(String, String)],
         ) -> io::Result<Self> {
@@ -2001,7 +2001,7 @@ pub(crate) mod native {
         pub fn spawn_piped_env(prepared: &Prepared, env: &[(String, String)]) -> io::Result<Self> {
             Self::spawn_inner(prepared, true, env, false)
         }
-        pub(super) fn spawn_piped_clean_env(
+        pub(crate) fn spawn_piped_clean_env(
             prepared: &Prepared,
             env: &[(String, String)],
         ) -> io::Result<Self> {

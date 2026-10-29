@@ -8,6 +8,10 @@ fn decoded_body(body: NativeBody<'_>) -> Value {
 fn input() -> Input {
     Input {
         native_transport: crate::providers::NativeTransport::Auto,
+        behavior_profile: None,
+        mcp: Vec::new(),
+        delegation_enabled: false,
+        delegation: None,
         effort_resolution: None,
         screenshot: None,
         public_context: None,
@@ -59,6 +63,7 @@ fn runtime() -> tokio::runtime::Runtime {
 fn control<'a>(stopped: &'a AtomicBool, cancelled: &'a AtomicU64) -> Control<'a> {
     Control {
         wire_alive: None,
+        steering: None,
         stopped,
         cancelled,
         generation: 7,
@@ -646,6 +651,7 @@ fn waiting_for_headers_or_chunks_is_cancellable_and_deadlines_are_not_retries() 
     cancelled.store(7, Ordering::Release);
     let control = Control {
         wire_alive: None,
+        steering: None,
         deadline: Instant::now() + Duration::from_secs(10),
         ..control
     };
@@ -2385,5 +2391,22 @@ fn automatic_effort_uses_frozen_wire_value_and_never_leaks_configured_fallback()
     assert_eq!(
         auto, fixed,
         "fixed selection and the same resolved effort retain exact wire bytes"
+    );
+}
+
+#[test]
+fn steering_is_taken_only_for_the_running_generation() {
+    let stopped = AtomicBool::new(false);
+    let cancelled = AtomicU64::new(0);
+    let queue = Mutex::new((7u64, vec!["first".to_string(), "second".to_string()]));
+    let mut control = control(&stopped, &cancelled);
+    assert!(control.take_steering().is_empty(), "no queue attached");
+    control.steering = Some(&queue);
+    assert_eq!(control.take_steering(), ["first", "second"]);
+    assert!(control.take_steering().is_empty(), "taken exactly once");
+    *queue.lock() = (8, vec!["stale".into()]);
+    assert!(
+        control.take_steering().is_empty(),
+        "another generation's text is never sent"
     );
 }

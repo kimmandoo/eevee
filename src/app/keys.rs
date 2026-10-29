@@ -138,6 +138,7 @@ impl App {
                             | Overlay::Bag
                             | Overlay::Usage
                             | Overlay::Rules
+                            | Overlay::Mcp
                     )
                 ) =>
             {
@@ -283,6 +284,7 @@ impl App {
             self.close_overlay();
             return true;
         }
+        let decisions = self.selected_profile_handoff();
         let empty;
         let task = if let Some(task) = self.tasks.iter().find(|task| task.id == self.task_id) {
             task
@@ -296,7 +298,7 @@ impl App {
             self.width >= 60 && self.height >= 18,
             task,
             &self.sources.basket,
-            &[],
+            &decisions,
         );
         if self.handoff.ready_generation != generation {
             self.record_handoff_ready();
@@ -553,6 +555,7 @@ impl App {
             self.handoff.notice = "Finish or retry task/context/journal saves and active work before exporting committed facts.".into();
             return true;
         }
+        let decisions = self.selected_profile_handoff();
         let empty;
         let task = if let Some(task) = self.tasks.iter().find(|task| task.id == self.task_id) {
             task
@@ -566,7 +569,7 @@ impl App {
             self.width >= 60 && self.height >= 18,
             task,
             &self.sources.basket,
-            &[],
+            &decisions,
         );
         if self.handoff.ready_generation != generation {
             self.record_handoff_ready();
@@ -725,6 +728,12 @@ impl App {
     }
 
     pub fn settle_planning(&mut self) -> bool {
+        if self.mcp.poll() {
+            return true;
+        }
+        if self.settle_steering() {
+            return true;
+        }
         self.settle_berries();
         if self.settle_context_comparison() {
             return true;
@@ -916,6 +925,9 @@ impl App {
     }
 
     pub(super) fn key(&mut self, key: KeyEvent, now: std::time::Instant) -> bool {
+        if let Some(handled) = self.steer_choice_key(key) {
+            return handled;
+        }
         let scoped_inspector = self.formation_inspector_active() || self.held_inspection_active();
         if self.overlay == Some(Overlay::Agents) && !scoped_inspector {
             self.agents.connection_owner = Some((self.task_id, self.lead.id, self.planning.agent));
@@ -1067,6 +1079,7 @@ impl App {
             Some(Overlay::Bag) => return self.bag_key(key),
             Some(Overlay::Usage) => return self.usage_key(key),
             Some(Overlay::Rules) => return self.rules_key(key),
+            Some(Overlay::Mcp) => return self.mcp_key(key),
             Some(Overlay::ParkedDrafts) => return self.parked_draft_key(key),
             Some(Overlay::ToolPlans) => return self.tool_plan_key(key),
             Some(Overlay::EvolutionPreview | Overlay::Journey) => {

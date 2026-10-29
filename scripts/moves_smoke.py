@@ -40,7 +40,7 @@ JSON_COLUMNS = {"proposal", "record", "steps", "pins", "criteria", "partner_draf
                 "workflows", "navigation"}
 CASES = {
     "menu": "MV02A: empty menu/actions, exact Request/caret/focus restoration, no execution",
-    "run-storage": "MV01A: approved run, restart/form/partner isolation, four slots and fifth refusal",
+    "run-storage": "MV01A/XC07: approved run, restart/form/partner isolation, four quick moves and 32 library capacity",
     "pins": "MV01B/MV02B: three selectors, excluded/missing refusal, actual per-pin review",
     "run-use": "MV02B/MV07: one Enter normal review, denial, real argv/cwd, cancellation, journal counts/restart",
     "repeat-runs": "MV03A/MV03B: exact three sources, argument separation, idle offers, Not-now +3, Never/restart, consent",
@@ -417,6 +417,7 @@ class Journey:
                    "current Request and caret committed before connection setup")
 
     def connect(self):
+        before = len(self.peer.snapshot("POST"))
         self.prepare_connection()
         self.session.command("connect compatible")
         wait_for(self.session, "API key:")
@@ -430,7 +431,7 @@ class Journey:
         wait_for(self.session, "1 matches")
         self.session.send(MODEL + "\r")
         self.workspace()
-        assert not self.peer.snapshot("POST"), "connection setup dispatched inference"
+        assert len(self.peer.snapshot("POST")) == before, "connection setup dispatched inference"
 
     def write_request(self, text):
         footer = self.workspace()
@@ -624,6 +625,9 @@ class Journey:
         self.workspace()
 
     def reminder_case(self):
+        for number in range(4, 32):
+            self.commit_name("Library entry %02d" % number)
+            self.workspace()
         before = self.moves()
         self.begin_teach("Fifth candidate")
         self.session.send("\r")
@@ -748,7 +752,7 @@ class Journey:
                                for r in self.state()["move_candidates"]), "explicit unused-routine Never")
         self.workspace()
         assert self.moves(partner=2)[0]["proposal"]["provenance"]["teacher_name"] == "Bolt", "teacher snapshot changed with nickname"
-        for number in range(3):
+        for number in range(31):
             self.menu(0, details=True)
             self.session.send("t\r")
             wait_for(self.session, "Move name")
@@ -786,7 +790,7 @@ class Journey:
         self.review_local()
         self.session.send("y")
         self.until(lambda: any(r["proposal"]["name"] == "Target fifth" for r in self.moves(partner=2)), "full target replacement acknowledged")
-        assert self.moves(partner=1) == bolt and len(self.moves(partner=2)) == 4
+        assert self.moves(partner=1) == bolt and len(self.moves(partner=2)) == 32
         self.move_ready()
         self.workspace()
 

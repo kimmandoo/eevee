@@ -1,6 +1,34 @@
 use super::*;
 
 impl State {
+    /// A child borrows the parent's durable lease but owns separate receipt/usage identity.
+    pub(in crate::app) fn prepare_delegated(&mut self, input: Box<crate::providers::Input>) {
+        let child = input.delegation.clone().expect("delegated input");
+        let parent = input.work.as_ref().expect("borrowed parent work");
+        self.agent = input.agent;
+        self.operation = Operation::Plan;
+        self.native_request_partner = self.agent.is_direct().then_some(input.task.lead_partner);
+        self.task = input.task.id;
+        self.revision = input.task.revision;
+        self.front = Some(parent.owner.clone());
+        self.selection = input.selection.clone();
+        self.request_selection = input.selection.clone();
+        self.request_effort = input.effort_resolution.clone();
+        self.submitted_request = child.instruction.as_str().into();
+        self.delegation = Some(child.clone());
+        self.work = Some(store::WorkClaim {
+            request_id: child.child_request_id,
+            task_id: parent.task_id,
+            owner: parent.owner.clone(),
+            writing: false,
+        });
+        self.receipt_claim = self.work.clone();
+        self.work_acquired = true;
+        self.committed_input = Some(Box::new(input.task.clone()));
+        self.bind_slot(input.task.id);
+        self.awaiting_preview = true;
+        self.pending = Some(Request::Preview(input));
+    }
     /// Questions retain their existing explicit-answer presentation contract.
     pub fn required_permission_review(&self) -> bool {
         self.preview
@@ -175,7 +203,13 @@ impl State {
             && self.work_pending.is_none()
             && let Some(claim) = self.work.clone()
         {
-            self.work_pending = Some(store::WorkRequest::Release(claim));
+            if self.delegation.is_some() {
+                self.work = None;
+                self.work_acquired = false;
+                self.committed_input = None;
+            } else {
+                self.work_pending = Some(store::WorkRequest::Release(claim));
+            }
         }
     }
 

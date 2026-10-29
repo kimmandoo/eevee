@@ -292,6 +292,14 @@ impl State {
         };
         self.pending = Some(Request::Preview(Box::new(Input {
             native_transport: self.native_transport,
+            behavior_profile: if inspect_models || inspect_sessions {
+                None
+            } else {
+                self.behavior_profile.clone()
+            },
+            mcp: Vec::new(),
+            delegation_enabled: false,
+            delegation: None,
             prior_plan: if !inspect_models
                 && !inspect_sessions
                 && self.operation == Operation::Implement
@@ -648,6 +656,20 @@ impl State {
     pub(in crate::app) fn auto_accept(&mut self) -> bool {
         if !self.auto_approve || self.pending.is_some() || self.cancelling {
             return false;
+        }
+        if self
+            .request
+            .as_ref()
+            .is_some_and(|request| request.request_id.get("eevee-native-delegate").is_some())
+        {
+            return false; // Every delegated round needs its exact instruction review.
+        }
+        if self
+            .request
+            .as_ref()
+            .is_some_and(|request| request.request_id.get("eevee-mcp").is_some())
+        {
+            return false; // Unmanaged calls require a fresh review or an explicit MCP rule.
         }
         let (answer, subject) = match self.request.as_ref().map(|request| &request.kind) {
             Some(PromptKind::Permission { options, file, .. }) if options.len() >= 2 => (

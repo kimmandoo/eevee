@@ -112,6 +112,7 @@ fn taught(
             form: 2,
             operation: crate::store::moves::Operation::Teach {
                 proposal: Proposal {
+                    extra: Default::default(),
                     partner,
                     form: 2,
                     name: name.into(),
@@ -557,6 +558,7 @@ fn quota_rolls_back_teach_and_visibility_in_the_same_writer_transaction() {
     use crate::workspace::moves::{Proposal, Provenance, Scope, Steps};
     let operation = crate::store::moves::Operation::Teach {
         proposal: Proposal {
+            extra: Default::default(),
             partner: 1,
             form: 2,
             name: "No partial learning".into(),

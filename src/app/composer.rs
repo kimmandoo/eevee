@@ -82,6 +82,9 @@ impl App {
             || self.partner_busy(self.lead().id)
             || self.partner_approval_pending(self.lead().id)
         {
+            if !self.partner_approval_pending(self.lead().id) && self.offer_steer_choice() {
+                return true;
+            }
             self.notice = "Finish or cancel this partner's request before sending another. Your draft is kept.".into();
             return true;
         }

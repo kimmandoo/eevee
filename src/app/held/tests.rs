@@ -152,6 +152,10 @@ fn input(app: &App) -> providers::Input {
     task.approved_memories = app.memory.selected_snapshot().unwrap();
     providers::Input {
         native_transport: providers::NativeTransport::Auto,
+        behavior_profile: None,
+        mcp: Vec::new(),
+        delegation_enabled: false,
+        delegation: None,
         effort_resolution: None,
         public_context: None,
         tool_catalog: None,

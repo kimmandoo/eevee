@@ -83,6 +83,8 @@ impl Popup {
                 | "optimize"
                 | "compact"
                 | "tools"
+                | "mcp"
+                | "form-profile"
                 | "tool-setup"
                 | "tool-plan"
                 | "todo"
@@ -624,6 +626,18 @@ impl App {
             ("prices", "Reload user prices (usage.toml); estimates only"),
             ("rules", "Project approval rules: list, disable, revoke"),
             (
+                "mcp",
+                "Review unmanaged stdio MCP registration, connection and selected tools",
+            ),
+            (
+                "form-profile",
+                "Inspect, edit or disable neutral form behavior profiles",
+            ),
+            (
+                "queue-cancel",
+                "Return the queued next Send to the composer",
+            ),
+            (
                 "rule-allow",
                 "Allow requests like the one under review (N = keep N args, launch = until exit)",
             ),
@@ -769,9 +783,10 @@ impl App {
                 "formation-save",
                 "Review saving current forms and request drafts as a new formation file",
             ),
+            ("move", "This partner's four quick moves; nothing executed"),
             (
-                "move",
-                "This partner's four learned moves; nothing executed",
+                "move-library",
+                "All learned moves (up to 32); Enter opens ordinary use review",
             ),
             ("teach-move", "Review teaching the current approved action"),
             (
@@ -1481,6 +1496,13 @@ impl App {
             Some((name, argument)) => (name, argument.trim()),
             None => (query, ""),
         };
+        if name == "mcp" {
+            return self.mcp_command(argument);
+        }
+        if name == "form-profile" {
+            self.command_popup = None;
+            return self.form_profile_command(argument);
+        }
         if self.progress_command(name, argument) {
             return true;
         }
@@ -1593,6 +1615,12 @@ impl App {
             return true;
         }
         self.command_popup = None;
+        if name == "mcp" {
+            return self.mcp_command("");
+        }
+        if name == "form-profile" {
+            return self.form_profile_command("");
+        }
         if self.progress_command(name, "") {
             return true;
         }
@@ -1651,6 +1679,7 @@ impl App {
         if matches!(
             name,
             "move"
+                | "move-library"
                 | "teach-move"
                 | "move-import"
                 | "move-export"
@@ -1699,6 +1728,9 @@ impl App {
         }
         if self.usage_command(name, None) || self.rules_command(name, "") {
             return true;
+        }
+        if name == "queue-cancel" {
+            return self.queue_cancel();
         }
         match name {
             "bag" | "berry" => {

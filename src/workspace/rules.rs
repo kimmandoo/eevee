@@ -47,6 +47,8 @@ pub enum Kind {
         /// Project-relative globs: `*` within one segment, `**` across segments.
         paths: Vec<String>,
     },
+    /// Explicit user-created unmanaged MCP server/tool boundary; any arguments.
+    Mcp { server: String, tool: String },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -116,6 +118,9 @@ impl Rule {
                     paths.join("`, `")
                 )
             }
+            Kind::Mcp { server, tool } => format!(
+                "{verb} UNMANAGED MCP `{server} / {tool}` with any JSON arguments in this project {until}; server effects are not sandboxed"
+            ),
         }
     }
 }
@@ -158,6 +163,10 @@ pub enum Call<'a> {
     Write {
         op: WriteOp,
         path: &'a str,
+    },
+    Mcp {
+        server: &'a str,
+        tool: &'a str,
     },
 }
 
@@ -232,6 +241,13 @@ impl Rule {
             (Kind::Write { ops, paths }, Call::Write { op, path }) => {
                 relative_ok(path) && ops.contains(op) && paths.iter().any(|glob_| glob(glob_, path))
             }
+            (
+                Kind::Mcp { server, tool },
+                Call::Mcp {
+                    server: called_server,
+                    tool: called_tool,
+                },
+            ) => server == called_server && tool == called_tool,
             _ => false,
         }
     }
@@ -248,6 +264,7 @@ pub fn decide<'r>(rules: &'r [Rule], project: &str, call: &Call<'_>) -> Option<&
             argv_prefix, cwd, ..
         } => argv_prefix.len() * 4 + cwd.len(),
         Kind::Write { paths, .. } => paths.iter().map(String::len).max().unwrap_or(0),
+        Kind::Mcp { server, tool } => server.len() + tool.len(),
     })
 }
 
@@ -371,6 +388,17 @@ fn validate(rules: &[Rule]) -> Result<(), String> {
                     })
                 {
                     return Err(format!("invalid write rule #{}", rule.id));
+                }
+            }
+            Kind::Mcp { server, tool } => {
+                if [server, tool].iter().any(|text| {
+                    text.is_empty()
+                        || text.len() > 32
+                        || !text
+                            .bytes()
+                            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+                }) {
+                    return Err(format!("invalid MCP rule #{}", rule.id));
                 }
             }
         }
@@ -514,5 +542,44 @@ mod tests {
         bad.id = 9;
         assert!(validate(&[bad]).is_err());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+    #[test]
+    fn mcp_rules_are_exact_project_server_tool_and_deny_wins() {
+        let mut allow = command(&["test"], "", Effect::Allow);
+        allow.kind = Kind::Mcp {
+            server: "fixture".into(),
+            tool: "echo".into(),
+        };
+        let call = Call::Mcp {
+            server: "fixture",
+            tool: "echo",
+        };
+        assert!(allow.matches(&allow.project, &call));
+        assert!(!allow.matches("another-project", &call));
+        assert!(!allow.matches(
+            &allow.project,
+            &Call::Mcp {
+                server: "fixture",
+                tool: "write_note"
+            }
+        ));
+        assert!(!allow.matches(
+            &allow.project,
+            &Call::Mcp {
+                server: "fixture2",
+                tool: "echo"
+            }
+        ));
+        let mut deny = allow.clone();
+        deny.id = 2;
+        deny.effect = Effect::Deny;
+        let project = allow.project.clone();
+        let rules = vec![allow, deny];
+        assert_eq!(
+            decide(&rules, &project, &call).unwrap().effect,
+            Effect::Deny
+        );
+        assert!(rules[0].sentence().contains("UNMANAGED"));
+        assert!(rules[0].sentence().contains("any JSON arguments"));
     }
 }

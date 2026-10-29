@@ -66,10 +66,11 @@ Rules for every V task: keep existing safety contracts (explicit review, no impl
 
 ### VA09 — Moves cannot take parameters
 
-- [ ] Repetition grouping only matches case/whitespace/punctuation variants because request moves have no slots. "Fix the bug in src/a.rs" and "… src/b.rs" never become one move.
+- [x] Repetition grouping only matches case/whitespace/punctuation variants because request moves have no slots. "Fix the bug in src/a.rs" and "… src/b.rs" never become one move.
 - **Priority:** 2. **Builds on:** GL01, MV09.
 - **Change:** Add optional typed slots (path, quoted text) to request moves with explicit fill-in at use time; extend grouping to slot-equal instructions. Portable TM schema needs a version bump.
 - **Accept:** Three path-varied Sends propose one parameterized move; using it asks for the slot value; old TMs still import.
+- **Completed (2026-10-29, XC07):** typed exact-span/default parameters, guarded similarity, observed-variant teaching review, JSON-array fill and full substituted-instruction review before ordinary outgoing consent. TM2 retained parameters; literal TM1 imported unchanged. Both terminal sizes passed real three-variant learning, neutral cancellation, exact other-draft/caret retention, actual substituted wire, library32/replacement/four quick slots and explicit no-replay reconnection after restart in `target/xc-038-final-c-20261029/moves`.
 
 ### VA10 — Move proposal coverage check uses a possibly stale inventory
 

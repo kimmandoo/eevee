@@ -347,7 +347,7 @@ class CreationJourney(SurfaceJourney):
         body = self.peer.snapshot('POST')[before]['body']
         expected = {'eevee_list_files', 'eevee_read_file', 'eevee_structural_search',
                     'eevee_artifact_list', 'eevee_artifact_read', 'eevee_artifact_search',
-                    'eevee_artifact_locations', 'todo'}
+                    'eevee_artifact_locations', 'todo', 'eevee_delegate'}
         if writing:
             expected |= {'eevee_write_file', 'eevee_edit_file', 'eevee_delete_file',
                          'eevee_rename_file', 'eevee_run_command'}

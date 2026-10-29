@@ -21,6 +21,7 @@ pub struct State {
     cursor: usize,
     plan: Option<Plan>,
     candidate: Option<String>,
+    pub(super) profile_form: Option<usize>,
 }
 
 impl State {
@@ -36,12 +37,21 @@ impl State {
         self.waiting = false;
         self.plan = None;
         self.candidate = None;
+        self.profile_form = None;
     }
     fn show(&mut self, scope: String) {
         self.invalidate();
         self.scope = scope;
         self.scope_rows = 0;
         self.scope_width = 0;
+    }
+    pub(super) fn show_profile(&mut self, scope: String) {
+        self.leave();
+        self.show(scope);
+    }
+    pub(super) fn set_profile_original(&mut self, original: String) {
+        self.original = original;
+        self.cursor = 0;
     }
     pub fn actionable(&self) -> bool {
         self.plan.is_some() || self.candidate.is_some()
@@ -64,8 +74,10 @@ impl App {
         let (text, cursor) = self.external_draft();
         state.owner == (self.task_id, self.lead.id)
             && state.revision == self.revision
-            && state.original == text
-            && state.cursor == cursor
+            && match state.profile_form {
+                Some(form) => form == self.form(),
+                None => state.original == text && state.cursor == cursor,
+            }
     }
 
     pub(super) fn external_editor_command(&mut self) -> bool {
@@ -112,8 +124,13 @@ impl App {
         }
         match Plan::prepare() {
             Ok(plan) => {
+                let target = if self.external_editor.profile_form.is_some() {
+                    "Form behavior profile"
+                } else {
+                    "Request"
+                };
                 let scope = format!(
-                    "External Request editor — launch review\nRequest: {} UTF-8 bytes; only this exact owning draft.\n\n{}",
+                    "External {target} editor — launch review\n{target}: {} UTF-8 bytes; only this exact owner.\n\n{}",
                     self.external_editor.original.len(),
                     plan.review()
                 );
@@ -160,7 +177,12 @@ impl App {
                 // JSON escaping exposes every byte distinction: CRLF, trailing newlines,
                 // tabs and Unicode remain unchanged in the actual candidate.
                 let exact = serde_json::to_string(&candidate).expect("String serialization");
-                self.external_editor.show(format!("External Request editor — returned candidate\n{} UTF-8 bytes. Replace only this owning draft; nothing sends or selects context.\n\nExact JSON string (\\r\\n = CRLF; \\n = LF; quotes are not imported):\n{}\n\nOriginal: {} UTF-8 bytes, caret {}. Esc/n keeps original text and caret. Temporary file removed; editor-owned copies may remain.", candidate.len(), exact, self.external_editor.original.len(), self.external_editor.cursor));
+                let target = if self.external_editor.profile_form.is_some() {
+                    "Form behavior profile"
+                } else {
+                    "Request"
+                };
+                self.external_editor.show(format!("External {target} editor — returned candidate\n{} UTF-8 bytes. Replace only this owning {target}; Request draft/caret stay unchanged for profile edits. Nothing sends or grants permission.\n\nExact JSON string (\\r\\n = CRLF; \\n = LF; quotes are not imported):\n{}\n\nOriginal: {} UTF-8 bytes, caret {}. Esc/n keeps original text and caret. Temporary file removed; editor-owned copies may remain.", candidate.len(), exact, self.external_editor.original.len(), self.external_editor.cursor));
                 self.external_editor.candidate = Some(candidate);
             }
             Err(error) => self.external_editor.show(format!(
@@ -223,6 +245,17 @@ impl App {
                     && (key.code == KeyCode::Char('y') || self.external_editor.choice) =>
             {
                 if let Some(candidate) = self.external_editor.candidate.take() {
+                    if let Some(form) = self.external_editor.profile_form {
+                        match self.save_profile_candidate(form, &candidate) {
+                            Ok(()) => {
+                                self.external_editor.leave();
+                                self.close_overlay();
+                                self.notice = "Neutral profile saved; next Send uses the reviewed bytes. Request draft and caret kept; nothing sent or granted.".into();
+                            }
+                            Err(error) => self.external_editor.show(error),
+                        }
+                        return true;
+                    }
                     self.drafts
                         .retain(|draft| draft.field != store::EditorField::Request);
                     let cursor = candidate.len();

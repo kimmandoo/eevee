@@ -2,6 +2,14 @@
 
 ## 2026-10-29
 
+- feat(delegation): added reviewed lead-only concurrent read-only helpers through existing provider workers, bounded ordered results, executor-enforced source scope, linked prepared/submitted receipts, separate usage, work rows and parent-owned cancellation.
+- feat(mcp): added separately reviewed project stdio registration/launch, explicit frozen unmanaged tool selection, reviewed or scoped-rule calls, bounded untrusted results, owned server-tree cancellation and persistent unknown-effect refusal of automatic grants.
+- feat(profiles): added default-enabled visible neutral form behavior profiles, exact instruction-byte receipt accounting, reviewed external editing, project/current-form/one-Send controls, disabled recipe imports and explicit portable handoff selection without classifier or permission changes.
+- feat(moves): grouped deterministic typed variants into reviewed parameterized moves, added explicit slot fill/substituted-text review, expanded the library to32 with four assigned quick moves and retained literal TM1 imports alongside parameter-bearing TM2.
+- fix(steering): bound choice keys and queued Sends to task/partner/generation, retained original whitespace/caret on return, preserved newer drafts and labelled boundary append without claiming unproven model delivery.
+- fix(contracts): preserved selected-source receipt/reference/comparison decoding around profile policy, completed structured delegated result envelopes, froze reviewed parameter substitutions through ordinary move preparation and kept cancelled native helpers' transport uncertainty separate from local effects.
+- chore(release): advanced the package version to0.1.38 and added the contract capability journeys to all five native qualification rows.
+- feat(providers): let Enter during the lead's native run steer it (appended at the next tool-result boundary and recorded as `Steer #N` in the receipt, or returned to the composer if never sent) or queue the next Send, which is prepared only after a completed run; added `/queue-cancel`.
 - feat(approvals): added project approval rules: `/rule-allow` or `/rule-deny` on the lead's direct command (pinned executable, token-exact argv prefix, cwd prefix) or file create/edit (exact path or glob) answers later matching requests with an `Allowed/Denied by rule #N` notice, `/rules` lists, disables and revokes them, and deletes, renames, shells, selected commits, other partners and unknown effects always stay reviewed.
 - feat(store): kept task-workflow fields from newer writers and wrote them back unchanged unless declared critical in `workflows.critical` (`/todo-eager off` marks `progress.eager_off`), and saved a `VACUUM INTO` copy of an older-schema database in `<data dir>-backups/` (newest three) before migrating it (skipped only while a hot journal awaits recovery).
 - feat(usage): added a status-row meter of this launch's provider-reported tokens with a labelled local cost estimate (`Launch 48.2k tok · est. $0.31`, live `Req` count while running), a `/usage` panel with request/task/launch, per-partner and per-model breakdowns, `/usage-meter`, a non-blocking `/usage-budget` notice, user price rows in `<data dir>/usage.toml` reloaded by `/prices`, and real counters on the party board instead of a fixed "unknown".
@@ -289,6 +297,17 @@
 - docs(release): published v0.1.19 from source `c4ce4a2` after exact-source Check/all-five-native qualification and immutable promotion, retaining Schema 16 and complete SDK bridge 8.
 - test(terminal): acknowledged the new one-time evolution receipt before checking preserved goal/edit/discard behavior in the actual compact installed runtime without changing the published executable.
 - docs(verification): verified all public assets, sixteen bilingual automatic-review/file-progress journeys/64 groups, 24 file journeys/126 groups, evolution popups and preserved typing, scrolling/tooltips, native 176 groups, cooperation 24, six genuine schema upgrade/refusal/resume cases and 23 installation groups/all 34 installed terminal scenarios.
+
+## 0.1.38
+
+- feat(delegation): added up to three bounded concurrent read-only investigations after one explicit round review, with ordered tool results, separate frozen/submitted receipts and usage, visible work and parent cancellation. Helpers used native source tools only; no writer, command, MCP or recursive delegation authority was inherited.
+- feat(mcp): added user-registered unmanaged stdio servers with separate registration and launch reviews, explicit selected schemas, exact call review or user-created server/tool rules,64-KiB bounded untrusted results, crash continuation and owned-tree cancellation. Unknown effects retained a conservative persistent manual-review floor.
+- feat(profiles): enabled neutral editable form profiles, displayed exact instruction bytes, froze them into native/external request and review packets, and exposed `/form-profile off` plus per-form/one-Send controls. Recipe imports stayed disabled until reviewed; profiles entered handoffs only by explicit selection. No paired-benchmark quality improvement was claimed.
+- feat(moves): added deterministic typed request parameters, exact observed-variant teaching review, explicit fill/substituted-text review, a32-entry library/four quick slots and portable parameter-bearing TM2 while preserving literal TM1 imports.
+- feat(providers): completed explicit mid-run steering and owner-bound queued Send, bounded safe native HTTP retry (`--retry off` disabled it), and truthful launch/task/request token and labelled local cost estimates.
+- feat(approvals): added explicit project allow/deny rules for pinned direct commands and create/edit paths, with immediate revocation; delete/rename, Shell, selected commits, protected/foreign paths and unknown effects remained freshly reviewed.
+- feat(storage): preserved ignorable task-workflow/receipt metadata and refused unknown critical fields; created up to three consistent database copies before major migration without pretending they were full evidence snapshots.
+- docs(compatibility): retained SQL20, complete SDK bridge11 and formation2. New profile receipt metadata, delegated prepared/submitted receipt state, expanded move metadata and profile-bearing recipes could make older readers refuse. Readers through0.1.37 did not gain forward compatibility retroactively. A complete `ev snapshot` was required before upgrade/rollback; no stored grants, provider sessions or automatic replay were restored.
 
 ## 0.1.37
 

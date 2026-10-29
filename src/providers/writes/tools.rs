@@ -23,6 +23,8 @@ pub(crate) enum ToolKind {
     ArtifactLocations,
     RunCommand,
     Todo,
+    Mcp,
+    Delegate,
 }
 impl ToolKind {
     pub(crate) fn parse(name: &str) -> Result<Self, String> {
@@ -40,6 +42,8 @@ impl ToolKind {
             "eevee_artifact_locations" => Ok(Self::ArtifactLocations),
             "eevee_run_command" => Ok(Self::RunCommand),
             "todo" => Ok(Self::Todo),
+            "eevee_mcp" => Ok(Self::Mcp),
+            "eevee_delegate" => Ok(Self::Delegate),
             _ => Err("Unsupported file tool name".into()),
         }
     }
@@ -58,6 +62,8 @@ impl ToolKind {
             Self::ArtifactLocations => "eevee_artifact_locations",
             Self::RunCommand => "eevee_run_command",
             Self::Todo => "todo",
+            Self::Mcp => "eevee_mcp",
+            Self::Delegate => "eevee_delegate",
         }
     }
 }
@@ -138,6 +144,14 @@ pub(crate) enum FileTool {
     },
     #[serde(rename = "todo")]
     Todo { input: Value },
+    #[serde(rename = "eevee_mcp")]
+    Mcp { name: String, arguments: Value },
+    #[serde(rename = "eevee_delegate")]
+    Delegate {
+        role: String,
+        instruction: String,
+        paths: Vec<PathBuf>,
+    },
     #[serde(skip)]
     Invalid { kind: ToolKind },
 }
@@ -153,6 +167,27 @@ impl FileTool {
             .map_err(|_| {
                 "File tool arguments must exactly match the advertised schema".to_owned()
             })?;
+        if let Self::Delegate {
+            role,
+            instruction,
+            paths,
+        } = &tool
+            && (!matches!(role.as_str(), "explore" | "review")
+                || instruction.trim().is_empty()
+                || instruction.len() > 4096
+                || instruction
+                    .chars()
+                    .any(|c| c.is_control() && c != '\n' && c != '\t')
+                || paths.len() > 32
+                || paths.iter().any(|path| {
+                    path.as_os_str().len() > 4096
+                        || path
+                            .components()
+                            .any(|part| !matches!(part, std::path::Component::Normal(_)))
+                }))
+        {
+            return Err("Delegation requires explore/review, bounded instructions and literal project-relative paths".into());
+        }
         if tool.path().as_os_str().len() > 4096
             || tool
                 .mutation_paths()
@@ -179,6 +214,8 @@ impl FileTool {
             Self::ArtifactLocations { .. } => ToolKind::ArtifactLocations,
             Self::RunCommand { .. } => ToolKind::RunCommand,
             Self::Todo { .. } => ToolKind::Todo,
+            Self::Mcp { .. } => ToolKind::Mcp,
+            Self::Delegate { .. } => ToolKind::Delegate,
             Self::Invalid { kind } => *kind,
         }
     }
@@ -193,6 +230,8 @@ impl FileTool {
             Self::Invalid { .. }
             | Self::RunCommand { .. }
             | Self::Todo { .. }
+            | Self::Mcp { .. }
+            | Self::Delegate { .. }
             | Self::ArtifactList { .. }
             | Self::ArtifactRead { .. }
             | Self::ArtifactSearch { .. }

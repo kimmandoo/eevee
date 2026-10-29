@@ -8,10 +8,12 @@ pub mod catalog;
 pub mod claude;
 pub mod codex;
 pub(crate) mod commands;
+pub mod delegation;
 pub mod diagnostics;
 pub mod direct;
 pub mod effort;
 pub(crate) mod file_preview;
+pub mod mcp;
 pub(crate) mod writes;
 
 use serde::{Deserialize, Serialize};
@@ -263,6 +265,12 @@ pub enum NativeWire {
 pub struct Input {
     pub task: crate::store::Snapshot,
     pub native_transport: NativeTransport,
+    /// Frozen lead-only native delegation availability.
+    pub delegation_enabled: bool,
+    /// Child ownership and read scope; never inherited authority.
+    pub delegation: Option<delegation::Context>,
+    /// Neutral visible behavior preference, frozen for this Send.
+    pub behavior_profile: Option<crate::workspace::form_profiles::Packet>,
     /// Durable ownership of this immutable submitted request; never a tool permission.
     pub work: Option<crate::store::WorkClaim>,
     /// Receipt-only preparation: no work claim and never eligible for Run.
@@ -276,6 +284,8 @@ pub struct Input {
     pub context_plan: Option<crate::workspace::context::optimizer::Plan>,
     /// Explicit selected exact schemas from reviewed local setup; never a grant.
     pub tool_catalog: Option<catalog::Selection>,
+    /// Explicit selected unmanaged MCP tools, frozen to this connected session.
+    pub mcp: Vec<mcp::SelectedTool>,
     pub report: Option<Arc<crate::workspace::repo::Report>>,
     pub resume: Option<String>,
     pub agent: Agent,
@@ -438,6 +448,9 @@ impl Input {
     }
 
     pub fn instruction(&self) -> &str {
+        if let Some(child) = &self.delegation {
+            return &child.instruction;
+        }
         self.instruction_override.as_ref().map_or_else(
             || self.task.request_text(),
             |replacement| replacement.replacement.as_str(),
@@ -445,6 +458,9 @@ impl Input {
     }
 
     pub fn native_instruction(&self) -> &str {
+        if let Some(child) = &self.delegation {
+            return &child.instruction;
+        }
         if self.instruction_override.is_some() {
             self.instruction()
         } else {
@@ -491,7 +507,10 @@ impl Input {
         self.work.as_ref().map(|work| Event::Dispatched {
             generation,
             task_id: self.task.id,
-            request_id: work.request_id.clone(),
+            request_id: self.delegation.as_ref().map_or_else(
+                || work.request_id.clone(),
+                |child| child.child_request_id.clone(),
+            ),
         })
     }
 
@@ -554,6 +573,35 @@ impl Input {
     }
 
     fn validate_work(&self) -> Result<(), String> {
+        if let Some(child) = &self.delegation {
+            child.validate()?;
+            if self.delegation_enabled
+                || !self.agent.is_direct()
+                || self.operation != Operation::Plan
+                || self.local_only
+                || self
+                    .work
+                    .as_ref()
+                    .is_none_or(|claim| claim.request_id != child.parent_request_id)
+                || child.child_request_id.is_empty()
+                || child.child_request_id.len() > 128
+                || !child
+                    .child_request_id
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b':'))
+                || child.child_request_id == child.parent_request_id
+                || self.conversation.is_some()
+                || self.prior_plan.is_some()
+                || self.public_context.is_some()
+                || self.resume.is_some()
+                || self.instruction_override.is_some()
+                || !self.edit_paths.is_empty()
+                || self.handoff.is_some()
+                || self.screenshot.is_some()
+            {
+                return Err("Delegated child must borrow its exact parent lease without conversation, recursion or effect authority".into());
+            }
+        }
         if self.local_only && self.work.is_some() {
             return Err("Local context inspection cannot carry a work claim".into());
         }
@@ -570,7 +618,7 @@ impl Input {
         {
             return Err("Work claim task or immutable request owner does not match".into());
         }
-        if claim.writing != writing_required(self.operation) {
+        if self.delegation.is_none() && claim.writing != writing_required(self.operation) {
             return Err("Work claim writing lease does not match the provider operation".into());
         }
         Ok(())
@@ -603,6 +651,27 @@ impl Input {
         self.validate_work()?;
         self.validate_instruction_override()?;
         self.validate_screenshot()?;
+        if self.mcp.len() > 16
+            || (!self.mcp.is_empty()
+                && (!self.agent.is_direct() || self.inspect_models || self.inspect_sessions))
+        {
+            return Err(
+                "MCP selections require a native content request and at most 16 exact tools".into(),
+            );
+        }
+        let mut mcp_names = std::collections::BTreeSet::new();
+        for tool in &self.mcp {
+            if !mcp_names.insert(tool.wire_name()) {
+                return Err("Duplicate frozen MCP selection".into());
+            }
+            tool.validate(&self.task.project, self.operation == Operation::Implement)?;
+        }
+        if let Some(profile) = &self.behavior_profile {
+            profile.validate()?;
+            if self.inspect_models || self.inspect_sessions {
+                return Err("Metadata inspection cannot carry a behavior profile".into());
+            }
+        }
         if self.selection.effort.as_deref() == Some("auto") {
             return Err("Automatic effort must be frozen at an explicit send boundary before provider preparation".into());
         }
@@ -740,6 +809,16 @@ impl Input {
             exclusions,
             self.work.as_ref(),
         )?;
+        let mut value: Value = serde_json::from_str(&text).map_err(|_| "Invalid review context")?;
+        value["behavior_profile"] = serde_json::to_value(&self.behavior_profile)
+            .map_err(|_| "Cannot encode behavior profile")?;
+        value["behavior_profile_policy"] = serde_json::to_value(
+            self.behavior_profile
+                .as_ref()
+                .map(|_| crate::workspace::form_profiles::POLICY),
+        )
+        .map_err(|_| "Cannot encode behavior profile policy")?;
+        let text = serde_json::to_string(&value).map_err(|_| "Cannot encode review context")?;
         if text.len() > 1024 * 1024
             || crate::workspace::privacy::redact(&text) != text
             || text.chars().any(|ch| {
@@ -765,6 +844,12 @@ pub enum Request {
     },
     Cancel {
         generation: u64,
+    },
+    /// Visible user steering (XC03): native routes append it at the next
+    /// tool-result boundary of this exact generation, or never.
+    Steer {
+        generation: u64,
+        text: String,
     },
 }
 
@@ -950,6 +1035,21 @@ pub struct Prompt {
 #[derive(Clone, Debug)]
 pub enum Event {
     Preview(Preview),
+    /// A non-reserving admission query; full capacity refuses without an approval wait.
+    DelegateCapacity {
+        generation: u64,
+        task_id: i64,
+        reply: std::sync::mpsc::SyncSender<usize>,
+    },
+    /// Reviewed native round; child lifecycle and durable evidence belong to the app.
+    Delegate {
+        generation: u64,
+        task_id: i64,
+        round: usize,
+        calls: Vec<delegation::Call>,
+        reply: std::sync::mpsc::SyncSender<Vec<Value>>,
+        cancelled: Arc<std::sync::atomic::AtomicBool>,
+    },
     /// Provider progress claims; never execution evidence or a continuation.
     Progress {
         generation: u64,
@@ -1010,6 +1110,13 @@ pub enum Event {
         generation: u64,
         task_id: i64,
         message: String,
+    },
+    /// User steering texts actually appended to the continuation after `round`.
+    Steered {
+        generation: u64,
+        task_id: i64,
+        round: usize,
+        texts: Vec<String>,
     },
     Inspection {
         generation: u64,
@@ -1228,6 +1335,10 @@ mod tests {
     fn review(agent: Agent) -> Input {
         Input {
             native_transport: NativeTransport::Auto,
+            behavior_profile: None,
+            mcp: Vec::new(),
+            delegation_enabled: false,
+            delegation: None,
             screenshot: None,
             public_context: None,
             tool_catalog: None,

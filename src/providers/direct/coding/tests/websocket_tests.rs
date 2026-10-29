@@ -979,6 +979,7 @@ fn native_websocket_event_queue_overflow_retires_the_actual_consumer_without_con
     let cancelled = AtomicU64::new(0);
     let control = Control {
         wire_alive: None,
+        steering: None,
         stopped: &stopped,
         cancelled: &cancelled,
         generation: 7,
@@ -1270,6 +1271,7 @@ fn native_websocket_inflight_cancel_retires_connection_without_replay_or_public_
     let stopped = AtomicBool::new(false);
     let control = Control {
         wire_alive: None,
+        steering: None,
         stopped: &stopped,
         cancelled: &cancelled,
         generation: 7,
@@ -1379,5 +1381,68 @@ fn native_websocket_public_output_limit_spans_tool_rounds_without_truncating_int
             .any(|event| matches!(event, Event::LocalEffectsUnknown { .. }))
     );
     no_public_completion(&events);
+    assert_eq!(server.join().unwrap().packets.len(), 2);
+}
+
+#[test]
+fn delegated_child_websocket_refuses_write_and_continues_on_its_owned_response_chain() {
+    let fixture = fixture(&[]);
+    let (url, server) = websocket_peer(|socket| {
+        let first = packet(socket);
+        let initial: Value = serde_json::from_str(&first).unwrap();
+        assert!(
+            initial["tools"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|tool| matches!(
+                    tool["name"].as_str(),
+                    Some("eevee_list_files" | "eevee_read_file" | "eevee_structural_search")
+                ))
+        );
+        round(
+            socket,
+            "child-first",
+            &[(
+                "forbidden-child-write",
+                "child-must-not-exist.txt",
+                "not authorized",
+            )],
+            "",
+        );
+        let second = packet(socket);
+        let continuation: Value = serde_json::from_str(&second).unwrap();
+        only_output(
+            &continuation,
+            "child-first",
+            "forbidden-child-write",
+            "refused",
+            "child-must-not-exist.txt",
+        );
+        round(
+            socket,
+            "child-final",
+            &[],
+            "Read-only child refused an effect and completed",
+        );
+        closed_without_replay(socket);
+        vec![first, second]
+    });
+    let (mut run, connection) =
+        super::delegation_tests::child_run(&fixture, Protocol::Responses, &url, &[""]);
+    let ((outcome, message), events) = run_with_answers(&fixture, &mut run, &connection, true);
+    assert_eq!(outcome, Outcome::Completed, "{message}");
+    assert!(
+        !fixture
+            .workspace
+            .project
+            .join("child-must-not-exist.txt")
+            .exists()
+    );
+    assert!(!events.iter().any(|event| matches!(
+        event,
+        Event::Prompt { .. } | Event::RunCommand { .. } | Event::Delegate { .. }
+    )));
+    assert!(events.iter().any(|event| matches!(event, Event::Dispatched { request_id, .. } if request_id == "native-child-fixture")));
     assert_eq!(server.join().unwrap().packets.len(), 2);
 }

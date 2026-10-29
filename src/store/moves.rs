@@ -44,6 +44,12 @@ pub enum Decision {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Operation {
     Load,
+    /// Explicit inventory-only assignment. Never validates or executes steps.
+    AssignQuick {
+        id: i64,
+        revision: u64,
+        slot: u8,
+    },
     ReadPortable {
         path: String,
     },
@@ -288,10 +294,10 @@ fn make_slot(
         .iter()
         .filter(|record| !record.forgotten && Some(record.id) != relearn)
         .count()
-        >= 4
+        >= domain::MAX_LIBRARY
     {
         return Err(
-            "All four move slots are full; choose an exact move to forget or give up learning"
+            "All 32 library moves are full; choose an exact move to forget or give up learning"
                 .into(),
         );
     }
@@ -322,6 +328,62 @@ impl State {
             Operation::Load => {
                 if !task.archived && backfill_runs(&transaction, &self.project, &request)? {
                     enforce_evidence_quota(&transaction, &self.data_dir, self.policy)?;
+                }
+            }
+            Operation::AssignQuick { id, revision, slot } => {
+                if *slot as usize >= domain::QUICK_SLOTS {
+                    return Err("Quick slot must be 1 through 4".into());
+                }
+                let chosen = selected(&visible, *id, *revision)?;
+                if chosen.forgotten {
+                    return Err("Relearn this move before quick assignment".into());
+                }
+                let explicit = visible.iter().any(|record| {
+                    !record.forgotten && record.proposal.extra.0.contains_key("quick_slot")
+                });
+                let active = visible.iter().filter(|record| !record.forgotten);
+                let source_slot = if explicit {
+                    chosen
+                        .proposal
+                        .extra
+                        .0
+                        .get("quick_slot")
+                        .and_then(serde_json::Value::as_u64)
+                } else {
+                    active
+                        .clone()
+                        .position(|record| record.id == *id)
+                        .filter(|index| *index < domain::QUICK_SLOTS)
+                        .map(|index| index as u64)
+                };
+                for (index, record) in active.enumerate() {
+                    let old_slot = if explicit {
+                        record
+                            .proposal
+                            .extra
+                            .0
+                            .get("quick_slot")
+                            .and_then(serde_json::Value::as_u64)
+                    } else {
+                        (index < domain::QUICK_SLOTS).then_some(index as u64)
+                    };
+                    let new_slot = if record.id == *id {
+                        Some(*slot as u64)
+                    } else if old_slot == Some(*slot as u64) {
+                        source_slot
+                    } else {
+                        old_slot
+                    };
+                    let mut proposal = record.proposal.clone();
+                    proposal.extra.0.insert(
+                        "quick_slot".into(),
+                        new_slot
+                            .map(serde_json::Value::from)
+                            .unwrap_or(serde_json::Value::Null),
+                    );
+                    if proposal != record.proposal {
+                        revise(&transaction, record, &proposal, false)?;
+                    }
                 }
             }
             Operation::ReadPortable { path } => {
@@ -482,13 +544,13 @@ fn enforce_slots(connection: &Connection) -> Result<(), String> {
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM moves m WHERE m.forgotten=0 AND
         (SELECT count(*) FROM moves v WHERE v.partner=m.partner AND v.form=m.form
-        AND v.forgotten=0 AND (v.scope='personal' OR v.project=m.project))>4)",
+        AND v.forgotten=0 AND (v.scope='personal' OR v.project=m.project))>32)",
             [],
             |row| row.get(0),
         )
         .map_err(sql)?;
     if full {
-        Err("Four visible move slots would be exceeded in a project; nothing changed".into())
+        Err("32 visible library moves would be exceeded in a project; nothing changed".into())
     } else {
         Ok(())
     }
@@ -593,6 +655,8 @@ fn validate_provenance(
             || source.proposal.steps != proposal.steps
             || source.proposal.provenance.task_id != proposal.provenance.task_id
             || source.proposal.provenance.sources != proposal.provenance.sources
+            || source.proposal.extra.0.get(domain::parameters::KEY)
+                != proposal.extra.0.get(domain::parameters::KEY)
         {
             return Err("Teaching source changed; review the exact copy again".into());
         }
@@ -887,6 +951,7 @@ fn observe(
             Candidate {
                 key: key.clone(),
                 proposal: Proposal {
+                    extra: Default::default(),
                     partner: request.partner,
                     form: request.form,
                     name: domain::suggested_name(request.form, steps, &used),

@@ -961,7 +961,7 @@ fn resolve_with<F: Fn(&str) -> Option<String>>(
         }
     };
     let description = format!(
-        "{}: {:?} at {}; {}; no host CLI required. Submitted input and bounded process-local conversation only. Implement supports workspace filenames optionally restricted by /paths: reviewed create/replace, original-snapshot literal edits, exact irreversible regular-file delete and same-project no-overwrite rename (4 MiB per file). Each complete operation requires one-shot approval. Rust syntax is advisory only. Plan/Review/metadata do not write. No shell, hooks, MCP, hidden source or automatic repair. Launch never refreshes credentials or changes storage. Configuration does not authenticate access/billing.",
+        "{}: {:?} at {}; {}; no host CLI required. Submitted input and bounded process-local conversation only. Implement supports workspace filenames optionally restricted by /paths: reviewed create/replace, original-snapshot literal edits, exact irreversible regular-file delete and same-project no-overwrite rename (4 MiB per file). Operations require review or a user-created rule; deletes/renames always require fresh review. Rust syntax is advisory only. Plan/Review/metadata have no host write tools. No implicit shells, hooks, MCP or hidden source: only explicitly registered/selected unmanaged stdio MCP tools may be offered; server effects are not sandboxed. Launch never refreshes credentials or changes storage. Configuration does not authenticate access/billing.",
         provider.label(),
         settings.protocol,
         settings.base_url,
@@ -1158,7 +1158,7 @@ pub(crate) fn guidance(provider: Agent) -> String {
         _ => "Select a native connection provider.",
     };
     format!(
-        "{guidance} Native Implement supports workspace filename proposals, optionally restricted by /paths, and Eevee-mediated file creation/replacement after exact one-shot approval (4 MiB per file). Plan, Review and metadata remain non-writing. No shell, hooks or MCP. Setup offers session-only storage by default, or explicitly saved private local plaintext (not encrypted or an OS keychain). Configuration and metadata access do not prove inference, account access or billing."
+        "{guidance} Native Implement supports workspace filename proposals, optionally restricted by /paths, and Eevee-mediated file creation/replacement after exact review or a user-created rule (4 MiB per file). Plan, Review and metadata have no host writing tools. No implicit shells, hooks or MCP; only explicitly registered/selected unmanaged stdio MCP tools are offered, with separate call review or an explicit MCP rule. Setup offers session-only storage by default, or explicitly saved private local plaintext (not encrypted or an OS keychain). Configuration and metadata access do not prove inference, account access or billing."
     )
 }
 
@@ -1199,7 +1199,7 @@ pub(crate) fn profile(provider: Agent) -> agent::Profile {
     } else {
         "Credential source: own session/private local configuration when explicitly applied; otherwise the selected API-key environment variable. Configured is not authenticated. Passive discovery does not read credential files.".into()
     };
-    let boundary = "Native HTTP sends the explicit request and bounded process-local conversation. Implement supports workspace filenames within frozen privacy/exclusion boundaries; /paths restricts every source/destination. Eevee mediates create/replace, original-snapshot literal edits, irreversible exact regular-file delete and same-project no-overwrite rename, each after exact one-shot approval (4 MiB per file). Rust parsing is advisory, not compilation or verification. Plan/Review/metadata do not write. No shell, hooks, MCP, hidden files, restart-resumable sessions or automatic repair.";
+    let boundary = "Native HTTP sends the explicit request and bounded process-local conversation. Implement supports workspace filenames within frozen privacy/exclusion boundaries; /paths restricts host source/destination tools. Eevee mediates create/replace and original-snapshot literal edits after review or a user-created rule; irreversible exact regular-file delete and same-project no-overwrite rename always need fresh review (4 MiB per file). Rust parsing is advisory, not compilation or verification. Plan/Review/metadata have no host write tools. No implicit shells, hooks, MCP or hidden files; explicitly registered/selected stdio MCP tools are unmanaged, not sandboxed, and require call review or an explicit MCP rule. No restart-resumable native sessions or automatic repair.";
     agent::Profile {
         revision: 1,
         name: provider.label().into(),

@@ -143,6 +143,13 @@ jobs:
           python scripts/native_workflows_smoke.py \
             --binary target/release/ev${{ runner.os == 'Windows' && '.exe' || '' }} \
             --output "$NATIVE_SMOKE_OUTPUT" --profile "${{ matrix.profile }}" --jobs 2
+      - name: Exercise reviewed contract capabilities
+        run: |
+          python scripts/delegation_smoke.py --binary target/release/ev${{ runner.os == 'Windows' && '.exe' || '' }} --output "$NATIVE_SMOKE_OUTPUT/contracts/delegation"
+          python scripts/mcp_smoke.py --binary target/release/ev${{ runner.os == 'Windows' && '.exe' || '' }} --output "$NATIVE_SMOKE_OUTPUT/contracts/mcp"
+          python scripts/contract_profiles_smoke.py --binary target/release/ev${{ runner.os == 'Windows' && '.exe' || '' }} --output "$NATIVE_SMOKE_OUTPUT/contracts/profiles"
+          python scripts/similar_moves_smoke.py --binary target/release/ev${{ runner.os == 'Windows' && '.exe' || '' }} --output "$NATIVE_SMOKE_OUTPUT/contracts/moves"
+          python scripts/steering_smoke.py --binary target/release/ev${{ runner.os == 'Windows' && '.exe' || '' }} --output "$NATIVE_SMOKE_OUTPUT/contracts/steering"
       - name: Retain platform file workflow evidence
         if: ${{ always() && env.NATIVE_SMOKE_OUTPUT != '' }}
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0

@@ -18,6 +18,10 @@ enum Pending {
         op: WriteOp,
         path: String,
     },
+    Mcp {
+        server: String,
+        tool: String,
+    },
 }
 
 #[derive(Default)]
@@ -42,9 +46,23 @@ fn project_relative(root: &std::path::Path, path: &std::path::Path) -> Option<St
 impl App {
     pub fn load_rules(&mut self, data_dir: &std::path::Path) {
         self.rules = rules::Store::load(data_dir);
+        self.mcp.restore(data_dir, &self.cwd);
+        if self.mcp.effects_unknown() {
+            self.notice = "Unmanaged MCP effects unknown; automatic effect grants disabled. Fresh manual reviews remain available; /mcp shows retained uncertainty.".into();
+        }
     }
 
     fn pending_rule_call(&self) -> Option<Pending> {
+        if self.planning.agent.is_direct()
+            && let Some(request) = self.planning.request.as_ref()
+            && matches!(&request.kind, PromptKind::Permission { file: None, options, .. } if options.len() == 2)
+            && let Some(mcp) = request.request_id.get("eevee-mcp")
+        {
+            return Some(Pending::Mcp {
+                server: mcp.get("server")?.as_str()?.to_owned(),
+                tool: mcp.get("tool")?.as_str()?.to_owned(),
+            });
+        }
         if let Some(PromptKind::Permission {
             file: Some(file),
             options,
@@ -96,6 +114,7 @@ impl App {
                 cwd,
             },
             Pending::Write { op, path } => Call::Write { op: *op, path },
+            Pending::Mcp { server, tool } => Call::Mcp { server, tool },
         };
         rules::decide(&self.rules.rules, &self.cwd, &call).cloned()
     }
@@ -106,6 +125,7 @@ impl App {
         if self.rules.rules.is_empty()
             || self.planning_any_unknown_effects()
             || self.execution_any_unknown()
+            || self.mcp.effects_unknown()
         {
             return false;
         }
@@ -133,16 +153,28 @@ impl App {
                 .map(execution::approval_command_summary)
                 .unwrap_or_default(),
             Pending::Write { path, .. } => path.clone(),
+            Pending::Mcp { server, tool } => format!("UNMANAGED MCP {server} / {tool}"),
         };
+        if self.mcp.effects_unknown() {
+            return false;
+        } // Recheck immediately at the grant boundary.
         let answered = match (&pending, rule.effect) {
             (Pending::Write { .. }, Effect::Allow) => self.planning.answer_permission(1),
             (Pending::Write { .. }, Effect::Deny) => self.planning.answer_permission(0),
+            (Pending::Mcp { .. }, Effect::Allow) => self.planning.answer_permission(1),
+            (Pending::Mcp { .. }, Effect::Deny) => self.planning.answer_permission(0),
             (Pending::Command { .. }, Effect::Allow) => self.execution.auto_approve(),
             (Pending::Command { .. }, Effect::Deny) => {
                 self.execution.open_rule_review() && self.command("deny")
             }
         };
         if answered {
+            if matches!(pending, Pending::Mcp { .. })
+                && let Some(crate::providers::Request::Answer { answer, .. }) =
+                    &mut self.planning.pending
+            {
+                answer["mcp_rule"] = serde_json::json!({"id":rule.id,"sentence":rule.sentence()});
+            }
             self.notice = format!(
                 "{} by rule #{}: {subject} · /rules",
                 match rule.effect {
@@ -214,6 +246,12 @@ impl App {
                 ops: vec![op],
                 paths: vec![glob.unwrap_or(path)],
             },
+            Pending::Mcp { server, tool } => {
+                if prefix.is_some() || glob.is_some() {
+                    return Err("MCP rules cover exactly this server/tool with any JSON arguments; only `launch` expiry is accepted".into());
+                }
+                Kind::Mcp { server, tool }
+            }
         };
         Ok(Rule {
             id: 0,
@@ -358,5 +396,75 @@ mod tests {
         assert!(app.rules.rules.is_empty());
         assert!(app.rules_command("rule-revoke", "x"));
         assert!(app.notice.contains("/rule-revoke <id>"));
+    }
+    #[test]
+    fn unmanaged_mcp_needs_explicit_rule_and_ignores_task_auto_approval() {
+        use crate::providers::{PermissionOption, Prompt};
+        let mut app = App::new("/p".into(), 120, 36);
+        app.planning.agent = crate::providers::Agent::Compatible;
+        app.planning.auto_approve = true;
+        app.planning.request = Some(Prompt {
+            arrival: 1,
+            request_id: serde_json::json!({"eevee-mcp":{"server":"fixture","tool":"echo"}}),
+            thread_id: String::new(),
+            turn_id: String::new(),
+            item_id: String::new(),
+            kind: PromptKind::Permission {
+                description: "Unmanaged fixture".into(),
+                file: None,
+                options: vec![
+                    PermissionOption {
+                        label: "Deny".into(),
+                        description: String::new(),
+                        answer: serde_json::json!({"decision":"deny"}),
+                    },
+                    PermissionOption {
+                        label: "Allow once".into(),
+                        description: String::new(),
+                        answer: serde_json::json!({"decision":"allow-once"}),
+                    },
+                ],
+            },
+        });
+        assert!(!app.planning.auto_accept());
+        assert!(app.planning.pending.is_none());
+        let pending = app.pending_rule_call().unwrap();
+        assert!(app.rule_for(&pending).is_none());
+        let rule = app.draft_rule(Effect::Allow, "launch").unwrap();
+        assert!(
+            matches!(&rule.kind, Kind::Mcp { server, tool } if server == "fixture" && tool == "echo")
+        );
+        app.rules.add(rule).unwrap();
+        assert_eq!(app.rule_for(&pending).unwrap().effect, Effect::Allow);
+        assert!(app.draft_rule(Effect::Allow, "*").is_err());
+        app.planning.agent = crate::providers::Agent::Claude;
+        assert!(
+            app.pending_rule_call().is_none(),
+            "external metadata must not manufacture a native MCP rule"
+        );
+        let data = std::env::temp_dir().join(format!("ev-mcp-rule-floor-{}", std::process::id()));
+        let mut document = crate::providers::mcp::Document::default();
+        document.uncertain_projects.insert("/p".into());
+        document.critical.push("uncertain_projects".into());
+        document.save(&data).unwrap();
+        let saved_rules = app.rules.rules.clone();
+        app.load_rules(&data);
+        app.rules.rules = saved_rules;
+        app.planning.agent = crate::providers::Agent::Compatible;
+        assert!(
+            app.mcp.effects_unknown(),
+            "startup must load retained MCP uncertainty without /mcp navigation"
+        );
+        assert!(
+            app.rule_for(&pending).is_some(),
+            "the rule still matches its identity"
+        );
+        assert!(
+            !app.drive_rules(),
+            "unknown effects must suppress automatic grants, not erase rules"
+        );
+        assert!(app.planning.pending.is_none());
+        assert!(app.planning.request.is_some());
+        let _ = std::fs::remove_dir_all(data);
     }
 }

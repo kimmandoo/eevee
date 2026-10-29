@@ -47,6 +47,7 @@ pub fn command(root: &Path, task: i64, run: &runner::RunRecord) -> Result<Vec<St
     }
     let definition = moves::portable::Definition {
         schema_version: 1,
+        parameters: None,
         name: "Validation command".into(),
         form: "Jolteon".into(),
         steps,
@@ -101,6 +102,7 @@ impl Draft {
         }
         let recipe = Recipe {
             schema_version: 1,
+            profiles: Vec::new(),
             name: self.name.trim().into(),
             scope: lines(&self.scope),
             context: Vec::new(),
@@ -211,6 +213,7 @@ fn validate_portable(recipe: &Recipe) -> Result<(), String> {
     for argv in &recipe.validation_commands {
         moves::portable::Definition {
             schema_version: 1,
+            parameters: None,
             name: "Validation command".into(),
             form: "Jolteon".into(),
             steps: moves::Steps::Run {
@@ -303,6 +306,7 @@ impl Export {
             moves::run_steps(&self.root, run)?;
         }
         let mut proposal = moves::Proposal {
+            extra: Default::default(),
             partner: self.partner,
             form: 3,
             name: "Workflow scope".into(),

@@ -169,6 +169,7 @@ fn run(config: Config) -> io::Result<()> {
         providers::direct::retry::set_policy(config.retry);
         app.load_meter(&config.data_dir);
         app.load_rules(&config.data_dir);
+        app.load_form_profiles(&config.data_dir);
         app.planning.set_startup_provider(
             providers::direct::config::preferred_agent(),
             std::env::var_os("EV_PROVIDER").is_some(),

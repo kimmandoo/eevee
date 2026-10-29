@@ -9,7 +9,7 @@ use std::{
 };
 
 pub const LIMIT: usize = 4096;
-pub const DISCLOSURE: &str = "Only this Request is exported as plaintext, and it may contain secrets. The external editor is NOT sandboxed: it inherits your environment (which may contain credentials) and may read files, create backups or use the network. Removing Eevee's temporary file does not erase editor-owned copies. Eevee does not copy conversation history, credential stores or selected context into this file, and sends no provider request. The editor must save in place; replaced files, links and changed ownership are refused.";
+pub const DISCLOSURE: &str = "Only the reviewed Request or form-profile text is exported as plaintext, and it may contain secrets. The external editor is NOT sandboxed: it inherits your environment (which may contain credentials) and may read files, create backups or use the network. Removing Eevee's temporary file does not erase editor-owned copies. Eevee does not copy conversation history, credential stores or selected context into this file, and sends no provider request. The editor must save in place; replaced files, links and changed ownership are refused.";
 pub const CONFIG_HELP: &str = "VISUAL takes precedence over EDITOR. Supported values: one executable without whitespace, or a JSON array of executable and literal arguments (for example [\"code\",\"--wait\"]). The exact temporary filename is appended. No shell, interpolation, tilde expansion or placeholders are applied.";
 
 pub struct Plan {

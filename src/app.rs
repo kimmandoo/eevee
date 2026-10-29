@@ -7,6 +7,7 @@ mod context_tools;
 pub mod cooperation;
 pub(crate) mod cooperation_journal;
 pub mod cooperation_ui;
+pub mod delegation;
 pub mod execution;
 pub mod execution_relays;
 pub mod external_editor;
@@ -39,12 +40,15 @@ mod editing;
 mod events;
 pub mod evolution;
 mod evolution_motion;
+mod form_profiles;
 mod keys;
+mod mcp;
 mod meter;
 mod motion;
 mod move_staging;
 mod overlays;
 mod rules;
+mod steering;
 mod tasks;
 mod usage;
 
@@ -103,6 +107,7 @@ pub enum Overlay {
     Bag,
     Usage,
     Rules,
+    Mcp,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -281,6 +286,12 @@ pub struct App {
     pub meter: meter::State,
     pub rules: crate::workspace::rules::Store,
     pub rule_state: rules::State,
+    pub mcp: mcp::State,
+    pub steering: steering::State,
+    pub delegation: delegation::State,
+    pub form_profiles: crate::workspace::form_profiles::Store,
+    pub profile_skip: std::collections::BTreeSet<i64>,
+    profile_handoff: Option<(i64, i64, usize, crate::workspace::form_profiles::Packet)>,
     pub item_notice: Option<game::Notice>,
     berry_removals: Vec<i64>,
     pub execution: execution::State,
@@ -436,6 +447,12 @@ impl App {
             meter: meter::State::default(),
             rules: crate::workspace::rules::Store::default(),
             rule_state: rules::State::default(),
+            mcp: mcp::State::default(),
+            steering: steering::State::default(),
+            delegation: delegation::State::default(),
+            form_profiles: crate::workspace::form_profiles::Store::default(),
+            profile_skip: std::collections::BTreeSet::new(),
+            profile_handoff: None,
             item_notice: None,
             berry_removals: Vec::new(),
             execution: execution::State::default(),

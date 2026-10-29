@@ -324,7 +324,7 @@ def decoded_payload(protocol, body):
 
 
 class Journey:
-    def __init__(self, binary, output, root, size, ascii_mode, route, protocol, keyless, persist, peer):
+    def __init__(self, binary, output, root, size, ascii_mode, route, protocol, keyless, persist, peer, *, controlling_tty=False):
         self.output, self.root, self.peer = output, root, peer
         self.route, self.protocol = route, protocol
         self.keyless, self.persist = keyless, persist
@@ -345,7 +345,7 @@ class Journey:
                            NO_PROXY='127.0.0.1,localhost', no_proxy='127.0.0.1,localhost', BROWSER='/bin/true')
         self.session = Session([str(binary), '--data-dir', str(self.data), '--images', 'off',
                                 '--color', 'mono', *(['--ascii'] if ascii_mode else [])],
-                               self.project, environment, size, output / 'tui')
+                               self.project, environment, size, output / 'tui', controlling_tty=controlling_tty)
         self.cases, self.assertions = [], []
 
     def redacted(self, text):

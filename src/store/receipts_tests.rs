@@ -455,3 +455,228 @@ fn quota_rejection_rolls_back_entire_receipt_and_storage_only_retry_uses_same_id
     assert_eq!(view.record, outgoing.record);
     assert!(view.source_available);
 }
+
+#[test]
+fn delegated_reservations_link_only_real_submissions_and_keep_distinct_unknown_usage() {
+    let fixture = Fixture::new();
+    let mut state = fixture.open("delegation-project");
+    let task = new_task(&mut state);
+    let parent = outgoing(
+        &mut state,
+        &task,
+        "lead-parent",
+        "{\"instruction\":\"lead\"}",
+    );
+    state
+        .receipts_request(&request(&parent, Operation::Put(Box::new(parent.clone()))))
+        .unwrap();
+    let mut children = Vec::new();
+    for index in 0..3 {
+        let claim = WorkClaim {
+            task_id: task.id,
+            owner: parent.record.owner.clone(),
+            request_id: format!("child-{index:020}"),
+            writing: false,
+        };
+        let mut child = Outgoing::frozen(
+            &format!("{{\"instruction\":\"read child {index}\"}}"),
+            &claim,
+            21,
+            parent.record.agent,
+            ProviderOperation::Plan,
+            1234,
+        )
+        .unwrap();
+        child.record.parent_request_id = Some(parent.record.request_id.clone());
+        child.record.parent_call_id = Some(format!("call-{index}"));
+        child.record.set_submitted(false);
+        state
+            .receipts_request(&request(&child, Operation::Put(Box::new(child.clone()))))
+            .unwrap();
+        children.push(child);
+    }
+    let Response::Records(reserved) = state
+        .receipts_request(&request(&parent, Operation::List))
+        .unwrap()
+    else {
+        panic!("expected reserved packets");
+    };
+    assert_eq!(reserved.len(), 4);
+    assert!(
+        reserved
+            .iter()
+            .find(|view| view.record.request_id == "lead-parent")
+            .unwrap()
+            .record
+            .child_request_ids
+            .is_empty()
+    );
+    assert_eq!(
+        reserved
+            .iter()
+            .filter(|view| !view.record.submitted)
+            .count(),
+        3
+    );
+    assert_eq!(
+        super::super::work::claims(state.connection.as_ref().unwrap()).unwrap(),
+        vec![parent.record.claim()],
+        "children borrow exactly one live lease; no writer or partner ownership is manufactured"
+    );
+    for child in children.iter_mut().rev() {
+        let unknown = crate::workspace::usage::Record::new(
+            child.record.request_id.clone(),
+            task.id,
+            child.record.owner.clone(),
+            child.record.agent,
+        );
+        let usage = crate::store::records::Request {
+            task_id: task.id,
+            operation: crate::store::records::Operation::Usage {
+                record: unknown.clone(),
+            },
+        };
+        assert!(
+            state.records(&usage).is_err(),
+            "an unsubmitted reservation has no provider usage"
+        );
+        child.record.set_submitted(true);
+        let put = request(child, Operation::Put(Box::new(child.clone())));
+        state.receipts_request(&put).unwrap();
+        state.receipts_request(&put).unwrap();
+        state.records(&usage).unwrap();
+        state.records(&usage).unwrap();
+    }
+    let Response::Records(saved) = state
+        .receipts_request(&request(&parent, Operation::List))
+        .unwrap()
+    else {
+        panic!("expected dispatched receipts");
+    };
+    let linked = &saved
+        .iter()
+        .find(|view| view.record.request_id == "lead-parent")
+        .unwrap()
+        .record;
+    assert_eq!(
+        linked.child_request_ids,
+        children
+            .iter()
+            .map(|child| child.record.request_id.clone())
+            .collect::<Vec<_>>(),
+        "links retain call order even when child dispatch notifications arrive in reverse"
+    );
+    assert!(saved.iter().all(|view| view.record.submitted));
+    for child in &children {
+        let found = saved
+            .iter()
+            .find(|view| view.record.request_id == child.record.request_id)
+            .unwrap();
+        assert_eq!(
+            found.record.parent_request_id.as_deref(),
+            Some("lead-parent")
+        );
+        assert_eq!(found.record.parent_call_id, child.record.parent_call_id);
+        assert_eq!(found.record.sha256, child.record.sha256);
+        assert!(found.source_available);
+    }
+    let count: usize = state
+        .connection
+        .as_ref()
+        .unwrap()
+        .query_row("SELECT count(*) FROM provider_usage", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(
+        count, 3,
+        "idempotent child usage persists once each, never merged into a parent row"
+    );
+    state
+        .work_request(&WorkRequest::Release(parent.record.claim()))
+        .unwrap();
+    drop(state);
+    let mut reopened = fixture.open("delegation-project");
+    let Response::Records(restored) = reopened
+        .receipts_request(&request(&parent, Operation::List))
+        .unwrap()
+    else {
+        panic!("expected restart-safe child links");
+    };
+    assert_eq!(restored, saved);
+}
+
+#[test]
+fn delegated_receipt_reservations_preserve_extra_and_refuse_unknown_critical_state() {
+    let fixture = Fixture::new();
+    let mut state = fixture.open("delegation-forward-project");
+    let task = new_task(&mut state);
+    let parent = outgoing(
+        &mut state,
+        &task,
+        "forward-parent",
+        "{\"instruction\":\"lead\"}",
+    );
+    let mut document = serde_json::to_value(&parent.record).unwrap();
+    document["future_observation"] =
+        serde_json::json!({"literal":"untrusted future bytes","values":[1,2]});
+    let record: crate::workspace::receipt::Durable =
+        serde_json::from_value(document.clone()).unwrap();
+    record.validate().unwrap();
+    assert_eq!(
+        serde_json::to_value(&record).unwrap()["future_observation"],
+        document["future_observation"]
+    );
+    let mut future_critical = document;
+    future_critical["critical"] = serde_json::json!(["future_observation"]);
+    let record: crate::workspace::receipt::Durable =
+        serde_json::from_value(future_critical).unwrap();
+    assert!(
+        record
+            .validate()
+            .unwrap_err()
+            .contains("future_observation")
+    );
+
+    let mut reservation = parent.record.clone();
+    reservation.request_id = "forward-child".into();
+    reservation.parent_request_id = Some(parent.record.request_id.clone());
+    reservation.parent_call_id = Some("child-call".into());
+    reservation.writing = false;
+    reservation.operation = ProviderOperation::Plan;
+    reservation.set_submitted(false);
+    reservation.validate().unwrap();
+    assert!(
+        reservation
+            .critical
+            .iter()
+            .any(|field| field == "submitted")
+    );
+    let encoded = serde_json::to_value(&reservation).unwrap();
+    assert_eq!(encoded["submitted"], false);
+    // Simulate a forward-aware older reader which does not know submitted.
+    #[derive(serde::Deserialize)]
+    struct OlderReceipt {
+        critical: Vec<String>,
+        #[serde(flatten)]
+        extra: crate::workspace::forward::Extra,
+    }
+    let old: OlderReceipt = serde_json::from_value(encoded).unwrap();
+    assert!(
+        crate::workspace::forward::check_critical(&old.critical, &old.extra, |_| None)
+            .unwrap_err()
+            .contains("submitted")
+    );
+    reservation.set_submitted(true);
+    reservation.validate().unwrap();
+    assert!(
+        !reservation
+            .critical
+            .iter()
+            .any(|field| field == "submitted")
+    );
+    assert!(
+        serde_json::to_value(&reservation)
+            .unwrap()
+            .get("submitted")
+            .is_none()
+    );
+}

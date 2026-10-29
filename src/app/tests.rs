@@ -2626,6 +2626,7 @@ fn terminal_native_unknown_allows_explicit_followup_and_task_switch_but_cli_unkn
         app.formation_command("formation", "");
         app.formation_event(Ok(store::formations::Response::Read(Recipe {
             schema_version: 2,
+            profiles: Vec::new(),
             name: "Local staging after cancellation".into(),
             scope: vec![],
             context: vec![],

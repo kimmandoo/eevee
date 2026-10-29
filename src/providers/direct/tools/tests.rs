@@ -103,6 +103,42 @@ fn todo_metadata_success_and_refusal_use_the_existing_result_envelope() {
 }
 
 #[test]
+fn delegated_continuation_still_rejects_incomplete_local_result_envelopes() {
+    let mut calls = Calls::new(Protocol::Responses);
+    completed(
+        &mut calls,
+        vec![json!({
+            "type":"function_call","call_id":"delegate-0","name":"eevee_delegate",
+            "arguments":json!({"role":"explore","instruction":"Inspect source","paths":["src"]}).to_string(),
+            "status":"completed"
+        })],
+    )
+    .unwrap();
+    let result = json!({
+        "status":"success","path":"","message":"Read-only delegated investigation outcome",
+        "outcome":"completed","call_id":"delegate-0",
+        "child_request_id":"child","parent_request_id":"lead","summary":"Actual child summary"
+    });
+    for field in ["status", "path", "message"] {
+        for replacement in [None, Some(Value::Null), Some(json!(7))] {
+            let mut invalid = result.clone();
+            match replacement {
+                None => {
+                    invalid.as_object_mut().unwrap().remove(field);
+                }
+                Some(value) => invalid[field] = value,
+            }
+            let mut body = json!({"input":[]});
+            assert_eq!(
+                calls.append_results(&mut body, &[invalid]).unwrap_err(),
+                "Tool result is not an actual structured local outcome"
+            );
+            assert_eq!(body, json!({"input":[]}));
+        }
+    }
+}
+
+#[test]
 fn advertisements_are_exact_native_function_declarations() {
     for protocol in [
         Protocol::Responses,
@@ -112,7 +148,7 @@ fn advertisements_are_exact_native_function_declarations() {
         Protocol::Gemini,
     ] {
         let mut body = json!({"policy":"immutable"});
-        advertise_selected(&mut body, protocol, true, None);
+        advertise_selected(&mut body, protocol, true, false, None, &[]);
         assert_eq!(body["policy"], "immutable");
         let declaration = match protocol {
             Protocol::Responses | Protocol::Codex | Protocol::Messages => &body["tools"][0],
@@ -974,6 +1010,11 @@ fn mixed_file_tool_identities_survive_every_protocol_continuation() {
             json!({"directory":"src","language":"rust","pattern":"call($X,$X)","offset":0,"snapshot":""}),
             ToolKind::StructuralSearch,
         ),
+        (
+            "eevee_delegate",
+            json!({"role":"explore","instruction":"Inspect src/lib.rs","paths":["src/lib.rs"]}),
+            ToolKind::Delegate,
+        ),
     ];
     for protocol in [
         Protocol::Responses,
@@ -1012,36 +1053,63 @@ fn mixed_file_tool_identities_survive_every_protocol_continuation() {
         let mut body = json!({"input":[],"messages":[],"contents":[]});
         let results: Vec<_> = (0..typed.len())
             .map(|index| {
-                json!({
+                let mut result = json!({
                     "status":if index == 2 { "refused" } else { "success" },
                     "path":decoded[index].tool.path(),"message":format!("actual outcome {index}")
-                })
+                });
+                if typed[index].2 == ToolKind::Delegate {
+                    result["outcome"] = json!("completed");
+                    result["call_id"] = json!(format!("call-{index}"));
+                    result["child_request_id"] = json!("actual-child");
+                    result["parent_request_id"] = json!("actual-lead");
+                    result["summary"] = json!("Observed literal source bytes; no effects");
+                }
+                result
             })
             .collect();
         calls.append_results(&mut body, &results).unwrap();
         match protocol {
             Protocol::Responses | Protocol::Codex => {
-                for index in 0..typed.len() {
+                for (index, expected) in results.iter().enumerate() {
                     assert_eq!(
                         body["input"][index + typed.len()]["call_id"],
                         format!("call-{index}")
                     );
+                    let result: Value = serde_json::from_str(
+                        body["input"][index + typed.len()]["output"]
+                            .as_str()
+                            .unwrap(),
+                    )
+                    .unwrap();
+                    assert_eq!(&result, expected);
                 }
             }
             Protocol::ChatCompletions => {
-                for index in 0..typed.len() {
+                for (index, expected) in results.iter().enumerate() {
                     assert_eq!(
                         body["messages"][index + 1]["tool_call_id"],
                         format!("call-{index}")
                     );
+                    let result: Value = serde_json::from_str(
+                        body["messages"][index + 1]["content"].as_str().unwrap(),
+                    )
+                    .unwrap();
+                    assert_eq!(&result, expected);
                 }
             }
             Protocol::Messages => {
-                for index in 0..typed.len() {
+                for (index, expected) in results.iter().enumerate() {
                     assert_eq!(
                         body["messages"][1]["content"][index]["tool_use_id"],
                         format!("call-{index}")
                     );
+                    let result: Value = serde_json::from_str(
+                        body["messages"][1]["content"][index]["content"]
+                            .as_str()
+                            .unwrap(),
+                    )
+                    .unwrap();
+                    assert_eq!(&result, expected);
                 }
             }
             Protocol::Gemini => {
@@ -1053,6 +1121,12 @@ fn mixed_file_tool_identities_survive_every_protocol_continuation() {
                         body["contents"][0]["parts"][index]["thoughtSignature"],
                         format!("signature-{index}")
                     );
+                    let field = if results[index]["status"] == "success" {
+                        "output"
+                    } else {
+                        "error"
+                    };
+                    assert_eq!(response["response"][field], results[index]);
                 }
             }
         }
@@ -1191,4 +1265,125 @@ fn unfinished_file_lines_advance_each_frame_without_waiting_for_a_newline() {
     preview.published_at = Some(Instant::now() - PREVIEW_INTERVAL);
     preview.feed(TOOL_NAME, &wire, false);
     assert!(preview.snapshot().is_none());
+}
+
+#[test]
+fn steering_joins_each_protocol_after_tool_results_and_websocket_deltas_accept_it() {
+    let texts = vec!["Use src/b.rs instead".to_string()];
+    let mut responses =
+        json!({"input":[{"type":"function_call_output","call_id":"c","output":"{}"}]});
+    assert_eq!(
+        append_steering(Protocol::Responses, &mut responses, &texts).unwrap(),
+        1
+    );
+    assert_eq!(responses["input"][1]["role"], "user");
+    assert_eq!(
+        responses["input"][1]["content"][0]["text"],
+        "Use src/b.rs instead"
+    );
+    let outputs = responses["input"].as_array().unwrap().clone();
+    let frame =
+        super::super::websocket::continuation(&json!({"model":"m","input":[]}), "resp_1", outputs)
+            .unwrap();
+    assert!(frame.contains("Use src/b.rs instead"));
+    // Steering alone is not a continuation.
+    let only = vec![responses["input"][1].clone()];
+    assert!(
+        super::super::websocket::continuation(&json!({"model":"m","input":[]}), "resp_1", only)
+            .is_err()
+    );
+
+    let mut chat = json!({"messages":[{"role":"tool","tool_call_id":"c","content":"{}"}]});
+    assert_eq!(
+        append_steering(Protocol::ChatCompletions, &mut chat, &texts).unwrap(),
+        1
+    );
+    assert_eq!(
+        chat["messages"][1],
+        json!({"role":"user","content":"Use src/b.rs instead"})
+    );
+
+    let mut messages = json!({"messages":[{"role":"user","content":[{"type":"tool_result","tool_use_id":"c","content":"{}"}]}]});
+    assert_eq!(
+        append_steering(Protocol::Messages, &mut messages, &texts).unwrap(),
+        0
+    );
+    assert_eq!(
+        messages["messages"].as_array().unwrap().len(),
+        1,
+        "no second user turn"
+    );
+    assert_eq!(
+        messages["messages"][0]["content"][1]["text"],
+        "Use src/b.rs instead"
+    );
+
+    let mut gemini = json!({"contents":[{"role":"user","parts":[{"functionResponse":{}}]}]});
+    assert_eq!(
+        append_steering(Protocol::Gemini, &mut gemini, &texts).unwrap(),
+        0
+    );
+    assert_eq!(
+        gemini["contents"][0]["parts"][1]["text"],
+        "Use src/b.rs instead"
+    );
+
+    let mut unchanged = responses.clone();
+    assert_eq!(
+        append_steering(Protocol::Responses, &mut unchanged, &[]).unwrap(),
+        0
+    );
+    assert_eq!(unchanged, responses);
+}
+
+#[test]
+fn mcp_dynamic_names_require_exact_frozen_selection_and_bounded_object_arguments() {
+    let mut aliases = BTreeMap::new();
+    let mut calls = Vec::new();
+    let name = "mcp__fixture__echo";
+    assert!(push_call(&aliases, &mut calls, Some("m1"), name, json!({"text":"x"})).is_err());
+    aliases.insert(name.to_owned(), "eevee_mcp");
+    push_call(&aliases, &mut calls, Some("m1"), name, json!({"text":"x"})).unwrap();
+    assert!(
+        matches!(&calls[0].tool, FileTool::Mcp { name: parsed, arguments } if parsed == name && arguments["text"] == "x")
+    );
+    assert!(
+        push_call(
+            &aliases,
+            &mut calls,
+            Some("m2"),
+            "mcp__fixture__write_note",
+            json!({"text":"x"})
+        )
+        .is_err()
+    );
+    assert!(push_call(&aliases, &mut calls, Some("m3"), name, json!([])).is_err());
+    assert!(
+        push_call(
+            &aliases,
+            &mut calls,
+            Some("m4"),
+            name,
+            json!({"text":"x".repeat(crate::providers::mcp::LIMIT)})
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn gemini_mcp_continuation_uses_original_selected_wire_name() {
+    let mut calls = Calls::new(Protocol::Gemini);
+    calls
+        .aliases
+        .insert("mcp__fixture__echo".into(), "eevee_mcp");
+    calls
+        .parts
+        .push(json!({"functionCall":{"name":"mcp__fixture__echo","args":{"text":"x"}}}));
+    calls.terminal = true;
+    let mut body = json!({"contents":[]});
+    calls.append_results(&mut body, &[json!({"status":"success","message":"unmanaged","path":"","result":{"content":[{"type":"text","text":"x"}]}})]).unwrap();
+    assert_eq!(
+        body["contents"][1]["parts"][0]["functionResponse"]["name"],
+        "mcp__fixture__echo"
+    );
 }

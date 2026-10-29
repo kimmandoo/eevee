@@ -34,7 +34,9 @@ pub(super) fn advertise_selected(
     body: &mut Value,
     protocol: Protocol,
     writing: bool,
+    delegating: bool,
     selection: Option<&crate::providers::catalog::Selection>,
+    mcp: &[crate::providers::mcp::SelectedTool],
 ) {
     let mut declarations = definitions(writing);
     declarations.extend(crate::providers::artifacts::definitions());
@@ -42,14 +44,18 @@ pub(super) fn advertise_selected(
     if let Some(selection) = selection {
         declarations.extend(selection.declarations());
     }
+    if delegating {
+        declarations.push(super::delegation::definition());
+    }
+    declarations.extend(mcp.iter().map(|tool| tool.declaration()));
     body["tools"] = match protocol {
         Protocol::Responses | Protocol::Codex => Value::Array(declarations.into_iter().map(|mut entry| {
             entry["type"] = json!("function");
-            entry["strict"] = json!(true);
+            entry["strict"] = json!(!entry["name"].as_str().is_some_and(|name| name.starts_with("mcp__")));
             entry
         }).collect()),
         Protocol::ChatCompletions => Value::Array(declarations.into_iter().map(|mut entry| {
-            entry["strict"] = json!(true);
+            entry["strict"] = json!(!entry["name"].as_str().is_some_and(|name| name.starts_with("mcp__")));
             json!({"type":"function","function":entry})
         }).collect()),
         Protocol::Messages => Value::Array(declarations.into_iter().map(|entry| {
@@ -237,6 +243,10 @@ impl Calls {
                 .map(|entry| (entry.wire_name(), entry.route.name()))
                 .collect()
         });
+    }
+    pub(super) fn select_mcp(&mut self, selected: &[crate::providers::mcp::SelectedTool]) {
+        self.aliases
+            .extend(selected.iter().map(|tool| (tool.wire_name(), "eevee_mcp")));
     }
 
     fn charge(&mut self, bytes: usize) -> Result<(), String> {
@@ -1114,10 +1124,14 @@ impl Calls {
                     .iter()
                     .zip(results)
                     .map(|(call, result)| {
+                        let name = match &call.tool {
+                            FileTool::Mcp { name, .. } => name.as_str(),
+                            _ => call.tool.kind().name(),
+                        };
                         let mut response = if result["status"] == "success" {
-                            json!({"name":call.tool.kind().name(),"response":{"output":result}})
+                            json!({"name":name,"response":{"output":result}})
                         } else {
-                            json!({"name":call.tool.kind().name(),"response":{"error":result}})
+                            json!({"name":name,"response":{"error":result}})
                         };
                         if let Some(id) = &call.id {
                             response["id"] = Value::String(id.clone());
@@ -1154,6 +1168,56 @@ impl Calls {
             .extend(additions);
         Ok(())
     }
+}
+
+/// Appends explicit user steering (XC03) after this round's tool results.
+/// Returns how many new top-level items were added (for WebSocket deltas).
+pub(super) fn append_steering(
+    protocol: Protocol,
+    body: &mut Value,
+    texts: &[String],
+) -> Result<usize, String> {
+    if texts.is_empty() {
+        return Ok(0);
+    }
+    let growth = texts.iter().map(|text| text.len() + 96).sum::<usize>();
+    if encoded_len(body)?.saturating_add(growth) > BODY_LIMIT {
+        return Err(format!(
+            "Native continuation with steering exceeds {BODY_LIMIT} bytes; no continuation sent. Earlier completed file effects remain; no rollback."
+        ));
+    }
+    let (field, merge) = match protocol {
+        Protocol::Responses | Protocol::Codex => ("input", None),
+        Protocol::ChatCompletions => ("messages", None),
+        // Tool results already form the last user turn; add text blocks to it.
+        Protocol::Messages => ("messages", Some("content")),
+        Protocol::Gemini => ("contents", Some("parts")),
+    };
+    let array = body
+        .get_mut(field)
+        .and_then(Value::as_array_mut)
+        .ok_or("Native continuation array missing")?;
+    if let Some(member) = merge {
+        let last = array
+            .last_mut()
+            .and_then(|turn| turn.get_mut(member))
+            .and_then(Value::as_array_mut)
+            .ok_or("Native continuation has no user turn to steer")?;
+        for text in texts {
+            last.push(match protocol {
+                Protocol::Messages => json!({"type":"text","text":text}),
+                _ => json!({"text":text}),
+            });
+        }
+        return Ok(0);
+    }
+    for text in texts {
+        array.push(match protocol {
+            Protocol::ChatCompletions => json!({"role":"user","content":text}),
+            _ => json!({"type":"message","role":"user","content":[{"type":"input_text","text":text}]}),
+        });
+    }
+    Ok(texts.len())
 }
 
 pub(super) fn encoded_len(value: &(impl serde::Serialize + ?Sized)) -> Result<usize, String> {
@@ -1270,10 +1334,8 @@ fn append(target: &mut String, fragment: &str, limit: usize) -> Result<(), Strin
 fn validate_name(name: &str) -> Result<(), String> {
     if name.len() > NAME_LIMIT
         || (ToolKind::parse(name).is_err()
-            && !(name.starts_with("catalog__")
-                && name
-                    .bytes()
-                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')))
+            && !((name.starts_with("catalog__") || name.starts_with("mcp__"))
+                && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')))
     {
         return Err("Unsupported tool name".into());
     }
@@ -1382,6 +1444,22 @@ fn push_call(
     validate_name(name)?;
     if let Some(id) = id {
         validate_id(id)?;
+    }
+    if name.starts_with("mcp__") {
+        if aliases.get(name) != Some(&"eevee_mcp")
+            || !args.is_object()
+            || encoded_len(&args)? > crate::providers::mcp::LIMIT
+        {
+            return Err("Unselected MCP tool or oversized/nonobject MCP arguments".into());
+        }
+        calls.push(Call {
+            id: id.map(str::to_owned),
+            tool: FileTool::Mcp {
+                name: name.to_owned(),
+                arguments: args,
+            },
+        });
+        return Ok(());
     }
     let name = if name.starts_with("catalog__") {
         aliases

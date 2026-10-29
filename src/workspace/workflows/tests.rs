@@ -364,6 +364,22 @@ fn strict_recipe_preview_and_apply_only_stage_ungranted_operations() {
 }
 
 #[test]
+fn recipe_profiles_refuse_duplicate_forms_and_non_neutral_instructions() {
+    let mut definition = Recipe::decode(recipe()).unwrap();
+    definition
+        .profiles
+        .push(super::super::form_profiles::Profile {
+            form: 2,
+            packet: super::super::form_profiles::built_in(2),
+        });
+    definition.profiles.push(definition.profiles[0].clone());
+    assert!(definition.validate().is_err());
+    definition.profiles.pop();
+    definition.profiles[0].packet.instructions = "Behave like Jolteon".into();
+    assert!(definition.validate().is_err());
+}
+
+#[test]
 fn safe_recipe_read_is_bounded_and_preview_never_writes_source() {
     let fixture = Fixture::new();
     let source = fixture.source();

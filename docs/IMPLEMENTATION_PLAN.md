@@ -1,8 +1,17 @@
 # Eevee Implementation Plan
 
-Updated2026-10-28. Public v0.1.33 shipped Waves6–7 and all four authorized unassigned tasks GP10→GP08/GP09 plus P05. Public v0.1.34 shipped Run-owned native WebSocket retention and request-bound outcome/disconnect usability from `4faced3` after exact-source Check/all-five-native qualification. Both releases passed all public asset/qualified-archive identities and complete24-group/34-scenario downloaded installation proof;0.1.34 also passed downloaded WS20/disconnect20/full-native24 journeys. Source/runtime evidence and truthful account/history limits are in the checkpoint. This delivery is complete; Wave8 and paid/live calls remain outside scope.
+Updated2026-10-29. The active delivery is the X contract track and qualified0.1.38 release below. Earlier qualified releases and their scoped evidence remain recorded separately; Wave8, unrelated audit tasks and paid/live provider calls remain outside this request.
 
 Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPATIBILITY.md). Live-provider conformance remains distinct from implemented transports and deterministic runtime proof.
+
+## Active delivery — X contract track and qualified 0.1.38
+
+1. Resume the interrupted XC03 working tree without dropping authored changes; bind steering/queued Sends to their exact owner/generation and retain returned draft bytes/carets.
+2. Amend the binding contracts alongside XC02 read-only delegated workers/linked receipts, XC05 explicitly selected unmanaged stdio MCP, XC06 visible neutral behavior profiles and XC07 typed parameter use/32-entry library (absorbing VA09). Keep one effect executor/store/approval authority and truthful unknown effects.
+3. Integrate before one minimum-toolchain full source gate. Exercise new controlled-peer PTY/ConPTY journeys at 120×36 and 60×18 plus the existing native regression profile. No paid/live provider call or quality-improvement claim is authorized.
+4. Commit/push the exact candidate, require same-attempt Check/all five native jobs including the new capability journeys, and publish a new annotated 0.1.38 tag through the existing qualified-artifact workflow. Never move earlier tags or replace public assets.
+5. Check version-specific release notes before tagging; verify public asset/checksum identities and the actual downloaded host binary/installation/runtime. Record source/run/release/limits in the checkpoint, then close only tasks with observed acceptance.
+
 
 ## Completed baseline — Qualified release0.1.33
 

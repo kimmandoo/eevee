@@ -1,6 +1,6 @@
 # X — Contract relaxation: deliberate changes that buy flexibility
 
-Requested 2026-10-29: identify functional-flexibility work that is blocked by an existing contract and specify what each relaxation would look like if the contract were intentionally changed. Planning only; nothing is implemented. Not assigned to a wave.
+Requested 2026-10-29, outside the waves. XC01–XC09 were implemented on 2026-10-29; this delivery completed XC02/XC05/XC06/XC07, absorbed VA09 and finished the interrupted XC03 work. Local source and controlled-peer compact/wide acceptance passed; exact-source native qualification/publication for0.1.38 is recorded separately in the checkpoint.
 
 Each task below **breaks a binding rule on purpose**. It names the exact rule, the proposed replacement wording, the remaining safety floor and the evidence needed. An X task is not "done" until its DESIGN_RULES amendment, code, tests and runtime journey land together.
 
@@ -16,6 +16,7 @@ Each task below **breaks a binding rule on purpose**. It names the exact rule, t
 - **Default posture:** each relaxation ships behind an explicit, visible state. Where a default changes behavior (XC04, XC06), the off switch is one command and the state is shown in the header chip or receipt.
 - **Storage:** new persistence follows the current Schema20 admission contract unless XC08 has shipped, in which case additive data uses XC08's minor/critical rules.
 - **Verification:** focused behavior tests plus an actual-binary PTY journey at 120×36 and 60×18; provider-facing behavior uses the existing loopback/controlled-peer fixtures. No paid/live provider call without separate authorization.
+- **Local completion evidence (2026-10-29):** Rust1.90.0 passed1,953 tests/two ignored, strict Clippy and release build. Frozen C `81ea80afefc6b0657951b644111653d2ef78e6881e4a3f672530de33039af5ef` passed delegation2, MCP2, profiles8, parameterized library2 and steering2 actual PTY journeys, plus selected-source receipt2. Reports: `target/xc-038-final-c-20261029`. No paid/live-provider or paired-quality claim; Windows/macOS qualification remains a required publication gate, not inferred from these Linux captures.
 
 ## Recommended order
 
@@ -71,7 +72,7 @@ Each task below **breaks a binding rule on purpose**. It names the exact rule, t
 
 ### XC02 — Read-only delegated sub-runs
 
-- [ ] Let the lead's model delegate bounded read-only investigations to bench partners that run concurrently and return a summary.
+- [x] Let the lead's model delegate bounded read-only investigations to bench partners that run concurrently and return a summary.
 - **Priority:** 2. **Needs:** —. **Builds on:** cooperation capacity (up to three partners per task, one writer: `work_capacity_reason` and `write_owner` in [src/app/cooperation.rs:288-339](../src/app/cooperation.rs#L288-L339)), native read tools, receipts.
 - **Today:** several partners can work at once, but only when the user sends to each one. The model cannot split work, so large investigations serialize inside one context window.
 - **Contract to change:**
@@ -88,6 +89,7 @@ Each task below **breaks a binding rule on purpose**. It names the exact rule, t
 - **Out of scope:** concurrent writers. A later task may add write delegation into a separate Git worktree; it is not part of XC02.
 - **Accept:** loopback fixture issuing three delegations in one round → three concurrent child runs, ordered results, combined usage shown; a child calling `eevee_write_file` is refused at the executor; capacity-full refusal; parent cancel → children cancelled with no effects; receipts linked both ways; PTY journey showing work rows.
 - **Watch out:** cost multiplies; the review must show the planned child count and per-child bounds. Partner flavor stays out of child packets (XC06 profiles excepted).
+- **Implementation contract (2026-10-29):** three ordinary partners remain capped at three, while one lead has up to three additional read-only child slots reduced by other active ordinary requests. Children borrow the exact live parent claim instead of introducing new partner/writer leases, but own distinct frozen prepared/submitted receipts, artifacts and usage linked both ways; `submitted:false` is critical and cannot masquerade as dispatch. They use the lead's frozen route/model, native source tools only, no inherited MCP/profile/history and no alternate child route pin. Delegated `review` is an investigation summary, not formal independent-Review acceptance evidence. Capacity refuses before review, every admitted batch requires a fresh round review, and the parent remains owned through child cancellation/persistence settlement.
 
 ---
 
@@ -95,7 +97,7 @@ Each task below **breaks a binding rule on purpose**. It names the exact rule, t
 
 ### XC03 — Visible mid-run steering and queued follow-up Send
 
-- [ ] Let the user add an instruction to a running request, or queue the next request, without cancelling.
+- [x] Let the user add an instruction to a running request, or queue the next request, without cancelling.
 - **Priority:** 1. **Needs:** —. **Builds on:** native round loop ([src/providers/direct/coding.rs:119](../src/providers/direct/coding.rs#L119)), provider `Request` channel ([src/providers.rs:756](../src/providers.rs#L756)), journal items, WebSocket chain rules.
 - **Today:** while the lead works the only way to change direction is Cancel and resend, which drops the run's context and repeats discovery.
 - **Contract to change:** DESIGN_RULES:116 "No … hidden steering, queued follow-up, reconnect/retry …" → "No **hidden** steering. Explicit steering is a user message entered at the next tool-result boundary and recorded as its own receipt item. A queued follow-up is an explicit Send held until the previous request settles." (Retry wording changes in XC04.)
@@ -106,7 +108,9 @@ Each task below **breaks a binding rule on purpose**. It names the exact rule, t
   - Queued Send: one slot per partner, shown as a chip with cancel. It dispatches only when the previous outcome is Completed; Failed/Cancelled/Unknown returns it to the composer with the reason.
   - External routes: offered only where the adapter protocol supports user input during a turn; otherwise the Steer choice is hidden and only Queue/Keep remain.
 - **Accept:** loopback fixture with a multi-round run: steering text reaches round N+1 exactly once and appears in the receipt as "steer #1 at round N"; steering after the final round returns to the composer; queued Send after Completed dispatches with fresh preparation and review, after Failed/Unknown does not; Esc on the choice line keeps the draft; PTY journeys at both sizes.
+- **Implemented as (2026-10-29):** `Request::Steer` and `Event::Steered`; the native `Worker` keeps a per-generation steering queue (never the request channel, whose wait loops drop unknown requests); `Control::take_steering` + `tools::append_steering` at the round boundary; WebSocket continuations accept trailing user steering items; `app::steering` (choice line, queue, return of unsent text, `/queue-cancel`, status-row `Next Send queued`). Design fixes: (1) the choice line is a notice answered by the next key (`s`/`q`/Esc), with any other key keeping the draft, instead of a new modal; (2) Messages and Gemini merge steering into the existing tool-result user turn to keep strict role alternation; (3) a queued Send fires only into an empty composer, so a newer draft is never overwritten or sent.
 - **Watch out:** steering is user-authored content and still passes privacy/secret checks; it must not bypass the per-Send preparation for attachments (attachments are not allowed in a steer, only text).
+- **Continuation fixes (2026-10-29):** queued Sends are now keyed by task/partner and exact originating generation; choosing another lead cannot send someone else's queue. They settle only while their owning partner is in front, rather than moving approval/composer focus in the background. Returned text retains original whitespace/caret and never overwrites a newer draft. Steering receipts acknowledge local boundary append, not unproven remote delivery.
 
 ### XC04 — Bounded automatic retry for provably unprocessed failures
 
@@ -134,7 +138,7 @@ Each task below **breaks a binding rule on purpose**. It names the exact rule, t
 
 ### XC05 — MCP client for native routes
 
-- [ ] Let the user connect stdio MCP servers and expose selected tools to native requests under review.
+- [x] Let the user connect stdio MCP servers and expose selected tools to native requests under review.
 - **Priority:** 2. **Needs:** XC01 (otherwise each MCP call prompts). **Builds on:** reviewed tool catalogue (`/tools`, [src/providers/catalog.rs](../src/providers/catalog.rs), [src/store/tool_catalog.rs](../src/store/tool_catalog.rs)), runner process-tree ownership, receipts.
 - **Today:** native routes offer a fixed set of host tools; the prompt forbids MCP ([src/providers/direct.rs:309](../src/providers/direct.rs#L309), [:629-631](../src/providers/direct.rs#L629-L631)) and the catalogue states "Catalog routes are closed Eevee-owned executors, not arbitrary MCP/SDK forwarding" ([src/providers/catalog.rs:2](../src/providers/catalog.rs#L2)).
 - **Contract to change:**
@@ -149,10 +153,11 @@ Each task below **breaks a binding rule on purpose**. It names the exact rule, t
   - Refused protocol features: sampling (server asking the model), elicitation, resources/prompts in this task; roots expose only the project root.
 - **Accept:** fixture Python stdio server with `echo` and `write_note` tools: registration review, selection, reviewed call, rule-allowed call, crash mid-call → tool error result and run continues, cancel kills the server tree, unselected tools never appear in the request body, Windows ConPTY launch.
 - **Watch out:** a server can do anything its process can; the UI must never call it sandboxed. Server-supplied tool descriptions are untrusted text and are shown, not obeyed.
+- **Implementation contract (2026-10-29):** `/mcp add <JSON>` reviews registration without launching, `/mcp connect <name>` separately reviews current executable/argv/cwd/environment identity, and `/mcp select|unselect|read|effect <server> <tool>` controls launch-local selected schemas/read assertions rather than extending `/tools`. Registrations persist per-project in private forward/critical-aware `mcp.json`; only environment names persist, values come from explicitly disclosed process environment, are masked/fingerprint-pinned and otherwise cleared. Native calls reuse existing permissions/rules/tool artifacts and owned process trees. A synchronized counted/sticky uncertainty lease is durably published before submission; failure refuses dispatch, and crash/cancellation/protocol loss preserves unknown unmanaged effects across reconnect/restart. Inference continues with a tool error, but MCP/native effect rules and broad task auto-approval no longer grant automatically while uncertainty remains; fresh manual review stays available.
 
 ### XC06 — Form behavior profiles in provider packets
 
-- [ ] Make each form change how the model works, through a visible, editable instruction profile.
+- [x] Make each form change how the model works, through a visible, editable instruction profile.
 - **Priority:** 3. **Needs:** F-track paired quality benchmark before any quality claim. **Builds on:** forms table (DESIGN_RULES:166-176), EV18 classifier, workflow recipes ([src/workspace/workflows.rs:1181](../src/workspace/workflows.rs#L1181)).
 - **Today:** forms change appearance and, through the classifier, the operation; the packet never contains form information (DESIGN_RULES:245, `task.md` "Keep partner flavor out of provider packets"). Evolution is therefore cosmetic for the model.
 - **Contract to change:** DESIGN_RULES:245 → "Names, nicknames, species lore and teaching provenance never enter provider packets. A form's **behavior profile** — neutral, user-visible instruction text — enters the packet when enabled and is shown as its own basket item and receipt bytes." `task.md` rule wording updated the same way; handoffs include the profile only when the user selects it.
@@ -163,10 +168,11 @@ Each task below **breaks a binding rule on purpose**. It names the exact rule, t
   - Basket chip "Profile: Jolteon · 312 B" with remove-for-this-Send.
 - **Accept:** receipt bytes match the displayed profile exactly; species/nickname strings never appear in any packet (fixture scan); disable removes it from the next Send; recipe import arrives disabled; paired benchmark results reported separately (no claim without them).
 - **Watch out:** profiles shift model behavior and therefore evolution evidence; keep the classifier input free of profile text so evolution stays based on user requests.
+- **Implementation contract (2026-10-29):** neutral profile packets contain instructions/check suggestions/schema only, never form/name metadata; defaults are enabled and displayed with exact instruction bytes. Project settings use bounded private `form-profiles.json`; profile edits reuse both external-editor consent stages without changing Request/caret. `/form-profile off|on|disable|reset|skip|include` exposes the state; imported recipe profiles remain inert until `/form-profile recipe` review. `/form-profile handoff|handoff-off` explicitly includes/removes a frozen neutral profile as unverified portable decision text for the current task/partner/form. All native and external/review encoders include only the frozen selection; outgoing receipt metadata records exact instruction bytes without double-counting packet totals. Quality benchmark remains separate and no quality claim is made.
 
 ### XC07 — Similar-request moves and a larger move library
 
-- [ ] Group near-identical requests into one learned move and allow more than four stored moves.
+- [x] Group near-identical requests into one learned move and allow more than four stored moves.
 - **Priority:** 3. **Needs:** VA09 (slots) or absorbs it. **Builds on:** GL01 grouping (`loose_key`, [src/workspace/game.rs:82](../src/workspace/game.rs#L82)), habits (DESIGN_RULES:255), move inventory (DESIGN_RULES:233).
 - **Today:** grouping matches only case/whitespace/trailing-punctuation variants; habits require byte-equal instructions; at most four active moves per partner/form.
 - **Contract to change:**
@@ -176,6 +182,7 @@ Each task below **breaks a binding rule on purpose**. It names the exact rule, t
 - **Similarity rule (deterministic):** tokenize; replace paths, quoted text, numbers and identifiers with typed slots; strip a closed list of Korean particles/endings and English articles; group when slot-normalized token sequences are equal **and** classifier form/operation are equal **and** the leading verb token is equal. No embeddings or model calls.
 - **Accept:** "fix the bug in src/a.rs" / "Fix bug in src/b.rs" group into one parameterized move; "delete src/a.rs" never groups with "fix src/a.rs"; Korean fixtures ("a.rs 버그 고쳐줘" / "b.rs의 버그 고쳐줘"); saving shows the variant table; library over 32 routes through the existing forget/replace review; old TMs import unchanged.
 - **Watch out:** false grouping is the risk; every proposal stays dismissible and nothing is learned without the existing teach review.
+- **XC07/VA09 implementation contract:** the 32-entry library retains four quick moves with explicit local assignment; legacy inventories retain their first four quick selections. Deterministic similarity requires classifier form/operation and leading-verb guards. Exact saved literal text, typed span/default templates and observed variants are retained; use explicitly fills values and neutrally reviews the full substituted instruction before ordinary outgoing review. Strict TM1 imports retain their semantics; TM2 carries parameterized definitions without dropping slots. Navigation, dismissal and use never learn or grant execution.
 
 ---
 

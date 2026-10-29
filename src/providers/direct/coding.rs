@@ -15,6 +15,10 @@ fn validate_active(
         return Err("Native request cancelled locally; no further write or continuation".into());
     }
     control.connection_check()?;
+    if run.input.delegation.is_some() {
+        control.check()?;
+        delegation::policy(&run.input)?;
+    }
     if connection.fingerprint() != run.fingerprint
         || native_tools(&run.input) != run.writes.is_some()
         || run
@@ -27,12 +31,9 @@ fn validate_active(
     run.input.validate_committed(&workspace.data_dir)?;
     validate_catalog(&run.input, connection)?;
     validate_screenshot(workspace, &run.input, connection)?;
-    if run
-        .input
-        .work
-        .as_ref()
-        .is_none_or(|claim| claim.writing != native_writing(&run.input))
-    {
+    if run.input.work.as_ref().is_none_or(|claim| {
+        run.input.delegation.is_none() && claim.writing != native_writing(&run.input)
+    }) {
         return Err("Native file tools lost their operation-bound durable lease".into());
     }
     revalidate(connection)?;
@@ -56,14 +57,20 @@ pub(super) async fn inference_loop(
     connection: &Connection,
     revalidate: Revalidate<'_>,
 ) -> (Outcome, String) {
-    match inference_rounds(
+    let result = match inference_rounds(
         workspace, run, events, control, incoming, http, connection, revalidate,
     )
     .await
     {
         Ok(message) => (Outcome::Completed, message),
         Err(failure) => failure,
+    };
+    if control.cancelled() || result.0 == Outcome::Cancelled {
+        for tool in &run.input.mcp {
+            tool.session.lock().stop();
+        }
     }
+    result
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -99,8 +106,15 @@ async fn inference_rounds(
         stopped: control.stopped,
         cancelled: control.cancelled,
         generation: control.generation,
-        deadline: control.deadline,
+        deadline: if run.input.delegation.is_some() {
+            control
+                .deadline
+                .min(Instant::now() + delegation::CHILD_WALL)
+        } else {
+            control.deadline
+        },
         wire_alive: health.as_deref(),
+        steering: control.steering,
     };
     let mut next_wire = None;
     let mut logical_bytes = 0usize;
@@ -119,7 +133,18 @@ async fn inference_rounds(
         .progress
         .clone()
         .unwrap_or_default();
-    for round in 1..=ROUND_LIMIT {
+    let child = run.input.delegation.is_some();
+    let round_limit = if child {
+        delegation::CHILD_ROUNDS
+    } else {
+        ROUND_LIMIT
+    };
+    let stream_limit = if child {
+        delegation::CHILD_BYTES
+    } else {
+        STREAM_LIMIT
+    };
+    for round in 1..=round_limit {
         validate_active(workspace, run, connection, control, revalidate).map_err(|error| {
             (
                 if control.cancelled() {
@@ -155,26 +180,39 @@ async fn inference_rounds(
         };
         body_bytes = charge_request_bytes(body_bytes, wire.len())
             .map_err(|error| (Outcome::Failed, error))?;
+        if child && body_bytes.max(logical_bytes) > delegation::CHILD_BYTES {
+            return Err((
+                Outcome::Failed,
+                "Delegated child cumulative request byte bound reached; no continuation sent"
+                    .into(),
+            ));
+        }
         // Approval waiting never consumes the model-round deadline.
         let round_control = Control {
             wire_alive: control.wire_alive,
             stopped: control.stopped,
             cancelled: control.cancelled,
             generation: control.generation,
-            deadline: Instant::now() + CALL_TIMEOUT,
+            deadline: if child {
+                control.deadline
+            } else {
+                Instant::now() + CALL_TIMEOUT
+            },
+            steering: control.steering,
         };
         emit(events, Event::Status {
             generation: run.generation,
             task_id: run.input.task.id,
-            message: format!("Native {} round {round}/{ROUND_LIMIT}; requested model {model}; {}",
+            message: format!("Native {} round {round}/{round_limit}; requested model {model}; {}",
                 if websocket { "WebSocket" } else { "HTTP" },
                 if native_writing(&run.input) { "file effects and eevee_run_command require separate exact one-shot approval" } else { "read/list only; no mutations or commands" }),
         }).map_err(|error| (Outcome::Failed, error))?;
         let mut stream = Stream::new(connection.protocol);
         stream.calls.select_catalog(run.input.tool_catalog.as_ref());
+        stream.calls.select_mcp(&run.input.mcp);
         stream.round = round;
         stream.prefix = std::mem::take(&mut public);
-        stream.wire_limit = STREAM_LIMIT - stream_bytes;
+        stream.wire_limit = stream_limit - stream_bytes;
         let read = if let Some(socket) = socket.as_mut() {
             socket
                 .round(wire, &mut stream, run, events, &round_control)
@@ -268,11 +306,11 @@ async fn inference_rounds(
         stream
             .publish_text(events, run, true)
             .map_err(|error| (Outcome::Failed, error))?;
-        if round == ROUND_LIMIT {
+        if round == round_limit {
             return Err((
                 Outcome::Failed,
                 format!(
-                    "Native model round limit of {ROUND_LIMIT} reached; terminal call set not executed and no continuation sent. Earlier completed file effects remain; no rollback."
+                    "Native model round limit of {round_limit} reached; terminal call set not executed and no continuation sent. Earlier completed file effects remain; no rollback."
                 ),
             ));
         }
@@ -311,12 +349,18 @@ async fn inference_rounds(
                 error,
             )
         })?;
-        let proposals = prepare_batch(
-            run.writes
-                .as_mut()
-                .ok_or_else(|| (Outcome::Failed, "Unadvertised native tools refused".into()))?,
-            &mut calls,
-        );
+        // Child effects are refused individually at the executor boundary, even
+        // when a hostile peer invents an unadvertised write or command call.
+        let proposals = if child {
+            Ok((0..calls.len()).map(|_| None).collect())
+        } else {
+            prepare_batch(
+                run.writes
+                    .as_mut()
+                    .ok_or_else(|| (Outcome::Failed, "Unadvertised native tools refused".into()))?,
+                &mut calls,
+            )
+        };
         let artifact_calls: Vec<_> = calls
             .iter()
             .zip(&call_indices)
@@ -367,11 +411,34 @@ async fn inference_rounds(
                 }
             }
             Ok(proposals) => {
+                let mut delegated = delegation::execute_round(
+                    run,
+                    events,
+                    control,
+                    incoming,
+                    round,
+                    &calls,
+                    || validate_active(workspace, run, connection, control, revalidate),
+                )
+                .map_err(|error| {
+                    (
+                        if control.cancelled() {
+                            Outcome::Cancelled
+                        } else {
+                            Outcome::Failed
+                        },
+                        error,
+                    )
+                })?;
                 for (index, (call, proposal)) in call_indices
                     .into_iter()
                     .zip(calls.into_iter().zip(proposals))
                 {
-                    let result = if let Some(proposal) = proposal {
+                    let result = if !delegation::allowed(&run.input, &call.tool) {
+                        Ok(json!({"status":"refused","path":call.tool.path(),"message":"Delegated child executor permits only frozen-scope source reads; no effects, MCP, commands, task mutations, artifacts or recursion"}))
+                    } else if matches!(&call.tool, crate::providers::writes::FileTool::Delegate { .. }) {
+                        delegated.pop_front().ok_or_else(|| "Delegation result order/count mismatch".to_owned())
+                    } else if let Some(proposal) = proposal {
                         execute_write(
                             workspace, run, events, control, incoming, connection, revalidate,
                             round, index, call.id.as_deref(), &proposal,
@@ -433,6 +500,8 @@ async fn inference_rounds(
                             }
                         }
                         })()
+                    } else if let crate::providers::writes::FileTool::Mcp { name, arguments } = &call.tool {
+                        mcp_call(workspace, run, events, control, incoming, name, arguments, round, index)
                     } else if let Some(operation) = call.tool.artifact_operation() {
                         artifact_lookup(run, events, control, incoming, operation)
                     } else {
@@ -440,7 +509,7 @@ async fn inference_rounds(
                         let cancelled = || control.cancelled();
                         let observation_control = crate::providers::writes::ObservationControl {
                             stopped: control.stopped, cancelled: &cancelled,
-                            deadline: Instant::now() + Duration::from_secs(30),
+                            deadline: if child { control.deadline.min(Instant::now() + Duration::from_secs(30)) } else { Instant::now() + Duration::from_secs(30) },
                         };
                         Ok(match scope.observe_tool_controlled(&call.tool, &observation_control) {
                             Ok(result) => result,
@@ -464,7 +533,9 @@ async fn inference_rounds(
             }
         }
         for ((call_id, tool), result) in artifact_calls.into_iter().zip(&mut results) {
-            if tool.starts_with("eevee_artifact_") || tool == crate::providers::commands::NAME {
+            if !child
+                && (tool.starts_with("eevee_artifact_") || tool == crate::providers::commands::NAME)
+            {
                 // Existing retained bytes already have immutable identity; never
                 // recursively store their pages as fresh observations.
                 continue;
@@ -481,7 +552,10 @@ async fn inference_rounds(
                     "Cannot encode actual tool result artifact".into(),
                 )
             })?;
-            let large = text.len() > crate::workspace::artifacts::PREVIEW_BYTES;
+            // Delegation already enforces a 16 KiB complete result bound; keep
+            // its child/parent links and summary intact in the lead's result.
+            let large =
+                tool != "eevee_delegate" && text.len() > crate::workspace::artifacts::PREVIEW_BYTES;
             let preview = large.then(|| {
                 let redacted = crate::workspace::privacy::redact(&text);
                 crate::workspace::artifacts::utf8_prefix(
@@ -497,7 +571,10 @@ async fn inference_rounds(
                     generation: run.generation,
                     task_id: run.input.task.id,
                     capture: crate::workspace::artifacts::ToolCapture {
-                        request_id: claim.request_id.clone(),
+                        request_id: run.input.delegation.as_ref().map_or_else(
+                            || claim.request_id.clone(),
+                            |child| child.child_request_id.clone(),
+                        ),
                         call_id,
                         tool: tool.into(),
                         partner: Some(claim.owner.clone()),
@@ -559,11 +636,27 @@ async fn inference_rounds(
             .calls
             .append_results(&mut body, &results)
             .map_err(|error| (Outcome::Failed, error))?;
+        // Explicit user steering joins only at this tool-result boundary (XC03).
+        let steering = control.take_steering();
+        let steered = tools::append_steering(connection.protocol, &mut body, &steering)
+            .map_err(|error| (Outcome::Failed, error))?;
+        if !steering.is_empty() {
+            emit(
+                events,
+                Event::Steered {
+                    generation: run.generation,
+                    task_id: run.input.task.id,
+                    round,
+                    texts: steering,
+                },
+            )
+            .map_err(|error| (Outcome::Failed, error))?;
+        }
         if websocket {
             let all = body["input"]
                 .as_array()
                 .ok_or_else(|| (Outcome::Failed, "Logical Responses input missing".into()))?;
-            let outputs = all[all.len() - results.len()..].to_vec();
+            let outputs = all[all.len() - results.len() - steered..].to_vec();
             next_wire = Some(
                 websocket::continuation(
                     &body,
@@ -614,7 +707,7 @@ fn charge_request_bytes(total: usize, next: usize) -> Result<usize, String> {
 
 /// Command review/execution has no artifact-acknowledgment runtime deadline.
 /// A lost reply is not proof of pre-effect refusal and must stop this batch.
-fn wait_command_reply<T>(
+pub(super) fn wait_command_reply<T>(
     reply: &Receiver<T>,
     run: &Prepared,
     control: &Control<'_>,
@@ -713,7 +806,14 @@ fn prepare_batch(
     calls: &mut [tools::Call],
 ) -> Result<Vec<Option<WriteProposal>>, String> {
     writes.verify()?;
-    if calls.iter().any(|call| call.tool.invalid()) {
+    if calls.iter().any(|call| {
+        call.tool.invalid()
+            && !matches!(
+                call.tool.kind(),
+                crate::providers::writes::ToolKind::Delegate
+                    | crate::providers::writes::ToolKind::Mcp
+            )
+    }) {
         return Err("File tool arguments must exactly match the advertised schema".into());
     }
     if calls

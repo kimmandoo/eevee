@@ -29,6 +29,11 @@ struct PendingRun {
     cwd: PathBuf,
     revision: u64,
 }
+struct PendingRequest {
+    record: Record,
+    // The exact reviewed fill, not the immutable saved template's defaults.
+    instruction: String,
+}
 struct PinFlow {
     record: Record,
     task: i64,
@@ -48,7 +53,7 @@ pub(super) struct State {
     staged_runs: BTreeMap<i64, Record>,
     run_uses: BTreeMap<String, Record>,
     provider_uses: BTreeMap<String, (Record, bool)>,
-    pending_request: Option<Record>,
+    pending_request: Option<PendingRequest>,
     pin_flow: Option<PinFlow>,
     task_save: Option<(i64, u64, Record)>,
     observed_runs: HashSet<String>,
@@ -164,6 +169,7 @@ impl App {
             .map(|r| r.proposal.name.clone())
             .collect::<Vec<_>>();
         let proposal = Proposal {
+            extra: Default::default(),
             partner: self.lead.id,
             form: self.form(),
             name: moves::suggested_name(self.form(), &steps, &used),
@@ -259,6 +265,20 @@ impl App {
             return Err("This move belongs to another project.".into());
         }
         moves::validate_proposal(&record.proposal)?;
+        let parameter_instruction = if moves::parameters::Template::of(&record.proposal)?.is_some()
+        {
+            if !self.moves.parameter_current()
+                || self.moves.parameter_record.as_ref() != Some(record)
+            {
+                return Err(
+                    "Fill and review this move's parameters before ordinary request preparation."
+                        .into(),
+                );
+            }
+            self.moves.parameter_instruction.clone()
+        } else {
+            None
+        };
         match &record.proposal.steps {
             Steps::Run { argv, cwd } => {
                 if let Some(reason) = self.work_capacity_reason(self.lead.id) {
@@ -282,6 +302,7 @@ impl App {
             }
             Steps::Pins { pins } => self.begin_move_pins(record, pins, None)?,
             Steps::Request { instruction, pins } => {
+                let instruction = parameter_instruction.as_deref().unwrap_or(instruction);
                 let existing = if self.composer_is_request() {
                     self.input.as_str()
                 } else {
@@ -296,7 +317,7 @@ impl App {
                 if pins.is_empty() {
                     self.stage_move_request(record, instruction)?;
                 } else {
-                    self.begin_move_pins(record, pins, Some(instruction.clone()))?;
+                    self.begin_move_pins(record, pins, Some(instruction.to_owned()))?;
                 }
             }
             Steps::Task { goal, criteria } => {
@@ -353,7 +374,10 @@ impl App {
         self.cursor = self.input.len();
         self.changed_task();
         self.flush_save();
-        self.move_runtime.pending_request = Some(record.clone());
+        self.move_runtime.pending_request = Some(PendingRequest {
+            record: record.clone(),
+            instruction: instruction.to_owned(),
+        });
         self.notice="Saving request template before the full receipt preview. Nothing sent; Run still requires review.".into();
         Ok(())
     }
@@ -361,8 +385,8 @@ impl App {
         let Some(providers::Request::Preview(input)) = &mut self.planning.pending else {
             return;
         };
-        if let Some(record) = self.move_runtime.pending_request.as_ref()
-            && let Steps::Request { pins, .. } = &record.proposal.steps
+        if let Some(pending) = self.move_runtime.pending_request.as_ref()
+            && let Steps::Request { pins, .. } = &pending.record.proposal.steps
         {
             input
                 .excerpts
@@ -389,12 +413,12 @@ impl App {
         self.move_runtime
             .prepared_requests
             .insert(claim.owner.partner, authored);
-        if let Some(record) = self.move_runtime.pending_request.take()
-            && record.proposal.partner == claim.owner.partner
+        if let Some(pending) = self.move_runtime.pending_request.take()
+            && pending.record.proposal.partner == claim.owner.partner
         {
             self.move_runtime
                 .provider_uses
-                .insert(claim.request_id.clone(), (record, false));
+                .insert(claim.request_id.clone(), (pending.record, false));
         }
     }
     pub(super) fn move_request_dispatched(&mut self, partner: i64, request: &str) {
@@ -720,9 +744,9 @@ impl App {
             let value = usage(&pending.record, self.task_id, Outcome::Cancelled, None);
             self.queue_move_use(&pending.record, value);
         }
-        if let Some(record) = self.move_runtime.pending_request.take() {
-            let value = usage(&record, self.task_id, Outcome::Cancelled, None);
-            self.queue_move_use(&record, value);
+        if let Some(pending) = self.move_runtime.pending_request.take() {
+            let value = usage(&pending.record, self.task_id, Outcome::Cancelled, None);
+            self.queue_move_use(&pending.record, value);
         }
         self.cancel_move_pins();
     }
@@ -868,10 +892,10 @@ impl App {
                 changed = true;
             }
         }
-        if let Some(record) = self.move_runtime.pending_request.as_ref() {
-            let exact = matches!(&record.proposal.steps,Steps::Request { instruction,.. } if self.composer_is_request() && self.input==*instruction);
-            if record.proposal.partner != self.lead.id
-                || record.proposal.form != self.form()
+        if let Some(pending) = self.move_runtime.pending_request.as_ref() {
+            let exact = self.composer_is_request() && self.input == pending.instruction;
+            if pending.record.proposal.partner != self.lead.id
+                || pending.record.proposal.form != self.form()
                 || !exact
                 || self.overlay.is_some()
             {
@@ -940,6 +964,7 @@ mod tests {
             revision: 1,
             project: "/workspace".into(),
             proposal: Proposal {
+                extra: Default::default(),
                 partner: 1,
                 form,
                 name: "Local label".into(),
@@ -955,6 +980,108 @@ mod tests {
             forgotten: false,
             created: 1,
         }
+    }
+    #[test]
+    fn xc07_filled_instruction_is_frozen_for_normal_preparation_and_preserves_other_drafts() {
+        let mut app = app(3);
+        let mut record = record(
+            3,
+            Steps::Request {
+                instruction: "Fix bug in src/b.rs".into(),
+                pins: vec![],
+            },
+        );
+        let template = moves::parameters::Template::derive(
+            &record.proposal.steps,
+            vec![
+                "fix the bug in src/a.rs".into(),
+                "Fix bug in src/b.rs".into(),
+            ],
+        )
+        .unwrap()
+        .unwrap();
+        template.store(&mut record.proposal).unwrap();
+        app.moves.records.push(record.clone());
+        app.moves.parameter_record = Some(record.clone());
+        app.moves.name = "[\"src/c.rs\"]".into();
+        app.moves.parameter_values.clone_from(&app.moves.name);
+        app.moves.parameter_instruction = Some(
+            template
+                .fill(&record.proposal.steps, &app.moves.name)
+                .unwrap(),
+        );
+        app.moves.mode = super::super::moves::Mode::ParameterReview;
+        app.editing = true;
+        app.editor_field = store::EditorField::Request;
+        app.input = "Keep my different exact draft".into();
+        app.cursor = 4;
+        assert!(app.stage_validated_move(&record).is_err());
+        assert_eq!(
+            (app.input.as_str(), app.cursor),
+            ("Keep my different exact draft", 4)
+        );
+        assert!(app.pending_request.is_none() && app.planning.pending.is_none());
+        app.input.clear();
+        app.cursor = 0;
+        app.stage_validated_move(&record).unwrap();
+        assert_eq!(app.input, "Fix bug in src/c.rs");
+        let pending = app.move_runtime.pending_request.as_ref().unwrap();
+        assert_eq!(pending.record, record);
+        assert_eq!(pending.instruction, "Fix bug in src/c.rs");
+        assert_eq!(app.moves.records, vec![record.clone()]);
+        assert!(app.pending_request.is_none() && app.planning.pending.is_none());
+        app.move_runtime.owner = Some((1, 1, 3));
+        app.drive_moves();
+        assert!(
+            app.move_runtime.pending_request.is_some(),
+            "the reviewed substitution must survive the save wait"
+        );
+        assert!(app.planning.work.is_none());
+        let snapshot = app.snapshot("/workspace");
+        assert_eq!(snapshot.request_text(), "Fix bug in src/c.rs");
+        app.tasks.push(snapshot);
+        app.saved_revision = app.revision;
+        app.storage = StorageState::Saved;
+        app.save_requested = false;
+        app.drive_moves();
+        assert_eq!(app.overlay, Some(Overlay::Planning));
+        assert!(app.move_runtime.pending_request.is_none());
+        assert!(!app.planning.send_after_prepare);
+        assert!(!app.planning.affirmative);
+        let request = app.planning.work_pending.take().unwrap();
+        assert!(matches!(&request, store::WorkRequest::Acquire { task, .. }
+            if task.request_text() == "Fix bug in src/c.rs"));
+        app.planning.work_event(request, Ok(vec![]));
+        let Some(providers::Request::Preview(input)) = app.planning.pending.as_ref() else {
+            panic!("filled move must prepare only the normal outgoing preview");
+        };
+        assert_eq!(input.task.request_text(), "Fix bug in src/c.rs");
+        assert!(
+            app.move_runtime
+                .provider_uses
+                .values()
+                .any(|(used, dispatched)| used == &record && !dispatched)
+        );
+        assert!(!has_use(&app));
+    }
+    #[test]
+    fn request_move_cancels_preparation_if_staged_text_changes_before_save() {
+        let mut app = app(4);
+        let record = record(
+            4,
+            Steps::Request {
+                instruction: "Original instruction".into(),
+                pins: vec![],
+            },
+        );
+        app.move_runtime.owner = Some((1, 1, 4));
+        app.stage_validated_move(&record).unwrap();
+        app.input = "Newer unsent draft".into();
+        app.cursor = 4;
+        app.drive_moves();
+        assert!(app.move_runtime.pending_request.is_none());
+        assert!(app.planning.work.is_none() && app.planning.pending.is_none());
+        assert_eq!((app.input.as_str(), app.cursor), ("Newer unsent draft", 4));
     }
     fn has_use(app: &App) -> bool {
         app.moves

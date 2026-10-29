@@ -209,7 +209,7 @@ pub(super) fn strip(
     let height = if app.width < 90 {
         1
     } else {
-        rows.len().min(3) as u16
+        rows.len().min(4) as u16
     }
     .min(area.height);
     let board = row(area, area.height.saturating_sub(height), height);
@@ -221,7 +221,7 @@ pub(super) fn strip(
             paint.accent,
         );
     } else {
-        for (index, work) in rows.iter().take(3).enumerate() {
+        for (index, work) in rows.iter().take(4).enumerate() {
             let line = row(board, index as u16, 1);
             let line = if artwork.original(work.owner.form).is_some() {
                 let sprite = working_sprite(line);
@@ -261,7 +261,7 @@ pub(super) fn sprite_targets(app: &App, area: Rect, targets: &mut Vec<(usize, Re
     if app.width < 90 {
         return;
     }
-    let forms = app.working_forms().take(3);
+    let forms = app.working_forms().take(4);
     let height = (forms.clone().count() as u16).min(area.height);
     let board = row(area, area.height.saturating_sub(height), height);
     targets.extend(
@@ -305,7 +305,7 @@ pub(super) fn board(frame: &mut Frame, area: Rect, app: &mut App, config: &Confi
     app.cooperation_ui.board_selected = selected;
     app.cooperation_ui.board_owner = rows.get(selected).map(|row| row.owner.partner);
     let mut offset = 0;
-    for (index, work) in rows.iter().take(3).enumerate() {
+    for (index, work) in rows.iter().take(4).enumerate() {
         let label = format!(
             "{}{}",
             if index == selected { "> " } else { "  " },

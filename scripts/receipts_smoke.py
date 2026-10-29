@@ -101,7 +101,12 @@ class ReceiptJourney(Journey):
         self.session.send(RIGHT + '\r')
         self.until(lambda: self.receipt()['source'] is None, 'committed source bytes purged')
         assert self.receipt()['record'] == record, 'purge must not rewrite identity, sections, references or counts'
-        self.wait_caption('UNAVAILABLE', )
+        def unavailable_visible():
+            if 'UNAVAILABLE' in self.session.display():
+                return True
+            self.session.send(PAGE)
+            return False
+        self.until(unavailable_visible, 'purged source unavailable in the actual receipt inspector')
         self.capture('purged-source-unavailable-counts-retained')
         self.session.send('s')
         self.wait_caption('UNAVAILABLE', )
@@ -141,7 +146,7 @@ class ReceiptJourney(Journey):
         self.restart()
         assert self.receipt()['source'] is None and self.receipt()['record'] == record
         self.inspector()
-        self.wait_caption('UNAVAILABLE', )
+        self.until(unavailable_visible, 'restored purged source unavailable in the actual receipt inspector')
         self.capture('second-restart-unavailable-original-counts')
         assert len(self.peer.snapshot('POST')) == 1, 'inspection/restart/purge must never replay a provider call'
         self.session.send(ESC)

@@ -11,6 +11,16 @@ impl App {
         let store::records::Operation::Usage { record } = &request.operation else {
             return;
         };
+        if let Some(child) = self.delegation.children.values_mut().find(|child| {
+            child
+                .state
+                .receipt_claim
+                .as_ref()
+                .is_some_and(|claim| claim.request_id == record.request_id)
+        }) {
+            child.state.usage_event(request, result);
+            return;
+        }
         let partner = record.owner.partner;
         let failed = result.is_err();
         if let Some(state) = self.planning_state_mut(partner) {

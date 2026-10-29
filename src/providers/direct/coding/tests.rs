@@ -3,6 +3,7 @@ use crate::providers::{Agent, ModelSelection};
 use std::io::{Read, Write};
 use std::net::TcpListener;
 
+mod delegation_tests;
 mod websocket_tests;
 
 struct Fixture {
@@ -87,6 +88,10 @@ impl Fixture {
         result.unwrap();
         let input = Input {
             native_transport: crate::providers::NativeTransport::Auto,
+            behavior_profile: None,
+            mcp: Vec::new(),
+            delegation_enabled: false,
+            delegation: None,
             effort_resolution: None,
             screenshot: None,
             public_context: None,
@@ -433,10 +438,15 @@ fn run_with_handler(
     // rounds must use their own deadlines, not this dispatch-time timestamp.
     let control = Control {
         wire_alive: None,
+        steering: None,
         stopped: &stopped,
         cancelled: &cancelled,
         generation: 7,
-        deadline: Instant::now() - Duration::from_secs(1),
+        deadline: if run.input.delegation.is_some() {
+            Instant::now() + delegation::CHILD_WALL
+        } else {
+            Instant::now() - Duration::from_secs(1)
+        },
     };
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -943,6 +953,7 @@ fn exact_permission_rejects_foreign_replayed_or_augmented_answers_and_closes_onc
     let cancelled = AtomicU64::new(0);
     let control = Control {
         wire_alive: None,
+        steering: None,
         stopped: &stopped,
         cancelled: &cancelled,
         generation: 7,
@@ -991,6 +1002,7 @@ fn permission_expiry_and_cancellation_never_create_missing_parents() {
         let cancelled = AtomicU64::new(if cancel { 7 } else { 0 });
         let control = Control {
             wire_alive: None,
+            steering: None,
             stopped: &stopped,
             cancelled: &cancelled,
             generation: 7,
@@ -1483,6 +1495,7 @@ fn local_receipt_keeps_exact_native_body_but_cannot_dispatch() {
         let cancelled = AtomicU64::new(0);
         let control = Control {
             wire_alive: None,
+            steering: None,
             stopped: &stopped,
             cancelled: &cancelled,
             generation: run.generation,
@@ -2534,6 +2547,7 @@ fn command_wait_has_no_http_deadline_and_lost_ack_is_not_a_refusal() {
     let cancelled = AtomicU64::new(0);
     let control = Control {
         wire_alive: None,
+        steering: None,
         stopped: &stopped,
         cancelled: &cancelled,
         generation: run.generation,

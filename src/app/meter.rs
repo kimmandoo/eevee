@@ -64,6 +64,7 @@ impl App {
     pub(super) fn observe_usage(&mut self) -> bool {
         let records: Vec<Record> = std::iter::once(&self.planning)
             .chain(self.cooperation.parked.values())
+            .chain(self.delegation.children.values().map(|child| &child.state))
             .filter_map(|state| state.usage.record.clone())
             .collect();
         let mut changed = false;

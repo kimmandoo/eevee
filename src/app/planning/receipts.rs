@@ -61,6 +61,32 @@ pub(super) struct Metadata<'a> {
 }
 
 impl State {
+    pub(in crate::app) fn link_parent(&mut self, child: &providers::delegation::Context) {
+        if let Some((_, outgoing)) = &mut self.staged {
+            outgoing.record.parent_request_id = Some(child.parent_request_id.clone());
+            outgoing.record.parent_call_id = Some(child.call_id.clone());
+        }
+    }
+    pub(in crate::app) fn reserve_delegated(&mut self) {
+        if let Some((_, outgoing)) = &mut self.staged {
+            outgoing.record.recorded_at = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_millis().min(i64::MAX as u128) as i64);
+            let mut reservation = outgoing.clone();
+            reservation.record.set_submitted(false);
+            self.queue.push_back(Request {
+                task_id: reservation.record.task_id,
+                partner: reservation.record.owner.partner,
+                operation: Operation::Put(Box::new(reservation)),
+            });
+        }
+    }
+
+    pub(in crate::app) fn discard_refused_reservation(&mut self) {
+        self.failed.retain(|request| !matches!(&request.operation, Operation::Put(outgoing) if !outgoing.record.submitted));
+        self.staged = None;
+        self.error = None;
+    }
     /// Freezes only local prepared bytes. No durable receipt exists until the
     /// exact generation/request receives the transport submission event.
     pub(super) fn stage(
@@ -110,9 +136,11 @@ impl State {
             return;
         }
         let (_, mut outgoing) = self.staged.take().expect("matched staged receipt");
-        outgoing.record.recorded_at = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |d| d.as_millis().min(i64::MAX as u128) as i64);
+        if outgoing.record.parent_request_id.is_none() {
+            outgoing.record.recorded_at = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_millis().min(i64::MAX as u128) as i64);
+        }
         self.queue.push_back(Request {
             task_id,
             partner: outgoing.record.owner.partner,
@@ -545,6 +573,20 @@ impl State {
                     ("generation", &r.generation.to_string()),
                 ],
             ));
+            if !r.submitted {
+                lines.push(
+                    "Prepared child packet reservation · NOT submitted to the provider.".into(),
+                );
+            }
+            if let Some(parent) = &r.parent_request_id {
+                lines.push(format!(
+                    "  ↳ Read-only child of {parent} · call {}",
+                    r.parent_call_id.as_deref().unwrap_or("unknown")
+                ));
+            }
+            for child in &r.child_request_ids {
+                lines.push(format!("  ↳ Dispatched child receipt: {child}"));
+            }
             lines.push(format!("Route: {}", r.agent.label()));
             lines.push(format!(
                 "Model: {} / requested; observed unknown in outgoing receipt",
@@ -571,6 +613,9 @@ impl State {
                     .as_deref()
                     .unwrap_or("no step list from this route")
             ));
+            if let Some(bytes) = r.profile_instruction_bytes {
+                lines.push(format!("Form profile: {bytes} B exact neutral instructions (included in packet totals); no grant."));
+            }
             lines.push(
                 "Usage: unknown in outgoing receipt; inspect provider-reported usage separately"
                     .into(),

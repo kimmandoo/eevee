@@ -1,5 +1,37 @@
 # Troubleshooting
 
+### [2026-10-29] Cancelled native helpers retained a false local-effect barrier
+
+- **Context / Symptom:** Both terminal sizes closed all three held child HTTP sockets after parent cancellation, and all eight usage records were stored, but the parent durable claim and helper work rows remained. The lead was already Cancelled; child remote outcomes remained unknown.
+- **Root Cause:** Delegated preparation bypassed the ordinary preparation initializer and omitted its native request-owner identity. A lost native response was consequently classified as opaque external local effects, even though the child executor had no effect capability.
+- **Solution:** Initialized the same native owner identity during delegated preparation. Kept transport outcomes Unknown, without inventing remote completion, while allowing bounded read-only child persistence/claim settlement. Added a transition regression requiring three Unknown/error outcomes, retired children and an unchanged parent claim. The unchanged real cancellation journey still requires closed sockets, eight separate usage records, no continuation, no remaining durable claims and no changed project bytes.
+- **Prevention / Reference:** Retained failing evidence: `target/xc-038-final-20261029/delegation-2`. A new preparation path must preserve transport classification as well as task/owner/receipt identity; absence of output is not evidence of local effects.
+
+### [2026-10-29] Contract integration rejected delegated outcomes and parameterized move preparation
+
+- **Context / Symptom:** Actual 120×36/60×18 delegation ended with `Tool result is not an actual structured local outcome` after successful child reads. Parameterized move use never reached `Run once`; the displayed response was an earlier completed request, not a hidden new Send.
+- **Root Cause:** Delegated outcomes omitted the native result envelope's required string `message` and `path`. Move preparation compared the substituted Request with the saved literal rather than the exact instruction already reviewed by the user.
+- **Solution:** Added the normal bounded result envelope before delegation's serialized-size check, without weakening continuation validation. Froze the reviewed substituted instruction through save/acquisition/preparation while retaining original record/revision and changed-draft checks. Producer/consumer regressions cover result outcomes and all native continuation dialects; move regressions cover preparation and changed-draft cancellation. Failed evidence remains in `target/xc-038-proof-20261029/{delegation-2,moves-2}`.
+
+### [2026-10-29] Behavior-profile policy text concealed selected-source accounting
+
+- **Context / Symptom:** The existing actual native receipt journey retained the exact submitted HTTP body but failed because its selected capture was missing from `record.captures`.
+- **Root Cause:** The profile exception rewrote the native policy envelope's introduction. Wire-capture accounting, source-reference extraction and context comparison intentionally recognize that owned introduction together with the JSON boundary; all three therefore stopped decoding the context.
+- **Solution:** Kept the established native introduction and JSON boundary, with the profile exception stated inside that policy. The existing `receipts_smoke.py` remains an unchanged consumer regression for actual selected-capture identity, byte partition, restart and purge; no parser guard or assertion was relaxed. Original failure: `target/xc-038-proof-20261029/native/platform-tools-receipts/results.json`.
+
+### [2026-10-29] Terminal steering choices outlived their completed request
+
+- **Context / Symptom:** The full consumer regression could not Send an ordinary follow-up after the prior request finished; a stale busy-Send choice still owned Enter.
+- **Root Cause:** Terminal settlement cleared the live generation before steering checked ownership. Settlement also depended on provider polling rather than the common planning settlement path.
+- **Solution:** Retained terminal outcome together with its exact generation and settled steering centrally before later key handling. Queued Sends remain bound to task/partner/generation, never move front ownership and return exact unsent bytes when the owning run cannot dispatch them. The existing explicit-Run/follow-up regression and seven steering regressions passed before the final integrated gate.
+
+### [2026-10-29] Capability fixtures addressed the wrong terminal or protocol boundary
+
+- **Context / Symptom:** Profile editing returned `Inappropriate ioctl for device (os error 25)`; MCP rule creation keys were ignored or `/rules` was unavailable during active inference; a gated custom Chat stream ended as Unknown.
+- **Root Cause:** The editor fixture lacked a controlling terminal. Fresh asynchronous permission panes intentionally intercept keys until explicit engagement, and the rules browser requires idle work. Custom Chat plans own their terminal frames and had omitted `[DONE]`.
+- **Solution:** Reused the existing controlling-TTY wrapper for profile journeys, engaged and exposed exact permission scope before rule creation, inspected rule lists after settlement while retaining live creation receipts, and emitted authoritative Chat completion frames. Owned fixture gates now release before peer shutdown on failure. Exact approval, unknown-effects, source-byte and no-hidden-dispatch assertions stayed intact; no timeout or production authority gate changed.
+- **Codec boundary:** Forcing `PYTHONIOENCODING=cp1252` reproduced `UnicodeDecodeError: ... byte 0x81` for UTF-8 JSON containing `丁`. The stdio fixture now explicitly configures UTF-8 input/output rather than depending on ambient locale variables that launch intentionally clears. The same forced-codec subprocess then preserved exact CJK/Korean/emoji replies and event arguments; native Windows certification still comes from ConPTY CI.
+
 ### [2026-10-28] v0.1.35 release upload failed without version changelog notes
 
 - **Context / Symptom:** Native run 40638360962 passed at `ad5c634`, but release run 40640741692 failed at "Upload all assets before publishing"; no GitHub release was created.

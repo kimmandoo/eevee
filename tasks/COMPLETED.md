@@ -1,8 +1,16 @@
 # Completed work
 
-Updated on2026-10-28 through all23 accepted Wave1–7 assignments and all four unassigned tasks GP10→GP08/GP09 plus P05. Waves1–5 shipped in public0.1.32; accepted0.1.33 source now awaits exact-commit native/release qualification. Local controlled-peer proof is not live-provider conformance. This is historical completion evidence, not an execution queue. Active work and priority live in [task.md](../task.md); the current contract is [DESIGN_RULES.md](../docs/DESIGN_RULES.md). Release/runtime evidence remains in [WORK_CHECKPOINT.md](../docs/WORK_CHECKPOINT.md) and [CHANGELOG.md](../CHANGELOG.md).
+Updated2026-10-29 through the X contract implementation below. Earlier specifications retain their historical acceptance/release statements; current publication state is in [WORK_CHECKPOINT.md](../docs/WORK_CHECKPOINT.md). This is completion evidence, not an execution queue. Active work lives in [task.md](../task.md); [DESIGN_RULES.md](../docs/DESIGN_RULES.md) remains binding. Controlled local proof is not live-provider conformance.
 
 The specifications below retain their original acceptance notes and wording. Old schema numbers, limits, priorities, proposed ordering and release statements are historical; they do not override the current contract. Scoped completion does not establish authenticated conformance for every provider. T05 was dropped, not completed.
+
+## X contract capabilities — locally accepted0.1.38 implementation
+
+XC01–XC09 were implemented; this delivery completed read-only delegation, unmanaged native stdio MCP, neutral behavior profiles, real typed request parameters/library32 and the interrupted owner-bound steering work. XC07 absorbed VA09. The complete specification remains in [X-contract-relaxation.md](X-contract-relaxation.md), with every intentional contract replacement and retained safety floor.
+
+Rust1.90.0 passed1,953 tests/two ignored, strict Clippy and release build; Python28/four Windows-only skips and SDK45 passed. Frozen C `81ea80afefc6b0657951b644111653d2ef78e6881e4a3f672530de33039af5ef` passed16 feature journeys and two selected-source receipt journeys at120×36/60×18 in `target/xc-038-final-c-20261029`. Earlier B separately passed10 HTTP connection and20 WebSocket journeys; unchanged native-profile rows and corrected receipt rows were composed without relabelling a failed binary/report.
+
+Native all-five qualification, publication and downloaded-package evidence remain separate release gates. No paired quality improvement, live-provider conformance, billing or commercial artwork clearance is claimed.
 
 ## Unassigned tasks — source 0.1.33
 

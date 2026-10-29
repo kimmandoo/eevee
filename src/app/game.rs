@@ -92,6 +92,7 @@ pub struct MoveProposal {
     pub instruction: String,
     pub name: String,
     pub sources: Vec<String>,
+    pub variants: Vec<String>,
 }
 
 /// Distinct dispatched Sends needed before Eevee offers to learn a move.
@@ -438,6 +439,13 @@ impl App {
             })
     }
 
+    fn move_similarity_key(text: &str) -> String {
+        let classifier = super::evolution::classify(text)
+            .map(|selection| format!("{}:{:?}", selection.form, selection.operation))
+            .unwrap_or_else(|| "unclassified".into());
+        game::similar_key(text, &classifier)
+    }
+
     /// Repeated similar Sends of this partner/form that no move covers yet.
     pub fn move_proposal(&self) -> Option<MoveProposal> {
         let form = self.form();
@@ -450,10 +458,17 @@ impl App {
                 record.proposal.partner == self.lead.id
                     && record.proposal.form == form
                     && matches!(&record.proposal.steps, Steps::Request { instruction, .. }
-                        if game::loose_key(instruction) == key)
+                        if Self::move_similarity_key(instruction) == key)
             })
         };
-        let mut groups: Vec<(String, String, i64, Vec<String>)> = Vec::new();
+        struct Group {
+            key: String,
+            instruction: String,
+            at: i64,
+            sources: Vec<String>,
+            variants: Vec<String>,
+        }
+        let mut groups: Vec<Group> = Vec::new();
         for habit in &self.records.snapshot.habits {
             if habit.instruction.is_empty() || habit.dismissed {
                 continue;
@@ -464,34 +479,55 @@ impl App {
             {
                 continue;
             }
-            let key = game::loose_key(&habit.instruction);
+            let key = Self::move_similarity_key(&habit.instruction);
             for source in habit
                 .sources
                 .iter()
                 .filter(|source| source.owner.partner == self.lead.id && source.owner.form == form)
             {
-                let entry = match groups.iter_mut().position(|group| group.0 == key) {
+                let entry = match groups.iter().position(|group| group.key == key) {
                     Some(index) => &mut groups[index],
                     None => {
-                        groups.push((key.clone(), habit.instruction.clone(), 0, Vec::new()));
+                        groups.push(Group {
+                            key: key.clone(),
+                            instruction: habit.instruction.clone(),
+                            at: 0,
+                            sources: Vec::new(),
+                            variants: Vec::new(),
+                        });
                         groups.last_mut().unwrap()
                     }
                 };
-                if !entry.3.contains(&source.request_id) {
-                    entry.3.push(source.request_id.clone());
+                if !entry.variants.contains(&habit.instruction) {
+                    entry.variants.push(habit.instruction.clone());
                 }
-                if source.at >= entry.2 {
-                    entry.2 = source.at;
-                    entry.1.clone_from(&habit.instruction);
+                if !entry.sources.contains(&source.request_id) {
+                    entry.sources.push(source.request_id.clone());
+                }
+                if source.at >= entry.at {
+                    entry.at = source.at;
+                    entry.instruction.clone_from(&habit.instruction);
                 }
             }
         }
-        let (key, instruction, _, sources) = groups
+        let Group {
+            key,
+            instruction,
+            sources,
+            variants,
+            ..
+        } = groups
             .into_iter()
             .filter(|group| {
-                group.3.len() >= REPEATS && !dismissed.contains(&group.0) && !covered(&group.0)
+                group.sources.len() >= REPEATS
+                    && !dismissed.contains(&group.key)
+                    && !covered(&group.key)
+                    && !group
+                        .variants
+                        .iter()
+                        .any(|variant| dismissed.contains(&game::loose_key(variant)))
             })
-            .max_by_key(|group| group.2)?;
+            .max_by_key(|group| group.at)?;
         let steps = Steps::Request {
             instruction: instruction.clone(),
             pins: Vec::new(),
@@ -507,6 +543,7 @@ impl App {
             name: moves::suggested_name(form, &steps, &used),
             instruction,
             sources,
+            variants,
         })
     }
 
@@ -529,7 +566,8 @@ impl App {
             self.notice = "Save the task before teaching a move.".into();
             return;
         }
-        let teach = Proposal {
+        let mut teach = Proposal {
+            extra: Default::default(),
             partner: self.lead.id,
             form: self.form(),
             name: proposal.name,
@@ -545,6 +583,14 @@ impl App {
                 teacher_name: None,
             },
         };
+        let parameterized =
+            moves::parameters::Template::derive(&teach.steps, proposal.variants.clone()).and_then(
+                |template| template.map_or(Ok(()), |template| template.store(&mut teach)),
+            );
+        if let Err(error) = parameterized {
+            self.notice = error;
+            return;
+        }
         if let Err(error) = moves::validate_proposal(&teach) {
             self.notice = error;
             return;
@@ -553,6 +599,7 @@ impl App {
         if self.overlay == Some(Overlay::Moves) {
             self.moves
                 .begin_learning(super::moves::Learning::Teach(teach));
+            self.moves.variants = proposal.variants;
         }
     }
 
@@ -627,6 +674,60 @@ mod tests {
             text: "fn a() {}\n".into(),
             available: true,
         }
+    }
+
+    #[test]
+    fn xc07_paths_group_only_in_review_and_preserve_exact_variants() {
+        let mut app = app();
+        app.saved_revision = app.revision;
+        let first = "fix the bug in src/a.rs";
+        let second = "Fix bug in src/b.rs";
+        app.records.snapshot.habits = vec![
+            habit(first, &["one", "two"], 3),
+            habit(second, &["three"], 3),
+        ];
+        let proposal = app.move_proposal().expect("typed paths group");
+        assert_eq!(proposal.variants, vec![first, second]);
+        assert_eq!(proposal.sources.len(), 3);
+        assert!(app.moves.records.is_empty());
+        app.learn_proposed_move();
+        assert_eq!(app.moves.variants, vec![first, second]);
+        let teaching = app.moves.learning.as_ref().unwrap().proposal();
+        let template = moves::parameters::Template::of(teaching)
+            .unwrap()
+            .expect("typed slots are saved, not just displayed");
+        assert_eq!(template.slots.len(), 1);
+        let original = match &teaching.steps {
+            Steps::Request { instruction, .. } => instruction,
+            _ => unreachable!(),
+        };
+        let slot = &template.slots[0];
+        let expected = format!(
+            "{}src/c.rs{}",
+            &original[..slot.start],
+            &original[slot.end..]
+        );
+        assert_eq!(
+            template.fill(&teaching.steps, "[\"src/c.rs\"]").unwrap(),
+            expected
+        );
+        assert!(app.pending_request.is_none() && app.planning.pending.is_none());
+        assert!(app.moves.records.is_empty());
+        app.close_overlay();
+        app.records.snapshot.habits = vec![
+            habit("a.rs 버그 고쳐줘", &["one", "two"], 3),
+            habit("b.rs의 버그 고쳐줘", &["three"], 3),
+        ];
+        assert!(app.move_proposal().is_some());
+        app.records.snapshot.habits = vec![
+            habit("fix src/a.rs", &["one", "two"], 3),
+            habit("delete src/b.rs", &["three"], 3),
+        ];
+        assert!(app.move_proposal().is_none());
+        assert_ne!(
+            App::move_similarity_key("fix src/a.rs"),
+            App::move_similarity_key("review src/a.rs")
+        );
     }
 
     #[test]

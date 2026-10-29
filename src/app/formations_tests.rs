@@ -26,6 +26,7 @@ fn app() -> App {
     app.formations.mapping = vec![Some(1), Some(2)];
     app.formations.recipe = Some(Recipe {
         schema_version: 2,
+        profiles: Vec::new(),
         name: "Two roles".into(),
         scope: vec![],
         context: vec![],

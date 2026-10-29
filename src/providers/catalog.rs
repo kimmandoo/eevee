@@ -1,5 +1,5 @@
 //! Inert, explicitly imported metadata. Search relevance never grants tool authority.
-//! Catalog routes are closed Eevee-owned executors, not arbitrary MCP/SDK forwarding.
+//! Owned catalog aliases remain closed executors; separately registered MCP tools are explicitly selected and labelled unmanaged.
 use super::{Agent, Operation};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};

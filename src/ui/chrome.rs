@@ -195,6 +195,12 @@ pub(super) fn header(frame: &mut Frame, area: Rect, app: &App, config: &Config, 
     if let Some(todo) = compact_todo(app, frame.area().width) {
         status = format!("{status} · {todo}");
     }
+    if app.has_queued_send() {
+        status = format!("{status} · Next Send queued | /queue-cancel");
+    }
+    if app.mcp.effects_unknown() {
+        status = format!("MCP effects unknown · manual review | {status}");
+    }
     let line = row(area, 1, 1);
     text(
         frame,
