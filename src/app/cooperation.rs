@@ -734,8 +734,7 @@ impl App {
     /// permission or agent command without presenting it, from any surface.
     /// Questions, other partners and settling/cancelling work are excluded.
     fn drive_auto_approval(&mut self) -> bool {
-        if !self.planning.auto_approve
-            || self.quit
+        if self.quit
             || self.cooperation.cancelling
             || self.cooperation.quitting
             || self.planning.cancelling
@@ -745,6 +744,13 @@ impl App {
                 .owner()
                 .is_none_or(|owner| owner.partner != self.lead.id)
         {
+            return false;
+        }
+        // User-created rules (XC01) answer before the broad task-scoped switch.
+        if self.drive_rules() {
+            return true;
+        }
+        if !self.planning.auto_approve {
             return false;
         }
         if self.planning.auto_accept() {
@@ -2118,6 +2124,50 @@ mod tests {
         // Turning it off restores ordinary review.
         assert!(app.command("auto-approve-off"));
         assert!(!app.planning.auto_approve);
+    }
+
+    #[test]
+    fn approval_rules_answer_matching_file_requests_and_deny_wins() {
+        let mut app = app();
+        let dir = std::env::temp_dir().join(format!("ev-rule-app-{}", std::process::id()));
+        app.rules.path = dir.join(crate::workspace::rules::FILE_NAME);
+        start(&mut app, 1, 1);
+        file_prompt(&mut app, 1, 20);
+        assert!(
+            app.planning.pending.is_none(),
+            "no rule yet: ordinary review"
+        );
+        assert!(app.command_with_argument("rule-allow src/*.rs launch"));
+        assert!(app.notice.contains("Rule #1"), "{}", app.notice);
+        app.refresh_approvals();
+        assert!(matches!(
+            app.planning.pending.take(),
+            Some(providers::Request::Answer { answer, .. }) if answer == json!("once")
+        ));
+        assert!(app.notice.contains("Allowed by rule #1"), "{}", app.notice);
+        // Another partner's request is not answered by the lead's rules.
+        start(&mut app, 2, 2);
+        file_prompt(&mut app, 2, 21);
+        assert!(app.cooperation.parked[&2].pending.is_none());
+        // A deny rule wins over the broader allow.
+        let mut deny = app.rules.rules[0].clone();
+        deny.effect = crate::workspace::rules::Effect::Deny;
+        deny.kind = crate::workspace::rules::Kind::Write {
+            ops: vec![crate::workspace::rules::WriteOp::Create],
+            paths: vec!["src/new.rs".into()],
+        };
+        app.rules.add(deny).unwrap();
+        file_prompt(&mut app, 1, 22);
+        assert!(matches!(
+            app.planning.pending.take(),
+            Some(providers::Request::Answer { answer, .. }) if answer == json!("deny")
+        ));
+        // Revoking restores review before the next request.
+        assert!(app.command_with_argument("rule-revoke 1"));
+        assert!(app.command_with_argument("rule-revoke 2"));
+        file_prompt(&mut app, 1, 23);
+        assert!(app.planning.pending.is_none());
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

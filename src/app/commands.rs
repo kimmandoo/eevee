@@ -90,6 +90,9 @@ impl Popup {
                 | "todo-eager"
                 | "usage-meter"
                 | "usage-budget"
+                | "rule-allow"
+                | "rule-deny"
+                | "rule-revoke"
         ) && !argument.is_empty())
         .then_some((name, argument))
     }
@@ -619,6 +622,16 @@ impl App {
                 "One notice at a launch estimate in USD; never blocks",
             ),
             ("prices", "Reload user prices (usage.toml); estimates only"),
+            ("rules", "Project approval rules: list, disable, revoke"),
+            (
+                "rule-allow",
+                "Allow requests like the one under review (N = keep N args, launch = until exit)",
+            ),
+            (
+                "rule-deny",
+                "Always deny requests like the one under review",
+            ),
+            ("rule-revoke", "Revoke a rule by id"),
             ("berry", "Make an attachment one-shot for the next Send"),
             ("learn-move", "Learn the repeated request Eevee proposed"),
             (
@@ -1471,6 +1484,10 @@ impl App {
         if self.progress_command(name, argument) {
             return true;
         }
+        if matches!(name, "rule-allow" | "rule-deny" | "rule-revoke") {
+            self.command_popup = None;
+            return self.rules_command(name, argument);
+        }
         if matches!(name, "usage-meter" | "usage-budget") {
             self.command_popup = None;
             return self.usage_command(name, (!argument.is_empty()).then_some(argument));
@@ -1680,7 +1697,7 @@ impl App {
             self.open_overlay(Overlay::Journey);
             return true;
         }
-        if self.usage_command(name, None) {
+        if self.usage_command(name, None) || self.rules_command(name, "") {
             return true;
         }
         match name {

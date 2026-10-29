@@ -137,6 +137,7 @@ impl App {
                             | Overlay::Journey
                             | Overlay::Bag
                             | Overlay::Usage
+                            | Overlay::Rules
                     )
                 ) =>
             {
@@ -1065,6 +1066,7 @@ impl App {
             Some(Overlay::Retained) => return self.retained_key(key),
             Some(Overlay::Bag) => return self.bag_key(key),
             Some(Overlay::Usage) => return self.usage_key(key),
+            Some(Overlay::Rules) => return self.rules_key(key),
             Some(Overlay::ParkedDrafts) => return self.parked_draft_key(key),
             Some(Overlay::ToolPlans) => return self.tool_plan_key(key),
             Some(Overlay::EvolutionPreview | Overlay::Journey) => {

@@ -35,7 +35,7 @@ Each task below **breaks a binding rule on purpose**. It names the exact rule, t
 
 ### XC01 — Persistent, scoped approval rules
 
-- [ ] Let the user turn a reviewed command or write into a project rule so the same kind of call is allowed (or denied) without a prompt.
+- [x] Let the user turn a reviewed command or write into a project rule so the same kind of call is allowed (or denied) without a prompt.
 - **Priority:** 1. **Needs:** — (XC08 recommended first). **Builds on:** task-scoped `/auto-approve` (`App::auto_approve_command` in [src/app/motion.rs:35](../src/app/motion.rs#L35), `planning.auto_approve` in [src/app/planning.rs:177](../src/app/planning.rs#L177)), `execution::State::auto_approve` ([src/app/execution.rs:620](../src/app/execution.rs#L620)), `drive_auto_approval` ([src/app/cooperation.rs:734](../src/app/cooperation.rs#L734)), runner `CommandSpec`.
 - **Today:** two choices only — allow once, or allow everything for the lead in this task until `/auto-approve-off`. The in-memory flag does not survive restart, cannot be narrowed and cannot deny. The native tool prompt hard-codes "Each call gets separate user approval, never a batch grant" ([src/providers/direct.rs:629](../src/providers/direct.rs#L629)).
 - **Contract to change:**
@@ -62,6 +62,7 @@ Each task below **breaks a binding rule on purpose**. It names the exact rule, t
   - Model output that contains rule-like text cannot create or alter rules.
   - Two-partner journey: a project rule applies to each partner's own calls without moving approval focus between owners.
   - PTY journey: create a rule from a review, rerun, see "Allowed by rule", revoke, see the review again.
+- **Implemented as (2026-10-29):** `workspace::rules` (model, glob, matching, `decide`, `Store` in `<data dir>/rules.json`), `app::rules` (`drive_rules` before task auto-approval, `/rule-allow`, `/rule-deny`, `/rule-revoke`, `/rules` overlay, third-review hint), `planning::answer_permission`, `execution::open_rule_review`. Design fixes: (1) rule creation is a slash command on the request under review (`/rule-allow [N] [glob] [launch]`) rather than a new in-review editor, so it reuses the palette and never adds a key that could approve by accident; the saved sentence is shown in the notice and `/rules`; (2) rules answer only the **lead's** requests — like the existing task auto-approval — so approval focus never moves between owners; a second partner's matching request is still presented in FIFO; (3) storage is a JSON file beside `usage.toml`, not a new SQLite table, so no schema bump and older readers are unaffected; (4) an "Allowed by rule" line is a notice like today's auto-approve, not a new persisted receipt field.
 - **Watch out:** `cargo test`/`npm test` run arbitrary project code (build scripts, test bodies). The rule sentence must say "runs project code" for build/test programs; this is disclosure, not a sandbox.
 
 ---

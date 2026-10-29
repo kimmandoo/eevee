@@ -668,6 +668,25 @@ impl State {
         true
     }
 
+    /// Answers the current owned permission with one of its own options; used
+    /// by a user-created approval rule (XC01). Questions are never answered.
+    pub(in crate::app) fn answer_permission(&mut self, index: usize) -> bool {
+        if self.pending.is_some() || self.cancelling {
+            return false;
+        }
+        let Some(PromptKind::Permission { options, .. }) =
+            self.request.as_ref().map(|request| &request.kind)
+        else {
+            return false;
+        };
+        let Some(answer) = options.get(index).map(|option| option.answer.clone()) else {
+            return false;
+        };
+        self.auto_permission_review = false;
+        self.send_answer(answer);
+        true
+    }
+
     fn send_answer(&mut self, answer: Value) {
         if self.auto_permission_review || self.pending.is_some() || self.cancelling {
             return;

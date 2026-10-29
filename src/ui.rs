@@ -19,6 +19,7 @@ mod parked_drafts;
 mod planning;
 mod records;
 mod retained;
+mod rules;
 mod sources;
 mod tool_catalog;
 mod tool_plans;
@@ -470,6 +471,7 @@ pub fn render(
             Overlay::Journey => journey(frame, area, app, config, &paint),
             Overlay::Bag => bag::render(frame, area, app, config, &paint, artwork),
             Overlay::Usage => meter::render(frame, area, app, config, &paint),
+            Overlay::Rules => rules::render(frame, area, app, config, &paint),
             Overlay::Preview => preview(frame, area, app, config, &paint),
             Overlay::Tasks => tasks(frame, area, app, config, &paint),
             Overlay::Criteria => criteria(frame, area, app, config, &paint),

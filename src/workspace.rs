@@ -15,6 +15,7 @@ pub mod receipt;
 pub mod records;
 pub mod repo;
 pub mod ribbons;
+pub mod rules;
 pub mod runner;
 pub mod tool_plans;
 pub mod usage;

@@ -44,6 +44,7 @@ mod meter;
 mod motion;
 mod move_staging;
 mod overlays;
+mod rules;
 mod tasks;
 mod usage;
 
@@ -101,6 +102,7 @@ pub enum Overlay {
     Retained,
     Bag,
     Usage,
+    Rules,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -277,6 +279,8 @@ pub struct App {
     pub held: held::State,
     pub bag: game::Bag,
     pub meter: meter::State,
+    pub rules: crate::workspace::rules::Store,
+    pub rule_state: rules::State,
     pub item_notice: Option<game::Notice>,
     berry_removals: Vec<i64>,
     pub execution: execution::State,
@@ -430,6 +434,8 @@ impl App {
             held: held::State::default(),
             bag: game::Bag::default(),
             meter: meter::State::default(),
+            rules: crate::workspace::rules::Store::default(),
+            rule_state: rules::State::default(),
             item_notice: None,
             berry_removals: Vec::new(),
             execution: execution::State::default(),
