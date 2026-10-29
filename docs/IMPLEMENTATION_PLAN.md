@@ -1,16 +1,16 @@
 # Eevee Implementation Plan
 
-Updated2026-10-29. The X contract track and qualified0.1.38 release below are complete. Earlier qualified releases and their scoped evidence remain recorded separately; Wave8, unrelated audit tasks and paid/live provider calls remain outside this request.
+Updated2026-10-30. The UI/intent follow-up and qualified0.1.39 release below are complete. Earlier qualified releases and their scoped evidence remain recorded separately; Wave8, unrelated audit tasks and paid/live provider calls remain outside this request.
 
 Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPATIBILITY.md). Live-provider conformance remains distinct from implemented transports and deterministic runtime proof.
 
-## Active request — Tool presentation, live code, anchored consent and prompt intent (2026-10-29)
+## Completed delivery — Tool presentation, live code, anchored consent and prompt intent (0.1.39)
 
-1. Replace raw/repeated structured todo response cards with a request/owner-bound readable projection while retaining raw observations and distinct malformed/refused output.
-2. Extend bounded local English/Korean intent rules for UI/tool improvements and compound inspect/fix requests; preserve manual appearance, explicit restrictions, busy ownership, adopted-step precedence and preview/Send equality.
-3. Flush actual pending source snapshots through existing transport polling and improve the code gutter/live edge without artificial token delays. Dock file decisions above the retained Request composer; preserve long-scope exposure, exact consent, safe typing and full Details inspection.
-4. Preserve all concurrent0.1.38 contracts and implementation during integration, including automatic progress adoption, source-driven live-file effects, retries, steering, helpers, MCP, profiles, rules, moves and forward-compatible storage. Run pinned Rust gates and actual compact/wide UI, transport and contract journeys without paid/live provider calls or unrelated roadmap work.
-5. Commit/push the integrated0.1.39 source, require same-source/same-attempt Check and all five native qualification jobs, then publish a new annotated tag without replacing older tags/assets. Verify every public asset/qualified archive and downloaded host installation plus changed runtime paths; update handoff and release records.
+1. Replaced raw/repeated structured todo cards with a request/owner-bound readable projection while retaining raw observations and distinct malformed/refused output.
+2. Extended bounded English/Korean intent rules for UI/tool improvements and compound inspect/fix requests; preserved manual appearance, explicit restrictions, busy ownership, adopted-step precedence and preview/Send equality.
+3. Flushed actual pending source snapshots through existing transport polling, added the numbered code gutter/live edge without artificial token delays, and docked file decisions above the retained composer. Reproduced and fixed populated-transcript scroll interference; retained exact contiguous scope exposure, explicit consent, safe typing and full Details.
+4. Preserved all concurrent0.1.38 capabilities, including automatic progress adoption, source-driven file effects and all X contracts. Passed Rust1.90.0 formatting/strict Clippy/1,977 tests/two ignored; actual local UI18, native24 and retained-contract16 journeys passed. Earlier integrated A progress16/WS20 remain explicitly A-scoped.
+5. Qualified exact source `c60407e` in native40891725111 attempt1, Check/all five native jobs, then published annotated v0.1.39 in release40897387681 without replacing prior tags/assets. Verified all eight public files against qualified artifacts, five archive/native headers and seven checksum rows. Downloaded macOS arm64 installation24/installed-terminal34 and changed UI18 passed on unchanged public SHA256 `8b1ff8921c6faa12d2529493093a44eb78e79672ab49b6135977e76283dad78e`; no paid/live or cross-host-install claim was made.
 
 ## Completed delivery — X contract track and qualified 0.1.38
 

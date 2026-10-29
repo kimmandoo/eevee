@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-10-30
+
+- docs(release): published v0.1.39 from `c60407e` after native40891725111 attempt1 and release40897387681, verified all eight public assets against the exact qualified packages and retained prior tags/releases without replacement.
+- docs(verification): passed downloaded macOS arm64 installation24/installed-terminal34 and all18 changed UI journeys, including compact file scope, genuine within-line code updates, readable todo/raw inspection and automatic evolution, without paid/live provider calls or user installation changes.
+
 ## 2026-10-29
 
 - fix(ui): replaced repeated structured todo argument cards with one readable request-owned progress projection, retained distinct refusals and original observations through verbose inspection, and removed raw item counters from ordinary response chrome.
