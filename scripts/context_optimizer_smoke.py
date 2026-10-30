@@ -533,6 +533,10 @@ class Journey(RecordsJourney):
             self.focus_chip(capture['id'])
             self.session.send('\r')
             self.wait_caption('Sources / task-owned context', )
+            # Cancelling the earlier memory proposal changes the task revision.
+            # The next owner-bound source check requires its durable save, not
+            # merely a quiet rendered drawer (especially on native Windows).
+            wait_for(self.session, 'Storage: saved')
             self.session.command('remember-source')
             self.wait_caption('APPROVAL PREVIEW / no memory saved yet', )
             self.wait_caption('y Approve', )

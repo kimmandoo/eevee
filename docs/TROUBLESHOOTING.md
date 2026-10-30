@@ -1,5 +1,12 @@
 # Troubleshooting
 
+### [2026-10-30] Native Windows source-note retry raced its cancellation save
+
+- **Context / Symptom:** Native run 41036587715 passed Check and all four Linux/macOS rows but failed Windows coverage in compact `context_optimizer_smoke.py`: the second `/remember-source` refused with `Save the current task and keep its owner, revision, repository and Sources review unchanged while checking. No memory was proposed.`
+- **Root Cause:** Cancelling the first memory proposal changed the task revision. The fixture immediately requested a fresh owner-bound source check before that revision was durably acknowledged; original ConPTY bytes still showed saving immediately before the refusal. The production committed-revision guard correctly refused.
+- **Solution:** Waited for the actual `Storage: saved` surface after opening Sources and before each `/remember-source`. Kept both cancellation and subsequent explicit adoption, exact captured CRLF/provenance, separate outgoing selection and no-effect checks. No production guard, deadline or coverage was relaxed.
+- **Prevention / Reference:** Original artifact 12969781113 is retained at `target/release041/windows-41036587715.zip`, SHA256 `e7f463684dc9048bbcd501b107bd0f761cd804e7899f6e2b6578fe3862ebda59`. A failed native attempt is never release-qualified.
+
 ### [2026-10-30] Connection/progress fixtures inspected superseded presentation
 
 - **Context / Symptom:** `provider_ux_smoke.py` waited for `Sign in with ChatGPT` after the first unconnected Send, and native `progress_smoke.py` reported `malformed progress original transcript item was not retained`.

@@ -2,6 +2,7 @@
 
 ## 2026-10-30
 
+- fix(ci): waited for the committed task save before re-proposing a cancelled source memory in native terminal acceptance, preserving Windows revision guards and the complete cancellation/adoption checks.
 - chore(release): advanced the package version to 0.1.41.
 - fix(forms): routed terse adopted todo labels through explicit request intent, then their phase and role words, kept negated and quoted labels out of fallback routing, and identified todo-driven evolution reasons.
 - fix(ui): rendered refused native todo results as one readable `[!!] Todo init … refused` row with its reason instead of raw argument JSON, and dropped the first transcript segment's duplicate kind/owner/request header that repeated the response's own status rows.
