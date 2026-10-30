@@ -1,5 +1,12 @@
 # Troubleshooting
 
+### [2026-10-30] Public release audit exhausted the anonymous GitHub API quota
+
+- **Context / Symptom:** After v0.1.41 publication succeeded, the local provenance verifier received `HTTP Error 403: rate limit exceeded` while listing qualified artifacts.
+- **Root Cause:** Watching two full native runs consumed the anonymous REST quota of 60 requests/hour; the publication workflow itself remained successful.
+- **Solution:** Read the reset boundary from `/rate_limit`, waited until that boundary, and continued the audit. Downloaded public files and checked `SHA256SUMS` in the meantime, then reused those exact files for GitHub digest and immutable-artifact comparisons. No authentication or release mutation was needed.
+- **Prevention / Reference:** Poll long native runs less frequently and retain successful qualification metadata. A local audit quota error is not a failed release, and checksum-only download proof must remain separate from the later API/provenance checks.
+
 ### [2026-10-30] Native Windows source-note retry raced its cancellation save
 
 - **Context / Symptom:** Native run 41036587715 passed Check and all four Linux/macOS rows but failed Windows coverage in compact `context_optimizer_smoke.py`: the second `/remember-source` refused with `Save the current task and keep its owner, revision, repository and Sources review unchanged while checking. No memory was proposed.`

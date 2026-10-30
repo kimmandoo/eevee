@@ -1,15 +1,15 @@
 # Eevee Implementation Plan
 
-Updated 2026-10-30. The active request resumes the uncommitted connection, transparent-rendering, live-following, tool-result and todo-intent changes and publishes a qualified 0.1.41 patch. Earlier qualified releases and their scoped evidence remain recorded separately; Wave8, unrelated audit tasks and paid/live provider calls remain outside this request.
+Updated 2026-10-30. The resumed connection, transparent-rendering, live-following, tool-result and todo-intent work and qualified 0.1.41 release are complete. Earlier qualified releases and their scoped evidence remain recorded separately; Wave8, unrelated audit tasks and paid/live provider calls remain outside this request.
 
 Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPATIBILITY.md). Live-provider conformance remains distinct from implemented transports and deterministic runtime proof.
 
-## Active delivery — Connection retention and terminal rendering (0.1.41)
+## Completed delivery — Connection retention and terminal rendering (0.1.41)
 
-1. Preserve and complete the existing private-save-by-default connection setup, selectable session-only mode, terminal-default foreground/background, alpha-preserving sprites, review-hidden live-following, readable refused todo results and terse todo-step routing.
-2. Verify the integrated source with pinned Rust formatting, strict Clippy, Rust/Python/SDK suites and an optimized build; exercise actual compact/wide connection persistence, evolution, file streaming and native/contract journeys using only isolated local peers.
-3. Commit/push the exact 0.1.41 candidate with version-specific release notes; require Check and all five native jobs in one successful same-source attempt before creating a new annotated tag. Preserve all earlier tags/assets.
-4. Verify the published assets/checksums and downloaded host installation/runtime, then record exact source/run/evidence identities in the checkpoint and commit the delivery handoff.
+1. Completed the existing private-save setup, selectable session-only mode, terminal-default colors, alpha-preserving sprites, hidden-output following, readable refused todo rows and terse adopted-step routing; retained exact approval, ownership and source/negation boundaries.
+2. Passed Rust1.90 formatting/strict Clippy/1,985 tests/two ignored/optimized build, Python24/four Windows skips, SDK45 and actual native24/contracts16/connections10/progress4 plus focused changed-surface journeys. Retained original failed diagnostics separately.
+3. Repaired Windows context acceptance's cancelled-proposal save race without changing production bytes, guard, deadline or coverage. Exact `ee36d8d` passed native41041773990 attempt1 Check/all five native rows; new annotated v0.1.41 published in release41046301959 without replacing prior releases.
+4. Verified all eight public assets, seven checksum rows and five exact qualified archives/native headers. Downloaded Linux/WSL installation24/installed-terminal34, provider UX2, following2, terse todo6, evolution2, live-file8 and graphics5 passed on SHA256 `c9aa8efa5997e85177a1156752698f3f631c56a7096994a9c80f13e0660ef89a`. No live-provider, physical-terminal or signing claim was made; checkpoint records the handoff and no next task starts automatically.
 
 
 ## Completed delivery — Tool presentation, live code, anchored consent and prompt intent (0.1.39)

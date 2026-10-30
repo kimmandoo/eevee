@@ -1,6 +1,6 @@
 # Implementation waves
 
-Updated2026-10-29. Waves1–7 and the separately authorized GP08/GP09/GP10/P05 are complete; U/L and RF04 shipped in public0.1.37. All nine X capabilities shipped in0.1.38 from `6794b50` after native40855031289 and release40859609274, with public-byte and downloaded-host installation/runtime acceptance. Wave8 remains pending. The [task index](../task.md) owns current work; wave order is delivery priority, not an invented technical dependency.
+Updated 2026-10-30. Waves1–7 and the separately authorized GP08/GP09/GP10/P05 are complete; U/L and RF04 shipped in public0.1.37. All nine X capabilities shipped in0.1.38 from `6794b50` after native40855031289 and release40859609274, with public-byte and downloaded-host installation/runtime acceptance. The separately authorized 0.1.41 connection/rendering patch was published from `ee36d8d` after native41041773990 and release41046301959; its scoped acceptance remains in the checkpoint. Wave8 remains pending. The [task index](../task.md) owns current work; wave order is delivery priority, not an invented technical dependency.
 
 | Wave | Outcome | Assigned tasks | Exit proof |
 |---|---|---|---|
@@ -21,7 +21,7 @@ Updated2026-10-29. Waves1–7 and the separately authorized GP08/GP09/GP10/P05 a
 - A04/A06 and live Q03/resource rows require separately permitted credentials and explicit live/paid authorization. Their blockers never block unrelated local waves or become synthetic passing evidence.
 - Wave 6 split retained-work navigation from draft/editor changes. Wave 7's two capabilities remained separate changes; its intentional GP07 design-contract amendment preceded implementation.
 - Every feature retains its exact task acceptance, neutral cancellation, immutable evidence and existing executor/store/approval authority. Each completed coherent task needs focused behavior tests, actual runtime proof, documentation and a conventional commit. A wave is complete only when all assigned task acceptance passes; partial evidence remains explicitly partial.
-- Reuse bounded native profiles instead of multiplying unchanged cases across every platform. The new X capability boundaries run explicitly on all five native rows; release qualification requires same-source/same-attempt Check/all-five success and public-package verification. This request authorizes0.1.38 publication, not Wave8 or paid/live calls. English-only UI remains current; compact/wide journeys retain Unicode data.
+- Reuse bounded native profiles instead of multiplying unchanged cases across every platform. The X capability boundaries run explicitly on all five native rows; release qualification requires same-source/same-attempt Check/all-five success and public-package verification. The current request authorizes the 0.1.41 patch, not Wave8 or paid/live calls. English-only UI remains current; compact/wide journeys retain Unicode data.
 
 ## Just-in-time structure tasks
 

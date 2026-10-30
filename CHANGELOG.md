@@ -2,6 +2,8 @@
 
 ## 2026-10-30
 
+- docs(release): published v0.1.41 from `ee36d8d` after native41041773990 attempt1 and release41046301959, verified all eight public assets and seven checksum rows against the five exact qualified package artifacts, and preserved earlier tags/releases.
+- docs(verification): passed downloaded 0.1.41 Linux/WSL installation24/installed-terminal34, connection review2, review-hidden following2, terse todo6, automatic evolution2, live-file8 and five graphics modes on the exact public host bytes; retained local-build and native-CI evidence separately without live-provider claims.
 - fix(ci): waited for the committed task save before re-proposing a cancelled source memory in native terminal acceptance, preserving Windows revision guards and the complete cancellation/adoption checks.
 - chore(release): advanced the package version to 0.1.41.
 - fix(forms): routed terse adopted todo labels through explicit request intent, then their phase and role words, kept negated and quoted labels out of fallback routing, and identified todo-driven evolution reasons.
