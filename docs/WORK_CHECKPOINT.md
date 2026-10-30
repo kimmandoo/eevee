@@ -1,3 +1,11 @@
+## 2026-10-30 — Tool output, approval UX, session auto-approve and evolution routing (implemented, unreleased)
+
+- **Current request:** Make tool-call output readable (side panel when the terminal has room), improve automatic evolution routing and plain-language form descriptions, raise approval-popup UI/UX, and add a clear "approve everything this session" option with a defined session boundary. No release requested.
+- **Changed:** `src/app/planning/tool_view.rs` (new readable tool projection), `response.rs`/`planning.rs` (cached projection, docking, `tool_activity`), `src/ui/layout.rs` + `workspace.rs::tool_panel` + `ui.rs` (side `TOOLS` slot below the partner card at ≥90 columns), `src/ui/planning.rs` (styled tool rows, content-fitted approvals, highlighted command row), `src/app/evolution.rs` (vocabulary, symptom→Umbreon, where/how→Vaporeon, explain needs a source noun), `src/domain.rs` (`summary`/`good_for`), picker/companion/receipt/preview rendering, `/auto-approve-session` (`app.rs`, `motion.rs`, `cooperation.rs`, keys/tasks Shift+A, header labels), messages, README, DESIGN_RULES, CHANGELOG, TROUBLESHOOTING.
+- **Session definition:** one running Eevee process. `/auto-approve` = until task change; `/auto-approve-session` (Shift+A) = across tasks until `/auto-approve-off` or quit; never persisted. Questions, other partners, delegated rounds and unmanaged MCP still ask.
+- **Verification:** Rust fmt, strict locked all-target/all-feature Clippy clean; `cargo test --bin ev` 1,979 passed/2 ignored. Locked release build OK. Smokes (scratch venv pyte0.8.2/wcwidth0.2.13): evolution PASSED, file_progress PASSED; records failed C03A identically on the untouched `0b04e26` baseline (pre-existing, see TROUBLESHOOTING); progress PASSED.
+- **Next action:** Optional — diagnose the pre-existing records C03A failure; qualify/release when requested.
+
 ## 2026-10-30 — Integrated 0.1.39 UI repair and release (completed)
 
 - **Current request:** Finish todo/tool deduplication, prompt-intent routing, genuine live-code feedback and input-anchored file consent, then publish a new release. No paid/live provider calls or unrelated F/H/R/V work.

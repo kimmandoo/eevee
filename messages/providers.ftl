@@ -141,7 +141,7 @@ providers-planning-blocker-reason = Blocker: { $reason }
 providers-planning-setup-keeps-request-no-automatic-retry = Setup keeps your Request and draft; no automatic send or retry.
 providers-planning-request-kept-not-sent = REQUEST KEPT / not sent
 
-providers-planning-provider-request-explicit-response-required = { "PROVIDER REQUEST / explicit response required" }
+providers-planning-provider-request-explicit-response-required = { "Your decision is needed · nothing runs until you choose" }
 
 providers-planning-cancelling-waiting-outcome-not-yet-known = { "CANCELLING / waiting; outcome not yet known" }
 
@@ -187,7 +187,7 @@ providers-planning-workspace-path-proposals = { "Workspace path proposals; exact
 
 providers-planning-d-details-complete-request-and-exact-options = { "d Exact content/options · once only, not a sandbox." }
 
-providers-planning-allow-once-this-command-effects-are-not = { "Allow once: this command; effects are not rolled back." }
+providers-planning-allow-once-this-command-effects-are-not = { "Once only · not a sandbox · effects aren't rolled back" }
 
 providers-planning-deny-cancels-this-turn-no-continuing-denial = { "Deny cancels this turn; no continuing denial offered." }
 
@@ -236,20 +236,20 @@ providers-planning-deny-allow-unavailable-until-summary-is-visible =
     { "PgUp/Dn Scroll / n Deny / Enter Deny / Esc Later" }
 
 providers-planning-a-allow-once-n-deny-y-send =
-    { "a Allow once / n Deny / y Send selected / d Details" }
-    { "Tab Choose / Enter Send selected / Esc Cancel" }
+    { "a Allow once · A Allow all this session · n Deny · y Send selected" }
+    { "Tab Choose · Enter Send selected · d Details · Esc Later" }
 
 providers-planning-deny-allow-unavailable-n-or-enter-deny =
     { "[Deny] / Allow unavailable" }
     { "n or Enter Deny / d Details / Esc Cancel" }
 
 providers-planning-deny-allow-once-a-y-allow-n =
-    { "Deny / [Allow once] · a/y Allow / n Deny" }
-    { "Tab Choose / Enter Send / d Details / Esc Cancel" }
+    { "Deny / [Allow once] · a/y Allow · A Allow all this session · n Deny" }
+    { "Tab Choose · Enter Allow · d Details · Esc Later" }
 
 providers-planning-deny-allow-once-a-y-allow-n-2 =
-    { "[Deny] / Allow once · a/y Allow / n Deny" }
-    { "Tab Choose / Enter Deny / d Details / Esc Cancel" }
+    { "[Deny] / Allow once · a/y Allow · A Allow all this session · n Deny" }
+    { "Tab Choose · Enter Deny · d Details · Esc Later" }
 
 providers-planning-edit-answers-send-needs-visible-summary-resize =
     { "[Edit answers] / Send needs visible summary" }
@@ -511,7 +511,7 @@ providers-execution-y-confirm-n-stay-tab-choose-enter =
 
 providers-execution-allow-all-review-actions =
     { "y Confirm / n Stay / Tab Choose / Enter / Esc Stay" }
-    { "PgUp/Dn · d details · A allow all for this task" }
+    { "PgUp/Dn · d details · A allow all this session" }
 
 providers-execution-no-retained-executions-for-this-task-command = { "No retained executions for this task. /command-edit edits a command; /execute reviews a prepared request. /run only inspects command evidence. Loading history never executes a saved command. Interrupted startup records are evidence, not live process ownership." }
 
@@ -589,9 +589,9 @@ providers-planning-secret-answers-hidden-in-review = { $count }{ " secret answer
 
 providers-planning-send-literal-answers-to-this-provider-request = { "Send " }{ $count }{ " literal answers to this provider request." }
 
-providers-planning-who-wants-to-run-command = { $owner }{ " wants to run: " }{ $command }
+providers-planning-who-wants-to-run-command = { $owner }{ " · " }{ $provider }{ " wants to run:" }
 
-providers-planning-who-asks-this-provider-request-only = { $owner }{ " asks · " }{ $provider }{ " · this provider request only" }
+providers-planning-who-asks-this-provider-request-only = { $owner }{ " · " }{ $provider }{ " · applies to this request only" }
 
 providers-planning-selected-permission = { "Selected: " }{ $label }
 
@@ -952,7 +952,7 @@ providers-planning-file-details = { "d Complete change, scope & exact request" }
 
 providers-planning-file-actions =
     { "Left/Right choose | Enter confirms | a/y Allow" }
-    { "n Deny · d Details · A Allow all for task · Esc later" }
+    { "n Deny · d Details · A Allow all this session · Esc later" }
 
 providers-planning-file-unavailable =
     { "PgUp/Dn: review all scope before allowing." }

@@ -1,7 +1,11 @@
-auto-approve-command-on = Auto-approve this partner's file changes and commands for this task
+auto-approve-command-on = Auto-approve the lead's file changes and commands until this task changes
+auto-approve-command-session = Auto-approve the lead's file changes and commands until you quit Eevee
 auto-approve-command-off = Review each file change and command again
-auto-approve-enabled = Auto-approve ON for this task: file changes and commands run without asking. Not a sandbox; effects are not rolled back. Questions still ask. /auto-approve-off stops it; task change or restart also ends it.
-auto-approve-disabled = Auto-approve OFF: each file change and command asks again.
+auto-approve-enabled = Auto-approve ON for this task: the lead's file changes and commands run without asking until the task changes. Not a sandbox; effects are not rolled back. Questions, helpers and MCP calls still ask. /auto-approve-off stops it.
+auto-approve-session-enabled = Auto-approve ON for this session: the lead's file changes and commands run without asking, across tasks, until you quit Eevee. Not a sandbox; effects are not rolled back. Questions, helpers and MCP calls still ask. /auto-approve-off stops it.
+auto-approve-disabled = Auto-approve OFF (task and session): each file change and command asks again.
 auto-approve-chip = code · auto-approve
-auto-approve-policy = AUTO-APPROVE
+auto-approve-policy = AUTO-APPROVE · task
+auto-approve-session-policy = AUTO-APPROVE · session
+auto-approve-session-chip = code · auto-approve all session
 auto-approve-enabled-notice = Auto-approve ON · /auto-approve-off to stop

@@ -1,5 +1,12 @@
 # Troubleshooting
 
+### [2026-10-30] records_smoke C03A capture preview mismatch on the 0.1.39 baseline
+
+- **Context / Symptom:** `scripts/records_smoke.py` failed case C03A at both 120×36 and 60×18 with `actual ordered preview differs beyond physical wrapping` while inspecting the long CJK/combining-path capture; every later case was blocked by that failure.
+- **Root Cause:** Not caused by the tool-view/approval/classifier changes: the same failure reproduced on an untouched `0b04e26` worktree built separately. The likely trigger is the long wrapped `資料 한글 e\u{301}` + 長い名前 path under a long `/tmp/claude-…` scratch output directory; it was not diagnosed further in this session.
+- **Solution:** None yet; recorded as a pre-existing failure. Next diagnostic: rerun from a short output path (e.g. `/tmp/ev-rec`) and diff the escaped preview against `assert_wrapped_payload`'s expected text.
+- **Prevention / Reference:** Install `pyte==0.8.2`/`wcwidth==0.2.13` in a throwaway venv (system pip is externally managed). Compare against a baseline worktree build before attributing a smoke failure to the current change.
+
 ### [2026-10-29] Compact file-review paging skipped required scope rows
 
 - **Context / Symptom:** Actual 60×18 file-approval journeys could select Allow once but could not complete long nested-path review; repeated PageDown reached the end without ever arming consent. The same journeys passed at 120×36.

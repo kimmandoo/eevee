@@ -327,7 +327,7 @@ impl App {
                 .owner()
                 .is_some_and(|owner| owner.partner == self.lead.id)
         {
-            return self.auto_approve_command("auto-approve");
+            return self.auto_approve_command("auto-approve-session");
         }
         if key.kind == KeyEventKind::Release {
             return false;

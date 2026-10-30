@@ -211,6 +211,9 @@ pub struct App {
     /// Explicit process-only motion choice; never persisted as a preference.
     pub motion_override: Option<bool>,
     pub motion_choice: Option<bool>,
+    /// In-memory standing approval for the lead's file changes and commands
+    /// that survives task changes and ends only on `/auto-approve-off` or quit.
+    pub auto_approve_session: bool,
     /// Latest explicit store-global text density, retained through hydration.
     pub density_choice: Option<store::TextDensity>,
     pub motion_visuals: bool,
@@ -354,6 +357,7 @@ impl App {
             evolution: evolution::State::default(),
             motion_override: None,
             motion_choice: None,
+            auto_approve_session: false,
             density_choice: None,
             motion_visuals: false,
             party_request: None,

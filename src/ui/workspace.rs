@@ -183,7 +183,7 @@ pub(super) fn companion(
     }
     lines.extend([
         Line::styled(form.element, paint.muted),
-        Line::from(form.role),
+        Line::from(form.summary),
     ]);
     if let Some(todo) = todo_line(app) {
         lines.push(Line::styled(todo, paint.accent));
@@ -332,4 +332,54 @@ pub(super) fn repository(
         app.scroll_for(ScrollSurface::Preview),
     );
     app.set_scroll_viewport(ScrollSurface::Preview, max, details.height);
+}
+
+/// Side list of the transcript's tool calls, newest at the bottom. It shows
+/// the same readable projection as the inline rows; `/verbose` shows raw text.
+pub(super) fn tool_panel(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &Paint) {
+    let tools = app.planning.tool_activity();
+    if tools.is_empty() {
+        return;
+    }
+    let running = tools
+        .iter()
+        .filter(|tool| tool.status == crate::app::planning::tool_view::Status::Running)
+        .count();
+    let title = if running > 0 {
+        format!(" TOOLS {} · {running} running ", tools.len())
+    } else {
+        format!(" TOOLS {} ", tools.len())
+    };
+    let block = panel(&title, config, paint, false);
+    let content = block.inner(area);
+    frame.render_widget(Clear, area);
+    frame.render_widget(block, area);
+    let rows = usize::from(content.height);
+    if rows == 0 {
+        return;
+    }
+    let shown = if tools.len() > rows {
+        rows - 1
+    } else {
+        tools.len()
+    };
+    let mut lines = Vec::with_capacity(rows);
+    if tools.len() > shown {
+        lines.push(Line::styled(
+            format!("+{} earlier", tools.len() - shown),
+            paint.muted,
+        ));
+    }
+    let width = usize::from(content.width).saturating_sub(5);
+    for tool in &tools[tools.len() - shown..] {
+        lines.push(Line::from(vec![
+            Span::styled(
+                tool.status.marker(),
+                planning::tool_style(tool.status, paint),
+            ),
+            Span::raw(" "),
+            Span::styled(clipped(&tool.label(), width).into_owned(), paint.surface),
+        ]));
+    }
+    frame.render_widget(Paragraph::new(lines).style(paint.surface), content);
 }

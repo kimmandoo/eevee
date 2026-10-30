@@ -2,6 +2,12 @@
 
 ## 2026-10-30
 
+- feat(ui): rendered provider tool calls as one-line `[..]`/`[ok]`/`[!!]` rows with name, path or exit code and a two-line output preview instead of raw JSON and `Command/Cwd/Status` dumps, and listed them in a side `TOOLS` panel below the partner card when the terminal has room; `/verbose` still shows every original observation inline.
+- feat(approvals): added `/auto-approve-session`, a standing in-memory approval that survives task changes until `/auto-approve-off` or quitting Eevee, made Shift+A in a review use it, and labelled the header `AUTO-APPROVE · task` or `· session` so the scope is never ambiguous.
+- fix(approvals): fitted command/permission reviews to their content, highlighted the exact command on its own row, merged directory and reason, and replaced protocol jargon with plain decision copy while keeping neutral Deny focus and Details.
+- fix(forms): routed everyday requests (where/how questions, explanations, reported failures, slowness, security checks, PR/changes review, docs and commit messages, cleanup/performance, UI/popup/button/color/dependency changes) to the matching specialist, diagnosed reported failures before re-running them unless a run is explicitly requested, and kept "explain how to improve the UI" conversational.
+- feat(forms): added a plain one-sentence description and example requests for every evolution in the picker, companion, evolution receipt and preview, and reworded evolution reasons around the user's request.
+
 - docs(release): published v0.1.39 from `c60407e` after native40891725111 attempt1 and release40897387681, verified all eight public assets against the exact qualified packages and retained prior tags/releases without replacement.
 - docs(verification): passed downloaded macOS arm64 installation24/installed-terminal34 and all18 changed UI journeys, including compact file scope, genuine within-line code updates, readable todo/raw inspection and automatic evolution, without paid/live provider calls or user installation changes.
 

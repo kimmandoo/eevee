@@ -846,7 +846,11 @@ impl App {
             ("reduced-motion", "Toggle persistent reduced motion"),
             (
                 "auto-approve",
-                "Auto-approve file changes and commands for this task",
+                "Auto-approve file changes and commands until the task changes",
+            ),
+            (
+                "auto-approve-session",
+                "Auto-approve file changes and commands until you quit Eevee",
             ),
             (
                 "auto-approve-off",
@@ -1036,6 +1040,7 @@ impl App {
                     | "quit"
                     | "verbose"
                     | "auto-approve"
+                    | "auto-approve-session"
                     | "auto-approve-off"
             )
         {
@@ -1156,6 +1161,7 @@ impl App {
                     | "reduced-motion"
                     | "motion-off"
                     | "auto-approve"
+                    | "auto-approve-session"
                     | "auto-approve-off"
                     | "motion-on"
                     | "density"

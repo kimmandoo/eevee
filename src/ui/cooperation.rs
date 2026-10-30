@@ -175,11 +175,15 @@ pub(super) fn evolution_popup(
     ])
     .centered();
     frame.render_widget(Paragraph::new(hero), row(content, 0, 1));
+    // Why it changed, then what the new form does, in plain words.
+    let form = &crate::domain::FORMS[transition.to];
     frame.render_widget(
-        Paragraph::new(paint.hint(transition.reason))
-            .style(paint.muted)
-            .wrap(Wrap { trim: true }),
-        row(content, 2, content.height.saturating_sub(2)),
+        Paragraph::new(vec![
+            Line::styled(paint.hint(transition.reason), paint.muted),
+            Line::styled(form.summary, paint.surface),
+        ])
+        .wrap(Wrap { trim: true }),
+        row(content, 1, content.height.saturating_sub(1)),
     );
     app.evolution.popup_shown = true;
 }

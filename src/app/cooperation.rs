@@ -782,10 +782,15 @@ impl App {
         self.cooperation.approvals = pending;
     }
 
-    /// Task-scoped auto-approval: answers the lead's current file/tool
-    /// permission or agent command without presenting it, from any surface.
-    /// Questions, other partners and settling/cancelling work are excluded.
+    /// Task- or session-scoped auto-approval: answers the lead's current
+    /// file/tool permission or agent command without presenting it, from any
+    /// surface. Questions, other partners and settling/cancelling work are
+    /// excluded.
     fn drive_auto_approval(&mut self) -> bool {
+        // A task change resets the task grant; the session grant carries over.
+        if self.auto_approve_session {
+            self.planning.auto_approve = true;
+        }
         if self.quit
             || self.cooperation.cancelling
             || self.cooperation.quitting
@@ -2209,6 +2214,31 @@ mod tests {
         // Turning it off restores ordinary review.
         assert!(app.command("auto-approve-off"));
         assert!(!app.planning.auto_approve);
+    }
+
+    #[test]
+    fn session_auto_approval_survives_a_task_reset_but_task_approval_does_not() {
+        for (command, kept) in [("auto-approve", false), ("auto-approve-session", true)] {
+            let mut app = app();
+            start(&mut app, 1, 1);
+            assert!(app.command(command));
+            assert_eq!(app.auto_approve_session, kept);
+            // A task change rebuilds the planning state.
+            let task = app.task_id;
+            app.planning.reset(task);
+            start(&mut app, 1, 1);
+            file_prompt(&mut app, 1, 20);
+            assert_eq!(
+                matches!(
+                    app.planning.pending.take(),
+                    Some(providers::Request::Answer { answer, .. }) if answer == json!("once")
+                ),
+                kept,
+                "{command}"
+            );
+            assert!(app.command("auto-approve-off"));
+            assert!(!app.auto_approve_session && !app.planning.auto_approve);
+        }
     }
 
     #[test]

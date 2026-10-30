@@ -63,6 +63,16 @@ const DEVELOPMENT_SURFACES: &[&str] = &[
     "prompt",
     "intent",
     "evolution",
+    "ux",
+    "popup",
+    "dialog",
+    "modal",
+    "approval",
+    "button",
+    "panel",
+    "menu",
+    "animation",
+    "theme",
     "화면",
     "인터페이스",
     "레이아웃",
@@ -77,6 +87,15 @@ const DEVELOPMENT_SURFACES: &[&str] = &[
     "진화",
     "자동전환",
     "자동 전환",
+    "팝업",
+    "대화상자",
+    "모달",
+    "승인",
+    "버튼",
+    "패널",
+    "메뉴",
+    "애니메이션",
+    "테마",
 ];
 
 // Ordered task roles, not the old advisory EV01 table. A task noun is required:
@@ -86,9 +105,38 @@ const RULES: &[Rule] = &[
         form: 7,
         operation: Operation::Review,
         reason: Message::CoreEvolutionReview,
-        actions: &["review", "audit", "검토", "리뷰"],
+        actions: &[
+            "review",
+            "audit",
+            "look over",
+            "safe to merge",
+            "ready to merge",
+            "검토",
+            "리뷰",
+            "변경사항 봐",
+            "변경 사항 봐",
+            "변경사항 확인",
+            "변경 사항 확인",
+            "머지해도",
+        ],
         objects: &[
-            "patch", "diff", "change", "code", "release", "변경", "패치", "코드", "출시",
+            "patch",
+            "diff",
+            "change",
+            "changes",
+            "code",
+            "release",
+            "pr",
+            "pull request",
+            "merge",
+            "commit",
+            "commits",
+            "변경",
+            "패치",
+            "코드",
+            "출시",
+            "커밋",
+            "머지",
         ],
     },
     Rule {
@@ -115,19 +163,45 @@ const RULES: &[Rule] = &[
             "security",
             "vulnerability",
             "root cause",
+            "panic",
+            "exception",
+            "leak",
+            "hang",
             "실패",
             "오류",
+            "에러",
             "버그",
             "보안",
             "취약",
             "원인",
+            "패닉",
+            "예외",
+            "누수",
+            "크래시",
         ],
     },
     Rule {
         form: 4,
         operation: Operation::Plan,
         reason: Message::CoreEvolutionPlanning,
-        actions: &["plan", "design", "compare", "설계", "계획", "비교"],
+        actions: &[
+            "plan",
+            "design",
+            "compare",
+            "how should",
+            "what should",
+            "should we",
+            "should i",
+            "best way",
+            "설계",
+            "계획",
+            "비교",
+            "어떻게 구현",
+            "어떻게 설계",
+            "어떻게 만들",
+            "좋을까",
+            "나을까",
+        ],
         objects: &[
             "project",
             "app",
@@ -169,14 +243,18 @@ const RULES: &[Rule] = &[
             "prepare",
             "summarize",
             "summarise",
+            "write up",
             "작성",
             "생성",
             "수정",
             "갱신",
+            "업데이트",
             "정리",
             "저장",
             "요약",
             "준비",
+            "써",
+            "기록",
         ],
         objects: &[
             "documentation",
@@ -185,11 +263,20 @@ const RULES: &[Rule] = &[
             "changelog",
             "handoff",
             "hand-off",
+            "commit message",
+            "release notes",
+            "what we did",
+            "what was done",
             "문서",
             "인수인계",
             "작업 인계",
             "핸드오프",
             "변경 기록",
+            "커밋 메시지",
+            "릴리스 노트",
+            "릴리즈 노트",
+            "작업 내용",
+            "진행 상황",
         ],
     },
     Rule {
@@ -201,10 +288,21 @@ const RULES: &[Rule] = &[
             "simplify",
             "optimize",
             "optimise",
+            "clean up",
+            "cleanup",
+            "tidy",
+            "deduplicate",
+            "speed up",
+            "improve performance",
             "리팩터",
             "리팩토",
             "단순화",
             "최적화",
+            "정리",
+            "중복 제거",
+            "성능 개선",
+            "성능을 개선",
+            "성능 향상",
         ],
         objects: &[
             "code",
@@ -212,11 +310,20 @@ const RULES: &[Rule] = &[
             "function",
             "implementation",
             "component",
+            "performance",
+            "query",
+            "queries",
+            "duplicate",
+            "duplication",
             "코드",
             "모듈",
             "함수",
             "구현",
             "컴포넌트",
+            "성능",
+            "속도",
+            "쿼리",
+            "중복",
         ],
     },
     Rule {
@@ -242,6 +349,14 @@ const RULES: &[Rule] = &[
             "improve",
             "enhance",
             "polish",
+            "refine",
+            "rename",
+            "delete",
+            "remove",
+            "upgrade",
+            "change the",
+            "change it",
+            "change this",
             "구현",
             "생성",
             "만들",
@@ -258,6 +373,17 @@ const RULES: &[Rule] = &[
             "추가",
             "개선",
             "다듬",
+            "업데이트",
+            "업그레이드",
+            "삭제",
+            "제거",
+            "지워",
+            "변경해",
+            "적용",
+            "반영",
+            "향상",
+            "올려",
+            "넣어",
         ],
         objects: &[
             "code",
@@ -273,6 +399,39 @@ const RULES: &[Rule] = &[
             "project",
             "app",
             "application",
+            "test",
+            "tests",
+            "dependency",
+            "dependencies",
+            "config",
+            "setting",
+            "settings",
+            "option",
+            "helper",
+            "class",
+            "method",
+            "type",
+            "schema",
+            "query",
+            "route",
+            "handler",
+            "parser",
+            "page",
+            "style",
+            "color",
+            "colour",
+            "message",
+            "messages",
+            "description",
+            "descriptions",
+            "text",
+            "label",
+            "log",
+            "logs",
+            "panic",
+            "crash",
+            "warning",
+            "warnings",
             "코드",
             "파일",
             "기능",
@@ -286,6 +445,30 @@ const RULES: &[Rule] = &[
             "프로젝트",
             "앱",
             "애플리케이션",
+            "테스트",
+            "의존성",
+            "설정",
+            "옵션",
+            "헬퍼",
+            "클래스",
+            "메서드",
+            "메소드",
+            "타입",
+            "스키마",
+            "쿼리",
+            "라우트",
+            "핸들러",
+            "파서",
+            "페이지",
+            "스타일",
+            "색",
+            "메시지",
+            "설명",
+            "문구",
+            "로그",
+            "경고",
+            "패닉",
+            "진화체",
         ],
     },
     Rule {
@@ -304,9 +487,15 @@ const RULES: &[Rule] = &[
             "실행",
             "검증",
             "테스트",
+            "돌려",
+            "lint",
+            "린트",
         ],
         objects: &[
             "command",
+            "lint",
+            "clippy",
+            "린트",
             "test",
             "tests",
             "suite",
@@ -336,8 +525,28 @@ const RULES: &[Rule] = &[
         operation: Operation::Plan,
         reason: Message::CoreEvolutionDiscovery,
         actions: &[
-            "read", "list", "find", "search", "inspect", "locate", "explore", "show", "읽", "목록",
-            "찾", "검색", "살펴", "탐색", "보여", "봐", "열어",
+            "read",
+            "list",
+            "find",
+            "search",
+            "inspect",
+            "locate",
+            "explore",
+            "show",
+            "explain",
+            "describe",
+            "understand",
+            "읽",
+            "목록",
+            "찾",
+            "검색",
+            "살펴",
+            "탐색",
+            "보여",
+            "봐",
+            "열어",
+            "설명",
+            "알려",
         ],
         objects: &[
             "file",
@@ -350,6 +559,9 @@ const RULES: &[Rule] = &[
             "directories",
             "module",
             "function",
+            "structure",
+            "codebase",
+            "flow",
             "파일",
             "소스",
             "코드",
@@ -358,9 +570,85 @@ const RULES: &[Rule] = &[
             "디렉터리",
             "모듈",
             "함수",
+            "구조",
+            "코드베이스",
+            "흐름",
         ],
     },
 ];
+
+// Reported symptoms ask for a diagnosis even without a diagnose verb.
+const SYMPTOMS: &[&str] = &[
+    "broken",
+    "failing",
+    "fails",
+    "crashes",
+    "crashing",
+    "panics",
+    "hangs",
+    "doesn't work",
+    "does not work",
+    "not working",
+    "memory leak",
+    "깨졌",
+    "깨져",
+    "실패해",
+    "실패하",
+    "실패했",
+    "안 돼",
+    "안돼",
+    "안 되",
+    "안되",
+    "죽어",
+    "죽는",
+    "멈춰",
+    "패닉",
+    "누수",
+    "에러 나",
+    "에러가 나",
+    "오류 나",
+    "오류가 나",
+    "터져",
+    "터지",
+];
+const WHY: &[&str] = &["why", "왜"];
+const SLOW: &[&str] = &["slow", "slower", "느려", "느린", "느리"];
+const SECURITY: &[&str] = &[
+    "security",
+    "vulnerability",
+    "vulnerabilities",
+    "보안",
+    "취약",
+];
+const LOOK: &[&str] = &[
+    "check", "scan", "find", "look", "확인", "점검", "찾", "봐", "스캔",
+];
+// An explicit run request keeps a reported failure on the command route.
+const RUN: &[&str] = &["run", "rerun", "execute", "돌려", "실행해", "실행하"];
+// Questions about where or how existing code works are discovery.
+const DISCOVERY: &[&str] = &[
+    "where is",
+    "where are",
+    "where's",
+    "how does",
+    "어디에 있",
+    "어디 있",
+    "어디서",
+    "어떻게 동작",
+    "어떻게 작동",
+    "어떻게 돌아",
+    "무슨 역할",
+];
+
+// Explaining needs a named source object; "explain how to improve the UI"
+// is conversation about a surface, not a discovery task.
+const EXPLAIN: &[&str] = &["explain", "describe", "설명", "알려"];
+
+fn symptom(text: &str) -> bool {
+    any(text, SYMPTOMS)
+        || any(text, WHY) && (any(text, SLOW) || any(text, RULES[1].objects))
+        || any(text, SECURITY) && any(text, LOOK)
+}
 
 fn contains(text: &str, needle: &str) -> bool {
     if !needle.is_ascii() {
@@ -505,7 +793,8 @@ fn execution_description(clause: &str, action: &str) -> bool {
             "inspect",
             "review",
             "계획",
-            "설명",
+            "설명해",
+            "설명하",
             "방법",
             "분석",
             "진단",
@@ -811,8 +1100,11 @@ pub fn classify(text: &str) -> Option<Selection> {
             .iter()
             .any(|rule| matches!(rule.form, 1 | 5 | 7) && task_object(clause, rule))
     });
-    // A repair can target a diagnosed object without repeating its noun.
-    let diagnosis_context = clauses().any(|clause| task_object(clause, &RULES[1]));
+    // A repair can target a diagnosed object or reported symptom without
+    // repeating its noun.
+    let reported = symptom(&literal);
+    let diagnosis_context = reported || clauses().any(|clause| task_object(clause, &RULES[1]));
+    let explicit_run = clauses().any(|clause| any(clause, RUN));
     if readonly
         && task_object(&literal, read)
         && clauses().any(|clause| any(clause, read.actions))
@@ -843,8 +1135,18 @@ pub fn classify(text: &str) -> Option<Selection> {
                 .any(|action| contains(clause, action) && !verb_description(clause, action))
                 && diagnosis_context
                 || [
-                    "write", "create", "update", "generate", "save", "작성", "생성", "수정",
-                    "갱신", "저장",
+                    "write",
+                    "create",
+                    "update",
+                    "generate",
+                    "save",
+                    "작성",
+                    "생성",
+                    "수정",
+                    "갱신",
+                    "저장",
+                    "업데이트",
+                    "써",
                 ]
                 .iter()
                 .any(|action| {
@@ -868,6 +1170,23 @@ pub fn classify(text: &str) -> Option<Selection> {
         });
     let independent_review = any(&literal, &["independent", "independently", "독립"]);
     for rule in RULES {
+        // A reported failure is diagnosed before it is merely re-run or read,
+        // unless the request explicitly asks to run something.
+        if rule.form == 2 && reported && !explicit_run {
+            return Some(Selection {
+                form: 5,
+                operation: if readonly || !mutation_requested {
+                    Operation::Plan
+                } else {
+                    Operation::Implement
+                },
+                reason: if readonly {
+                    Message::CoreEvolutionReadonly
+                } else {
+                    Message::CoreEvolutionDiagnosis
+                },
+            });
+        }
         if clauses().any(|clause| {
             rule.actions.iter().any(|action| {
                 contains(clause, action)
@@ -877,11 +1196,25 @@ pub fn classify(text: &str) -> Option<Selection> {
                         || rule.form == 5
                             && matches!(*action, "check" | "점검")
                             && any(clause, CHECKED))
-            }) && (task_object(clause, rule)
-                || matches!(rule.form, 3 | 6) && source_context
-                // "Do not improve UI; inspect it" still names an observation
-                // target. Negated nouns never supply mutation capability above.
-                || matches!(rule.form, 1 | 5 | 7) && task_object(&literal, rule))
+            }) && if rule.form == 1
+                && rule
+                    .actions
+                    .iter()
+                    .filter(|action| contains(clause, action))
+                    .all(|action| EXPLAIN.contains(action))
+            {
+                // A bare "." ends a sentence here; it is not the project root.
+                any(clause, rule.objects)
+                    || clause.split_whitespace().any(|token| {
+                        filename(token.trim_matches([':', ',', ';', '(', ')', '.', '?']))
+                    })
+            } else {
+                task_object(clause, rule)
+                    || matches!(rule.form, 3 | 6) && source_context
+                    // "Do not improve UI; inspect it" still names an observation
+                    // target. Negated nouns never supply mutation capability above.
+                    || matches!(rule.form, 1 | 5 | 7) && task_object(&literal, rule)
+            }
         }) {
             // A read-only instruction cannot become a mutation-capable operation.
             // Prefer the actual read task over an incidental write-role noun.
@@ -918,6 +1251,17 @@ pub fn classify(text: &str) -> Option<Selection> {
             form: 2,
             operation: Operation::Implement,
             reason: Message::CoreEvolutionVerification,
+        });
+    }
+    if clauses().any(|clause| any(clause, DISCOVERY)) {
+        return Some(Selection {
+            form: 1,
+            operation: Operation::Plan,
+            reason: if readonly {
+                Message::CoreEvolutionReadonly
+            } else {
+                Message::CoreEvolutionDiscovery
+            },
         });
     }
     readonly.then_some(Selection {
@@ -1728,6 +2072,49 @@ mod tests {
     }
 
     #[test]
+    fn everyday_requests_reach_the_matching_specialist() {
+        for (text, form, operation) in [
+            ("where is the parser defined?", 1, Operation::Plan),
+            ("이 프로젝트 어떻게 동작해?", 1, Operation::Plan),
+            ("코드 구조 설명해줘", 1, Operation::Plan),
+            ("lint 돌려줘", 2, Operation::Implement),
+            ("add tests for the parser", 3, Operation::Implement),
+            ("버튼 색 파란색으로 바꿔줘", 3, Operation::Implement),
+            ("의존성 업데이트해줘", 3, Operation::Implement),
+            ("승인팝업 ui ux도 좀 올려주고", 3, Operation::Implement),
+            ("진화체 별 설명도 쉽게 개선해줘", 3, Operation::Implement),
+            (
+                "what should the architecture be for caching",
+                4,
+                Operation::Plan,
+            ),
+            ("어떻게 구현하면 좋을까", 4, Operation::Plan),
+            ("tests are failing", 5, Operation::Plan),
+            ("이 함수 왜 느린지 알려줘", 5, Operation::Plan),
+            ("메모리 누수 찾아줘", 5, Operation::Plan),
+            ("보안 취약점 확인해줘", 5, Operation::Plan),
+            ("중복 코드 정리해줘", 6, Operation::Implement),
+            ("성능 개선해줘", 6, Operation::Implement),
+            ("review my changes", 7, Operation::Plan),
+            ("PR 리뷰해줘", 7, Operation::Plan),
+            ("summarize what we did", 8, Operation::Plan),
+            ("README 업데이트해줘", 8, Operation::Implement),
+        ] {
+            let selected = classify(text).unwrap_or_else(|| panic!("{text}"));
+            assert_eq!(
+                (selected.form, selected.operation),
+                (form, operation),
+                "{text}"
+            );
+        }
+        // An explicit run keeps a reported failure on the command route.
+        assert_eq!(classify("run the tests, they are failing").unwrap().form, 2);
+        for text in ["hello", "이거 설명해줘", "Explain how to improve the UI."] {
+            assert!(classify(text).is_none(), "{text}");
+        }
+    }
+
+    #[test]
     fn deterministic_task_roles_in_both_languages() {
         for (form, operation, en, ko) in [
             (
@@ -2070,6 +2457,9 @@ mod tests {
             "읽기 전용으로 프로젝트 빌드 방법을 설명해줘.",
             "Run `cargo build`; read only.",
             "`cargo test` 실행해줘. 읽기 전용.",
+            // A reported failure is a read-only diagnosis, not a run.
+            "The project build is failing.",
+            "프로젝트 빌드가 실패했어.",
         ] {
             assert_eq!(
                 classify(draft).unwrap().operation,
@@ -2080,8 +2470,6 @@ mod tests {
         for draft in [
             "Explain how to run the program.",
             "What does this test do?",
-            "The project build is failing.",
-            "프로젝트 빌드가 실패했어.",
             "\"Build the project\"",
             "> 빌드하고 실행해줘",
             "```\ncompile src/main.rs\n```",

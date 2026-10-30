@@ -608,7 +608,7 @@ impl App {
         {
             return false;
         }
-        // Shift+A in an engaged review: approve this one and the rest of the task.
+        // Shift+A in an engaged review: approve this one and the rest of the session.
         if Self::allow_all_key(key)
             && !self.execution.auto_presented
             && self.execution.confirmation_visible
@@ -621,7 +621,7 @@ impl App {
                 .command_callbacks
                 .contains_key(&self.lead.id)
         {
-            return self.auto_approve_command("auto-approve");
+            return self.auto_approve_command("auto-approve-session");
         }
         if let Some(action) = self.execution.key(key) {
             self.apply_execution_action(action);

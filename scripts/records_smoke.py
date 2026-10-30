@@ -203,7 +203,7 @@ class Journey(MovesJourney):
             assert any(title in view for title in known), 'refusing to dismiss unknown popup\n' + view
             consent = (RUN_REVIEW, 'Confirm local change', 'wants to learn a move!',
                        'LOCAL PREVIEW / no provider connection authorized',
-                       'PROVIDER REQUEST / explicit response required',
+                       'Your decision is needed',
                        'Review historical resolution link', 'APPROVAL PREVIEW', )
             assert not any(marker in view for marker in consent), \
                 'an explicit consent decision is required\n' + view

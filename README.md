@@ -37,7 +37,7 @@ It also happens to come with a companion: a party of Eevee forms that evolve wit
 
 - **Any model.** OpenAI (account or API), Anthropic, Google Gemini, and any OpenAI-compatible endpoint — including local servers like Ollama, vLLM and LM Studio. External agents (Codex, Claude Agent SDK, OpenCode / Gemini / Devin over ACP) work too.
 - **A real coding loop.** Discover, read, create, edit, rename and delete files; run builds, tests and programs; feed actual output back to the model. Generated code streams into the transcript as it is written.
-- **Review, or auto-approve.** Each file change and command opens a compact review with the exact diff or argv. When you trust the run, `/auto-approve` (or **Shift+A** in a review) lets the rest of the task proceed without prompts.
+- **Review, or auto-approve.** Each file change and command opens a compact review with the exact diff or argv. When you trust the run, `/auto-approve` lets the rest of the task proceed without prompts, and `/auto-approve-session` (or **Shift+A** in a review) keeps doing so across tasks until you quit Eevee.
 - **Rules you write, not grants you forget.** Turn a reviewed `cargo test` or `tests/**` edit into a project rule with `/rule-allow`; deletes, shells and unknown effects always ask again.
 - **Steer without cancelling.** Press Enter while the model works to add a correction at the next tool boundary, or queue your next request.
 - **See what it costs.** The status row shows this session's reported tokens and a labelled cost estimate; `/usage` breaks it down.
@@ -172,7 +172,7 @@ MCP registration example: `/mcp add {"name":"notes","program":"python3","args":[
 | Find any action | `/` or **Ctrl+K** |
 | Connect / switch model / reasoning effort | `/connect` · `/model` · `/effort` |
 | Attach a file or line range as context | `@` → pick → **Enter** (**r** for a range) |
-| Auto-approve for this task / stop | `/auto-approve` · `/auto-approve-off` |
+| Auto-approve for this task / this session / stop | `/auto-approve` · `/auto-approve-session` · `/auto-approve-off` |
 | Reopen a deferred review | **Alt+A** or `/approvals` |
 | Read earlier output | wheel or **PgUp/PgDn**; **Alt+End** follows live output |
 | Run your own command | `/command-edit` → `/execute`; history in `/run` |

@@ -174,6 +174,7 @@ pub(super) fn header(frame: &mut Frame, area: Rect, app: &App, config: &Config, 
         Some(crate::providers::Operation::Plan) => paint.hint(Message::CorePolicyReadonly),
         Some(crate::providers::Operation::Review) => paint.hint(Message::CorePolicyReview),
         // A standing grant must stay visible even when the chip has no room.
+        _ if app.auto_approve_session => paint.hint(Message::AutoApproveSessionPolicy),
         _ if app.planning.auto_approve => paint.hint(Message::AutoApprovePolicy),
         _ => "",
     };
@@ -225,7 +226,9 @@ pub(super) fn header(frame: &mut Frame, area: Rect, app: &App, config: &Config, 
             crate::providers::Operation::Implement => Message::CoreCapabilityReviewedCoding,
         })
     );
-    let chip = if app.planning.auto_approve && operation == crate::providers::Operation::Implement {
+    let chip = if app.auto_approve_session && operation == crate::providers::Operation::Implement {
+        format!("[{}] ", paint.hint(Message::AutoApproveSessionChip))
+    } else if app.planning.auto_approve && operation == crate::providers::Operation::Implement {
         format!("[{}] ", paint.hint(Message::AutoApproveChip))
     } else {
         chip

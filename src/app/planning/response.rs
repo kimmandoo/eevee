@@ -23,6 +23,8 @@ pub struct ResponseRow<'a> {
     pub header: bool,
     /// A cached projection of a qualified todo, never a text-prefix guess.
     pub todo: bool,
+    /// Status of a readable tool projection; `None` for raw or non-tool rows.
+    pub tool: Option<super::tool_view::Status>,
     /// Last visible source fragment of this actual file snapshot, not a timer.
     pub writing_edge: bool,
     /// Part of the file lines that arrived in the latest snapshot, within
@@ -44,6 +46,9 @@ struct Segment {
     observation_valid: bool,
     todo: Option<super::todo::Observation>,
     todo_updates: usize,
+    /// Readable tool projection; the original text remains the verbose view.
+    tool: Option<super::tool_view::View>,
+    tool_shown: bool,
     display: Option<String>,
     suppressed: bool,
 }
@@ -63,6 +68,8 @@ pub(super) struct Layout {
     verbose: bool,
     attributed: bool,
     comfortable: bool,
+    /// Tool rows live in the side panel instead of the transcript.
+    dock_tools: bool,
     anchor: Option<Anchor>,
     total: usize,
     grouping_dirty: bool,
@@ -167,9 +174,12 @@ impl Layout {
         agent: &str,
         verbose: bool,
         comfortable: bool,
+        dock_tools: bool,
     ) {
-        let mut regroup =
-            self.grouping_dirty || self.verbose != verbose || self.segments.len() != items.len();
+        let mut regroup = self.grouping_dirty
+            || self.verbose != verbose
+            || self.dock_tools != dock_tools
+            || self.segments.len() != items.len();
         let attributed = items.len() > 1;
         let reflow = self.width != width
             || self.verbose != verbose
@@ -202,6 +212,8 @@ impl Layout {
                     observation_valid: false,
                     todo: None,
                     todo_updates: 0,
+                    tool: None,
+                    tool_shown: false,
                     display: None,
                     suppressed: false,
                 };
@@ -215,10 +227,16 @@ impl Layout {
             if !segment.observation_valid {
                 regroup = true;
                 segment.todo = super::todo::Observation::read(item);
+                segment.tool = segment
+                    .todo
+                    .is_none()
+                    .then(|| super::tool_view::View::read(item))
+                    .flatten();
                 segment.observation_valid = true;
                 segment.display = None;
                 segment.header_valid = false;
                 segment.todo_updates = 0;
+                segment.tool_shown = false;
             }
         }
         // Collapse only qualified successful todo snapshots within one immutable
@@ -256,16 +274,30 @@ impl Layout {
                     0
                 };
                 let segment = &mut self.segments[index];
-                if segment.suppressed != suppressed || segment.todo_updates != updates {
+                let settled = item
+                    .status
+                    .as_ref()
+                    .is_some_and(|status| status.outcome.is_some());
+                let tool_shown = !verbose && segment.tool.is_some();
+                // A docked tool is listed in the side panel; a request outcome
+                // attached to it always stays in the transcript.
+                let suppressed = suppressed || tool_shown && dock_tools && !settled;
+                if segment.suppressed != suppressed
+                    || segment.todo_updates != updates
+                    || segment.tool_shown != tool_shown
+                {
                     segment.valid = false;
                     segment.header_valid = false;
                     segment.suppressed = suppressed;
                     segment.todo_updates = updates;
+                    segment.tool_shown = tool_shown;
                     segment.display = if updates > 0 {
                         segment
                             .todo
                             .as_ref()
                             .map(|todo| todo.display(updates, item))
+                    } else if tool_shown {
+                        segment.tool.as_ref().map(super::tool_view::View::display)
                     } else {
                         None
                     };
@@ -284,8 +316,13 @@ impl Layout {
                     || self.attributed != attributed
                 {
                     segment.header.clear();
-                    if segment.display.is_some() {
-                        // The structured summary already names source and owner.
+                    let settled = item
+                        .status
+                        .as_ref()
+                        .is_some_and(|status| status.outcome.is_some());
+                    if segment.display.is_some() && !(segment.tool_shown && settled) {
+                        // The structured summary already names source and owner;
+                        // a readable tool row belongs to the surrounding response.
                     } else if let ItemKind::File(phase) = item.kind {
                         let _ = write!(
                             segment.header,
@@ -341,7 +378,7 @@ impl Layout {
                             ])
                             .expect("validated transcript template");
                     }
-                    if segment.display.is_none()
+                    if (segment.display.is_none() || segment.tool_shown)
                         && let Some(status) = &item.status
                         && let Some(outcome) = status.outcome_label()
                     {
@@ -457,6 +494,7 @@ impl Layout {
         self.verbose = verbose;
         self.attributed = attributed;
         self.comfortable = comfortable;
+        self.dock_tools = dock_tools;
     }
 
     fn segment_at(&self, row: usize) -> Option<usize> {
@@ -673,6 +711,21 @@ impl State {
 
     /// Called with the actual rendered body, excluding metadata and controls.
     /// The root renderer clears this before drawing so hidden views cannot hit.
+    /// Whether the side Tools panel lists tool rows instead of the transcript.
+    pub fn set_tools_docked(&mut self, docked: bool) {
+        self.tools_docked = docked;
+    }
+
+    /// Readable tool calls, oldest first, from the cached transcript layout.
+    /// Todo snapshots stay in the transcript's progress projection.
+    pub fn tool_activity(&self) -> Vec<&super::tool_view::View> {
+        self.response_cache
+            .segments
+            .iter()
+            .filter_map(|segment| segment.tool.as_ref())
+            .collect()
+    }
+
     pub fn set_response_body(&mut self, body: ratatui::layout::Rect) {
         self.response_body = body;
     }
@@ -852,8 +905,15 @@ impl State {
         let comfortable = self.text_density() == crate::store::TextDensity::Comfortable
             && width >= 20
             && height >= 4;
-        self.response_cache
-            .update(width, &self.items, self.agent.label(), verbose, comfortable);
+        let dock_tools = self.tools_docked;
+        self.response_cache.update(
+            width,
+            &self.items,
+            self.agent.label(),
+            verbose,
+            comfortable,
+            dock_tools,
+        );
         self.response_max = self
             .response_cache
             .total
@@ -912,7 +972,12 @@ impl State {
                         text: &text[row.range.clone()],
                         kind: segment.kind,
                         header: row.header,
-                        todo: segment.display.is_some(),
+                        todo: segment.display.is_some() && !segment.tool_shown,
+                        tool: segment
+                            .tool
+                            .as_ref()
+                            .filter(|_| segment.tool_shown)
+                            .map(|tool| tool.status),
                         writing_edge: segment.kind
                             == ItemKind::File(crate::providers::FilePhase::Generating)
                             && !row.header

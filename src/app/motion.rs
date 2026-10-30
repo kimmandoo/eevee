@@ -30,16 +30,27 @@ impl App {
         }
     }
 
-    /// Task-scoped, in-memory consent for the lead partner's file changes
-    /// and commands. Enabling also settles the currently pending one.
+    /// In-memory consent for the lead partner's file changes and commands,
+    /// scoped to the current task or to this whole Eevee session (until quit).
+    /// Enabling also settles the currently pending one.
     pub(super) fn auto_approve_command(&mut self, command: &str) -> bool {
-        let enabled = match command {
-            "auto-approve" => true,
-            "auto-approve-off" => false,
+        let (enabled, session) = match command {
+            "auto-approve" => (true, false),
+            "auto-approve-session" => (true, true),
+            "auto-approve-off" => (false, false),
             _ => return false,
         };
         self.planning.auto_approve = enabled;
-        self.notice = (if enabled {
+        self.auto_approve_session = session;
+        if !enabled {
+            // A grant synced into a partner's state never outlives `off`.
+            for state in self.cooperation.parked.values_mut() {
+                state.auto_approve = false;
+            }
+        }
+        self.notice = (if session {
+            Message::AutoApproveSessionEnabled
+        } else if enabled {
             Message::AutoApproveEnabled
         } else {
             Message::AutoApproveDisabled

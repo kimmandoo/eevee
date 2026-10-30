@@ -2379,9 +2379,10 @@ fn evolution_receipt_is_edge_anchored_and_reserves_response_and_composer() {
             assert!(!popup.intersects(layout.composer));
             assert!(!popup.intersects(layout.footer));
             if width == 120 && !linear {
-                assert_eq!((popup.width, popup.height), (26, 7));
+                assert_eq!(popup.width, 26);
+                assert!((7..=9).contains(&popup.height), "{popup:?}");
                 assert!(!popup.intersects(layout.workspace));
-                assert!(popup.y > layout.rail.unwrap().bottom());
+                assert!(!popup.intersects(layout.rail.unwrap()));
             } else {
                 assert_eq!(popup.x, layout.workspace.x);
                 assert_eq!(popup.width, layout.workspace.width);
@@ -3010,4 +3011,85 @@ fn canonical_journey_and_preview_keep_unicode_drafts_for_all_routes_and_models()
             }
         }
     }
+}
+
+fn tool_transcript_app(width: u16, height: u16) -> App {
+    let mut app = App::new("/workspace".into(), width, height);
+    let item = |id: &str, kind, text: &str, complete| crate::app::planning::Item {
+        thread_id: "thread".into(),
+        turn_id: "turn".into(),
+        item_id: id.into(),
+        kind,
+        text: text.into(),
+        complete,
+        request: "Fix the parser".into(),
+        owner: None,
+        status: None,
+    };
+    use crate::providers::ItemKind::{Message, Tool};
+    app.planning.items.extend([
+        item("m1", Message, "I'll look at the parser first.", true),
+        item(
+            "t1",
+            Tool,
+            r#"{"provider":"Claude Agent SDK","tool":"Read","observation":"Argument metadata only","input":{"path":"/workspace/src/parser.rs","bytes":40,"sha256":"abcdef"},"result":"fn parse() {}","is_error":false,"status":"completed"}"#,
+            true,
+        ),
+        item(
+            "t2",
+            Tool,
+            "Command: cargo test -q\nCwd: /workspace\nStatus: completed\nExit code: 1\ntest result: FAILED. 1 failed",
+            true,
+        ),
+        item("m2", Message, "The parser is fixed.", false),
+    ]);
+    app
+}
+
+#[test]
+fn tool_calls_render_as_readable_rows_inline_or_in_the_side_panel() {
+    use ratatui::{Terminal, backend::TestBackend};
+    let config = home_config();
+    for (width, height, docked) in [(120, 36, true), (100, 30, false), (60, 18, false)] {
+        let mut app = tool_transcript_app(width, height);
+        let mut artwork = Artwork::load(&config);
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+        terminal
+            .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
+            .unwrap();
+        let text = screen_text(&terminal);
+        assert!(
+            !text.contains("sha256") && !text.contains("Cwd:"),
+            "{width}x{height}: {text}"
+        );
+        assert!(
+            text.contains("The parser is fixed."),
+            "{width}x{height}: {text}"
+        );
+        if docked {
+            assert!(text.contains("TOOLS 2"), "{text}");
+            assert!(text.contains("[ok] Read parser.rs"), "{text}");
+            assert!(text.contains("[!!] $ cargo test -q"), "{text}");
+            assert!(!text.contains("Tool output"), "{text}");
+        } else {
+            assert!(!text.contains("TOOLS"), "{width}x{height}: {text}");
+            assert!(
+                width < 100 || text.contains("[!!] $ cargo test -q  exit 1"),
+                "{width}x{height}: {text}"
+            );
+        }
+    }
+    // /verbose keeps every original observation inline.
+    let mut app = tool_transcript_app(120, 36);
+    app.verbose = true;
+    let mut artwork = Artwork::load(&config);
+    let mut terminal = Terminal::new(TestBackend::new(120, 36)).unwrap();
+    terminal
+        .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
+        .unwrap();
+    let text = screen_text(&terminal);
+    assert!(
+        !text.contains("TOOLS") && text.contains("Cwd: /workspace"),
+        "{text}"
+    );
 }

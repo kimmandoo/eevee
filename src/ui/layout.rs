@@ -8,6 +8,8 @@ pub(super) struct Shell {
     pub(super) workspace: Rect,
     pub(super) composer: Rect,
     pub(super) inspector: Option<Rect>,
+    /// Quiet column space below the partner card that lists tool calls.
+    pub(super) tools: Option<Rect>,
 }
 
 pub(super) fn shell(area: Rect, linear: bool, focus: Pane) -> Shell {
@@ -32,6 +34,10 @@ pub(super) fn shell(area: Rect, linear: bool, focus: Pane) -> Shell {
             body.height.min(16),
         )
     });
+    let tools = rail.and_then(|rail| {
+        let height = body.bottom().saturating_sub(rail.bottom());
+        (height >= TOOLS_MIN_HEIGHT).then(|| Rect::new(rail.x, rail.bottom(), rail.width, height))
+    });
     let reserved = if inspector.is_some() {
         32
     } else if rail.is_some() {
@@ -51,8 +57,12 @@ pub(super) fn shell(area: Rect, linear: bool, focus: Pane) -> Shell {
         ),
         composer,
         inspector,
+        tools,
     }
 }
+
+/// Border plus at least two tool rows; shorter columns keep tools inline.
+const TOOLS_MIN_HEIGHT: u16 = 4;
 
 pub(super) fn companion_portrait(area: Rect) -> Rect {
     Rect::new(
@@ -187,9 +197,11 @@ pub(super) fn evolution_popup_area(area: Rect, app: &App) -> Option<Rect> {
     // At roomy sizes, use the quiet space below the companion rather than
     // clearing any response text or withholding the native portrait.
     if let Some(rail) = layout.rail {
-        let top = rail.bottom().saturating_add(1);
-        if layout.composer.y.saturating_sub(top) >= 7 {
-            return Some(Rect::new(rail.x, top, rail.width, 7));
+        let top = rail.bottom();
+        let room = layout.composer.y.saturating_sub(top);
+        if room >= 7 {
+            // Nine rows also fit the new form's one-line summary.
+            return Some(Rect::new(rail.x, top, rail.width, room.min(9)));
         }
     }
     // Compact/linear layouts keep the newest response rows and the entire

@@ -13,7 +13,7 @@ use super::{Paint, centered, clipped, editor_rows, panel, row, selection_details
 use crate::{
     app::{
         App,
-        planning::{Picker, State, file_phase_message},
+        planning::{Picker, State, file_phase_message, tool_view::Status as ToolStatus},
     },
     config::Config,
     messages::{Message, Template},
@@ -244,6 +244,31 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             .unwrap_or(u16::MAX)
             .saturating_add(7)
             .min(18)
+    } else if compact
+        && state.preview.is_none()
+        && !matches!(
+            state.request.as_ref().map(|request| &request.kind),
+            Some(PromptKind::Permission { file: Some(_), .. }) | Some(PromptKind::Questions(_))
+        )
+        && state.switch_to.is_none()
+        && state.selection_change.is_none()
+    {
+        // Fit the request review to its summary instead of a mostly empty
+        // sheet: border, header, summary, a gap and the decision controls.
+        let width = area
+            .width
+            .saturating_sub(2)
+            .min(112)
+            .saturating_sub(2)
+            .max(1);
+        u16::try_from(
+            Paragraph::new(review_summary(state, paint).join("\n"))
+                .wrap(Wrap { trim: false })
+                .line_count(width),
+        )
+        .unwrap_or(u16::MAX)
+        .saturating_add(7)
+        .clamp(10, 18)
     } else if compact {
         18
     } else {
@@ -665,6 +690,9 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
     }
 }
 
+/// Marks the reviewed command row in a summary.
+const COMMAND_PREFIX: &str = "  $ ";
+
 /// Each summary row is deliberately bounded; exact values remain in Details.
 pub(super) fn render_summary(
     frame: &mut Frame,
@@ -679,7 +707,12 @@ pub(super) fn render_summary(
             frame,
             row(area, index as u16, 1),
             &clipped(&single_line, area.width as usize),
-            paint.surface,
+            // The exact command under review stands out from its context.
+            if line.starts_with(COMMAND_PREFIX) {
+                paint.accent
+            } else {
+                paint.surface
+            },
         );
     }
     area.width >= 40 && area.height as usize >= lines.len()
@@ -982,10 +1015,15 @@ fn review_summary(state: &State, paint: &Paint) -> Vec<String> {
         return Vec::new();
     };
     let who = crate::workspace::handoff::sanitize(&crate::store::Attribution::label(state.owner()));
-    let mut lines = vec![paint.format(
-        Template::ProvidersPlanningWhoAsksThisProviderRequestOnly,
-        &[("owner", &(who)), ("provider", (state.agent.label()))],
-    )];
+    // A command review names its asker in its own first row.
+    let mut lines = if matches!(request.kind, PromptKind::Approval { .. }) {
+        Vec::new()
+    } else {
+        vec![paint.format(
+            Template::ProvidersPlanningWhoAsksThisProviderRequestOnly,
+            &[("owner", &(who)), ("provider", (state.agent.label()))],
+        )]
+    };
     match &request.kind {
         PromptKind::Permission {
             description,
@@ -1000,7 +1038,11 @@ fn review_summary(state: &State, paint: &Paint) -> Vec<String> {
                         .map(str::to_owned),
                 );
                 for option in options {
-                    lines.push(format!("{}: {}", option.label, option.description));
+                    lines.push(if option.description.is_empty() {
+                        format!("  {}", option.label)
+                    } else {
+                        format!("  {} — {}", option.label, option.description)
+                    });
                 }
                 lines.push(
                     paint
@@ -1018,24 +1060,32 @@ fn review_summary(state: &State, paint: &Paint) -> Vec<String> {
         } => {
             lines.push(paint.format(
                 Template::ProvidersPlanningWhoWantsToRunCommand,
-                &[("owner", &(who)), ("command", (command))],
+                &[("owner", &(who)), ("provider", state.agent.label())],
             ));
-            lines.push(format!("Directory: {cwd}"));
-            lines.push(format!("Reason: {reason}"));
+            lines.push(format!("{COMMAND_PREFIX}{command}"));
+            lines.push(if reason.trim().is_empty() {
+                format!("  in {cwd}")
+            } else {
+                format!("  in {cwd} · why: {reason}")
+            });
             lines.push(
                 paint
                     .hint(Message::ProvidersPlanningAllowOnceThisCommandEffectsAreNot)
                     .into(),
             );
-            lines.push(if deny_decision == "cancel" {
-                paint
-                    .hint(Message::ProvidersPlanningDenyCancelsThisTurnNoContinuingDenial)
-                    .into()
-            } else {
-                paint
-                    .hint(Message::ProvidersPlanningProviderPolicyCallbacksAreNotOsIsolation)
-                    .into()
-            });
+            if deny_decision == "cancel" {
+                lines.push(
+                    paint
+                        .hint(Message::ProvidersPlanningDenyCancelsThisTurnNoContinuingDenial)
+                        .into(),
+                );
+            } else if super::VERBOSE.get() {
+                lines.push(
+                    paint
+                        .hint(Message::ProvidersPlanningProviderPolicyCallbacksAreNotOsIsolation)
+                        .into(),
+                );
+            }
             lines.push(
                 paint
                     .hint(Message::ProvidersPlanningDDetailsExactCommandCwdAndFull)
@@ -1398,7 +1448,17 @@ fn response(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
                     }
                     Line::from(spans).style(paint.base)
                 }
-                _ => Line::raw(row.text),
+                _ => match row
+                    .tool
+                    .map(|status| (status, row.text.strip_prefix(status.marker())))
+                {
+                    Some((status, Some(title))) => Line::from(vec![
+                        Span::styled(status.marker(), tool_style(status, paint)),
+                        Span::styled(title, paint.surface.add_modifier(Modifier::BOLD)),
+                    ]),
+                    Some((_, None)) => Line::styled(row.text, paint.muted),
+                    None => Line::raw(row.text),
+                },
             })
             .collect();
         frame.render_widget(Paragraph::new(lines).style(paint.surface), body);
@@ -1477,6 +1537,19 @@ fn response(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
             paint.muted,
         );
     }
+}
+
+/// Tool markers carry the status in text; color only reinforces it.
+pub(super) fn tool_style(status: ToolStatus, paint: &Paint) -> Style {
+    let style = paint.surface.add_modifier(Modifier::BOLD);
+    if paint.surface.fg.is_none() {
+        return style;
+    }
+    style.fg(match status {
+        ToolStatus::Running => Color::Cyan,
+        ToolStatus::Done => Color::Green,
+        ToolStatus::Failed => Color::Red,
+    })
 }
 
 /// Semantic lifecycle colors supplement, rather than replace, the file panel.
@@ -4148,7 +4221,8 @@ mod tests {
         let text = screen(&draw(&mut app));
         assert!(app.planning.reviewed, "summary fits 60x18:\n{text}");
         assert!(
-            text.contains("Bolt (Jolteon) wants to run: cargo test"),
+            text.contains("Bolt (Jolteon) · Codex · CLI agent wants to run:")
+                && text.contains("$ cargo test"),
             "{text}"
         );
 

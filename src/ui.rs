@@ -449,10 +449,19 @@ pub fn render(
         };
         let workspace_area = held::strip(frame, workspace_area, app, &paint);
         let review_scroll = file_prompt.map(|_| (app.planning.scroll, app.planning.scroll_max));
+        // Roomy layouts list tool calls beside the transcript; `/verbose`
+        // keeps every raw observation inline.
+        let tools = shell
+            .tools
+            .filter(|_| app.response_on_home() && !app.verbose);
+        app.planning.set_tools_docked(tools.is_some());
         if app.response_on_home() {
             planning::render_workspace(frame, workspace_area, app, config, &paint);
         } else {
             workspace(frame, workspace_area, app, config, &paint);
+        }
+        if let Some(tools) = tools {
+            tool_panel(frame, tools, app, config, &paint);
         }
         if let Some((scroll, scroll_max)) = review_scroll {
             // The transcript backdrop must not move the file-review viewport.
@@ -734,17 +743,24 @@ fn forms(
             2 + visible as u16,
             content.height.saturating_sub(2 + visible as u16),
         );
-        let role = format!("{} / {}", FORMS[selected].name, FORMS[selected].role);
+        let form = &FORMS[selected];
         let value = format!(
-            "{}\n{}\n{}",
-            clipped(&role, info.width as usize),
+            "{} · {}\nGood for: {}\n{}\n{}",
+            form.name,
+            form.summary,
+            form.good_for,
             clipped(
                 &records::compact_marker(app.record_form_marker(selected), paint),
                 info.width as usize,
             ),
             picker_moves(app, selected, info.width, paint)
         );
-        text(frame, info, &value, paint.muted);
+        frame.render_widget(
+            Paragraph::new(value)
+                .style(paint.muted)
+                .wrap(Wrap { trim: false }),
+            info,
+        );
     }
 }
 
@@ -758,22 +774,33 @@ fn form_details(
 ) {
     let form = &FORMS[index];
     let paint = Paint::new(config, form, index);
+    // Plain-language summary first; the expected-evidence contract and
+    // workflow availability are technical details shown with /verbose.
+    let technical = if VERBOSE.get() {
+        format!(
+            "\n{}\n{}\n",
+            form.evidence,
+            match index {
+                0 => "Task cards and resumption: available",
+                1 => "Source ranges/context basket: /files",
+                2 => "Approved local commands/evidence: /run",
+                3 => "Reviewed selected-file implementation: /provider | /role",
+                4 => "Reviewed multi-agent planning: /provider",
+                _ => "Provider specialist workflow: unavailable",
+            }
+        )
+    } else {
+        String::new()
+    };
     let value = format!(
-        "{} / {}\n{}\n{}\n{}\n\n{}\n\n{}\n{}\n{}",
+        "{} / {} · {}\n\n{}\nGood for: {}\n\n{}\n{}\n{technical}\n{}\n{}",
         form.name,
         form.element,
         form.role,
+        form.summary,
+        form.good_for,
         picker_moves(app, index, area.width, &paint),
         records::marker(app.record_form_marker(index), &paint),
-        form.evidence,
-        match index {
-            0 => "Task cards and resumption: available",
-            1 => "Source ranges/context basket: /files",
-            2 => "Approved local commands/evidence: /run",
-            3 => "Reviewed selected-file implementation: /provider | /role",
-            4 => "Reviewed multi-agent planning: /provider",
-            _ => "Provider specialist workflow: unavailable",
-        },
         artwork.status(index),
         paint.hint(Message::CoreRolePreviewControl)
     );
@@ -1273,6 +1300,7 @@ fn evolution_preview(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                     ),
                 ],
             ),
+            format!("What it does: {}", FORMS[preview.selection.form].summary),
             paint.format(
                 Template::CoreEvolutionPreviewOperation,
                 &[("operation", operation(preview.selection.operation))],
