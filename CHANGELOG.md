@@ -2,6 +2,7 @@
 
 ## 2026-10-30
 
+- docs(release): published v0.1.40 from `5917c1f` after native41022608110 and release41026266463 with all eight assets; the first tag attempt on `eeb22db` stopped before publishing because the version notes section was missing.
 - fix(ui): drew the header and status rows on the canvas instead of a ragged surface band, framed the active transcript in the padded RESPONSE panel at roomy sizes, grouped consecutive same-request segments under one attribution with blank separators, moved item IDs behind `/verbose`, and sized the tool panel, party roster and empty task list to their content.
 - fix(ui): hid the bare `none` record marker in the form picker, listed every form when the compact picker has room with a gap before the details, and removed a doubled space and unpadded titles from review and journey sheets.
 - chore(release): advanced the package version to 0.1.40.

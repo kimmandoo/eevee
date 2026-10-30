@@ -1,10 +1,11 @@
-## 2026-10-30 — TUI polish and 0.1.40 release (in progress)
+## 2026-10-30 — TUI polish and 0.1.40 release (completed)
 
 - **Current request:** Fix awkward TUI spacing and needless background fills, then publish a release update.
 - **Changed:** Header/status rows drawn on the canvas (`Paint::on_canvas`); active transcript framed in the padded RESPONSE panel at ≥14 rows; same-request segments share one attribution with blank separators and item IDs moved to `/verbose`; tool panel, party roster, empty task list and request reviews sized to content; picker hides empty `none` markers, lists more forms with a conditional gap and keeps saved moves visible at 60×18; titles padded; shorter `A Session` hints. PTY drivers (`response`, `retained_navigation`, `file_progress`, `progress`) parse the framed transcript. Version 0.1.40.
 - **Verification:** fmt, strict Clippy, `cargo test --bin ev` 1,979 passed/2 ignored. PTY smokes passed: progress, evolution, file_progress, file_permission, file_creation, steering, conversation_flow, retained_navigation, delegation, cooperation, similar_moves. Pre-existing failures identical on the 0.1.39 baseline build: records C03A, response `" 1/2"`, workflow_relay, moves run-use/repeat-runs/repeat-pins/party/safety.
 - **CI:** Native41014704578 on `65313c4` passed Check and all five native rows. README was then reorganized (docs only), which needs its own main-push native run before tagging because `release_qualification.py` requires the exact tagged commit.
-- **Next action:** Wait for native CI on the README commit, then push annotated tag `v0.1.40` on that exact commit; the release workflow qualifies and publishes.
+- **Release:** First tag on `eeb22db` (native41018756175 passed) failed upload in release41022387611 because `CHANGELOG.md` lacked a `## 0.1.40` section; nothing was published. Added the notes in `5917c1f`, native41022608110 passed, re-pointed the unpublished tag, and release41026266463 published [v0.1.40](https://github.com/kimmandoo/eevee/releases/tag/v0.1.40) (latest, non-draft) with all eight assets. Earlier tags/releases untouched.
+- **Next action:** None for this request. Pre-existing smoke failures (records C03A, response `" 1/2"`, workflow_relay, five moves cases) remain open for a separate task.
 
 ## 2026-10-30 — Tool output, approval UX, session auto-approve and evolution routing (implemented, unreleased)
 
