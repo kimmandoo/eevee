@@ -61,6 +61,7 @@ pub(super) fn activity_marker(frame: u8, config: &Config, motion_enabled: bool) 
 }
 
 pub(super) fn header(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &Paint) {
+    let paint = &paint.on_canvas();
     let project = std::path::Path::new(&app.cwd)
         .file_name()
         .and_then(|name| name.to_str())

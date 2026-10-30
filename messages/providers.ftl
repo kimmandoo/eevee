@@ -236,7 +236,7 @@ providers-planning-deny-allow-unavailable-until-summary-is-visible =
     { "PgUp/Dn Scroll / n Deny / Enter Deny / Esc Later" }
 
 providers-planning-a-allow-once-n-deny-y-send =
-    { "a Allow once · A Allow all this session · n Deny · y Send selected" }
+    { "a Allow once · A Session · n Deny · y Send selected" }
     { "Tab Choose · Enter Send selected · d Details · Esc Later" }
 
 providers-planning-deny-allow-unavailable-n-or-enter-deny =
@@ -244,11 +244,11 @@ providers-planning-deny-allow-unavailable-n-or-enter-deny =
     { "n or Enter Deny / d Details / Esc Cancel" }
 
 providers-planning-deny-allow-once-a-y-allow-n =
-    { "Deny / [Allow once] · a/y Allow · A Allow all this session · n Deny" }
+    { "Deny / [Allow once] · a/y Allow · A Session · n Deny" }
     { "Tab Choose · Enter Allow · d Details · Esc Later" }
 
 providers-planning-deny-allow-once-a-y-allow-n-2 =
-    { "[Deny] / Allow once · a/y Allow · A Allow all this session · n Deny" }
+    { "[Deny] / Allow once · a/y Allow · A Session · n Deny" }
     { "Tab Choose · Enter Deny · d Details · Esc Later" }
 
 providers-planning-edit-answers-send-needs-visible-summary-resize =
@@ -582,7 +582,7 @@ providers-planning-earlier-items-omitted-decision-reviews-a-complete = { $count 
 providers-planning-start-end-total-alt-end-latest = { $status }{ $new }{ " " }{ $start }{ "-" }{ $end }{ "/" }{ $total }{ " | Alt+End latest" }
 
 providers-planning-transcript-segment =
-    { $kind }{ " · " }{ $owner }{ " · " }{ $item }
+    { $kind }{ " · " }{ $owner }{ $item }
     { "Request: " }{ $request }
 
 providers-planning-secret-answers-hidden-in-review = { $count }{ " secret answers hidden in review." }
@@ -952,7 +952,7 @@ providers-planning-file-details = { "d Complete change, scope & exact request" }
 
 providers-planning-file-actions =
     { "Left/Right choose | Enter confirms | a/y Allow" }
-    { "n Deny · d Details · A Allow all this session · Esc later" }
+    { "n Deny · d Details · A Allow session · Esc later" }
 
 providers-planning-file-unavailable =
     { "PgUp/Dn: review all scope before allowing." }

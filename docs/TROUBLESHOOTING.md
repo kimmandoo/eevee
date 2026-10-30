@@ -1,5 +1,12 @@
 # Troubleshooting
 
+### [2026-10-30] PTY smoke drivers mis-parsed the framed transcript
+
+- **Context / Symptom:** After framing the home transcript in the RESPONSE panel, `file_progress_smoke.py` reported `generated source lacked its numbered code gutter`, `conversation_flow_smoke.py` hit `IndexError` in `request_terminal`, `retained_navigation_smoke.py` reported `wheel did not pause the actual retained output`, and compact `delegation_smoke.py` could not reach the child-round decision.
+- **Root Cause:** The drivers parsed rows by column position: they stripped only leading spaces (now `│ `), took the leftmost box corner on the PARTNER row as the rail edge (now the RESPONSE corner), and matched `Paused` only at line start. Separately, the content-fitted review sheet estimated its wrapped rows without the panel's horizontal padding, and the new Shift+A hints wrapped at 60 columns, pushing the second control row out of view.
+- **Solution:** Made `response_view` use the PARTNER card's own corner and the RESPONSE frame's right corner; stripped an optional frame border before gutter/status matching; subtracted border and padding in the fitted sheet height; shortened hints to `A Session`.
+- **Prevention / Reference:** Re-run the PTY journeys (`response`, `conversation_flow`, `retained_navigation`, `file_progress`, `delegation`) after any transcript-geometry change; compare with a baseline worktree build to separate pre-existing failures (records C03A and response `" 1/2"` fail on 0.1.39 too).
+
 ### [2026-10-30] records_smoke C03A capture preview mismatch on the 0.1.39 baseline
 
 - **Context / Symptom:** `scripts/records_smoke.py` failed case C03A at both 120×36 and 60×18 with `actual ordered preview differs beyond physical wrapping` while inspecting the long CJK/combining-path capture; every later case was blocked by that failure.

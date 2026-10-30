@@ -49,6 +49,11 @@ struct Segment {
     /// Readable tool projection; the original text remains the verbose view.
     tool: Option<super::tool_view::View>,
     tool_shown: bool,
+    /// Same owner and request as the previous segment: attribution is not
+    /// repeated outside `/verbose`.
+    continued: bool,
+    /// Leading blank row before this segment.
+    gap: bool,
     display: Option<String>,
     suppressed: bool,
 }
@@ -214,6 +219,8 @@ impl Layout {
                     todo_updates: 0,
                     tool: None,
                     tool_shown: false,
+                    continued: false,
+                    gap: false,
                     display: None,
                     suppressed: false,
                 };
@@ -241,6 +248,7 @@ impl Layout {
         }
         // Collapse only qualified successful todo snapshots within one immutable
         // request/owner/worker. Errors, malformed data and ordinary tools remain.
+        let mut previous: Option<usize> = None;
         for (index, item) in items.iter().enumerate() {
             if regroup {
                 let todo = self.segments[index].todo.as_ref();
@@ -303,12 +311,30 @@ impl Layout {
                     };
                 }
             }
+            // Compare with the previous visible segment: docked tools and
+            // collapsed todo snapshots do not break a run of one request.
+            let continued = !verbose
+                && previous.is_some_and(|before| {
+                    items[before].owner == item.owner && items[before].request == item.request
+                });
+            // One blank row separates attributed blocks and a change between
+            // tool rows and prose, so segments do not run together.
+            let gap = previous.is_some_and(|before| {
+                !continued || (self.segments[before].tool_shown != self.segments[index].tool_shown)
+            });
             let segment = &mut self.segments[index];
+            if segment.continued != continued || segment.gap != gap {
+                segment.continued = continued;
+                segment.gap = gap;
+                segment.valid = false;
+                segment.header_valid = false;
+            }
             segment.start = self.total;
             if segment.suppressed {
                 segment.rows.clear();
                 continue;
             }
+            previous = Some(index);
             if reflow || !segment.valid {
                 if !segment.header_valid
                     || segment.kind != item.kind
@@ -330,7 +356,7 @@ impl Layout {
                             Message::ProvidersPlanningFileLabel.text(),
                             super::file_phase_message(phase).text(),
                         );
-                    } else if attributed
+                    } else if attributed && !segment.continued
                         || item
                             .status
                             .as_ref()
@@ -368,7 +394,11 @@ impl Layout {
                             })
                             .collect();
                         let owner = crate::workspace::handoff::sanitize(&owner);
-                        let id = crate::workspace::handoff::sanitize(&item.item_id);
+                        let id = if verbose {
+                            format!(" · {}", crate::workspace::handoff::sanitize(&item.item_id))
+                        } else {
+                            String::new()
+                        };
                         segment.header = Template::ProvidersPlanningTranscriptSegment
                             .format(&[
                                 ("kind", kind),
@@ -448,6 +478,14 @@ impl Layout {
                 }
                 let content = segment.display.as_deref().unwrap_or(&item.text);
                 segment.rows.clear();
+                // File cards paint a gutter on every row, so they never get a gap.
+                if segment.gap && !matches!(item.kind, ItemKind::File(_)) {
+                    segment.rows.push(Row {
+                        range: 0..0,
+                        header: false,
+                        spacer: true,
+                    });
+                }
                 // The file-only panel gutter is painted separately on every row,
                 // including wrapped continuations and a viewport starting mid-code.
                 let content_width = if matches!(item.kind, ItemKind::File(_)) {

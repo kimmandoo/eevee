@@ -214,9 +214,19 @@ def response_view(session):
                  and any(screen.buffer[y][x].data in ('┌', '╔', '+')
                          for x in range(screen.columns))), None)
     if rail is not None:
-        edge = min(x for x in range(screen.columns)
+        # The partner card's own corner, not the RESPONSE panel's on that row.
+        title = rows[rail].index('PARTNER')
+        edge = max(x for x in range(title)
                    if screen.buffer[rail][x].data in ('┌', '╔', '+'))
         right = min(right, edge - 2)  # Actual panel edge plus its workspace gutter.
+    # A framed RESPONSE panel ends at its own right corner plus one padding cell.
+    frame = next((y for y in range(header) if 'RESPONSE' in rows[y]), None)
+    if frame is not None:
+        title = rows[frame].index('RESPONSE')
+        corner = next((x for x in range(title, screen.columns)
+                       if screen.buffer[frame][x].data in ('┐', '╗', '+')), None)
+        if corner is not None:
+            right = min(right, corner - 1)
 
     def cells(y):
         from wcwidth import wcswidth

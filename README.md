@@ -45,14 +45,22 @@ It also happens to come with a companion: a party of Eevee forms that evolve wit
 - **Built for the terminal.** Rust + ratatui, works from 60×18 up, mouse and keyboard, Kitty/Sixel sprites with text fallback, ASCII/mono modes.
 - **Cross-platform.** macOS (arm64, x86_64), Linux and WSL (x86_64, arm64), Windows (x86_64). Every target is built and tested in CI.
 
-## What's new in 0.1.39
+## What's new in 0.1.40
 
 | Improvement | What changed |
 | --- | --- |
-| **Readable tool progress** | Todo updates share one request-owned card; `/verbose` keeps the original observations inspectable |
-| **Live code** | Real source fragments keep updating through short provider pauses, with numbered lines and source-driven arrival emphasis |
-| **File choices by Request** | Compact Deny/Allow-once choices sit above the retained draft; long scope pages without skipping required rows |
-| **Intent-based forms** | English/Korean UI/tool improvements and inspect-then-fix requests select the right capability while respecting Auto/Pinned and read-only policy |
+| **Readable tool calls** | `[..]`/`[ok]`/`[!!]` rows with the tool, path or exit code and a short output preview; a side `TOOLS` panel on wide terminals; `/verbose` keeps raw observations |
+| **Approve for the session** | `/auto-approve-session` (or **Shift+A** in a review) keeps approving the lead's file changes and commands across tasks until you quit; the header says `task` or `session` |
+| **Clearer approvals** | Reviews fit their content and show the exact command on its own highlighted row in plain language |
+| **Smarter evolutions** | Everyday requests (questions, failures, reviews, docs, cleanup, UI changes) pick the right specialist; every form has a plain description and examples |
+| **Tidier screen** | Framed, padded transcript with grouped attribution, no stray background bands in the header, and sheets sized to their content |
+
+### Capabilities retained from 0.1.39
+
+| Feature | How to use it |
+| --- | --- |
+| **Live code** | Real source fragments keep updating through short provider pauses, with numbered lines |
+| **File choices by Request** | Compact Deny/Allow-once choices sit above the retained draft |
 
 ### Capabilities retained from 0.1.38
 
@@ -104,11 +112,11 @@ Pin a version:
 
 ```sh
 curl -fsSLo install-ev.sh https://github.com/kimmandoo/eevee/releases/latest/download/install.sh
-sh ./install-ev.sh --version v0.1.39
+sh ./install-ev.sh --version v0.1.40
 ```
 
 ```powershell
-& ([scriptblock]::Create((irm https://github.com/kimmandoo/eevee/releases/latest/download/install.ps1))) -Version v0.1.39
+& ([scriptblock]::Create((irm https://github.com/kimmandoo/eevee/releases/latest/download/install.ps1))) -Version v0.1.40
 ```
 
 Offline: download the matching archive, `SHA256SUMS` and installer from one release, then:

@@ -2,6 +2,9 @@
 
 ## 2026-10-30
 
+- fix(ui): drew the header and status rows on the canvas instead of a ragged surface band, framed the active transcript in the padded RESPONSE panel at roomy sizes, grouped consecutive same-request segments under one attribution with blank separators, moved item IDs behind `/verbose`, and sized the tool panel, party roster and empty task list to their content.
+- fix(ui): hid the bare `none` record marker in the form picker, listed every form when the compact picker has room with a gap before the details, and removed a doubled space and unpadded titles from review and journey sheets.
+- chore(release): advanced the package version to 0.1.40.
 - feat(ui): rendered provider tool calls as one-line `[..]`/`[ok]`/`[!!]` rows with name, path or exit code and a two-line output preview instead of raw JSON and `Command/Cwd/Status` dumps, and listed them in a side `TOOLS` panel below the partner card when the terminal has room; `/verbose` still shows every original observation inline.
 - feat(approvals): added `/auto-approve-session`, a standing in-memory approval that survives task changes until `/auto-approve-off` or quitting Eevee, made Shift+A in a review use it, and labelled the header `AUTO-APPROVE · task` or `· session` so the scope is never ambiguous.
 - fix(approvals): fitted command/permission reviews to their content, highlighted the exact command on its own row, merged directory and reason, and replaced protocol jargon with plain decision copy while keeping neutral Deny focus and Details.

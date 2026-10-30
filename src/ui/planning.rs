@@ -24,9 +24,28 @@ pub(super) fn render_workspace(
     frame: &mut Frame,
     area: Rect,
     app: &mut App,
-    _config: &Config,
+    config: &Config,
     paint: &Paint,
 ) {
+    // The same framed panel as the idle invitation, so the transcript keeps
+    // its padding and does not float as a borderless surface block. Tight
+    // heights give those rows back to the response itself.
+    let area = if area.height >= 14 && area.width >= 40 {
+        let block = panel(
+            paint.hint(Message::CoreResponseTitle),
+            config,
+            paint,
+            app.effective_focus() == crate::app::Pane::Workspace
+                && !app.editing
+                && app.overlay.is_none(),
+        );
+        let inner = block.inner(area);
+        frame.render_widget(Clear, area);
+        frame.render_widget(block, area);
+        inner
+    } else {
+        area
+    };
     let (request, previous) = app.planning.response_request();
     let area = if previous && !app.planning.submitted_request.is_empty() {
         let current = app
@@ -255,11 +274,12 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
     {
         // Fit the request review to its summary instead of a mostly empty
         // sheet: border, header, summary, a gap and the decision controls.
+        // Sheet margin, then border and horizontal padding on each side.
         let width = area
             .width
             .saturating_sub(2)
             .min(112)
-            .saturating_sub(2)
+            .saturating_sub(4)
             .max(1);
         u16::try_from(
             Paragraph::new(review_summary(state, paint).join("\n"))
@@ -304,7 +324,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
     };
     let title = match editing.as_deref().filter(|_| !local_picker) {
         Some(editing) if dock.is_some() || area.width < 90 => format!(" {editing} "),
-        Some(editing) => format!("{title} / {editing} "),
+        Some(editing) => format!("{} / {editing} ", title.trim_end()),
         None => title,
     };
     let block = panel(&title, config, paint, true);
@@ -3230,10 +3250,11 @@ mod tests {
             .draw(|frame| render_workspace(frame, frame.area(), &mut app, &config, &paint))
             .unwrap();
         let buffer = terminal.backend().buffer();
-        let current = rendered_row(buffer, buffer.area, 0);
+        // Row 0 is the RESPONSE panel border.
+        let current = rendered_row(buffer, buffer.area, 1);
         assert!(current.contains("new request"));
         assert!(!current.contains("original request"));
-        let label = rendered_row(buffer, buffer.area, 1);
+        let label = rendered_row(buffer, buffer.area, 2);
         assert!(label.contains("original request"));
         assert!(!label.contains("new request"));
     }

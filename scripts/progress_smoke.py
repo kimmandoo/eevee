@@ -807,8 +807,9 @@ class ProgressJourney(SurfaceJourney):
             screen = self.session.display()
             screens.append(screen)
             # Compare actual transcript glyphs across terminal wrapping. The
-            # wide partner sidebar is a separate column, not provider text.
-            transcript = ''.join(''.join(line.split('│', 1)[0].split())
+            # wide partner sidebar is a separate column, not provider text; a
+            # framed transcript's own left border is dropped first.
+            transcript = ''.join(''.join(line.strip().removeprefix('│').split('│', 1)[0].split())
                                  for line in screen.splitlines())
             if ''.join(needle.split()) in transcript:
                 found = True

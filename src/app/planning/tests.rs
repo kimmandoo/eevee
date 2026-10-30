@@ -3638,8 +3638,17 @@ fn response_lines_and_viewport_pages_traverse_attributed_item_boundaries() {
         top.iter().any(|line| line == "old response") && top.iter().any(|line| line == "0"),
         "{top:?}"
     );
-    assert!(top.iter().any(|line| line.contains("older")));
-    assert!(top.iter().any(|line| line.contains("newer")));
+    // Each request keeps its attribution; item IDs are a /verbose detail.
+    assert!(top.iter().any(|line| line.contains("First input")));
+    // Both items belong to one run's request, so attribution is not repeated.
+    assert_eq!(
+        top.iter()
+            .filter(|line| line.starts_with("Request:"))
+            .count(),
+        1,
+        "{top:?}"
+    );
+    assert!(!top.iter().any(|line| line.contains("older")));
     let start = state.response_position().0;
     press(&mut state, KeyCode::PageDown, true);
     state.response_rows(120, 8, false).count();
@@ -4095,11 +4104,19 @@ fn transcript_segments_retain_origin_owner_and_replayed_turn_request() {
         "Original literal request",
         "New literal request",
         "original",
-        "replayed",
-        "new-item",
     ] {
         assert!(transcript.contains(attribution), "{transcript}");
     }
+    // The raw item identity stays available in /verbose.
+    assert!(!transcript.contains("new-item"), "{transcript}");
+    let verbose = state
+        .response_rows(120, 40, true)
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        verbose.contains("new-item") && verbose.contains("replayed"),
+        "{verbose}"
+    );
 }
 
 #[test]

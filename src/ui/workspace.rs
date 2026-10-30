@@ -350,6 +350,15 @@ pub(super) fn tool_panel(frame: &mut Frame, area: Rect, app: &App, config: &Conf
     } else {
         format!(" TOOLS {} ", tools.len())
     };
+    // Shrink to the listed rows instead of an empty column-height box.
+    let area = Rect {
+        height: area.height.min(
+            u16::try_from(tools.len())
+                .unwrap_or(u16::MAX)
+                .saturating_add(2),
+        ),
+        ..area
+    };
     let block = panel(&title, config, paint, false);
     let content = block.inner(area);
     frame.render_widget(Clear, area);

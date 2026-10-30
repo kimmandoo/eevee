@@ -151,7 +151,9 @@ def run(binary, output, root, size, ascii_mode, protocol, ):
             journey.settled('OLD_RESPONSE_END', before + 1)
             plain_rows = [line.lstrip() for line in journey.session.display().splitlines()
                           if 'OLD_RESPONSE_ANCHOR_' in line or 'OLD_RESPONSE_END' in line]
-            assert plain_rows and all(not line.startswith('| ') for line in plain_rows), 'plain response received a file gutter'
+            # A file gutter is a marker plus a line number; a panel border is not.
+            assert plain_rows and all(not re.match(r'^(?:[│║|]\s+)?[+|>]\s+\d+\s+│', line)
+                                      for line in plain_rows), 'plain response received a file gutter'
             if protocol == 'gemini':
                 plan, first, final = gated_plan(peer, PATH, CONTENT)
                 tokens = []
@@ -182,7 +184,8 @@ def run(binary, output, root, size, ascii_mode, protocol, ):
             preview_rows = journey.session.display().splitlines()
             assert any(label in '\n'.join(preview_rows) for label in ('[FILE]', )), 'file preview lacked explicit file identity'
             marker = 'STREAM_STAGE_ONE' if protocol != 'gemini' else 'STREAM_STAGE_TWO'
-            code_rows = [line.lstrip() for line in preview_rows if marker in line]
+            # Drop the RESPONSE panel's left border when the transcript is framed.
+            code_rows = [re.sub(r'^[│║|]\s(?=[+|>]\s)', '', line.lstrip()) for line in preview_rows if marker in line]
             assert any(re.match(r'^[+|>]\s+\d+\s+│\s*', line) for line in code_rows), 'generated source lacked its numbered code gutter'
             if protocol != 'gemini':
                 assert any(line.startswith('> ') for line in code_rows), 'actual arriving code lacked its writing-edge indicator'

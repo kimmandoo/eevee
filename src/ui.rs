@@ -211,6 +211,23 @@ impl Paint {
         }
     }
 
+    /// The same tokens drawn directly on the canvas, for chrome outside panels
+    /// (header and status rows) that should not paint a surface band.
+    fn on_canvas(&self) -> Self {
+        let canvas = |style: Style| match self.base.bg {
+            Some(bg) => style.bg(bg),
+            None => style,
+        };
+        Self {
+            base: self.base,
+            surface: canvas(self.surface),
+            muted: canvas(self.muted),
+            border: canvas(self.border),
+            accent: canvas(self.accent),
+            selected: self.selected,
+        }
+    }
+
     fn hint(&self, message: Message) -> &'static str {
         message.text()
     }
@@ -684,7 +701,7 @@ fn forms(
                     } else {
                         ""
                     },
-                    records::compact_marker(app.record_form_marker(index), &cell_paint),
+                    picker_marker(app, index, &cell_paint),
                 ),
                 if form_selected && index == selected {
                     cell_paint.selected
@@ -704,7 +721,8 @@ fn forms(
         form_details(frame, detail, selected, app, config, artwork);
     } else {
         let list_width = content.width * 2 / 3;
-        let visible = if content.height < 20 { 3 } else { 9 };
+        // Show as many forms as fit above the selected form's details.
+        let visible = usize::from(content.height.saturating_sub(10)).clamp(3, 9);
         let start = selected.saturating_sub(visible / 2).min(9 - visible);
         for (row_index, index) in (start..start + visible).enumerate() {
             let form = &FORMS[index];
@@ -724,7 +742,7 @@ fn forms(
                 } else {
                     ""
                 },
-                records::compact_marker(app.record_form_marker(index), paint),
+                picker_marker(app, index, paint),
             );
             text(
                 frame,
@@ -738,23 +756,26 @@ fn forms(
             );
         }
         artwork.render(selected, compact_picker_portrait(area), frame.buffer_mut());
-        let info = row(
-            content,
-            2 + visible as u16,
-            content.height.saturating_sub(2 + visible as u16),
-        );
+        // One blank row separates the list from the selected form's details
+        // when the sheet has room; compact sheets keep it for saved moves.
+        let top = 2 + visible as u16 + u16::from(content.height >= 20);
+        let info = row(content, top, content.height.saturating_sub(top));
+        // Saved moves keep their rows; the description wraps only when the
+        // compact list leaves room for it.
         let form = &FORMS[selected];
-        let value = format!(
-            "{} · {}\nGood for: {}\n{}\n{}",
-            form.name,
-            form.summary,
-            form.good_for,
-            clipped(
-                &records::compact_marker(app.record_form_marker(selected), paint),
-                info.width as usize,
-            ),
-            picker_moves(app, selected, info.width, paint)
-        );
+        let width = info.width as usize;
+        let summary = format!("{} · {}", form.name, form.summary);
+        let mut value = if info.height >= 10 {
+            format!("{summary}\nGood for: {}\n", form.good_for)
+        } else {
+            format!("{}\n", clipped(&summary, width))
+        };
+        let marker = picker_marker(app, selected, paint);
+        if !marker.is_empty() {
+            value.push_str(&clipped(&marker, width));
+            value.push('\n');
+        }
+        value.push_str(&picker_moves(app, selected, info.width, paint));
         frame.render_widget(
             Paragraph::new(value)
                 .style(paint.muted)
@@ -800,7 +821,11 @@ fn form_details(
         form.summary,
         form.good_for,
         picker_moves(app, index, area.width, &paint),
-        records::marker(app.record_form_marker(index), &paint),
+        if app.record_form_marker(index).count == 0 {
+            String::new()
+        } else {
+            records::marker(app.record_form_marker(index), &paint)
+        },
         artwork.status(index),
         paint.hint(Message::CoreRolePreviewControl)
     );
@@ -810,6 +835,16 @@ fn form_details(
             .wrap(Wrap { trim: false }),
         area,
     );
+}
+
+/// A form with no saved records shows nothing rather than a bare "none".
+fn picker_marker(app: &App, form: usize, paint: &Paint) -> String {
+    let marker = app.record_form_marker(form);
+    if marker.count == 0 {
+        String::new()
+    } else {
+        records::compact_marker(marker, paint)
+    }
 }
 
 fn picker_moves(app: &App, form: usize, width: u16, paint: &Paint) -> String {
@@ -833,7 +868,13 @@ fn picker_moves(app: &App, form: usize, width: u16, paint: &Paint) -> String {
 }
 
 fn tasks(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &Paint) {
-    let area = sheet(area, 88, 28);
+    // An empty list needs only its short guidance, not a full-height sheet.
+    let height = if app.visible_tasks().next().is_none() {
+        8
+    } else {
+        28
+    };
+    let area = sheet(area, 88, height);
     frame.render_widget(Clear, area);
     let block = panel(
         if app.show_archived {
@@ -1138,7 +1179,9 @@ fn nickname(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &P
 /// and the task it is engaged with. Status is recomputed from live
 /// request/approval state each frame; Enter/`l` fronts the highlighted partner.
 fn party(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &Paint) {
-    let area = sheet(area, 88, 24);
+    // Border, heading, gap, one row per partner, gap and two control rows.
+    let rows = u16::try_from(app.partners().len()).unwrap_or(u16::MAX);
+    let area = sheet(area, 88, rows.saturating_add(7).min(24));
     frame.render_widget(Clear, area);
     let block = panel(" Party roster ", config, paint, true);
     let content = block.inner(area);
@@ -1229,7 +1272,7 @@ fn journey(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint:
     let area = sheet(area, 82, 30);
     frame.render_widget(Clear, area);
     let block = panel(
-        "Request journey / all routes and models",
+        " Request journey / all routes and models ",
         config,
         paint,
         true,
