@@ -1,5 +1,12 @@
 # Troubleshooting
 
+### [2026-10-30] v0.1.40 release upload failed without version notes
+
+- **Context / Symptom:** Release run41022387611 for tag `v0.1.40` (`eeb22db`) passed qualification, then failed in "Upload all assets before publishing" with exit code 1; no draft release or assets were created.
+- **Root Cause:** The workflow extracts notes from a `## 0.1.40` heading in `CHANGELOG.md` (separate from the dated `## YYYY-MM-DD` headings). Only dated entries had been added.
+- **Solution:** Added a `## 0.1.40` section, pushed a new `main` commit, waited for its native CI, then re-pointed the never-published `v0.1.40` tag to that qualified commit.
+- **Prevention / Reference:** Add the `## <version>` notes section in the same commit as the version bump, before tagging.
+
 ### [2026-10-30] PTY smoke drivers mis-parsed the framed transcript
 
 - **Context / Symptom:** After framing the home transcript in the RESPONSE panel, `file_progress_smoke.py` reported `generated source lacked its numbered code gutter`, `conversation_flow_smoke.py` hit `IndexError` in `request_terminal`, `retained_navigation_smoke.py` reported `wheel did not pause the actual retained output`, and compact `delegation_smoke.py` could not reach the child-round decision.

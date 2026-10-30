@@ -327,6 +327,16 @@
 - test(terminal): acknowledged the new one-time evolution receipt before checking preserved goal/edit/discard behavior in the actual compact installed runtime without changing the published executable.
 - docs(verification): verified all public assets, sixteen bilingual automatic-review/file-progress journeys/64 groups, 24 file journeys/126 groups, evolution popups and preserved typing, scrolling/tooltips, native 176 groups, cooperation 24, six genuine schema upgrade/refusal/resume cases and 23 installation groups/all 34 installed terminal scenarios.
 
+## 0.1.40
+
+- feat(ui): rendered provider tool calls as readable `[..]`/`[ok]`/`[!!]` rows with the tool, path or exit code and a two-line output preview instead of raw JSON, and listed them in a side `TOOLS` panel on wide terminals while `/verbose` kept every original observation.
+- feat(approvals): added `/auto-approve-session` (and Shift+A in a review) for a standing in-memory approval of the lead's file changes and commands across tasks until quit, with an explicit `AUTO-APPROVE · task`/`· session` header label; questions, other partners, helper rounds and MCP calls still asked.
+- fix(approvals): fitted command and permission reviews to their content, highlighted the exact command on its own row and replaced protocol jargon with plain decision copy while keeping neutral Deny focus and full Details.
+- fix(forms): routed everyday questions, reported failures, reviews, docs, cleanup and UI changes to the matching form, diagnosed reported failures before re-running them, and gave every form a plain one-line description with example requests.
+- fix(ui): drew header rows on the canvas without a surface band, framed and padded the active transcript, grouped same-request output under one attribution with blank separators, moved item IDs behind `/verbose`, and sized short sheets to their content.
+- docs(readme): reorganized the README around highlights, quick start, everyday controls and a nine-form table with advanced details in collapsible sections.
+- chore(release): advanced the package to 0.1.40.
+
 ## 0.1.39
 
 - fix(ui): consolidated qualified native, Codex, ACP and SDK todo updates into readable request-owned cards with counts and status markers, while preserving original observations through `/verbose` and keeping refusals/errors distinct.
