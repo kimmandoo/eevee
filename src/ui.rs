@@ -158,31 +158,21 @@ impl Paint {
             };
         }
         let light = config.theme == Theme::Light;
-        let (canvas, foreground, muted, border) = match (config.color, light) {
+        // Body text keeps the terminal's own foreground so it stays readable
+        // on any background; `canvas` is only the text color on a selection.
+        let (canvas, muted, border) = match (config.color, light) {
             (ColorMode::TrueColor, false) => (
                 Color::Rgb(18, 26, 25),
-                Color::Rgb(235, 232, 208),
                 Color::Rgb(171, 187, 160),
                 Color::Rgb(101, 130, 98),
             ),
             (ColorMode::TrueColor, true) => (
                 Color::Rgb(232, 229, 204),
-                Color::Rgb(38, 55, 42),
                 Color::Rgb(79, 99, 72),
                 Color::Rgb(112, 131, 91),
             ),
-            (_, false) => (
-                Color::Indexed(233),
-                Color::Indexed(230),
-                Color::Indexed(144),
-                Color::Indexed(65),
-            ),
-            (_, true) => (
-                Color::Indexed(187),
-                Color::Indexed(22),
-                Color::Indexed(65),
-                Color::Indexed(101),
-            ),
+            (_, false) => (Color::Indexed(233), Color::Indexed(144), Color::Indexed(65)),
+            (_, true) => (Color::Indexed(187), Color::Indexed(65), Color::Indexed(101)),
         };
         let accent = match config.color {
             ColorMode::TrueColor => {
@@ -196,14 +186,16 @@ impl Paint {
             _ if light => Color::Indexed([94, 30, 100, 130, 97, 136, 65, 31, 132][index]),
             _ => Color::Indexed(form.indexed),
         };
-        let base = Style::default().fg(foreground).bg(canvas);
-        let surface_style = base.bg(image_background(config));
+        // Borders, muted text and accents are colored, but nothing paints a
+        // background: the terminal's own background shows through. Only the
+        // selected choice keeps a filled accent so it stands out.
+        let base = Style::default();
         Self {
             base,
-            surface: surface_style,
-            muted: surface_style.fg(muted),
-            border: surface_style.fg(border),
-            accent: surface_style.fg(accent).add_modifier(Modifier::BOLD),
+            surface: base,
+            muted: base.fg(muted),
+            border: base.fg(border),
+            accent: base.fg(accent).add_modifier(Modifier::BOLD),
             selected: Style::default()
                 .fg(canvas)
                 .bg(accent)
@@ -249,15 +241,10 @@ impl Paint {
     }
 }
 
-pub fn image_background(config: &Config) -> Color {
-    // Cell images composite alpha against the same surface painted by panels.
-    match (config.color, config.theme) {
-        (ColorMode::Mono, _) => Color::Reset,
-        (ColorMode::TrueColor, Theme::Dark) => Color::Rgb(27, 39, 34),
-        (ColorMode::TrueColor, Theme::Light) => Color::Rgb(250, 247, 226),
-        (ColorMode::Indexed, Theme::Dark) => Color::Indexed(234),
-        (ColorMode::Indexed, Theme::Light) => Color::Indexed(230),
-    }
+pub fn image_background(_config: &Config) -> Color {
+    // Fully transparent cell samples use the terminal background. Partial-alpha
+    // cell samples and opaque Sixel canvases use the theme's black/white fallback.
+    Color::Reset
 }
 
 fn panel<'a>(title: &'a str, config: &Config, paint: &Paint, focused: bool) -> Block<'a> {

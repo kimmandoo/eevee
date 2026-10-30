@@ -17,8 +17,8 @@ mod posix;
 mod windows;
 
 pub(crate) use owned::{
-    ForgetPlan, Setup, apply_openai_login, apply_setup, forget_connection, load_cli_credential,
-    prepare_forget, setup,
+    ForgetPlan, PERSIST_BY_DEFAULT, Setup, apply_openai_login, apply_setup, forget_connection,
+    load_cli_credential, prepare_forget, setup,
 };
 
 const CODEX_BASE: &str = "https://chatgpt.com/backend-api/codex";
@@ -1141,7 +1141,7 @@ pub(crate) fn configured(provider: Agent) -> bool {
 pub(crate) fn guidance(provider: Agent) -> String {
     let guidance = match provider {
         Agent::ChatGPT => {
-            "Sign in directly with an OpenAI account using browser or callback-free device authorization; no CLI is required. This uses the fixed subscription endpoint, not separately billed API keys. Session-only is the default; private persistence is explicit. Access grants expire and require reconnect. Advanced: supply a subscription token, CODEX_ACCESS_TOKEN (+ optional matching CODEX_ACCOUNT_ID), or explicitly import a read-only CODEX_HOME/auth.json snapshot. Keychain-only/API-key-only CLI login cannot be imported. Provider stores are never modified."
+            "Sign in directly with an OpenAI account using browser or callback-free device authorization; no CLI is required. This uses the fixed subscription endpoint, not separately billed API keys. Private local save is the default so the login survives restarts and updates; choose session-only to keep it in memory. Access grants expire and require reconnect. Advanced: supply a subscription token, CODEX_ACCESS_TOKEN (+ optional matching CODEX_ACCOUNT_ID), or explicitly import a read-only CODEX_HOME/auth.json snapshot. Keychain-only/API-key-only CLI login cannot be imported. Provider stores are never modified."
         }
         Agent::OpenAI => {
             "Enter an OpenAI API key here, or use OPENAI_API_KEY; optional OPENAI_BASE_URL and OPENAI_MODEL. This is metered API access, not ChatGPT subscription authentication."
@@ -1158,7 +1158,7 @@ pub(crate) fn guidance(provider: Agent) -> String {
         _ => "Select a native connection provider.",
     };
     format!(
-        "{guidance} Native Implement supports workspace filename proposals, optionally restricted by /paths, and Eevee-mediated file creation/replacement after exact review or a user-created rule (4 MiB per file). Plan, Review and metadata have no host writing tools. No implicit shells, hooks or MCP; only explicitly registered/selected unmanaged stdio MCP tools are offered, with separate call review or an explicit MCP rule. Setup offers session-only storage by default, or explicitly saved private local plaintext (not encrypted or an OS keychain). Configuration and metadata access do not prove inference, account access or billing."
+        "{guidance} Native Implement supports workspace filename proposals, optionally restricted by /paths, and Eevee-mediated file creation/replacement after exact review or a user-created rule (4 MiB per file). Plan, Review and metadata have no host writing tools. No implicit shells, hooks or MCP; only explicitly registered/selected unmanaged stdio MCP tools are offered, with separate call review or an explicit MCP rule. Setup saves private local plaintext by default (not encrypted or an OS keychain), or keeps the credential session-only when chosen. Configuration and metadata access do not prove inference, account access or billing."
     )
 }
 
@@ -1215,7 +1215,7 @@ pub(crate) fn profile(provider: Agent) -> agent::Profile {
         action: "Enter saves and sends a prepared inference request; model inspection sends metadata only".into(),
         billing: "Provider account/API billing, eligibility and quota are unknown until an actual request; no billing lookup".into(),
         probe_allowed: false,
-        trust_preview: vec![configuration, credential_source, guidance(provider), boundary.into(), "Choosing model inspection or sending a request authorizes reading the selected credential and sending it only to the configured endpoint. Credentials are never logged; persistence requires explicit private-local save. Cancellation stops local waiting; it cannot promise a remote request stopped or was not billed. No retries or fallback.".into()],
+        trust_preview: vec![configuration, credential_source, guidance(provider), boundary.into(), "Choosing model inspection or sending a request authorizes reading the selected credential and sending it only to the configured endpoint. Credentials are never logged. Explicit connection setup saves private local plaintext by default (not encrypted or an OS keychain); choose session-only to keep the new credential in memory. Inspection and sending do not import or save external credentials. Cancellation stops local waiting; it cannot promise a remote request stopped or was not billed. No retries or fallback.".into()],
         blockers: if available { Vec::new() } else { vec![guidance(provider)] },
         capabilities: ["Plan", "Review", "Implement file proposals", "Models metadata"].into_iter().map(|action| agent::Capability {
             action: action.into(), boundary: boundary.into(), evidence: "Native protocol adapter; requires reviewed endpoint and explicit request".into(), blocker: "Configuration is not successful authentication; provider may reject credentials, model, quota or protocol".into(),

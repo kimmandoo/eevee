@@ -174,7 +174,7 @@ class Driver:
         self.session.paste(self.peer.base)
         self.session.send("\t\x15")
         self.session.paste(MODEL)
-        self.session.send("\t\t \t\t\r")
+        self.session.send("\t\t \t \t\r")  # Explicit keyless and session-only choices.
         self.until(lambda: MODEL in self.session.display()
                    and "matches" in self.session.display(), "local catalogue chooser")
         self.session.send(MODEL + "\r")

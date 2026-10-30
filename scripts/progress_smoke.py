@@ -792,12 +792,14 @@ class ProgressJourney(SurfaceJourney):
                 self.continuity(old_binary, language + '-eager-on')
 
         # Malformed provider observations must not destroy an adopted list or
-        # terminate the answer stream. Inspect the original response item too.
+        # terminate the answer stream. Original arguments live in /verbose;
+        # ordinary native refusal rows intentionally show only the reason.
         before = self.progress()
         malformed = [{'label': MALFORMED, 'phase': None, 'status': 'invalid_progress_status'}]
         self.dispatch('Explain this controlled progress observation; do not run tools or change files.',
                       malformed, language + '-malformed')
         assert self.progress() == before, 'malformed progress replaced the adopted list'
+        self.session.command('verbose')
         self.session.command('response')
         self.session.send(ESC + '[1;3H')
         screens = []
@@ -818,6 +820,7 @@ class ProgressJourney(SurfaceJourney):
         save(self.output / (language + '-malformed-transcript-screens.json'), screens)
         assert found, 'malformed progress original transcript item was not retained'
         self.capture(language + '-malformed-transcript-retained')
+        self.session.command('verbose')
         self.workspace()
         self.manual('todo start ' + edited[1]['label'], language + '-independent-review-active-fix')
         before_review = self.dispatch_count()

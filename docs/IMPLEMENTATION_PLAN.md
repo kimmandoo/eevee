@@ -1,8 +1,16 @@
 # Eevee Implementation Plan
 
-Updated2026-10-30. The UI/intent follow-up and qualified0.1.39 release below are complete. Earlier qualified releases and their scoped evidence remain recorded separately; Wave8, unrelated audit tasks and paid/live provider calls remain outside this request.
+Updated 2026-10-30. The active request resumes the uncommitted connection, transparent-rendering, live-following, tool-result and todo-intent changes and publishes a qualified 0.1.41 patch. Earlier qualified releases and their scoped evidence remain recorded separately; Wave8, unrelated audit tasks and paid/live provider calls remain outside this request.
 
 Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPATIBILITY.md). Live-provider conformance remains distinct from implemented transports and deterministic runtime proof.
+
+## Active delivery — Connection retention and terminal rendering (0.1.41)
+
+1. Preserve and complete the existing private-save-by-default connection setup, selectable session-only mode, terminal-default foreground/background, alpha-preserving sprites, review-hidden live-following, readable refused todo results and terse todo-step routing.
+2. Verify the integrated source with pinned Rust formatting, strict Clippy, Rust/Python/SDK suites and an optimized build; exercise actual compact/wide connection persistence, evolution, file streaming and native/contract journeys using only isolated local peers.
+3. Commit/push the exact 0.1.41 candidate with version-specific release notes; require Check and all five native jobs in one successful same-source attempt before creating a new annotated tag. Preserve all earlier tags/assets.
+4. Verify the published assets/checksums and downloaded host installation/runtime, then record exact source/run/evidence identities in the checkpoint and commit the delivery handoff.
+
 
 ## Completed delivery — Tool presentation, live code, anchored consent and prompt intent (0.1.39)
 

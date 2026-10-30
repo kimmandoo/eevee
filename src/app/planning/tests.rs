@@ -2974,7 +2974,7 @@ fn file_card_updates_keep_chronology_owner_and_paused_transcript_anchor() {
     streamed(&mut state, "after", "latest response", true);
     state.response_rows(60, 2, false).count();
     press(&mut state, KeyCode::Home, true);
-    state.scroll_response_lines(2);
+    state.scroll_response_lines(0);
     let held = state
         .response_rows(60, 2, false)
         .map(str::to_owned)
@@ -3623,12 +3623,12 @@ fn response_lines_and_viewport_pages_traverse_attributed_item_boundaries() {
     streamed(
         &mut state,
         "newer",
-        "0\n1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11",
+        "0\n1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12\n13\n14",
         false,
     );
     state.response_rows(120, 8, false).count();
     let (_, _, total) = state.response_position();
-    assert!(total > 13, "attribution participates in the same layout");
+    assert!(total > 12, "attribution participates in the same layout");
     assert!(state.scroll_response_lines(-10_000));
     let top = state
         .response_rows(120, 8, false)
@@ -3638,14 +3638,13 @@ fn response_lines_and_viewport_pages_traverse_attributed_item_boundaries() {
         top.iter().any(|line| line == "old response") && top.iter().any(|line| line == "0"),
         "{top:?}"
     );
-    // Each request keeps its attribution; item IDs are a /verbose detail.
-    assert!(top.iter().any(|line| line.contains("First input")));
-    // Both items belong to one run's request, so attribution is not repeated.
+    // Both items belong to one run's request, introduced by the response's
+    // own Request row above the transcript, so no segment repeats it.
     assert_eq!(
         top.iter()
             .filter(|line| line.starts_with("Request:"))
             .count(),
-        1,
+        0,
         "{top:?}"
     );
     assert!(!top.iter().any(|line| line.contains("older")));
@@ -3666,7 +3665,7 @@ fn response_lines_and_viewport_pages_traverse_attributed_item_boundaries() {
         Some("old response")
     );
     press(&mut state, KeyCode::End, true);
-    assert_eq!(state.response_rows(120, 1, false).next(), Some("11"));
+    assert_eq!(state.response_rows(120, 1, false).next(), Some("14"));
     assert!(state.following && !state.new_output);
 }
 
@@ -4098,13 +4097,9 @@ fn transcript_segments_retain_origin_owner_and_replayed_turn_request() {
         .response_rows(120, 20, false)
         .collect::<Vec<_>>()
         .join("\n");
-    for attribution in [
-        "First",
-        "Second",
-        "Original literal request",
-        "New literal request",
-        "original",
-    ] {
+    // The first segment is introduced by the response's own Request/status
+    // rows above the transcript; later owners and requests stay attributed.
+    for attribution in ["Second", "New literal request", "original"] {
         assert!(transcript.contains(attribution), "{transcript}");
     }
     // The raw item identity stays available in /verbose.
@@ -4114,7 +4109,10 @@ fn transcript_segments_retain_origin_owner_and_replayed_turn_request() {
         .collect::<Vec<_>>()
         .join("\n");
     assert!(
-        verbose.contains("new-item") && verbose.contains("replayed"),
+        verbose.contains("new-item")
+            && verbose.contains("replayed")
+            && verbose.contains("First")
+            && verbose.contains("Original literal request"),
         "{verbose}"
     );
 }
@@ -4343,4 +4341,29 @@ fn automatic_file_buttons_need_deliberate_selection_and_rendered_scope() {
                 if request_id == &json!("file-review") && actual == &json!({"permission":answer})
         ));
     }
+}
+
+#[test]
+fn live_code_keeps_following_after_output_arrives_behind_a_review() {
+    let mut state = active();
+    streamed(&mut state, "before", "intro", true);
+    state.response_rows(60, 3, false).count();
+    assert!(state.following);
+    // A file decision opens while the provider keeps streaming code.
+    state.awaiting_preview = true;
+    file_snapshot(
+        &mut state,
+        "write",
+        FilePhase::Generating,
+        "new.rs\n1 | a\n2 | b\n3 | c\n4 | d\n5 | e",
+    );
+    assert!(state.new_output, "arrival behind a review is unread");
+    state.awaiting_preview = false;
+    // The user never scrolled away, so the next frame shows the newest code.
+    let rows = state.response_rows(60, 3, false).collect::<Vec<_>>();
+    assert!(
+        rows.last().is_some_and(|row| row.contains("5 | e")),
+        "{rows:?}"
+    );
+    assert!(state.following && !state.new_output);
 }

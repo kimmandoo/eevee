@@ -261,6 +261,7 @@ core-evolution-refactor = { "you asked to clean up or speed up code · edits ask
 core-evolution-review = { "you asked for a code review" }
 core-evolution-documentation = { "you asked for docs, notes or a summary" }
 core-evolution-readonly = { "you asked for read-only work" }
+core-evolution-todo = { "the current todo step needs this specialist" }
 core-evolution-fresh = { "fresh context; transcript kept" }
 core-evolution-transition = { $mode } { $from } → { $to }: { $reason }{ $fresh }
 core-evolution-popup-title = { "Evolution!" }

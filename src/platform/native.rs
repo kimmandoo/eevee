@@ -206,7 +206,16 @@ impl NativeGraphics {
                             clear_screen = true;
                         }
                     }
-                    let image = native_pixels(source, width, height, size, cell, background);
+                    // Kitty keeps real alpha, so the sprite sits on the
+                    // terminal's own background; Sixel needs an opaque canvas.
+                    let image = native_pixels(
+                        source,
+                        width,
+                        height,
+                        size,
+                        cell,
+                        (kind != Kind::Kitty).then_some(background),
+                    );
                     let encoded = match kind {
                         Kind::Kitty => Encoded::Kitty {
                             data: encode_kitty(&image, image_id(index)),
@@ -407,14 +416,17 @@ fn native_pixels(
     height: u32,
     size: Size,
     cell: (u16, u16),
-    background: [u8; 3],
+    background: Option<[u8; 3]>,
 ) -> RgbaImage {
     let padded_width = u32::from(size.width) * u32::from(cell.0);
     let padded_height = u32::from(size.height) * u32::from(cell.1);
     let mut canvas = RgbaImage::from_pixel(
         padded_width,
         padded_height,
-        Rgba([background[0], background[1], background[2], 255]),
+        match background {
+            Some([r, g, b]) => Rgba([r, g, b, 255]),
+            None => Rgba([0, 0, 0, 0]),
+        },
     );
     let scale = width / source.width();
     let left = (padded_width - width) / 2;
@@ -424,6 +436,10 @@ fn native_pixels(
     for y in 0..height {
         for x in 0..width {
             let pixel = source.get_pixel(x / scale, y / scale);
+            let Some(background) = background else {
+                canvas.put_pixel(left + x, top + y, *pixel);
+                continue;
+            };
             let alpha = u32::from(pixel[3]);
             let rgb: [u8; 3] = std::array::from_fn(|channel| {
                 ((u32::from(pixel[channel]) * alpha
@@ -532,7 +548,7 @@ mod tests {
     fn pixels_replicate_exactly_and_composite_on_theme_background() {
         let mut source = RgbaImage::from_pixel(2, 1, Rgba([80, 120, 160, 255]));
         source.put_pixel(1, 0, Rgba([255, 0, 0, 0]));
-        let pixels = native_pixels(&source, 4, 2, Size::new(2, 1), (3, 4), [10, 20, 30]);
+        let pixels = native_pixels(&source, 4, 2, Size::new(2, 1), (3, 4), Some([10, 20, 30]));
         assert_eq!(pixels.dimensions(), (6, 4));
         for y in 1..3 {
             for x in 1..3 {
@@ -541,6 +557,30 @@ mod tests {
         }
         assert_eq!(*pixels.get_pixel(3, 1), Rgba([10, 20, 30, 255]));
         assert_eq!(*pixels.get_pixel(0, 0), Rgba([10, 20, 30, 255]));
+    }
+
+    #[test]
+    fn kitty_pixels_preserve_alpha_and_transparent_cell_padding() {
+        let mut source = RgbaImage::from_pixel(2, 2, Rgba([0, 0, 0, 255]));
+        source.put_pixel(1, 0, Rgba([255, 255, 255, 255]));
+        source.put_pixel(0, 1, Rgba([80, 120, 160, 128]));
+        source.put_pixel(1, 1, Rgba([255, 0, 0, 0]));
+        let pixels = native_pixels(&source, 4, 4, Size::new(2, 2), (3, 3), None);
+        for y in 0..6 {
+            for x in 0..6 {
+                let expected = if (1..5).contains(&x) && (1..5).contains(&y) {
+                    *source.get_pixel((x - 1) / 2, (y - 1) / 2)
+                } else {
+                    Rgba([0, 0, 0, 0])
+                };
+                assert_eq!(*pixels.get_pixel(x, y), expected);
+            }
+        }
+        let opaque = native_pixels(&source, 4, 4, Size::new(2, 2), (3, 3), Some([10, 20, 30]));
+        assert!(opaque.pixels().all(|pixel| pixel[3] == 255));
+        assert_eq!(*opaque.get_pixel(1, 3), Rgba([45, 70, 95, 255]));
+        assert_eq!(*opaque.get_pixel(3, 3), Rgba([10, 20, 30, 255]));
+        assert_eq!(*opaque.get_pixel(0, 0), Rgba([10, 20, 30, 255]));
     }
 
     #[test]

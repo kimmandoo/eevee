@@ -8,7 +8,7 @@ Only unfinished work belongs here. Completed specifications and stable dependenc
 - **Included milestones:** A08 → UX04A → S04 and P04A → P04B → T01B shipped: actionable connection diagnostics, persistent text density, reviewed portable workflows, reviewed updates/safe rollback and exact local context comparison. Specifications remain in [COMPLETED.md](tasks/COMPLETED.md).
 - **Compatibility:** Public0.1.39 retains SQL20, complete SDK bridge11 and formation2; parameterized moves use TM2 while literal TM1 imports remain supported. Ignorable task-workflow/receipt fields are preserved, but unknown declared critical fields refuse. Older releases did not gain forward compatibility retroactively; profiles/delegated receipts/expanded move metadata can still make them refuse. Replace sidecar source/policy/dependencies together; bridge10 mixes refuse before dispatch. Back up the whole data directory before upgrading; version/schema equality never restores grants, sessions or lifecycle rollback eligibility.
 - **Remaining:** **27 tasks**: 13 assigned F/H/conditional structure tasks and14 unassigned V audit tasks. All nine X implementations passed local source/runtime acceptance; XC07 absorbed VA09's typed parameters and portable TM2 contract.
-- **Latest request:** 0.1.40 — readable tool rows, session auto-approve, clearer approvals/evolutions and TUI spacing/background polish; release via native CI + `v0.1.40` tag (see checkpoint).
+- **Latest request:** Finish the interrupted connection-retention, transparent-rendering, live-following, tool-result and todo-intent changes and publish 0.1.41 after exact-source native qualification (see checkpoint and active implementation plan).
 
 ## Completed Pokémon milestone
 
@@ -32,7 +32,7 @@ A/B/C/D/E/G/I/J/K/L/U/X are implemented; F/H/R and14 V tasks retain their explic
 
 ### Next order
 
-1. No release work remains. Select remaining F/H/R/V work only on a new authorized request; do not start Wave8 automatically.
+1. Finish and qualify the active 0.1.41 patch release. Remaining F/H/R/V work stays outside this request; do not start Wave8 automatically.
 2. Local Q01/Q02/P03 evidence remains separate from full Wave8/live acceptance. Remaining F/H/R/V work is not implied complete by the X-track release.
 
 ## Execution rules

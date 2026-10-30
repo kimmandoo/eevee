@@ -456,7 +456,8 @@ class Journey:
                 session.send(' ')
             focus_field(session, 'storage')
             self.private_focus('Storage')
-        if (self.persist if persist is None else persist):
+        # Private local save is the default; Space selects session-only.
+        if not (self.persist if persist is None else persist):
             session.send(' ')
         focus_field(session, 'save')
         self.private_focus('Save & choose model')
@@ -607,8 +608,7 @@ class Journey:
         self.private_paste(self.secrets[0])
         fill_text(session, 'endpoint', peer.base)
         fill_text(session, 'model', MODEL)
-        focus_field(session, 'storage')
-        session.send(' ')  # Explicit private-file storage for this second route.
+        # Private-file storage is the default for this second route.
         self.capture('other-route-before-save-only')
         session.send('\x13')  # Ctrl+S applies locally, without route selection or metadata.
         until(session, other_file.is_file, 'other route private Save-only persistence')

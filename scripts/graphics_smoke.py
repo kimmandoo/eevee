@@ -78,7 +78,7 @@ def kitty_images(text):
                 width, height, chunks = active
                 pixels = base64.b64decode(''.join(chunks))
                 assert len(pixels) == width * height * 4
-                images.append(Image.frombytes('RGBA', (width, height), pixels).convert('RGB'))
+                images.append(Image.frombytes('RGBA', (width, height), pixels))
                 active = None
     return images
 
@@ -100,16 +100,23 @@ def original_pixels(rendered, source, box=None):
         left = (rendered.width - expected.width) // 2
         top = (rendered.height - expected.height) // 2
         maximum = 0
+        alpha_error = 0
         for y in range(expected.height):
             for x in range(expected.width):
                 pixel = expected.getpixel((x, y))
-                if pixel[3] != 255:
-                    continue
                 actual = rendered.getpixel((left + x, top + y))
-                maximum = max(maximum, *(abs(a - b) for a, b in zip(actual[:3], pixel[:3])))
-        if maximum <= 3:
+                if rendered.mode == 'RGBA':
+                    alpha_error = max(alpha_error, abs(actual[3] - pixel[3]))
+                if pixel[3] == 255:
+                    maximum = max(maximum, *(abs(a - b) for a, b in zip(actual[:3], pixel[:3])))
+        if maximum <= 3 and alpha_error == 0:
+            if rendered.mode == 'RGBA':
+                assert all(rendered.getpixel((x, y))[3] == 0
+                           for y in range(rendered.height) for x in range(rendered.width)
+                           if not (left <= x < left + expected.width and top <= y < top + expected.height)), 'Kitty alignment padding lost transparency'
             return {'source_subject_pixels': list(source.size), 'rendered_pixels': list(rendered.size),
-                    'integer_scale': scale, 'maximum_rgb_error': maximum}
+                    'integer_scale': scale, 'maximum_rgb_error': maximum,
+                    'maximum_alpha_error': alpha_error if rendered.mode == 'RGBA' else None}
     raise AssertionError('native payload lost/resampled original sprite pixels: ' + str(rendered.size))
 
 

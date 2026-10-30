@@ -188,7 +188,7 @@ impl State {
             preparation_details: std::array::from_fn(|_| None),
             session_credential_until: None,
             family_choice: 0,
-            login_persist: false,
+            login_persist: crate::providers::direct::config::PERSIST_BY_DEFAULT,
             connection_owner: None,
             openai_intent: None,
             deferred_family: false,
@@ -2534,7 +2534,7 @@ mod tests {
                 account_id: String::new(),
                 responses: false,
                 keyless: false,
-                persist: false,
+                persist: crate::providers::direct::config::PERSIST_BY_DEFAULT,
                 source_notice: None,
             },
             field: 0,
@@ -2619,8 +2619,7 @@ mod tests {
         assert!(matches!(state.pending, Some(Request::PrepareAuth {
             profile, method: crate::providers::auth::Method::OpenAiBrowser, ..
         }) if profile == Agent::ChatGPT.index()));
-        let intent = state.openai_intent.as_ref().unwrap();
-        assert!(!intent.persist && !intent.approved);
+        assert!(!state.openai_intent.as_ref().unwrap().approved);
         assert_eq!(state.openai_auth_generation(), None);
     }
 
@@ -2636,13 +2635,15 @@ mod tests {
         let mut state = private_editor(Agent::Compatible);
         state.connection.as_mut().unwrap().field = 2;
         assert!(state.paste_connection("explicit-model"));
+        let persist = state.connection.as_ref().unwrap().form.persist;
         for field in [3, 4, 5] {
             state.connection.as_mut().unwrap().field = field;
             press(&mut state, KeyCode::Enter);
         }
         let form = &state.connection.as_ref().unwrap().form;
         assert_eq!(form.model, "explicit-model");
-        assert!(form.responses && form.keyless && form.persist);
+        assert!(form.responses && form.keyless);
+        assert_eq!(form.persist, !persist);
         assert!(state.pending.is_none() && state.pending_auth.is_none());
         assert!(state.take_connection_change().is_none());
         assert!(state.use_for_task.is_none() && state.pick.is_none());
@@ -3254,7 +3255,7 @@ mod tests {
                 "visible notice: {}",
                 state.notice
             );
-            assert!(form.credential.is_empty() && form.account_id.is_empty() && !form.persist);
+            assert!(form.credential.is_empty() && form.account_id.is_empty());
             if contents != "{" {
                 assert_eq!(form.model, "retained-model");
             }

@@ -1,5 +1,33 @@
 # Troubleshooting
 
+### [2026-10-30] Connection/progress fixtures inspected superseded presentation
+
+- **Context / Symptom:** `provider_ux_smoke.py` waited for `Sign in with ChatGPT` after the first unconnected Send, and native `progress_smoke.py` reported `malformed progress original transcript item was not retained`.
+- **Root Cause:** First-use Send now opens the full provider list rather than selecting an account method. Readable native todo refusal rows intentionally omit raw arguments; the progress driver searched that ordinary view for a malformed argument label instead of opening the raw inspector.
+- **Solution:** Kept explicit method selection in the provider journey and inspected malformed original arguments through `/verbose`, restoring the ordinary view afterward. Retained no-inference, exact draft/caret, unchanged adopted-list and raw-retention checks.
+- **Prevention / Reference:** A display projection is not evidence deletion. Verify ordinary summaries and original observations on their respective actual surfaces.
+
+### [2026-10-30] Transparent cell sprites erased opaque background-colored pixels
+
+- **Context / Symptom:** The transparent-rendering cutover treated a sampled RGB value equal to the theme fallback as an empty cell, so opaque black or white sprite pixels could disappear.
+- **Root Cause:** Composited RGB cannot distinguish an alpha-zero sample from an opaque pixel of the same color.
+- **Solution:** Carried sampled alpha into quadrant rendering, preserved transparent quadrant coverage and odd-height padding, and kept opaque colors painted. Kitty preserved source RGBA and transparent alignment padding; Sixel retained explicit opaque composition.
+- **Prevention / Reference:** Alpha-mask and fallback-color regressions cover truecolor/indexed cells. The graphics PTY driver retains decoded Kitty RGBA and checks source alpha and padding instead of discarding alpha before comparison.
+
+### [2026-10-30] Live file code stopped scrolling partway through creation
+
+- **Context / Symptom:** While a file was being generated, the transcript stopped advancing at an earlier row even though the user never scrolled; the newest code appeared only after Alt+End.
+- **Root Cause:** `response_arrived` marks output as unread (`new_output`) whenever it arrives while a review/preview hides the response surface. Display then treated `following && new_output` like a paused reader and kept the old anchor indefinitely after the review closed.
+- **Solution:** When the transcript is drawn and the reader is still following, unread output is caught up (`new_output` cleared, latest selected). A regression test reproduced the stuck rows before the fix.
+- **Prevention / Reference:** `new_output` is only a "you scrolled away" signal when `following` is false.
+
+### [2026-10-30] Provider login lost after every update or restart
+
+- **Context / Symptom:** After `ev update` (or any restart) the provider showed as not connected and required logging in again.
+- **Root Cause:** Connection setup defaulted to session-only storage; the in-memory credential died with the process. Saving required toggling Storage explicitly before login.
+- **Solution:** Private local save is the default on every supported platform (`PERSIST_BY_DEFAULT`); session-only stays selectable. PTY drivers that relied on toggling to save now toggle only to choose session-only.
+- **Prevention / Reference:** OpenAI account access grants still expire without refresh tokens; saved grants show expiry in Account → Advanced settings.
+
 ### [2026-10-30] v0.1.40 release upload failed without version notes
 
 - **Context / Symptom:** Release run41022387611 for tag `v0.1.40` (`eeb22db`) passed qualification, then failed in "Upload all assets before publishing" with exit code 1; no draft release or assets were created.

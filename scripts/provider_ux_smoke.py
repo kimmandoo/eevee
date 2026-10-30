@@ -53,10 +53,10 @@ def run(binary,output,root,size,):
             session.send(ESC+'[D'+ESC+'[D'+'\x13')
             until(session,lambda: any(row[2]==DRAFT and row[3]<len(DRAFT.encode()) for row in saved_draft(journey)),'saved future caret')
             before=saved_draft(journey)
-            # A fresh missing connection must recover directly to setup, not
-            # lose the draft in a failing model request or diagnostics detour.
+            # First-use Send opens the full provider list without inference;
+            # selecting an account or API method remains an explicit action.
             session.send('\r')
-            wait_for(session,labels['account'])
+            wait_for(session,'Connections')
             assert not peer.snapshot()
             journey.workspace()
             assert saved_draft(journey)==before
@@ -74,21 +74,27 @@ def run(binary,output,root,size,):
             session.command('connect openai');choose(session,labels['account'])
             wait_for(session,labels['browser']);wait_for(session,labels['device'])
             assert labels['token']+':' not in session.display(),'raw token is the first login UX'
+            assert 'SAVE private local plaintext' in session.display()
             journey.capture('native-account-methods-without-cli')
             for method in ('browser','device'):
+                if method == 'device':
+                    choose(session,FIELDS['storage'])
+                    assert 'Storage: SESSION' in session.display()
                 choose(session,labels[method]);wait_for(session,labels['review'])
+                wait_for(session,'private local plaintext' if method == 'browser' else 'Session only; saved account unchanged')
+                wait_for(session,'NOT encrypted / NOT keychain.')
                 journey.capture(method+'-exact-neutral-auth-review')
                 session.send('\r')  # Neutral Back must not start OAuth.
                 wait_for(session,labels['browser'])
                 assert not peer.snapshot(),'neutral OAuth review caused fixture traffic'
             journey.workspace();assert saved_draft(journey)==before
-            cases.append('native-browser-and-device-reviews-no-cli-neutral-no-network')
+            cases.append('native-private-default-and-explicit-session-reviews-no-cli-neutral-no-network')
 
             session.command('connect openai');choose(session,labels['api'])
             wait_for(session,FIELDS['key']+':')
             journey.private_paste(peer.secret)
             assert peer.secret not in session.display()
-            focus_field(session,'storage',);session.send(' ')
+            # Private plaintext storage is the default, so its warning is visible.
             focus_field(session,'save',)
             assert labels['warning'] in session.display(),'compact plaintext warning was not visible'
             journey.capture('masked-api-primary-and-complete-storage-disclosure')

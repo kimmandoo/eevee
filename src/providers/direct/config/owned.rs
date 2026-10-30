@@ -322,10 +322,14 @@ fn setup_from<F: Fn(&str) -> Option<String>>(
         account_id: String::new(),
         responses,
         keyless,
-        persist: false,
+        // Logins survive restarts and updates unless the user picks session-only.
+        persist: PERSIST_BY_DEFAULT,
         source_notice,
     })
 }
+
+/// Private local save is the default wherever owner-private storage exists.
+pub(crate) const PERSIST_BY_DEFAULT: bool = cfg!(any(unix, windows));
 
 /// Explicit user action: read only the official CLI source, never an environment
 /// token, into the masked draft. Account selection still requires pressing Save.
@@ -769,6 +773,104 @@ mod tests {
             serde_json::from_reader(directory.read(name(Agent::ChatGPT)).unwrap().unwrap())
                 .unwrap();
         assert_eq!(unchanged.secret, saved.secret);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_setup_survives_a_new_process_while_session_only_never_replaces_saved_credentials() {
+        const CHILD: &str = "EV_TEST_PRIVATE_SETUP_RESTART_HOME";
+        let providers = [
+            Agent::ChatGPT,
+            Agent::OpenAI,
+            Agent::Anthropic,
+            Agent::Google,
+            Agent::Compatible,
+        ];
+        if let Some(home) = env::var_os(CHILD) {
+            let input = Inputs {
+                get: |_: &str| {
+                    panic!("loading app-owned credentials must not import external sources")
+                },
+                home: Some(PathBuf::from(home)),
+                config_home: None,
+                project: None,
+                now: 100,
+            };
+            for provider in providers {
+                let entry = load(provider, &input).unwrap().unwrap();
+                let connection = connection(provider, entry, input.now).unwrap();
+                assert_eq!(
+                    connection.secret.as_deref(),
+                    Some("private-saved-credential")
+                );
+                assert_eq!(connection.model.as_deref(), Some("selected-model"));
+            }
+            return;
+        }
+        let fixture = Fixture::new();
+        let input = Inputs {
+            get: |_: &str| None,
+            home: Some(fixture.0.clone()),
+            config_home: None,
+            project: None,
+            now: 100,
+        };
+        let mut session = HashMap::new();
+        for provider in providers {
+            let mut form = setup_from(provider, &input, None, None).unwrap();
+            if provider == Agent::Compatible {
+                form.base_url = "https://api.example/v1".into();
+            }
+            form.model = "selected-model".into();
+            let entry = stored_from_setup(
+                provider,
+                &form,
+                Some("private-saved-credential".into()),
+                None,
+            )
+            .unwrap();
+            connection(provider, entry.clone(), input.now).unwrap();
+            // A deliberate session-only choice works without creating any store.
+            save_entry(provider, entry.clone(), false, &input, &mut session).unwrap();
+            assert!(
+                !fixture
+                    .0
+                    .join(".eevee-connections")
+                    .join(name(provider))
+                    .exists()
+            );
+            assert_eq!(session[&provider].secret, entry.secret);
+            // The actual form default publishes the credential and clears its override.
+            assert!(save_entry(provider, entry, form.persist, &input, &mut session).unwrap());
+            assert!(!session.contains_key(&provider));
+            let path = fixture.0.join(".eevee-connections").join(name(provider));
+            let saved_bytes = fs::read(&path).unwrap();
+            form.persist = false;
+            let override_entry = stored_from_setup(
+                provider,
+                &form,
+                Some("private-session-credential".into()),
+                None,
+            )
+            .unwrap();
+            save_entry(provider, override_entry, form.persist, &input, &mut session).unwrap();
+            assert_eq!(fs::read(path).unwrap(), saved_bytes);
+        }
+        let result = std::process::Command::new(env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "providers::direct::config::owned::tests::private_setup_survives_a_new_process_while_session_only_never_replaces_saved_credentials",
+                "--nocapture",
+            ])
+            .env(CHILD, &fixture.0)
+            .output()
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "{}\n{}",
+            String::from_utf8_lossy(&result.stdout),
+            String::from_utf8_lossy(&result.stderr)
+        );
     }
 
     #[test]

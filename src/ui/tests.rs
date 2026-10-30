@@ -60,22 +60,34 @@ fn all_true_color_forms_keep_readable_text_and_selection() {
             context_exclusions: Vec::new(),
             capture_capacity: 64 * 1024,
         };
+        // No surface paints a background; colored text is measured against a
+        // typical terminal background for the theme.
+        let terminal = match theme {
+            Theme::Dark => Color::Rgb(18, 26, 25),
+            Theme::Light => Color::Rgb(232, 229, 204),
+        };
         for (index, form) in FORMS.iter().enumerate() {
             let paint = Paint::new(&config, form, index);
             for style in [
                 paint.base,
                 paint.surface,
                 paint.muted,
+                paint.border,
                 paint.accent,
-                paint.selected,
             ] {
+                assert_eq!(style.bg, None, "{} {theme:?}: {style:?}", form.name);
+            }
+            // Body text keeps the terminal's own foreground.
+            assert_eq!(paint.base.fg, None);
+            for style in [paint.muted, paint.accent] {
                 assert!(
-                    contrast(style.fg.unwrap(), style.bg.unwrap()) >= 4.5,
+                    contrast(style.fg.unwrap(), terminal) >= 4.5,
                     "{} {theme:?}: {style:?}",
                     form.name
                 );
             }
-            assert!(contrast(paint.accent.fg.unwrap(), paint.surface.bg.unwrap()) >= 3.0);
+            assert!(contrast(paint.border.fg.unwrap(), terminal) >= 3.0);
+            assert!(contrast(paint.selected.fg.unwrap(), paint.selected.bg.unwrap()) >= 4.5);
         }
     }
 }

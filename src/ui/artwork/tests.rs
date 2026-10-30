@@ -116,6 +116,7 @@ fn key(color: ColorMode, ascii: bool, width: u16, height: u16, background: [u8; 
         width,
         height,
         background,
+        transparent: false,
         color,
         ascii,
     }
@@ -151,7 +152,10 @@ fn half_cells_preserve_aspect_alpha_and_original_colors() {
     assert_eq!(raster.cells[0].foreground, Color::Rgb(220, 100, 40));
     assert_eq!(raster.cells[0].background, Color::Rgb(220, 100, 40));
     let transparent = RgbaImage::from_pixel(1, 1, Rgba([200, 30, 20, 0]));
-    assert_eq!(sample(&transparent, 0, 0, 1, 1, [10, 20, 30]), [10, 20, 30]);
+    assert_eq!(
+        sample(&transparent, 0, 0, 1, 1, [10, 20, 30]),
+        ([10, 20, 30], 0)
+    );
     // Quadrants split each cell horizontally, keeping only original colors.
     let mut split = RgbaImage::from_pixel(2, 4, Rgba([0, 0, 255, 255]));
     for y in 0..4 {
@@ -165,7 +169,71 @@ fn half_cells_preserve_aspect_alpha_and_original_colors() {
     let three = [[200, 0, 0], [0, 0, 200], [0, 0, 200], [190, 0, 0]];
     assert_eq!(quadrant(three), ("▚", [200, 0, 0], [0, 0, 200]));
     let partial = RgbaImage::from_pixel(1, 1, Rgba([210, 120, 30, 128]));
-    assert_eq!(sample(&partial, 0, 0, 1, 1, [10, 20, 30]), [110, 70, 30]);
+    assert_eq!(
+        sample(&partial, 0, 0, 1, 1, [10, 20, 30]),
+        ([110, 70, 30], 128)
+    );
+}
+
+#[test]
+fn transparent_quadrants_use_alpha_not_the_composited_rgb() {
+    for background in [[0; 3], [255; 3]] {
+        for mode in [ColorMode::TrueColor, ColorMode::Indexed] {
+            for mask in 0..16 {
+                let mut image = RgbaImage::from_pixel(4, 4, Rgba([90, 120, 150, 0]));
+                for bit in 0..4 {
+                    if mask & (1 << bit) != 0 {
+                        image.put_pixel(
+                            bit % 2,
+                            (bit / 2) * 2 + 1,
+                            Rgba([
+                                background[0],
+                                background[1],
+                                background[2],
+                                if bit % 2 == 0 { 255 } else { 1 },
+                            ]),
+                        );
+                    }
+                }
+                let mut cache_key = key(mode, false, 2, 1, background);
+                cache_key.transparent = true;
+                let raster = rasterize(&image, cache_key, 0);
+                let cell = &raster.cells[0];
+                assert_eq!(cell.symbol, QUADRANTS[mask as usize]);
+                assert_eq!(
+                    cell.foreground,
+                    if mask == 0 {
+                        Color::Reset
+                    } else {
+                        output_color(background, mode)
+                    }
+                );
+                assert_eq!(
+                    cell.background,
+                    if mask == 15 {
+                        output_color(background, mode)
+                    } else {
+                        Color::Reset
+                    }
+                );
+                assert_eq!(raster.cells[1].symbol, " ");
+                assert_eq!(raster.cells[1].background, Color::Reset);
+            }
+            // The unused lower half of an odd-height raster is transparent,
+            // not a copy of the opaque upper pixel or its RGB background.
+            let mut cache_key = key(mode, false, 1, 1, background);
+            cache_key.transparent = true;
+            let image = RgbaImage::from_pixel(
+                1,
+                1,
+                Rgba([background[0], background[1], background[2], 255]),
+            );
+            let raster = rasterize(&image, cache_key, 0);
+            assert_eq!(raster.cells[0].symbol, "▀");
+            assert_eq!(raster.cells[0].foreground, output_color(background, mode));
+            assert_eq!(raster.cells[0].background, Color::Reset);
+        }
+    }
 }
 
 #[test]
@@ -356,10 +424,10 @@ fn sprites_keep_exact_palette_and_trim_only_empty_border() {
             } else {
                 [240, 120, 60]
             };
-            assert_eq!(sample(&pixels, x, y, 6, 6, [0; 3]), expected);
+            assert_eq!(sample(&pixels, x, y, 6, 6, [0; 3]), (expected, 255));
         }
     }
-    assert_eq!(sample(&pixels, 0, 0, 1, 1, [0; 3]), [240, 120, 60]);
+    assert_eq!(sample(&pixels, 0, 0, 1, 1, [0; 3]), ([240, 120, 60], 255));
     let transparent = RgbaImage::new(4, 4);
     assert_eq!(trim_transparent_border(transparent).dimensions(), (4, 4));
 }

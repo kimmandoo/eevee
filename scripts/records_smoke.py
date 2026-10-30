@@ -607,7 +607,7 @@ class Journey(MovesJourney):
         self.session.paste(self.peer.base)
         self.session.send('\t\x15')
         self.session.paste(MODEL)
-        self.session.send('\t\t \t\t\r')
+        self.session.send('\t\t \t \t\r')  # Explicit keyless and session-only choices.
         wait_for(self.session, MODEL, timeout=35)
         self.wait_caption('1 matches', )
         self.session.send(MODEL + '\r')

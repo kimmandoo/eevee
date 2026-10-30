@@ -2,6 +2,13 @@
 
 ## 2026-10-30
 
+- chore(release): advanced the package version to 0.1.41.
+- fix(forms): routed terse adopted todo labels through explicit request intent, then their phase and role words, kept negated and quoted labels out of fallback routing, and identified todo-driven evolution reasons.
+- fix(ui): rendered refused native todo results as one readable `[!!] Todo init … refused` row with its reason instead of raw argument JSON, and dropped the first transcript segment's duplicate kind/owner/request header that repeated the response's own status rows.
+- fix(streaming): resumed live following when output that arrived behind a review was never scrolled away from, so generated code no longer stops scrolling partway through file creation.
+- fix(auth)!: saved connection credentials privately by default so logins survive restarts and `ev update`; session-only remains a Storage choice.
+- fix(ui)!: stopped painting canvas and panel backgrounds; body text uses the terminal's foreground, borders/muted/accent colors remain, cell sprites leave transparent cells unpainted and Kitty sprites keep alpha.
+- fix(sprites): used sampled alpha rather than fallback RGB equality for transparent quadrants, preserved opaque black/white pixels and odd-height padding, and verified decoded Kitty alpha without discarding it.
 - docs(release): published v0.1.40 from `5917c1f` after native41022608110 and release41026266463 with all eight assets; the first tag attempt on `eeb22db` stopped before publishing because the version notes section was missing.
 - fix(ui): drew the header and status rows on the canvas instead of a ragged surface band, framed the active transcript in the padded RESPONSE panel at roomy sizes, grouped consecutive same-request segments under one attribution with blank separators, moved item IDs behind `/verbose`, and sized the tool panel, party roster and empty task list to their content.
 - fix(ui): hid the bare `none` record marker in the form picker, listed every form when the compact picker has room with a gap before the details, and removed a doubled space and unpadded titles from review and journey sheets.
@@ -327,6 +334,14 @@
 - docs(release): published v0.1.19 from source `c4ce4a2` after exact-source Check/all-five-native qualification and immutable promotion, retaining Schema 16 and complete SDK bridge 8.
 - test(terminal): acknowledged the new one-time evolution receipt before checking preserved goal/edit/discard behavior in the actual compact installed runtime without changing the published executable.
 - docs(verification): verified all public assets, sixteen bilingual automatic-review/file-progress journeys/64 groups, 24 file journeys/126 groups, evolution popups and preserved typing, scrolling/tooltips, native 176 groups, cooperation 24, six genuine schema upgrade/refusal/resume cases and 23 installation groups/all 34 installed terminal scenarios.
+
+## 0.1.41
+
+- fix(auth)!: made private local credential storage the default for native connection setup while retaining explicit session-only selection and complete plaintext/not-keychain disclosure; existing unsaved credentials were not retroactively persisted.
+- fix(ui)!: used the terminal's own body foreground and background, retained highlighted selections, preserved transparent cell/Kitty sprites and kept Sixel's opaque fallback.
+- fix(streaming): caught up live generated code after a review closed when the reader had never scrolled away, while retaining paused reading anchors.
+- fix(ui): showed refused native todo results as readable error rows with their reason, retained unknown results as raw evidence, and removed the first transcript segment's duplicate attribution.
+- fix(forms): resolved terse adopted todo labels from request intent, phase and role words without treating quoted or negated labels as fallback actions, and labelled todo-driven evolution.
 
 ## 0.1.40
 

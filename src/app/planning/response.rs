@@ -313,8 +313,10 @@ impl Layout {
             }
             // Compare with the previous visible segment: docked tools and
             // collapsed todo snapshots do not break a run of one request.
+            // The first segment is introduced by the response's own Request
+            // and status rows above the transcript.
             let continued = !verbose
-                && previous.is_some_and(|before| {
+                && previous.is_none_or(|before| {
                     items[before].owner == item.owner && items[before].request == item.request
                 });
             // One blank row separates attributed blocks and a change between
@@ -943,6 +945,15 @@ impl State {
         let comfortable = self.text_density() == crate::store::TextDensity::Comfortable
             && width >= 20
             && height >= 4;
+        // Output that arrived behind a review while the user never scrolled
+        // away is caught up as soon as the transcript is drawn again, so live
+        // code keeps following instead of stopping at the review's arrival.
+        if self.following && self.new_output {
+            self.new_output = false;
+            if let Some(latest) = self.newest_response() {
+                self.selected = latest;
+            }
+        }
         let dock_tools = self.tools_docked;
         self.response_cache.update(
             width,

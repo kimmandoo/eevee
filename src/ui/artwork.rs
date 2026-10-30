@@ -271,6 +271,8 @@ struct CacheKey {
     width: u16,
     height: u16,
     background: [u8; 3],
+    /// The terminal's default background: transparent cells stay unpainted.
+    transparent: bool,
     color: ColorMode,
     ascii: bool,
 }
@@ -374,6 +376,7 @@ impl Artwork {
                         width,
                         height,
                         background: rgb(background, config.theme),
+                        transparent: background == Color::Reset,
                         color: config.color,
                         ascii: config.ascii,
                     };
@@ -445,6 +448,7 @@ impl Artwork {
             width: area.width.min(MAX_CELL_WIDTH),
             height: area.height.min(MAX_CELL_HEIGHT),
             background: rgb(background, self.theme),
+            transparent: background == Color::Reset,
             color: self.color,
             ascii: self.ascii,
         }
@@ -668,7 +672,7 @@ fn rasterize(image: &RgbaImage, key: CacheKey, touched: u64) -> Raster {
         if y < pixel_height {
             sample(image, x, y, columns, pixel_height, key.background)
         } else {
-            key.background
+            (key.background, 0)
         }
     };
     let mut cells = Vec::with_capacity(usize::from(width) * usize::from(height));
@@ -676,12 +680,47 @@ fn rasterize(image: &RgbaImage, key: CacheKey, touched: u64) -> Raster {
         for column in 0..width {
             if quadrants {
                 let (x, y) = (column * 2, row * 2);
-                let (symbol, foreground, background) = quadrant([
+                let block = [
                     pixel(x, y),
                     pixel(x + 1, y),
                     pixel(x, y + 1),
                     pixel(x + 1, y + 1),
-                ]);
+                ];
+                let mask = block.iter().enumerate().fold(0, |mask, (bit, pixel)| {
+                    mask | if pixel.1 != 0 { 1 << bit } else { 0 }
+                });
+                if key.transparent && mask != 15 {
+                    // A transparent quadrant must remain terminal background,
+                    // even when an opaque sample has exactly that same RGB.
+                    // The remaining glyph color is the best original opaque
+                    // sample; a cell cannot represent transparency plus two colors.
+                    let foreground = block
+                        .iter()
+                        .filter(|pixel| pixel.1 != 0)
+                        .min_by_key(|(candidate, _)| {
+                            block
+                                .iter()
+                                .filter(|pixel| pixel.1 != 0)
+                                .map(|(pixel, _)| {
+                                    (0..3)
+                                        .map(|channel| {
+                                            (i32::from(candidate[channel])
+                                                - i32::from(pixel[channel]))
+                                            .pow(2)
+                                        })
+                                        .sum::<i32>()
+                                })
+                                .sum::<i32>()
+                        })
+                        .map_or(Color::Reset, |(color, _)| output_color(*color, key.color));
+                    cells.push(RasterCell {
+                        symbol: QUADRANTS[mask],
+                        foreground,
+                        background: Color::Reset,
+                    });
+                    continue;
+                }
+                let (symbol, foreground, background) = quadrant(block.map(|pixel| pixel.0));
                 cells.push(RasterCell {
                     symbol,
                     foreground: output_color(foreground, key.color),
@@ -689,7 +728,7 @@ fn rasterize(image: &RgbaImage, key: CacheKey, touched: u64) -> Raster {
                 });
                 continue;
             }
-            let (upper, lower) = (pixel(column, row * 2), pixel(column, row * 2 + 1));
+            let (upper, lower) = (pixel(column, row * 2).0, pixel(column, row * 2 + 1).0);
             let average = std::array::from_fn(|channel| {
                 ((u16::from(upper[channel]) + u16::from(lower[channel])) / 2) as u8
             });
@@ -755,7 +794,8 @@ fn quadrant(block: [[u8; 3]; 4]) -> (&'static str, [u8; 3], [u8; 3]) {
 
 // Nearest source pixels preserve the sprite's original palette and hard edges.
 // Composite alpha only after selecting the pixel, without filtering transparent
-// RGB into outlines. Rows are half-cell samples; quadrant columns are half that width.
+// RGB into outlines, and retain the source alpha separately for cell coverage.
+// Rows are half-cell samples; quadrant columns are half that width.
 fn sample(
     image: &RgbaImage,
     x: u16,
@@ -763,7 +803,7 @@ fn sample(
     width: u16,
     height: u16,
     background: [u8; 3],
-) -> [u8; 3] {
+) -> ([u8; 3], u8) {
     let source_x =
         ((u64::from(x) * 2 + 1) * u64::from(image.width()) / (u64::from(width) * 2)) as u32;
     let source_y =
@@ -773,10 +813,11 @@ fn sample(
         source_y.min(image.height() - 1),
     );
     let alpha = u32::from(pixel[3]);
-    std::array::from_fn(|channel| {
+    let color = std::array::from_fn(|channel| {
         ((u32::from(pixel[channel]) * alpha + u32::from(background[channel]) * (255 - alpha) + 127)
             / 255) as u8
-    })
+    });
+    (color, pixel[3])
 }
 
 fn luminance(color: [u8; 3]) -> f64 {

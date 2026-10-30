@@ -41,11 +41,29 @@ pub struct View {
 }
 
 impl View {
-    /// Todo observations keep their own progress projection and raw evidence.
+    /// Qualified todo snapshots keep their own progress projection. Native
+    /// todo results that were refused or malformed are ordinary tool rows here
+    /// instead of raw argument JSON; SDK `TodoWrite` keeps its raw evidence.
     pub fn read(item: &Item) -> Option<Self> {
-        (item.kind == ItemKind::Tool)
-            .then(|| parse(&item.text, item.complete))
-            .filter(|view| view.name != "TodoWrite")
+        let view = if item.kind == ItemKind::Tool {
+            parse(&item.text, item.complete)
+        } else if item.kind == ItemKind::Plan && item.item_id.starts_with("todo-") {
+            let value = serde_json::from_str::<Value>(&item.text).ok()?;
+            // Unknown or malformed "success" stays raw: its unadopted steps
+            // are evidence, not a completed progress update.
+            if value["tool"] != "todo"
+                || !matches!(
+                    value["result"]["status"].as_str(),
+                    Some("refused" | "denied" | "failed" | "error")
+                )
+            {
+                return None;
+            }
+            sdk(&value, item.complete)
+        } else {
+            return None;
+        };
+        (view.name != "TodoWrite").then_some(view)
     }
 
     /// One title row plus bounded indented detail rows for the transcript.
@@ -137,6 +155,12 @@ fn result_text(value: &Value) -> String {
             .filter_map(|part| part.as_str().or_else(|| part.get("text")?.as_str()))
             .collect::<Vec<_>>()
             .join("\n"),
+        // Host tool results carry a readable message beside their status.
+        Value::Object(_) => value["message"]
+            .as_str()
+            .or_else(|| value["error"].as_str())
+            .unwrap_or("")
+            .to_owned(),
         _ => String::new(),
     }
 }
@@ -177,9 +201,15 @@ fn parse(text: &str, complete: bool) -> View {
     }
 }
 
-/// Claude Agent SDK observations: argument metadata plus an optional result.
+/// Claude Agent SDK and native host observations: argument metadata plus an
+/// optional result, which may carry its own status.
 fn sdk(value: &Value, complete: bool) -> View {
-    let failed = value["is_error"] == true || value["status"] == "failed";
+    let outcome = value["result"]["status"].as_str().unwrap_or("");
+    let refused = matches!(outcome, "refused" | "denied");
+    let failed = value["is_error"] == true
+        || value["status"] == "failed"
+        || refused
+        || matches!(outcome, "failed" | "error");
     let status = if failed {
         Status::Failed
     } else if complete || value["status"] == "completed" {
@@ -188,14 +218,24 @@ fn sdk(value: &Value, complete: bool) -> View {
         Status::Running
     };
     let (detail, hidden) = detail(&result_text(&value["result"]), false);
+    let tool = value["tool"].as_str().unwrap_or("Tool");
+    let arguments = &value["arguments"];
     View {
         status,
-        name: value["tool"].as_str().unwrap_or("Tool").to_owned(),
+        name: match (tool, arguments["operation"].as_str()) {
+            ("todo", Some(operation)) => format!("Todo {operation}"),
+            ("todo", None) => "Todo".into(),
+            _ => tool.to_owned(),
+        },
         target: value["input"]["path"]
             .as_str()
+            .or_else(|| arguments["label"].as_str())
+            .or_else(|| arguments["path"].as_str())
             .map(single_line)
             .unwrap_or_default(),
-        note: if failed {
+        note: if refused {
+            "refused".into()
+        } else if failed {
             "failed".into()
         } else {
             String::new()
@@ -330,6 +370,36 @@ mod tests {
             false,
         );
         assert_eq!(running.display(), "[..] $ sleep 1");
+    }
+
+    #[test]
+    fn refused_native_todo_is_a_readable_row_not_argument_json() {
+        let mut item = Item {
+            thread_id: "thread".into(),
+            turn_id: "turn".into(),
+            item_id: "todo-init".into(),
+            kind: ItemKind::Plan,
+            text: r#"{"arguments":{"label":"Windows 11 파일 탐색기","operation":"init","steps":[{"label":"a","status":"pending"}]},"result":{"message":"Todo init/append/view require an empty target label","path":"","status":"refused"},"tool":"todo"}"#.into(),
+            complete: true,
+            request: "fixture".into(),
+            owner: None,
+            status: None,
+        };
+        let view = View::read(&item).unwrap();
+        assert_eq!(
+            view.display(),
+            "[!!] Todo init  Windows 11 파일 탐색기  refused\n     Todo init/append/view require an empty target label"
+        );
+        assert_eq!(view.status, Status::Failed);
+        for status in ["success", "unknown", ""] {
+            item.text = serde_json::json!({
+                "tool": "todo",
+                "arguments": {"operation": "init"},
+                "result": {"status": status}
+            })
+            .to_string();
+            assert!(View::read(&item).is_none(), "{status}");
+        }
     }
 
     #[test]

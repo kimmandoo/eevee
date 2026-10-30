@@ -1210,7 +1210,7 @@ mod tests {
                         account_id: "private-account-sentinel".into(),
                         responses: true,
                         keyless: false,
-                        persist: false,
+                        persist: crate::providers::direct::config::PERSIST_BY_DEFAULT,
                         source_notice: None,
                     },
                     field: 0,

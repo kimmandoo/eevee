@@ -1271,6 +1271,192 @@ pub fn classify(text: &str) -> Option<Selection> {
     })
 }
 
+/// Terse todo labels and provider phases supplement the request classifier.
+/// Ordered role words break ties only after explicit request intent wins.
+const STEP_ROLES: &[(usize, &[&str])] = &[
+    (7, &["review", "audit", "검토", "리뷰"]),
+    (
+        5,
+        &[
+            "diagnose",
+            "debug",
+            "investigate",
+            "troubleshoot",
+            "root cause",
+            "진단",
+            "디버그",
+            "디버깅",
+            "원인",
+        ],
+    ),
+    (
+        6,
+        &[
+            "refactor",
+            "clean up",
+            "cleanup",
+            "optimize",
+            "optimise",
+            "benchmark",
+            "profile",
+            "measure",
+            "speed up",
+            "리팩터",
+            "리팩토",
+            "최적화",
+            "성능",
+            "측정",
+            "벤치마크",
+        ],
+    ),
+    (
+        4,
+        &[
+            "design",
+            "plan",
+            "architecture",
+            "architect",
+            "설계",
+            "계획",
+            "아키텍처",
+        ],
+    ),
+    (
+        8,
+        &[
+            "document",
+            "docs",
+            "readme",
+            "changelog",
+            "summarize",
+            "summarise",
+            "summary",
+            "handoff",
+            "write up",
+            "문서",
+            "요약",
+            "정리",
+            "기록",
+            "인계",
+        ],
+    ),
+    (
+        1,
+        &[
+            "inspect",
+            "explore",
+            "investigation",
+            "research",
+            "survey",
+            "understand",
+            "read",
+            "discover",
+            "discovery",
+            "analyze",
+            "analyse",
+            "analysis",
+            "context",
+            "조사",
+            "탐색",
+            "분석",
+            "파악",
+            "확인",
+            "살펴",
+        ],
+    ),
+    (
+        2,
+        &[
+            "verify",
+            "verification",
+            "validate",
+            "validation",
+            "test",
+            "tests",
+            "testing",
+            "run",
+            "build",
+            "compile",
+            "check",
+            "qa",
+            "검증",
+            "테스트",
+            "실행",
+            "빌드",
+            "컴파일",
+        ],
+    ),
+    (
+        3,
+        &[
+            "implement",
+            "implementation",
+            "add",
+            "create",
+            "wire",
+            "set up",
+            "setup",
+            "develop",
+            "write",
+            "fix",
+            "integrate",
+            "구현",
+            "추가",
+            "구성",
+            "개발",
+            "작성",
+            "만들",
+            "수정",
+            "연결",
+            "적용",
+        ],
+    ),
+];
+
+fn step_role(text: &str) -> Option<Selection> {
+    let form = STEP_ROLES.iter().find(|(_, words)| any(text, words))?.0;
+    Some(Selection {
+        form,
+        operation: if matches!(form, 2 | 3 | 6) {
+            Operation::Implement
+        } else {
+            Operation::Plan
+        },
+        reason: match form {
+            1 => Message::CoreEvolutionDiscovery,
+            2 => Message::CoreEvolutionVerification,
+            3 => Message::CoreEvolutionImplementation,
+            4 => Message::CoreEvolutionPlanning,
+            5 => Message::CoreEvolutionDiagnosis,
+            6 => Message::CoreEvolutionRefactor,
+            7 => Message::CoreEvolutionReview,
+            _ => Message::CoreEvolutionDocumentation,
+        },
+    })
+}
+
+/// The form a todo step leads to: its label read as a request first, then its
+/// provider phase, then role words. Literal and negated labels never gain a
+/// capability from the fallback. A local prediction, never authority.
+pub fn classify_step(step: &crate::workspace::progress::Step) -> Option<Selection> {
+    classify(&step.label).or_else(|| {
+        let label = instruction(&step.label);
+        if any(&label, NEGATIVE)
+            || !label
+                .split_whitespace()
+                .any(|word| !matches!(word, "command" | "./"))
+        {
+            return None;
+        }
+        step.phase
+            .as_deref()
+            .map(instruction)
+            .as_deref()
+            .and_then(step_role)
+            .or_else(|| step_role(&label))
+    })
+}
+
 impl App {
     /// The notification never covers consent or live generated-file code.
     pub fn evolution_popup_ready(&self) -> bool {
@@ -1295,34 +1481,37 @@ impl App {
     }
 
     /// The adopted todo step that automatic evolution continues, if any.
-    fn todo_focus(&self) -> Option<&str> {
+    fn todo_focus(&self) -> Option<Selection> {
         (self.lead.auto_form && self.planning.explicit_operation().is_none())
-            .then(|| self.workflows.progress.as_ref()?.focus_label())
+            .then(|| self.workflows.progress.as_ref()?.focus_step())
             .flatten()
+            .and_then(|(_, step)| classify_step(step))
     }
 
     /// Current todo step position and the form it steers automatic evolution
     /// toward, for the companion card. Purely a local prediction.
     pub fn todo_guide(&self) -> Option<(String, Option<usize>)> {
         let position = self.workflows.progress.as_ref()?.focus_position()?;
-        Some((
-            position,
-            self.todo_focus().and_then(classify).map(|todo| todo.form),
-        ))
+        Some((position, self.todo_focus().map(|todo| todo.form)))
     }
 
     /// Whether the next Send's appearance comes from the current todo step
     /// rather than the request text itself.
     pub(super) fn follows_todo(&self) -> bool {
         classify(&self.input).is_none()
-            && self.todo_focus().and_then(classify).is_some()
+            && self.todo_focus().is_some()
             && (crate::providers::effort::ambiguous_followup(&self.input)
                 || !self.planning.plan_conversation())
     }
 
     /// Shared by inspection and ordinary Submit; does not mutate or prepare work.
     pub(super) fn request_evolution(&self) -> Option<Selection> {
-        let todo = self.todo_focus().and_then(classify);
+        // A todo-driven choice says so, rather than echoing the step's reason
+        // as if the request text had asked for it.
+        let todo = self.todo_focus().map(|todo| Selection {
+            reason: Message::CoreEvolutionTodo,
+            ..todo
+        });
         let mut choice = classify(&self.input)
             .or_else(|| todo.filter(|_| crate::providers::effort::ambiguous_followup(&self.input)))
             .or_else(|| {
@@ -2069,6 +2258,58 @@ mod tests {
         ] {
             assert!(classify(text).is_none(), "{text}");
         }
+    }
+
+    #[test]
+    fn terse_todo_steps_use_their_phase_and_leading_verb() {
+        use crate::workspace::progress::{Status, Step};
+        let step = |label: &str, phase: Option<&str>| Step {
+            label: label.into(),
+            phase: phase.map(Into::into),
+            status: Status::Active,
+        };
+        for (label, phase, form) in [
+            ("프로젝트 구조와 사용 가능한 기반 확인", Some("조사"), 1),
+            ("Windows 파일 탐색기 구현", Some("구현"), 3),
+            ("실행 또는 빌드 검증", Some("검증"), 2),
+            ("Refactor the parser", None, 6),
+            ("Benchmark large directories", None, 6),
+            ("성능 측정", None, 6),
+            ("Add virtualization to list view", None, 3),
+            ("UI 레이아웃 구성", None, 3),
+            ("Wire up UI", None, 3),
+            ("Document usage", None, 8),
+            ("결과 정리", None, 8),
+            ("Survey the codebase", None, 1),
+            // An explicit request reading wins over the provider's phase.
+            ("Run the project tests", Some("구현"), 2),
+            // The phase decides when the label alone is ambiguous.
+            ("Explorer list view", Some("design"), 4),
+        ] {
+            let selected = classify_step(&step(label, phase)).unwrap_or_else(|| panic!("{label}"));
+            assert_eq!(selected.form, form, "{label} / {phase:?}");
+            assert_eq!(
+                selected.operation == Operation::Implement,
+                matches!(form, 2 | 3 | 6),
+                "{label}"
+            );
+        }
+        assert!(classify_step(&step("Explorer", None)).is_none());
+        for label in [
+            "Do not run",
+            "Never refactor",
+            "구현하지 마",
+            "`Run`",
+            "> Refactor",
+            "Tool output: Run",
+        ] {
+            assert!(
+                classify_step(&step(label, Some("implementation"))).is_none(),
+                "{label}"
+            );
+        }
+        let readonly = classify_step(&step("Read only", Some("implementation"))).unwrap();
+        assert_eq!(readonly.operation, Operation::Plan);
     }
 
     #[test]

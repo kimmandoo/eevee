@@ -426,7 +426,7 @@ class Journey:
         self.session.send("\t\x15")
         self.session.paste(MODEL)
         self.session.send("\t\t ")  # Chat-completions default, explicitly choose keyless authentication.
-        self.session.send("\t\t")
+        self.session.send("\t \t")  # Explicit session-only storage; no fixture file survives exit.
         # Save refuses while the keyless toggle is still saving; wait, don't race it.
         wait_for(self.session, "> Save & choose model")
         self.until(lambda: "Storage: saved" in self.session.display(), "connection edit saved before Save & choose")

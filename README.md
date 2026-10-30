@@ -43,18 +43,18 @@ It also comes with a companion: a party of Eevee forms that evolve with the kind
 - **Local-first.** Tasks, drafts, transcripts and run history live in local SQLite. No account, server or Node runtime needed.
 - **Built for the terminal.** Rust + ratatui, 60×18 and up, mouse and keyboard, Kitty/Sixel sprites with text fallback, ASCII/mono modes. macOS, Linux, WSL and Windows, all built and tested in CI.
 
-## What's new in 0.1.40
+## What's new in 0.1.41
 
 | | What changed |
 | --- | --- |
-| **Readable tool calls** | `[..]` / `[ok]` / `[!!]` rows with the tool, path or exit code and a two-line output preview — no more raw JSON. Wide terminals list them in a side `TOOLS` panel; `/verbose` keeps the raw observations. |
-| **Approve for the session** | `/auto-approve-session` (or **Shift+A** in a review) keeps approving the lead's file changes and commands across tasks until you quit. The header always says `AUTO-APPROVE · task` or `· session`. |
-| **Clearer approvals** | Reviews fit their content, put the exact command on its own highlighted row and speak plainly. |
-| **Smarter evolutions** | Questions, failures, reviews, docs, cleanup and UI changes pick the right specialist; every form has a one-line description and examples. |
-| **Tidier screen** | Padded, framed transcript with grouped attribution, no stray background bands, and sheets sized to their content. |
+| **Remembered connections** | Native account/API setup saves owner-private plaintext by default, so saved credentials survive restarts and updates. Storage still offers session-only; access grants can expire. |
+| **Your terminal colors** | Body text and panel backgrounds use terminal defaults. Cell and Kitty sprites keep transparent gaps; Sixel retains its opaque fallback. |
+| **Continuous live code** | Generated source catches up after a review closes when you never scrolled away; paused readers keep their position. |
+| **Readable todo failures** | Refused native todo calls show a short error row and reason instead of argument JSON. Unknown results remain inspectable as raw evidence. |
+| **Todo-aware evolutions** | Short adopted steps use their phase and role words when needed, and todo-driven predictions say where the choice came from. |
 
 <details>
-<summary>Capabilities carried over from 0.1.38–0.1.39</summary>
+<summary>Capabilities carried over from 0.1.38–0.1.40</summary>
 
 | Feature | How to use it |
 | --- | --- |
@@ -106,11 +106,11 @@ Pin a version:
 
 ```sh
 curl -fsSLo install-ev.sh https://github.com/kimmandoo/eevee/releases/latest/download/install.sh
-sh ./install-ev.sh --version v0.1.40
+sh ./install-ev.sh --version v0.1.41
 ```
 
 ```powershell
-& ([scriptblock]::Create((irm https://github.com/kimmandoo/eevee/releases/latest/download/install.ps1))) -Version v0.1.40
+& ([scriptblock]::Create((irm https://github.com/kimmandoo/eevee/releases/latest/download/install.ps1))) -Version v0.1.41
 ```
 
 Offline: download the matching archive, `SHA256SUMS` and installer from one release, then:
@@ -199,7 +199,7 @@ Sprites render via Kitty/Sixel when supported; installers fetch artwork separate
 | **OpenAI-compatible / local** | Endpoint, model, protocol (Chat Completions or Responses), optional key. HTTPS required except loopback |
 | **External agents** | Codex app-server, Claude Agent SDK sidecar (Node 24+), OpenCode / Gemini / Devin via ACP |
 
-The method you choose decides the transport — `ev` never silently falls back to another account, billing route, protocol or model. Exact custom model IDs work even when the provider's model list is unavailable. Credentials are session-only by default; opting in stores them as owner-private plaintext under `~/.eevee-connections/` (not an OS keychain).
+The method you choose decides the transport — `ev` never silently falls back to another account, billing route, protocol or model. Exact custom model IDs work even when the provider's model list is unavailable. Credentials are saved by default as owner-private plaintext under `~/.eevee-connections/` (not an OS keychain), so logins survive restarts and updates; choose session-only in Storage to keep them in memory.
 
 Details, limits and per-route enforcement: [Agent compatibility](docs/AGENT_COMPATIBILITY.md).
 
@@ -230,7 +230,9 @@ Each new explicit Send opens a fresh request and carries only the existing compl
 
 Responses retain their own outcome and context-admission status after later requests. An external agent process disconnect opens the existing diagnostics path without resending the request or exposing raw process output.
 
-Connection credentials are **session-only by default**; reopening restores model choices and drafts, not an unsaved key/token. In `/connect chatgpt`, select **Storage → SAVE private local plaintext** before Browser/Device login if you explicitly want the account credential retained across restarts. API setup offers the same storage choice. Saved credentials are not encrypted or stored in an OS keychain. An OpenAI account access grant still expires even when saved: reconnect through Browser/Device login; Eevee does not retain refresh tokens or renew automatically. Account → Advanced settings shows saved-source expiry/read failures without changing the saved file or sending a request.
+Connection credentials are **saved privately by default**, so restarting or updating `ev` keeps you logged in. Select **Storage → Session only** before Browser/Device login (or in API setup) to keep a credential in memory instead. Saved credentials are not encrypted or stored in an OS keychain. An OpenAI account access grant still expires even when saved: reconnect through Browser/Device login; Eevee does not retain refresh tokens or renew automatically. Account → Advanced settings shows saved-source expiry/read failures without changing the saved file or sending a request.
+
+This default applies when you next save or sign in; updating cannot recover a credential that an older session-only process already discarded. Reconnect once with private storage selected. Saved access grants can still expire.
 
 If an older build reports `Handoff task changed` after changing providers, `/handoff-clear` deselects only the portable handoff; it does not erase the task or exports. Then explicitly Send again. Provider switching in the corrected source does not automatically select a handoff; deliberately imported handoffs stay usable after saving a new Request while their task facts and sources are unchanged; changed or foreign handoffs still require a fresh review or `/handoff-clear`. Tool selections made with `/tools` apply only to the adapter they were reviewed for; after switching provider, reselect them.
 

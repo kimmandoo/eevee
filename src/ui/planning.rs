@@ -2419,8 +2419,10 @@ mod tests {
             progress.adopt().unwrap();
             app.workflows.progress = Some(progress);
             let screen = draw_home(&mut app);
+            // "Fix" now predicts Flareon; the destination leads so clipping
+            // keeps it visible.
             assert!(
-                screen.contains("Todo 1/1 Fix"),
+                screen.contains("→ Flareon · T"),
                 "{width}x{height}\n{screen}"
             );
         }

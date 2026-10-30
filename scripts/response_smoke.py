@@ -98,6 +98,8 @@ class SurfaceJourney(Journey):
             elif index == 4:
                 assert initial and self.keyless
                 session.send(" ")
+            elif index == 5 and not self.persist:
+                session.send(" ")  # Keep this fixture explicitly session-only.
             elif index == 6:
                 self.capture("setup-explicit-save-and-choose-model")
                 session.send("\r")

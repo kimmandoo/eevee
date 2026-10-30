@@ -295,6 +295,8 @@ class CreationJourney(SurfaceJourney):
                 session.send(' ')
             elif label == fields[4] and self.keyless:
                 session.send(' ')
+            elif label == fields[5] and not self.persist:
+                session.send(' ')  # Explicit session-only instead of private-save default.
             elif label == fields[6]:
                 session.send('\r')
                 break
