@@ -1,5 +1,19 @@
 # Troubleshooting
 
+### [2026-11-01] Completion acceptance sampled an already-ended lease and waited for spinner silence
+
+- **Context / Symptom:** Native41222598163 at60b4386 passed shared gates and native Rust tests but Linux completion acceptance failed `native operation bypassed its actual lease mode`. The retained screen already showed local work idle and the correct no-progress incomplete result. Windows passed nine journeys, then compact cancellation failed `native console output did not settle within the bounded capture window`.
+- **Root Cause:** The no-progress peer could serve its entire fast request before the begin helper sampled the active lease. The cancellation driver used ordinary idle/quiescent command input while a deliberately held response was still emitting working frames.
+- **Solution:** Gated the first no-progress response until the actual ownership assertion completed, then released it without a sleep. Sent cancellation with `settle=False` and retained the semantic actual-socket-close/claim-settlement waits. Kept exact request counts, filesystem/permission assertions and strict terminal restoration; did not change application behavior, capture deadlines or passing criteria.
+- **Prevention / Reference:** Preserved failed Linux/Windows artifacts under `target/completion044-proof/native-41222598163-failures/`. Require a new complete native-source run after this driver correction, not a partial rerun or an inferred pass from local macOS.
+
+### [2026-11-01] Full progress acceptance outlived its outer command deadline
+
+- **Context / Symptom:** The16-journey native/Codex/ACP/SDK progress command exceeded its1800-second outer deadline during SDK60×18 English, after14 journey reports had passed. No complete outer invocation result was produced.
+- **Root Cause:** The budget underestimated the sequential full EN/KO/size/route matrix; retained timestamps show continued case-by-case progress, not a stalled application.
+- **Solution:** Retained the original interruption and14 reports, froze the identical executable and selected only the two incomplete SDK minimum-size journeys for a separately reported continuation. Do not relabel the interrupted command as a full pass.
+- **Prevention / Reference:** `target/completion044-proof/progress-interruption.json` records exact completed/missing identities. Future full16-journey invocations need an outer budget derived from the observed matrix; composed acceptance and a complete single invocation must stay distinct.
+
 ### [2026-11-01] Windows console diagnostics initially failed in their own launcher
 
 - **Context / Symptom:** Diagnostic41216821992 never launched the application: a process-basename check rejected a native console window owned by `python.exe`, cleanup lost `result.json`, and the workflow timed out. Diagnostic41219377387 then captured `ev: Eevee requires interactive stdin and stdout terminals; use --help for usage` before any UI. After correcting handle inheritance,41219893462 reached saved UI, nine sprites and durable typed input in all eight cases but the driver incorrectly required a quit dialog after an already-clean explicit quit.

@@ -13,7 +13,7 @@ import sqlite3
 import tempfile
 import traceback
 
-from file_creation_smoke import (CreationJourney, file_review_pending, response_plan,
+from file_creation_smoke import (CreationJourney, Gate, file_review_pending, response_plan,
                                  save, tool_results)
 from native_connection_smoke import Peer, until
 from workbench_smoke import wait_for
@@ -107,6 +107,7 @@ def boundary_case(binary, output, root, size, mode):
     output.mkdir(parents=True, exist_ok=False)
     report = {'status': 'failed', 'size': list(size), 'boundary': mode}
     journey = None
+    gate = Gate() if mode == 'no-progress' else None
     with Peer('responses', 'sk-public-completion-boundary-only', True) as peer:
         try:
             journey = CreationJourney(binary, output, root, size, size[0] == 60,
@@ -117,18 +118,21 @@ def boundary_case(binary, output, root, size, mode):
                 'operation': 'init', 'label': '', 'steps': [{'label': 'Finish requested files', 'status': 'active'}]}}]
             if mode != 'no-progress':
                 calls.append({'id': 'first', 'path': 'first.txt', 'content': 'approved original bytes\n'})
-            plans = [response_plan(peer, calls=calls), response_plan(peer, text='Some requested work remains.')]
+            plans = [response_plan(peer, calls=calls, gate=gate), response_plan(peer, text='Some requested work remains.')]
             if mode == 'cancel':
                 plans.append(('cancel', None))
             elif mode == 'no-progress':
                 plans.append(response_plan(peer, text='Some requested work remains.'))
             posts = journey.begin('Create first.txt and second.txt in the project and finish the request.', plans)
+            if gate is not None:
+                until(journey.session, gate.ready.is_set, 'initial round did not reach owned no-progress gate')
+                gate.release.set()
             if mode != 'no-progress':
                 journey.permission('first.txt', allow=mode == 'cancel')
             if mode == 'cancel':
                 until(journey.session, peer.cancel_started.is_set, 'continuation did not reach actual streaming boundary')
                 journey.capture('cancel-during-owned-continuation')
-                journey.session.command('cancel')
+                journey.session.command('cancel', settle=False)
                 until(journey.session, peer.cancel_closed.is_set, 'cancel did not close actual continuation socket')
             count = 2 if mode == 'deny' else 3
             journey.settled(None, posts + count)
@@ -152,6 +156,8 @@ def boundary_case(binary, output, root, size, mode):
             if journey is not None:
                 journey.capture('failure')
         finally:
+            if gate is not None:
+                gate.release.set()
             if journey is not None:
                 journey.close()
             save(output / 'results.json', report)
