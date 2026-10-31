@@ -14,8 +14,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Shared scenarios run once; compact/wide rendering and native file/install
-  # boundaries keep explicit real-binary coverage on every supported target.
+  # Every push qualifies native packages and compact/wide core interaction.
+  # Expanded protocol/tool contracts reuse these packages in terminal-regression.yml.
   check:
     name: Check
     runs-on: ubuntu-22.04
@@ -59,11 +59,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { name: macos-arm64, runner: macos-14, target: aarch64-apple-darwin, package: darwin-arm64, profile: macos }
-          - { name: macos-x86_64, runner: macos-15-intel, target: x86_64-apple-darwin, package: darwin-x86_64, profile: architecture }
-          - { name: linux-x86_64, runner: ubuntu-22.04, target: x86_64-unknown-linux-gnu, package: linux-x86_64, profile: full }
-          - { name: linux-arm64, runner: ubuntu-22.04-arm, target: aarch64-unknown-linux-gnu, package: linux-arm64, profile: architecture }
-          - { name: windows-x86_64, runner: windows-2022, target: x86_64-pc-windows-msvc, package: windows-x86_64, profile: windows }
+          - { name: macos-arm64, runner: macos-14, target: aarch64-apple-darwin, package: darwin-arm64 }
+          - { name: macos-x86_64, runner: macos-15-intel, target: x86_64-apple-darwin, package: darwin-x86_64 }
+          - { name: linux-x86_64, runner: ubuntu-22.04, target: x86_64-unknown-linux-gnu, package: linux-x86_64 }
+          - { name: linux-arm64, runner: ubuntu-22.04-arm, target: aarch64-unknown-linux-gnu, package: linux-arm64 }
+          - { name: windows-x86_64, runner: windows-2022, target: x86_64-pc-windows-msvc, package: windows-x86_64 }
     env:
       RUSTUP_TOOLCHAIN: 1.90.0
       CARGO_TERM_COLOR: never
@@ -138,23 +138,16 @@ jobs:
         run: python -m unittest discover -s scripts -p test_windows_conpty.py
       - name: Isolate current-run terminal evidence from compiler caches
         run: printf 'NATIVE_SMOKE_OUTPUT=%s/ev-native-workflows/%s-%s\n' "$RUNNER_TEMP" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" >> "$GITHUB_ENV"
-      - name: Exercise native coverage profile
+      - name: Exercise native core smoke
         run: |
           python scripts/native_workflows_smoke.py \
             --binary target/release/ev${{ runner.os == 'Windows' && '.exe' || '' }} \
-            --output "$NATIVE_SMOKE_OUTPUT" --profile "${{ matrix.profile }}" --jobs 2
+            --output "$NATIVE_SMOKE_OUTPUT" --profile architecture --jobs 2
       - name: Exercise fresh and explicit saved sessions
         run: |
           python scripts/session_smoke.py \
             --binary target/release/ev${{ runner.os == 'Windows' && '.exe' || '' }} \
             --output "$NATIVE_SMOKE_OUTPUT/sessions"
-      - name: Exercise reviewed contract capabilities
-        # Every size on the full-profile target; the compact size elsewhere.
-        run: |
-          python scripts/contract_smoke.py \
-            --binary target/release/ev${{ runner.os == 'Windows' && '.exe' || '' }} \
-            --output "$NATIVE_SMOKE_OUTPUT/contracts" --jobs 3 \
-            ${{ matrix.profile != 'full' && '--sizes 60x18' || '' }}
       - name: Retain platform file workflow evidence
         if: ${{ always() && env.NATIVE_SMOKE_OUTPUT != '' }}
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0

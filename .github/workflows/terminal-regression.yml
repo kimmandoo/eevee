@@ -1,0 +1,135 @@
+name: Extended terminal regressions
+
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: 'Qualified main commit or ref; empty uses the current workflow ref'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: terminal-regression-${{ github.event_name }}-${{ inputs.source_ref || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  qualify:
+    name: Select qualified native packages
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    outputs:
+      source-sha: ${{ steps.native.outputs.source-sha }}
+      run-id: ${{ steps.native.outputs.run-id }}
+      matrix: ${{ steps.native.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          ref: ${{ inputs.source_ref || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.12.9'
+      - name: Require complete same-commit main qualification
+        id: native
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: python
+        run: |
+          import json, os, pathlib, subprocess, sys
+          sys.path.insert(0, 'scripts')
+          from release_assets import TARGETS
+          from release_qualification import qualify
+          sha = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+          selected = qualify(os.environ['GITHUB_REPOSITORY'], int(os.environ['GITHUB_REPOSITORY_ID']), sha)
+          ids = dict(zip(TARGETS, selected['artifact-ids'].split(','), strict=True))
+          rows = [
+              {'name': 'linux-x86_64', 'runner': 'ubuntu-22.04', 'package': 'linux-x86_64', 'profile': 'full'},
+              {'name': 'macos-arm64', 'runner': 'macos-14', 'package': 'darwin-arm64', 'profile': 'macos'},
+              {'name': 'windows-x86_64', 'runner': 'windows-2022', 'package': 'windows-x86_64', 'profile': 'windows'},
+          ]
+          for row in rows:
+              row['artifact_id'] = ids[row['package']]
+          with pathlib.Path(os.environ['GITHUB_OUTPUT']).open('a', encoding='utf-8') as output:
+              output.write(f'source-sha={sha}\nrun-id={selected["run-id"]}\n')
+              output.write('matrix=' + json.dumps({'include': rows}) + '\n')
+          print(json.dumps({'source_sha': sha, **selected, 'matrix': rows}, indent=2))
+
+  regression:
+    name: Regressions / ${{ matrix.name }}
+    needs: qualify
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.qualify.outputs.matrix) }}
+    env:
+      PYTHONUTF8: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          ref: ${{ needs.qualify.outputs.source-sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.12.9'
+      - name: Download the exact qualified native package
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ needs.qualify.outputs.run-id }}
+          artifact-ids: ${{ matrix.artifact_id }}
+          merge-multiple: true
+          path: target/regression-package
+      - name: Install and verify the qualified package offline
+        shell: python
+        run: |
+          import os, pathlib, subprocess
+          packages = pathlib.Path('target/regression-package').resolve()
+          destination = pathlib.Path('target/regression-bin').resolve()
+          for installer in ('install.sh', 'install.ps1'):
+              if (packages / installer).read_bytes() != pathlib.Path(installer).read_bytes():
+                  raise ValueError('Installer differs from qualified source: ' + installer)
+          if os.name == 'nt':
+              command = ['powershell.exe', '-NoProfile', '-NonInteractive', '-File', 'install.ps1',
+                         '-Archive', packages / 'ev-${{ matrix.package }}.zip',
+                         '-Checksums', packages / 'SHA256SUMS', '-InstallDir', destination, '-NoAnimation']
+          else:
+              command = ['sh', 'install.sh', '--archive', packages / 'ev-${{ matrix.package }}.tar.gz',
+                         '--checksums', packages / 'SHA256SUMS', '--install-dir', destination, '--no-animation']
+          subprocess.run([str(value) for value in command], check=True, timeout=120)
+          binary = destination / ('ev.exe' if os.name == 'nt' else 'ev')
+          subprocess.run([str(binary), '--version'], check=True, timeout=30)
+      - name: Install terminal smoke dependencies
+        run: python -m pip install pyte==0.8.2 wcwidth==0.2.13
+      - name: Isolate regression evidence from package inputs
+        run: printf 'NATIVE_SMOKE_OUTPUT=%s/ev-terminal-regression/%s-%s\n' "$RUNNER_TEMP" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" >> "$GITHUB_ENV"
+      - name: Exercise expanded native protocol and tool coverage
+        run: |
+          python scripts/native_workflows_smoke.py \
+            --binary target/regression-bin/ev${{ runner.os == 'Windows' && '.exe' || '' }} \
+            --output "$NATIVE_SMOKE_OUTPUT" --profile "${{ matrix.profile }}" --jobs 2
+      - name: Exercise reviewed contract capabilities
+        run: |
+          python scripts/contract_smoke.py \
+            --binary target/regression-bin/ev${{ runner.os == 'Windows' && '.exe' || '' }} \
+            --output "$NATIVE_SMOKE_OUTPUT/contracts" --jobs 3 \
+            ${{ matrix.profile != 'full' && '--sizes 60x18' || '' }}
+      - name: Retain every selected regression result
+        if: ${{ always() && env.NATIVE_SMOKE_OUTPUT != '' }}
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: terminal-regressions-${{ matrix.package }}
+          path: ${{ env.NATIVE_SMOKE_OUTPUT }}/
+          if-no-files-found: error
+          retention-days: 14

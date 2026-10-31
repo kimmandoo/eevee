@@ -2,6 +2,7 @@
 
 ## 2026-10-31
 
+- ci(smoke): separated five-platform push/PR core qualification from daily/manual protocol/tool/contract regressions, retained compact/wide file and session boundaries, and reused exact qualified native packages without rebuilding expanded jobs.
 - feat(sessions)!: started ordinary `ev` launches with blank local work, added explicit `--continue`/`--resume [ID]` selection, changed `/new` and `/resume` into non-sending local navigation, waited for the exact old draft save before fresh work and refused silent missing/foreign/archived target substitution.
 - fix(approvals)!: ended in-memory task/session approval on fresh work and saved-task switches while retaining session consent across request-state resets in the same local work.
 - fix(ui): painted the complete TUI canvas and cleared overlay margins black, kept both text palettes readable and matched indexed/cell/Sixel sprite composition without changing terminal default colors or Kitty source alpha.

@@ -1,6 +1,6 @@
 # Eevee Implementation Plan
 
-Updated 2026-10-31. The active request covers black-canvas rendering, actionable provider account connection recovery, fresh-by-default local sessions with explicit saved-work navigation, and a qualified 0.1.42 release. Unrelated roadmap work and paid/live provider calls remain outside this request.
+Updated 2026-10-31. The active request covers black-canvas rendering, actionable provider account connection recovery, fresh-by-default local sessions, reduced per-push smoke cost and a qualified 0.1.42 release. Unrelated roadmap work and paid/live provider calls remain outside this request.
 
 Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPATIBILITY.md). Live-provider conformance remains distinct from implemented transports and deterministic runtime proof.
 
@@ -8,8 +8,9 @@ Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPAT
 
 1. Reused the current palette/artwork pipeline, native OAuth terminal ownership and task/store lifecycle; kept account/model preferences and retained work separate from a new local session. `/new` and `/resume` became local navigation, not Send aliases.
 2. Required source formatting, strict Clippy, complete Rust/Python/SDK checks and actual compact/wide session/provider/graphics journeys. Saved-work drivers must explicitly request continuation; no original failed result may be relabelled.
-3. Required a new exact-source main-push native run with Check and all five native jobs, including the new real-terminal fresh/continue/resume journey. Only its immutable package artifact IDs may qualify a new annotated tag.
-4. After publication, verify the public assets/checksums and exact qualified package bytes, then exercise downloaded-host installation and the changed session/provider surfaces. Record verification scope and the live-account/physical-terminal limits in the checkpoint; keep older tags/releases fixed.
+3. Reduced every-push terminal work to representative file consent/effects and fresh/explicit-resume sessions on all five native targets; retained all native unit/build/console/install and shared policy gates. Moved full protocol/tool/contract journeys to daily/manual regressions using exact qualified artifacts without rebuilding. Validate workflow syntax, actual core execution, artifact selection/installation and expanded dispatch; record measured CI times rather than promising a fixed speedup.
+4. Required a new exact-source main-push native run with Check and all five native jobs, including real-terminal fresh/continue/resume journeys. Only its immutable package artifact IDs may qualify a new annotated tag; expanded regression results remain separately attributed to their selected source.
+5. After publication, verify the public assets/checksums and exact qualified package bytes, then exercise downloaded-host installation and changed session/provider surfaces. Record verification scope and live-account/physical-terminal limits in the checkpoint; keep older tags/releases fixed.
 
 
 ## Completed delivery — Connection retention and terminal rendering (0.1.41)
