@@ -206,8 +206,7 @@ def main():
             project.mkdir()
             data = root / "data 空 格"
             def launch(name, directory=data, cwd=project, size=(120,36), extra=(), environment=None):
-                session = Session([str(binary), "--data-dir", str(directory), "--images", "off", "--color", "mono", *extra],
-                                  cwd, first_use_environment if environment is None else environment, size, output / name)
+                session = Session([str(binary), "--continue", "--data-dir", str(directory), "--images", "off", "--color", "mono", *extra], cwd, first_use_environment if environment is None else environment, size, output / name)
                 sessions.append(session)
                 session.pump(0.5)
                 return session

@@ -787,7 +787,7 @@ impl App {
     /// surface. Questions, other partners and settling/cancelling work are
     /// excluded.
     fn drive_auto_approval(&mut self) -> bool {
-        // A task change resets the task grant; the session grant carries over.
+        // Preserve the session grant across per-request planning-state resets.
         if self.auto_approve_session {
             self.planning.auto_approve = true;
         }
@@ -2217,13 +2217,13 @@ mod tests {
     }
 
     #[test]
-    fn session_auto_approval_survives_a_task_reset_but_task_approval_does_not() {
+    fn session_auto_approval_survives_request_state_reset_but_not_another_session() {
         for (command, kept) in [("auto-approve", false), ("auto-approve-session", true)] {
             let mut app = app();
             start(&mut app, 1, 1);
             assert!(app.command(command));
             assert_eq!(app.auto_approve_session, kept);
-            // A task change rebuilds the planning state.
+            // Resetting a request within the same local session keeps its grant.
             let task = app.task_id;
             app.planning.reset(task);
             start(&mut app, 1, 1);
@@ -2237,6 +2237,11 @@ mod tests {
                 "{command}"
             );
             assert!(app.command("auto-approve-off"));
+            assert!(!app.auto_approve_session && !app.planning.auto_approve);
+            app.auto_approve_session = true;
+            let mut other = store::Snapshot::empty("/workspace".into());
+            other.id = app.task_id + 1;
+            app.load_task(other);
             assert!(!app.auto_approve_session && !app.planning.auto_approve);
         }
     }
@@ -2581,7 +2586,7 @@ mod tests {
                 0 => app.transitioning = true,
                 1 => app.reset_after_save = true,
                 2 => app.quit_after_save = true,
-                3 => app.pending_request = Some((app.revision, false, false)),
+                3 => app.pending_request = Some((app.revision, false)),
                 4 => app.open_cancel_review(false),
                 5 => {
                     app.composer_menu = Some(composer::Menu {
@@ -2911,6 +2916,7 @@ mod tests {
         let config = Config {
             native_transport: crate::providers::NativeTransport::Auto,
             retry: Default::default(),
+            launch_session: Default::default(),
             ascii: true,
             no_animation: true,
             animation_override: Some(false),

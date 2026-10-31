@@ -167,6 +167,7 @@ fn config() -> Config {
     Config {
         native_transport: crate::providers::NativeTransport::Auto,
         retry: Default::default(),
+        launch_session: Default::default(),
         ascii: true,
         no_animation: true,
         animation_override: Some(false),

@@ -177,9 +177,8 @@ class Journey(held.Journey):
             (self.held_rows(), self.memories(), self.contexts(), self.outgoing_memories()) == original
         ), 'previous reader changed stale reference, actual memory or independent context'
         assert len(self.peer.snapshot('POST')) == posts, 'previous-reader inspection replayed a request'
-        self.session = SurfaceSession(self.restart_argv, self.project, self.restart_environment,
-                                      self.restart_size, self.output / 'current-after-previous',
-                                      )
+        self.session = SurfaceSession([*self.restart_argv, '--continue'], self.project, self.restart_environment,
+                                      self.restart_size, self.output / 'current-after-previous',)
         wait_for(self.session, 'Storage: saved', timeout=35)
         self.session.command('held')
         self.session.command('held-accept')

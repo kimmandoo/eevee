@@ -124,6 +124,13 @@ impl App {
             .party
             .iter()
             .find(|partner| partner.id == snapshot.lead_partner)
+            .or_else(|| {
+                if snapshot.id == 0 {
+                    self.party.first()
+                } else {
+                    None
+                }
+            })
             .cloned()
             .unwrap_or_else(|| store::Partner {
                 id: snapshot.lead_partner,
@@ -134,6 +141,7 @@ impl App {
         }
         self.lead = lead;
         if task_changed {
+            self.auto_approve_session = false;
             self.cooperation.parked.clear();
             self.cooperation.executions.clear();
             self.cooperation.execution_actions.clear();
@@ -263,8 +271,11 @@ impl App {
             return;
         }
         let mut task = store::Snapshot::empty(self.cwd.clone());
+        task.lead_partner = self.lead.id;
+        self.auto_approve_session = false;
         task.navigation.linear = self.linear;
         self.load_task(task);
+        self.launch_session = Some(crate::config::LaunchSession::Fresh);
         self.overlay = None;
         self.notice.clear();
         self.open_editor(store::EditorField::Request);

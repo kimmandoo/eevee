@@ -71,7 +71,7 @@ class ContributionsJourney(Journey):
     def choose_task(self, task):
         revision = self.task()['revision']
         self.session.command('tasks')
-        wait_for(self.session, 'Task cards / committed snapshots')
+        wait_for(self.session, 'Saved sessions / committed tasks')
         rows = re.findall(r'([ >])([ *]) #(\d+) (?:Open|Complete) /', self.session.display())
         index = next(index for index, row in enumerate(rows) if int(row[2]) == task)
         self.session.send(HOME + DOWN * index)
@@ -183,7 +183,7 @@ def run(binary, output, size):
             j.open_contributions(first)
             before = j.effects()
             j.session.send('g')
-            wait_for(j.session, 'Task cards / committed snapshots')
+            wait_for(j.session, 'Saved sessions / committed tasks')
             assert j.task()['id'] == current_task and j.task()['lead_partner'] == owner
             j.capture('cross-task-highlight-only')
             j.session.send(ESC)

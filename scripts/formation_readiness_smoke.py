@@ -123,9 +123,8 @@ class Journey:
 
     def launch(self):
         self.serial += 1
-        self.session = Session([str(self.binary), '--data-dir', str(self.data), '--images', 'off',
-                                '--color', 'mono', *(['--ascii'] if self.size[0] == 60 else [])],
-                               self.project, self.env, self.size, self.output / ('terminal-%02d' % self.serial))
+        self.session = Session([str(self.binary), '--continue', '--data-dir', str(self.data), '--images', 'off',
+                                '--color', 'mono', *(['--ascii'] if self.size[0] == 60 else [])], self.project, self.env, self.size, self.output / ('terminal-%02d' % self.serial))
         self.sessions.append(self.session)
         wait_for(self.session, 'Storage: saved', timeout=35)
 

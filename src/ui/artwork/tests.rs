@@ -46,6 +46,7 @@ impl Drop for TestDirectory {
 fn config(path: &Path) -> Config {
     Config {
         native_transport: crate::providers::NativeTransport::Auto,
+        launch_session: Default::default(),
         retry: Default::default(),
         ascii: false,
         no_animation: false,
@@ -60,6 +61,37 @@ fn config(path: &Path) -> Config {
         storage_policy: crate::store::Policy::default(),
         context_exclusions: Vec::new(),
         capture_capacity: 64 * 1024,
+    }
+}
+
+#[test]
+fn both_themes_composite_sprite_alpha_and_native_fallback_onto_black() {
+    let directory = TestDirectory::new();
+    let mut image = RgbaImage::from_pixel(2, 2, Rgba([255, 255, 255, 0]));
+    image.put_pixel(0, 0, Rgba([200, 100, 50, 128]));
+    fs::write(directory.0.join("133.png"), png(&image)).unwrap();
+    for theme in [Theme::Dark, Theme::Light] {
+        for color in [ColorMode::TrueColor, ColorMode::Indexed, ColorMode::Mono] {
+            let mut settings = config(&directory.0);
+            settings.theme = theme;
+            settings.color = color;
+            let mut artwork = Artwork::load(&settings);
+            let background = crate::ui::image_background(&settings);
+            assert_eq!(artwork.background_rgb(background), [0; 3]);
+            let target = Rect::new(0, 0, 2, 1);
+            artwork.prepare(&[(0, target)], background);
+            let key = artwork.key(0, target, background);
+            assert_eq!(key.background, [0; 3]);
+            assert!(!key.transparent);
+            // The original remains RGBA for Kitty; only the cell/Sixel
+            // fallback composites, without a theme-dependent white mat.
+            let original = artwork.original(0).unwrap();
+            assert_eq!(original.get_pixel(0, 0), &Rgba([200, 100, 50, 128]));
+            assert_eq!(
+                sample(original, 0, 0, 1, 1, key.background).0,
+                [100, 50, 25]
+            );
+        }
     }
 }
 
@@ -253,6 +285,7 @@ fn mono_ascii_and_indexed_rendering_have_real_boundaries() {
         output_color([95, 135, 175], ColorMode::Indexed),
         Color::Indexed(67)
     );
+    assert_eq!(output_color([0; 3], ColorMode::Indexed), Color::Indexed(16));
 }
 
 #[test]

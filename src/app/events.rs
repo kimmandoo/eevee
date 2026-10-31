@@ -386,15 +386,26 @@ impl App {
                 self.tasks = project.tasks;
                 self.party = project.partners.clone();
                 self.retain_slots();
-                let target = if self.task_id > 0 {
-                    Some(self.task_id)
-                } else {
-                    project.active_id
+                let launch = self.launch_session.take().filter(|_| self.task_id == 0);
+                let target = match launch {
+                    Some(
+                        crate::config::LaunchSession::Fresh | crate::config::LaunchSession::Picker,
+                    ) => None,
+                    Some(crate::config::LaunchSession::Continue) => project.active_id,
+                    Some(crate::config::LaunchSession::Task(id)) => Some(id),
+                    None if self.task_id > 0 => Some(self.task_id),
+                    None => project.active_id,
                 };
+                let missing = target.is_some_and(|id| {
+                    !self
+                        .tasks
+                        .iter()
+                        .any(|task| task.id == id && !task.archived)
+                });
                 if let Some(snapshot) = self
                     .tasks
                     .iter()
-                    .find(|task| Some(task.id) == target)
+                    .find(|task| Some(task.id) == target && !task.archived)
                     .cloned()
                 {
                     // The task's lead partner fronts this session; its stored
@@ -428,7 +439,7 @@ impl App {
                     let live_form = self.lead.form;
                     let live_auto_form = self.lead.auto_form;
                     self.lead = partner.clone();
-                    if local_changes {
+                    if local_changes || launch.is_some() {
                         self.lead.form = live_form;
                         self.lead.auto_form = live_auto_form;
                     } else {
@@ -443,6 +454,33 @@ impl App {
                     self.autosave = None;
                 }
                 self.refresh_save_state();
+                if self.task_id == 0 {
+                    let selection = self
+                        .visible_tasks()
+                        .position(|task| Some(task.id) == project.active_id)
+                        .unwrap_or(0);
+                    self.task_selection = selection;
+                }
+                if missing || launch == Some(crate::config::LaunchSession::Picker) {
+                    if self.editing {
+                        self.retain_action_editor();
+                    }
+                    self.open_overlay(Overlay::Tasks);
+                    if missing {
+                        self.notice = format!(
+                            "Session #{} is unavailable in this project. Choose saved work or Esc for a fresh session.",
+                            target.expect("missing target has an identity")
+                        );
+                    }
+                } else if launch == Some(crate::config::LaunchSession::Continue) && target.is_none()
+                {
+                    self.notice = "No saved session in this project. Starting fresh.".into();
+                }
+                if launch.is_some() && self.task_id == 0 {
+                    // A storage-only reopen must not turn a blank launch into
+                    // an implicit resume of the old persisted selection.
+                    self.launch_session = Some(crate::config::LaunchSession::Fresh);
+                }
             }
             store::Event::Selected(snapshot) => {
                 self.load_task(snapshot);

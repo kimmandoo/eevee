@@ -154,7 +154,8 @@ def main():
                 lead(1)
                 session.command("espeon")
                 assert draft(1) is None or not draft(1)["text"], "setup must not submit an existing request"
-                session.command("new")  # Empty Request only opens its editor; never sends.
+                if session.display().rstrip().splitlines()[-1].strip().startswith("Type Request |"):
+                    session.send("\r")
                 session.paste("원래 요청 draft 保持 🧭 sender")
                 session.send(LEFT * 4)
                 session.send("\x13")

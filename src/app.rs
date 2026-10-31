@@ -212,7 +212,7 @@ pub struct App {
     pub motion_override: Option<bool>,
     pub motion_choice: Option<bool>,
     /// In-memory standing approval for the lead's file changes and commands
-    /// that survives task changes and ends only on `/auto-approve-off` or quit.
+    /// that ends on a new/resumed local session, `/auto-approve-off` or quit.
     pub auto_approve_session: bool,
     /// Latest explicit store-global text density, retained through hydration.
     pub density_choice: Option<store::TextDensity>,
@@ -268,6 +268,7 @@ pub struct App {
     pub form_return_selected: bool,
     pub transitioning: bool,
     pub switch_task: Option<i64>,
+    pub launch_session: Option<crate::config::LaunchSession>,
     pub policy: store::Policy,
     pub usage_bytes: u64,
     pub archived: bool,
@@ -329,9 +330,9 @@ pub struct App {
     deletion_preview_pending: bool,
     /// Saved command text plus the partner that asked for it (PT06A).
     pending_command: Option<(String, store::Attribution)>,
-    /// Enter's save barrier: revision, resume transport, explicit fresh chat.
+    /// Enter's save barrier: revision and whether to resume owned transport.
     /// Never restored from disk or triggered by autosave.
-    pending_request: Option<(u64, bool, bool)>,
+    pending_request: Option<(u64, bool)>,
     pending_request_owner: Option<i64>,
     /// Explicit cancellation intent, bound to the task and lead that requested it.
     return_after_cancel: Option<(i64, i64)>,
@@ -430,6 +431,7 @@ impl App {
             form_return_selected: false,
             transitioning: false,
             switch_task: None,
+            launch_session: None,
             policy: store::Policy::default(),
             usage_bytes: 0,
             archived: false,

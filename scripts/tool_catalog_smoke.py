@@ -246,8 +246,8 @@ def run(binary, output, root, size, ):
             result['cases'].extend(['changed-schema-prevents-send', 'disconnected-server-requires-setup'])
             retained = journey.catalog()
             journey.finish()
-            journey.session = SurfaceSession(journey.restart_argv, journey.project, journey.restart_environment,
-                                             journey.restart_size, output / 'restart', )
+            journey.session = SurfaceSession([*journey.restart_argv, '--continue'], journey.project, journey.restart_environment,
+                                             journey.restart_size, output / 'restart',)
             wait_for(journey.session, 'Storage: saved', timeout=35)
             journey.session.command('tools inspect_bug')
             wait_for(journey.session, journey.labels['title'], timeout=35)

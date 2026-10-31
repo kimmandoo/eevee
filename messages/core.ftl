@@ -8,7 +8,7 @@ core-task-prefix = { "Task: " }
 core-request-start = Type your request below; Enter saves and sends it.
 core-request-save = Ctrl+S keeps a draft without sending.
 core-request-context = @ Attach files | /connect Choose provider
-core-request-tasks = /tasks Resume | /goal Optional task facts
+core-request-tasks = /resume Saved sessions | /new Fresh session
 
 core-terminal-too-small =
     { "Terminal too small" }
@@ -96,7 +96,7 @@ core-help-content =
     { "COMMANDS" }
     { " /connect /provider  Provider and connection method" }
     { " /model /effort      Model and reasoning effort" }
-    { " /new /resume        Send ordinary Request: fresh / owned conversation" }
+    { " /new /resume        Fresh session / choose saved work; never sends" }
     { " /session-new /session-resume" }
     { "                     Advanced: review exact session payload" }
     { " /task-new /tasks    Local tasks" }

@@ -150,10 +150,9 @@ class Journey(MovesJourney):
 
     def launch(self):
         self.serial += 1
-        self.session = RecordsSession([str(self.binary), '--data-dir', str(self.data), '--images', 'off',
-                                '--color', 'mono', *(['--ascii'] if self.ascii_mode else [])],
-                               self.project, self.environment, self.size,
-                               self.output / ('terminal-%02d' % self.serial), controlling_tty=True)
+        self.session = RecordsSession([str(self.binary), '--continue', '--data-dir', str(self.data), '--images', 'off',
+                                '--color', 'mono', *(['--ascii'] if self.ascii_mode else [])], self.project, self.environment, self.size,
+        self.output / ('terminal-%02d' % self.serial), controlling_tty=True)
         self.sessions.append(self.session)
         wait_for(self.session, 'Storage: saved', timeout=35)
 
@@ -190,7 +189,7 @@ class Journey(MovesJourney):
         prefixes = ('Type Request |', 'Type a request |', 'Enter Send |', 'Draft only |',
                     )
         known = (SOURCE_TITLE, 'Specialist desk', 'Local command evidence; no command running',
-                 'Approved memories', 'Task cards / committed snapshots', 'Repository / read-only evidence',
+                 'Approved memories', 'Saved sessions / committed tasks', 'Repository / read-only evidence',
                  'Partner summary', 'Form routes', 'Failure Dex', 'Task/form contributions',
                  'Ribbons / project history', 'Repeated authored instructions', 'Partner provider pairings',
                  'Portable task handoff / local-only', 'Party roster', 'Espeon /', 'Flareon /',
@@ -897,15 +896,15 @@ class Journey(MovesJourney):
         self.workspace()
         before = self.effects()
         self.session.command('tasks')
-        wait_for(self.session, 'Task cards / committed snapshots')
+        wait_for(self.session, 'Saved sessions / committed tasks')
         self.session.send(HOME)
         collected, screens = [], []
         for page in range(40):
             view = self.session.display()
             screens.append(view)
             display = view.splitlines()
-            title_y = next(y for y, line in enumerate(display) if 'Task cards / committed snapshots' in line)
-            title = 'Task cards / committed snapshots'
+            title_y = next(y for y, line in enumerate(display) if 'Saved sessions / committed tasks' in line)
+            title = 'Saved sessions / committed tasks'
             title_cells = self.session.screen.buffer[title_y]
             title_x = next(x for x in range(self.session.screen.columns - len(title) + 1)
                            if ''.join(title_cells[x + n].data for n in range(len(title))) == title)
@@ -1315,7 +1314,7 @@ class Journey(MovesJourney):
             self.session.send(ESC)
         self.workspace()
         self.session.command('tasks')
-        wait_for(self.session, 'Task cards / committed snapshots')
+        wait_for(self.session, 'Saved sessions / committed tasks')
         self.session.send(HOME)
         self.session.command('delete')
         wait_for(self.session, 'Review local task deletion')

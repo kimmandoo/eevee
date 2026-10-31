@@ -76,8 +76,7 @@ def main():
                     session.pump(0.05)
 
             def launch(name, size=(120, 36)):
-                session = Session([str(binary), '--data-dir', str(data), '--spool-kib', '1', '--images', 'off', '--color', 'mono'],
-                                  project, terminal_environment('mono'), size, output / name)
+                session = Session([str(binary), '--continue', '--data-dir', str(data), '--spool-kib', '1', '--images', 'off', '--color', 'mono'], project, terminal_environment('mono'), size, output / name)
                 sessions.append(session)
                 wait_for(session, 'Storage: saved')
                 return session

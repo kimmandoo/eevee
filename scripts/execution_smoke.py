@@ -181,8 +181,7 @@ def main():
                                cwd=project, check=True, capture_output=True, timeout=10)
 
             def launch(name):
-                session = Session([str(binary), "--data-dir", str(data), "--images", "off", "--color", "mono"],
-                                  project, terminal_environment("mono"), (120, 40), output / name)
+                session = Session([str(binary), "--continue", "--data-dir", str(data), "--images", "off", "--color", "mono"], project, terminal_environment("mono"), (120, 40), output / name)
                 sessions.append(session)
                 session.pump(0.5)
                 wait_for(session, "Storage: saved")
@@ -218,7 +217,7 @@ def main():
             def task_menu(session, index):
                 # The palette works from both the workspace and execution overlay.
                 session.command("tasks")
-                wait_for(session, "Task cards / committed snapshots")
+                wait_for(session, "Saved sessions / committed tasks")
                 wait_for(session, "Storage: saved")
                 session.send(HOME + DOWN * index)
                 wait_for(session, "Storage: saved")
@@ -227,7 +226,7 @@ def main():
             def switch(session, index, task_id):
                 task_menu(session, index)
                 until(session, lambda: rows()["active"] == task_id, "task switch did not commit")
-                until(session, lambda: "Task cards / committed snapshots" not in session.display(),
+                until(session, lambda: "Saved sessions / committed tasks" not in session.display(),
                       "task switch committed before its UI acknowledgement")
                 session.command("goal")
                 wait_for(session, task(task_id)["goal"])

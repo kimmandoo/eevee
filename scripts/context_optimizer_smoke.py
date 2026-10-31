@@ -45,12 +45,10 @@ def selected_packet(wire):
 class Journey(RecordsJourney):
     def launch(self):
         self.serial += 1
-        self.session = SurfaceSession(
-            [str(self.binary), '--data-dir', str(self.data), '--images', 'off',
-             '--color', 'mono', *(['--ascii'] if self.ascii_mode else [])],
-            self.project, self.environment, self.size,
-            self.output / ('terminal-%02d' % self.serial),
-            controlling_tty=True)
+        self.session = SurfaceSession([str(self.binary), '--continue', '--data-dir', str(self.data), '--images', 'off',
+         '--color', 'mono', *(['--ascii'] if self.ascii_mode else [])], self.project, self.environment, self.size,
+        self.output / ('terminal-%02d' % self.serial),
+        controlling_tty=True)
         self.sessions.append(self.session)
         wait_for(self.session, 'Storage: saved', timeout=35)
 

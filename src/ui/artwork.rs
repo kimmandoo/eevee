@@ -893,6 +893,11 @@ fn output_color(value: [u8; 3], mode: ColorMode) -> Color {
     if mode == ColorMode::TrueColor {
         return Color::Rgb(value[0], value[1], value[2]);
     }
+    // Use the fixed cube black rather than the user-configurable ANSI slot,
+    // matching the application's indexed canvas for transparent sprite pixels.
+    if value == [0; 3] {
+        return Color::Indexed(16);
+    }
     // The nearest cube entry is separable by channel; only that entry, the
     // nearest grayscale entry, and the 16 ANSI entries can minimize distance.
     const LEVELS: [u8; 6] = [0, 95, 135, 175, 215, 255];

@@ -145,8 +145,8 @@ class Journey(files.CreationJourney):
         confirm_exit(self.session)
         assert self.session.wait_exit() == 0
         self.session.close()
-        self.session = SurfaceSession(self.restart_argv, self.project, self.restart_environment,
-                                      self.restart_size, self.output / label, )
+        self.session = SurfaceSession([*self.restart_argv, '--continue'], self.project, self.restart_environment,
+                                      self.restart_size, self.output / label,)
         wait_for(self.session, 'Storage: saved', timeout=40)
 
 

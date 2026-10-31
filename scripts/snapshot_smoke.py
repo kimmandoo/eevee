@@ -163,7 +163,7 @@ def run(binary, output, root):
             # Same project identity, new data folder: inspection must never replay the request/run.
             baseline_posts = len(peer.snapshot('POST'))
             journey.data = restored
-            journey.session = SurfaceSession([str(binary), '--data-dir', str(restored), '--images', 'off', '--color', 'mono'],
+            journey.session = SurfaceSession([str(binary), '--continue', '--data-dir', str(restored), '--images', 'off', '--color', 'mono'],
                 journey.project, env, (120, 36), output / 'restored-tui', )
             session = journey.session
             wait_for(session, 'Storage: saved')

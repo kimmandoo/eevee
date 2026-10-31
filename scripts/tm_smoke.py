@@ -112,8 +112,7 @@ class Driver:
 
     def launch(self):
         self.serial += 1
-        self.session = Session([str(self.binary), "--data-dir", str(self.data), "--images", "off", "--color", "mono", ],
-                               self.project, self.environment, self.size, self.output / ("terminal-%02d" % self.serial))
+        self.session = Session([str(self.binary), "--continue", "--data-dir", str(self.data), "--images", "off", "--color", "mono",], self.project, self.environment, self.size, self.output / ("terminal-%02d" % self.serial))
         self.sessions.append(self.session)
         # Existing SQLite rows predate this process; wait for its first ready
         # frame before sending navigation or reading a footer.

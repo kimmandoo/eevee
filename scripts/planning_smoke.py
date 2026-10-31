@@ -60,8 +60,7 @@ def main():
                 environment = terminal_environment('mono')
                 if path_prefix is not None:
                     environment['PATH'] = str(path_prefix) + os.pathsep + environment.get('PATH', '')
-                session = Session([str(binary), '--data-dir', str(data), '--images', 'off', '--color', 'mono'],
-                                  project, environment, size, output / name)
+                session = Session([str(binary), '--continue', '--data-dir', str(data), '--images', 'off', '--color', 'mono'], project, environment, size, output / name)
                 sessions.append(session)
                 session.workbench_data = data
                 wait_for(session, 'Storage: saved')

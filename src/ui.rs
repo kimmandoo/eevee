@@ -145,9 +145,9 @@ struct Paint {
 }
 
 impl Paint {
-    fn new(config: &Config, form: &Form, index: usize) -> Self {
+    fn new(config: &Config, form: &Form, _index: usize) -> Self {
         if config.color == ColorMode::Mono {
-            let base = Style::default();
+            let base = Style::default().fg(Color::White).bg(Color::Black);
             return Self {
                 base,
                 surface: base,
@@ -157,39 +157,29 @@ impl Paint {
                 selected: base.add_modifier(Modifier::REVERSED | Modifier::BOLD),
             };
         }
-        let light = config.theme == Theme::Light;
-        // Body text keeps the terminal's own foreground so it stays readable
-        // on any background; `canvas` is only the text color on a selection.
-        let (canvas, muted, border) = match (config.color, light) {
-            (ColorMode::TrueColor, false) => (
-                Color::Rgb(18, 26, 25),
+        // Both theme preferences share the sprite's black canvas. Keep the
+        // light preference's warmer text without darkening its foregrounds.
+        let (foreground, muted, border) = match (config.color, config.theme) {
+            (ColorMode::TrueColor, Theme::Dark) => (
+                Color::Rgb(232, 239, 226),
                 Color::Rgb(171, 187, 160),
                 Color::Rgb(101, 130, 98),
             ),
-            (ColorMode::TrueColor, true) => (
-                Color::Rgb(232, 229, 204),
-                Color::Rgb(79, 99, 72),
-                Color::Rgb(112, 131, 91),
+            (ColorMode::TrueColor, Theme::Light) => (
+                Color::Rgb(240, 237, 216),
+                Color::Rgb(190, 198, 166),
+                Color::Rgb(125, 149, 106),
             ),
-            (_, false) => (Color::Indexed(233), Color::Indexed(144), Color::Indexed(65)),
-            (_, true) => (Color::Indexed(187), Color::Indexed(65), Color::Indexed(101)),
+            _ => (Color::Indexed(252), Color::Indexed(144), Color::Indexed(65)),
         };
         let accent = match config.color {
             ColorMode::TrueColor => {
                 let (r, g, b) = form.rgb;
-                if light {
-                    Color::Rgb(r / 2, g / 2, b / 2)
-                } else {
-                    Color::Rgb(r, g, b)
-                }
+                Color::Rgb(r, g, b)
             }
-            _ if light => Color::Indexed([94, 30, 100, 130, 97, 136, 65, 31, 132][index]),
             _ => Color::Indexed(form.indexed),
         };
-        // Borders, muted text and accents are colored, but nothing paints a
-        // background: the terminal's own background shows through. Only the
-        // selected choice keeps a filled accent so it stands out.
-        let base = Style::default();
+        let base = Style::default().fg(foreground).bg(image_background(config));
         Self {
             base,
             surface: base,
@@ -197,7 +187,7 @@ impl Paint {
             border: base.fg(border),
             accent: base.fg(accent).add_modifier(Modifier::BOLD),
             selected: Style::default()
-                .fg(canvas)
+                .fg(image_background(config))
                 .bg(accent)
                 .add_modifier(Modifier::BOLD),
         }
@@ -241,10 +231,14 @@ impl Paint {
     }
 }
 
-pub fn image_background(_config: &Config) -> Color {
-    // Fully transparent cell samples use the terminal background. Partial-alpha
-    // cell samples and opaque Sixel canvases use the theme's black/white fallback.
-    Color::Reset
+pub fn image_background(config: &Config) -> Color {
+    // Cell alpha and opaque native canvases composite onto the same surface.
+    // Kitty retains source alpha and reveals this canvas beneath it.
+    match config.color {
+        ColorMode::TrueColor => Color::Rgb(0, 0, 0),
+        ColorMode::Indexed => Color::Indexed(16),
+        ColorMode::Mono => Color::Black,
+    }
 }
 
 fn panel<'a>(title: &'a str, config: &Config, paint: &Paint, focused: bool) -> Block<'a> {
@@ -309,6 +303,28 @@ pub fn portrait_targets(app: &App, area: Rect, targets: &mut Vec<(usize, Rect)>)
 }
 
 pub fn render(
+    frame: &mut Frame,
+    app: &mut App,
+    config: &Config,
+    artwork: &mut Artwork,
+    graphics_status: &str,
+) {
+    render_content(frame, app, config, artwork, graphics_status);
+    // Clear resets cells rather than inheriting the canvas. Resolve only those
+    // defaults after every overlay (including early-return/small-screen paths),
+    // preserving explicit selection fills and the sprite's own colors.
+    let base = Paint::new(config, &FORMS[app.form().min(8)], app.form().min(8)).base;
+    for cell in &mut frame.buffer_mut().content {
+        if cell.bg == Color::Reset {
+            cell.bg = base.bg.unwrap_or(Color::Black);
+        }
+        if cell.fg == Color::Reset {
+            cell.fg = base.fg.unwrap_or(Color::White);
+        }
+    }
+}
+
+fn render_content(
     frame: &mut Frame,
     app: &mut App,
     config: &Config,
@@ -867,7 +883,7 @@ fn tasks(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &
         if app.show_archived {
             " Archived task cards "
         } else {
-            " Task cards / committed snapshots "
+            " Saved sessions / committed tasks "
         },
         config,
         paint,

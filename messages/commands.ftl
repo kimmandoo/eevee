@@ -1,8 +1,8 @@
 cmd-provider = { "Provider families and connections; nothing sent" }
 
-cmd-new = { "Send ordinary Request as a fresh conversation" }
+cmd-new = { "Start a fresh session; keep saved work, send nothing" }
 
-cmd-resume = { "Send ordinary Request using its owned conversation" }
+cmd-resume = { "Choose a saved session in this project; send nothing" }
 
 cmd-session-new = { "Advanced: review exact fresh-session payload" }
 

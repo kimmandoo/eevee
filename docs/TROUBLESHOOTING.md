@@ -1,5 +1,40 @@
 # Troubleshooting
 
+### [2026-10-31] Actual terminal checks exposed picker ownership and an OAuth fixture selector error
+
+- **Context / Symptom:** The first new session journey stayed in the saved-work picker after Esc. The initial native OAuth driver expected Browser but reached Device setup instead; its original `limits` string incorrectly claimed no public identity request.
+- **Root Cause:** The new `/resume` and launch-picker paths opened an overlay without parking the still-active composer, so its Escape handler ran first. The OAuth fixture sent four Up keys in a four-choice wrapping menu, returning to Device instead of selecting Browser.
+- **Solution:** Reused `retain_action_editor` before both picker entries and added ownership coverage. The Browser-only fixture now locates its visible selected row and verifies Browser—not Device—in the neutral review before authorization. It redacts transient device codes and reports only safe failure locations. The original failed reports remain separate; `target/release042-native-oauth/correction.json` corrects their scope: unauthenticated public device setup occurred twice, but no user account authentication, token exchange or model/paid call completed.
+- **Prevention / Reference:** Never qualify network isolation from an intended navigation sequence: inspect the actual reviewed method before affirmative input. Do not turn a new production bug into a two-Escape fixture workaround. The corrected Browser-only compact/wide input/callback/cancellation journeys passed separately on frozen candidate A.
+
+### [2026-10-31] Native account sign-in appeared stuck or hid its current failure
+
+- **Context / Symptom:** Account setup could suggest Browser on WSL/SSH, long manual redirect pastes appeared unresponsive, and Connections could show an older authentication outcome instead of the current admission/save error.
+- **Root Cause:** The native account menu ignored the platform-aware default method. Its terminal loop consumed one unbracketed key per 25 ms, making a 4 KiB redirect take over100 seconds. Completion discarded safe OAuth stage/status details; outcome precedence concealed newer errors. Device access/service refusal was incorrectly treated as proof of being signed out.
+- **Solution:** Honored the callback-free Device recommendation, drained at most256 input events per poll, kept input hidden with Ctrl+U/paste feedback, and carried only locally authored stage/reason/remedy plus HTTP status into correlated completion. Current credential/save failures retain their reason and block model selection/replay. Access/service refusal stays distinct from authentication-required.
+- **Prevention / Reference:** Loopback exchange/private-body-exclusion regressions and `scripts/native_oauth_input_smoke.py` qualify local behavior, not the user's specific account or live issuer/model eligibility. Registered127.0.0.1 and1457 were retained: [official OpenAI change](https://github.com/openai/codex/commit/4b97832cfb6c23a82fc7372abd34e71a98f43517). No actual credential was inspected.
+
+### [2026-10-31] Launching ev reopened old work instead of a fresh session
+
+- **Context / Symptom:** Startup restored the last task, draft/caret, form and panels. The pre-existing0.1.39 executable reproduced the old draft after exit/relaunch in `target/session-baseline/runtime/`; this remains baseline-scoped, not a0.1.41 runtime claim.
+- **Root Cause:** Initial hydration unconditionally used stored `active_id`; `/new` and `/resume` were Send aliases rather than local navigation.
+- **Solution:** Split fresh launch from explicit `--continue`/`--resume [ID]`, reused guarded task creation/selection, kept retained work and exact drafts, and made `/new`/`/resume` non-sending. Storage-only reopening stays blank; missing/foreign/archived targets show recovery without substituting unrelated work. New work uses an existing party owner after partner1 was released. Standing approval ends at local-work boundaries.
+- **Prevention / Reference:** `scripts/session_smoke.py` drives compact/wide terminal journeys; old retained-work drivers now explicitly request continuation. Saved work never implies restored native chat, provider threads, permission or replay.
+
+### [2026-10-31] Sprite padding did not match the terminal canvas
+
+- **Context / Symptom:** Default-colored panels contrasted with black sprite regions; Light used white image composition and centered overlays left reset-colored margins.
+- **Root Cause:** Palette/image background used terminal Reset, artwork inferred black/white from theme, and `Clear` reset cells outside smaller panels.
+- **Solution:** Painted explicit black, resolved reset cells after draws, kept both text palettes readable, used fixed indexed black16/shared black image composition and preserved selection/art colors and Kitty source alpha. Terminal default colors were not changed globally.
+- **Prevention / Reference:** Actual-draw regressions cover overlays, undersize views and color modes; sprite tests preserve opaque black pixels and alpha.
+
+### [2026-10-31] macOS system Python could not run release QA
+
+- **Context / Symptom:** System Python3.9 failed with `ModuleNotFoundError: No module named 'tomllib'` and lacked modern hashlib APIs; the separate3.12 interpreter lacked `pyte`.
+- **Root Cause:** The terminal's `python3` and the repository's Python3.12 CI runtime were separate installations/site packages.
+- **Solution:** Created isolated `target/qa042-venv` with Python3.12 and pinned pyte0.8.2/wcwidth0.2.13/Pillow11.3.0. Its script suite ran28 tests:24 passed, four Windows-only skips. No global Python packages changed.
+- **Prevention / Reference:** Use the selected interpreter/venv explicitly. Initial environment failures remain separate from behavior results.
+
 ### [2026-10-30] Public release audit exhausted the anonymous GitHub API quota
 
 - **Context / Symptom:** After v0.1.41 publication succeeded, the local provenance verifier received `HTTP Error 403: rate limit exceeded` while listing qualified artifacts.

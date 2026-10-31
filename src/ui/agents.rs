@@ -117,7 +117,9 @@ fn notice<'a>(state: &'a crate::app::agents::State, paint: &Paint) -> &'a str {
             return "";
         }
     }
-    if let Some(outcome) = state.auth_outcome(state.selected) {
+    if let Some(outcome) = state.auth_outcome(state.selected)
+        && state.notice.starts_with(outcome.label())
+    {
         return paint.hint(match outcome {
             crate::providers::auth::Outcome::Authenticated => Message::ProvidersNextModel,
             crate::providers::auth::Outcome::Unknown => Message::ProvidersLoginUnknown,
@@ -580,6 +582,12 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                     profile.action
                 );
                 let mut value = String::new();
+                // Current login failure comes first: the long policy/profile
+                // inventory must not hide the actionable reason after return.
+                if let Some(detail) = state.login_detail(state.selected) {
+                    value.push_str(detail);
+                    value.push_str("\n\n");
+                }
                 value.push_str(paint.hint(Message::DiagnosticsDetailBoundary));
                 if let Some(failure) = state.failure(state.selected) {
                     value.push('\n');
@@ -1108,6 +1116,61 @@ fn render_forget(
 mod tests {
     use super::*;
     use ratatui::{Terminal, backend::TestBackend, style::Style};
+
+    #[test]
+    fn current_connection_notice_is_not_hidden_by_a_prior_auth_outcome() {
+        use crate::providers::{Agent, auth::Outcome};
+        let style = Style::default();
+        let paint = Paint {
+            base: style,
+            surface: style,
+            muted: style,
+            border: style,
+            accent: style,
+            selected: style,
+        };
+        let mut state = crate::app::agents::State::new();
+        state.event(crate::providers::agent::Event::Discovered(vec![
+            crate::providers::agent::Profile {
+                revision: 1,
+                name: "Fixture".into(),
+                executable: Some("/fixture/codex".into()),
+                argv: vec![],
+                installed: String::new(),
+                version: String::new(),
+                authentication: String::new(),
+                configuration: String::new(),
+                os: String::new(),
+                architecture: String::new(),
+                adapter: String::new(),
+                action: String::new(),
+                billing: String::new(),
+                probe_allowed: false,
+                trust_preview: vec![],
+                blockers: vec![],
+                capabilities: vec![],
+            },
+        ]));
+        state.selected = Agent::Codex.index();
+        let reason =
+            "Private storage refused this save. Inspect the private directory before reconnecting.";
+        for outcome in [
+            Outcome::Authenticated,
+            Outcome::NotAuthenticated,
+            Outcome::Failed,
+        ] {
+            state.auth_returned(Agent::Codex.index(), outcome);
+            assert_eq!(state.auth_outcome(Agent::Codex.index()), Some(outcome));
+            state.page = Page::Methods;
+            state.notice = reason.into();
+            assert_eq!(notice(&state, &paint), reason);
+            state.notice = "Login saved; choose model metadata only. No task sent.".into();
+            assert_eq!(
+                notice(&state, &paint),
+                paint.hint(Message::ProvidersLoginSaved)
+            );
+        }
+    }
     #[test]
     fn minimum_diagnostic_summary_keeps_complete_reason_and_next_step() {
         use crate::providers::{Agent, diagnostics::Failure};
@@ -1168,6 +1231,7 @@ mod tests {
     fn full_connection_sheet_displays_every_disclosure_cell() {
         let config = Config {
             native_transport: crate::providers::NativeTransport::Auto,
+            launch_session: Default::default(),
             retry: Default::default(),
             ascii: true,
             no_animation: true,

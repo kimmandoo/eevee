@@ -164,6 +164,7 @@ fn run(config: Config) -> io::Result<()> {
         let mut planning = std::collections::BTreeMap::new();
         let size = terminal.size()?;
         let mut app = App::new(cwd.clone(), size.width, size.height);
+        app.launch_session = Some(config.launch_session);
         app.motion_override = config.animation_override;
         app.planning.native_transport = config.native_transport;
         providers::direct::retry::set_policy(config.retry);
@@ -307,6 +308,7 @@ fn run(config: Config) -> io::Result<()> {
                             openai_generation,
                             None,
                             auth::Outcome::Refused,
+                            None,
                         );
                     } else {
                         app.agents
@@ -353,6 +355,7 @@ fn run(config: Config) -> io::Result<()> {
                             openai_generation,
                             completion.openai_credential,
                             completion.outcome,
+                            completion.openai_failure,
                         );
                     } else {
                         app.connection_returned(plan.profile, completion.outcome);

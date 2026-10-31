@@ -91,7 +91,7 @@ def main():
                         session.pump(.05)
 
                 def launch(suffix):
-                    argv = [str(binary), "--data-dir", str(data), "--images", "off", "--color", "mono"]
+                    argv = [str(binary), "--continue", "--data-dir", str(data), "--images", "off", "--color", "mono"]
                     if size[0] == 60:
                         argv.append("--ascii")
                     s = Session(argv, project, env, size, output / f"{size[0]}-{suffix}")

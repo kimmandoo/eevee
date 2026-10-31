@@ -136,10 +136,9 @@ class Journey:
 
     def launch(self):
         self.serial += 1
-        self.session = Session([str(self.binary), "--data-dir", str(self.data), "--images", "off",
-                                "--color", "mono", *(["--ascii"] if self.ascii_mode else [])],
-                               self.project, self.environment, self.size,
-                               self.output / ("terminal-%02d" % self.serial))
+        self.session = Session([str(self.binary), "--continue", "--data-dir", str(self.data), "--images", "off",
+                                "--color", "mono", *(["--ascii"] if self.ascii_mode else [])], self.project, self.environment, self.size,
+        self.output / ("terminal-%02d" % self.serial))
         self.sessions.append(self.session)
         wait_for(self.session, "Storage: saved", timeout=35)
 
@@ -1154,7 +1153,7 @@ class Journey:
         self.workspace()
         assert len(self.state()["tasks"]) == 1, "purge fixture must delete its actual last task"
         self.session.command("tasks")
-        wait_for(self.session, "Task cards / committed snapshots")
+        wait_for(self.session, "Saved sessions / committed tasks")
         self.session.send(HOME)
         self.session.command("delete")
         wait_for(self.session, "Review local task deletion")

@@ -14,7 +14,7 @@ pub(super) struct Flow {
 }
 
 impl State {
-    /// Explicit /new intent survives the save barrier, not a provider thread ID.
+    /// Explicit /session-new intent is independent of a provider thread ID.
     pub(in crate::app) fn prepare_fresh_chat(&mut self, fresh: bool) {
         self.conversation_flow.fresh_intent = fresh;
     }

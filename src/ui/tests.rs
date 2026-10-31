@@ -3,8 +3,10 @@ use crate::config::{ImageMode, LayoutMode};
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
 
 fn luminance(color: Color) -> f64 {
-    let Color::Rgb(r, g, b) = color else {
-        panic!("true-color theme expected")
+    let (r, g, b) = match color {
+        Color::Rgb(r, g, b) => (r, g, b),
+        Color::Black => (0, 0, 0),
+        _ => panic!("true-color theme expected"),
     };
     let linear = |value: u8| {
         let v = f64::from(value) / 255.0;
@@ -45,6 +47,7 @@ fn all_true_color_forms_keep_readable_text_and_selection() {
     for theme in [Theme::Dark, Theme::Light] {
         let config = Config {
             native_transport: crate::providers::NativeTransport::Auto,
+            launch_session: Default::default(),
             retry: Default::default(),
             ascii: false,
             no_animation: false,
@@ -60,12 +63,8 @@ fn all_true_color_forms_keep_readable_text_and_selection() {
             context_exclusions: Vec::new(),
             capture_capacity: 64 * 1024,
         };
-        // No surface paints a background; colored text is measured against a
-        // typical terminal background for the theme.
-        let terminal = match theme {
-            Theme::Dark => Color::Rgb(18, 26, 25),
-            Theme::Light => Color::Rgb(232, 229, 204),
-        };
+        let canvas = image_background(&config);
+        assert_eq!(canvas, Color::Rgb(0, 0, 0));
         for (index, form) in FORMS.iter().enumerate() {
             let paint = Paint::new(&config, form, index);
             for style in [
@@ -75,19 +74,65 @@ fn all_true_color_forms_keep_readable_text_and_selection() {
                 paint.border,
                 paint.accent,
             ] {
-                assert_eq!(style.bg, None, "{} {theme:?}: {style:?}", form.name);
+                assert_eq!(style.bg, Some(canvas), "{} {theme:?}: {style:?}", form.name);
             }
-            // Body text keeps the terminal's own foreground.
-            assert_eq!(paint.base.fg, None);
-            for style in [paint.muted, paint.accent] {
+            for style in [paint.base, paint.surface, paint.muted, paint.accent] {
                 assert!(
-                    contrast(style.fg.unwrap(), terminal) >= 4.5,
+                    contrast(style.fg.unwrap(), canvas) >= 4.5,
                     "{} {theme:?}: {style:?}",
                     form.name
                 );
             }
-            assert!(contrast(paint.border.fg.unwrap(), terminal) >= 3.0);
+            assert!(contrast(paint.border.fg.unwrap(), canvas) >= 3.0);
             assert!(contrast(paint.selected.fg.unwrap(), paint.selected.bg.unwrap()) >= 4.5);
+        }
+    }
+}
+
+#[test]
+fn actual_draw_keeps_blank_cells_and_overlays_black_in_every_color_mode() {
+    use ratatui::{Terminal, backend::TestBackend};
+
+    for theme in [Theme::Dark, Theme::Light] {
+        for color in [ColorMode::TrueColor, ColorMode::Indexed, ColorMode::Mono] {
+            let mut config = home_config();
+            config.theme = theme;
+            config.color = color;
+            let mut artwork = Artwork::load(&config);
+            for (width, height) in [(120, 36), (60, 18), (39, 10)] {
+                let mut app = App::new("/workspace".into(), width, height);
+                let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+                for overlay in [
+                    None,
+                    Some(Overlay::Help),
+                    Some(Overlay::Forms),
+                    Some(Overlay::Agents),
+                    Some(Overlay::Formations),
+                    Some(Overlay::Memory),
+                    Some(Overlay::Held),
+                    Some(Overlay::ParkedDrafts),
+                    Some(Overlay::Companion),
+                    Some(Overlay::Receipts),
+                ] {
+                    app.overlay = overlay;
+                    terminal
+                        .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
+                        .unwrap();
+                    let paint = Paint::new(&config, &FORMS[app.form()], app.form());
+                    for cell in &terminal.backend().buffer().content {
+                        assert_ne!(cell.fg, Color::Reset, "{theme:?} {color:?} {overlay:?}");
+                        assert!(
+                            cell.bg == image_background(&config)
+                                || Some(cell.bg) == paint.selected.bg,
+                            "{theme:?} {color:?} {overlay:?}: {cell:?}"
+                        );
+                    }
+                    assert_eq!(
+                        terminal.backend().buffer()[(0, 0)].bg,
+                        image_background(&config)
+                    );
+                }
+            }
         }
     }
 }
@@ -215,6 +260,7 @@ fn compact_palette_shows_blocker_and_keys_without_mutating_draft() {
     let config = Config {
         native_transport: crate::providers::NativeTransport::Auto,
         retry: Default::default(),
+        launch_session: Default::default(),
         ascii: true,
         no_animation: false,
         animation_override: None,
@@ -275,6 +321,7 @@ fn compact_palette_shows_blocker_and_keys_without_mutating_draft() {
 fn home_config() -> Config {
     Config {
         native_transport: crate::providers::NativeTransport::Auto,
+        launch_session: Default::default(),
         retry: Default::default(),
         ascii: true,
         no_animation: true,

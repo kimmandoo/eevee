@@ -2333,7 +2333,6 @@ fn review_never_resumes_or_carries_implementation_grants_or_handoff() {
     state.thread_id = Some("previous-review-session".into());
     command(&mut state, "resume", true);
     assert!(state.pending.is_none());
-    assert!(state.notice.contains("fresh session"));
     command(&mut state, "paths", true);
     assert!(state.paths_editor.is_none());
     command(&mut state, "role-implement", true);

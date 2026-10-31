@@ -643,7 +643,7 @@ class ProgressJourney(SurfaceJourney):
                                   'binary_sha256': hashlib.sha256(old_binary.read_bytes()).hexdigest(),
                                   'database_sha256_unchanged': hashlib.sha256(original).hexdigest(),
                                   'shutdown': 'owned failed-storage probe terminated'})
-        self.session = SurfaceSession(self.argv, self.project, self.environment, self.size,
+        self.session = SurfaceSession([*self.argv, '--continue'], self.project, self.environment, self.size,
                                       self.output / (label + '-resumed'))
         wait_for(self.session, 'Storage: saved', timeout=40)
         self.session.pump(.3)
@@ -836,7 +836,7 @@ class ProgressJourney(SurfaceJourney):
         deleted_id = completed['tasks'][0]['id']
         count = self.dispatch_count()
         self.session.command('tasks')
-        wait_for(self.session, 'Task cards / committed snapshots')
+        wait_for(self.session, 'Saved sessions / committed tasks')
         self.session.send(HOME)
         self.session.command('delete')
         wait_for(self.session, 'Review local task deletion')

@@ -55,7 +55,7 @@ class Journey(CooperationJourney):
     def select_task(self, task):
         self.workspace()
         self.session.command('tasks')
-        wait_for(self.session, 'Task cards / committed snapshots')
+        wait_for(self.session, 'Saved sessions / committed tasks')
         rows = re.findall(r'#(\d+) (?:Open|Complete) /', self.session.display())
         assert str(task) in rows, self.session.display()
         self.session.send(HOME + DOWN * rows.index(str(task)) + '\r')
@@ -168,7 +168,7 @@ def run(binary, output, size, keep):
         j.until(lambda: next(row for row in j.tasks() if row['id'] == second)['archived'] == 1, 'archive second task')
         # Archiving the active task returns to the ordinary task chooser.
         # Explicitly resume its remaining active row before quitting.
-        j.until(lambda: 'Task cards / committed snapshots' in j.session.display()
+        j.until(lambda: 'Saved sessions / committed tasks' in j.session.display()
                 and re.findall(r'#(\d+) (?:Open|Complete) /', j.session.display()) == [str(first)],
                 'remaining active task picker rendered')
         j.session.send(HOME + '\r')

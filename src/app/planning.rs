@@ -1687,7 +1687,7 @@ impl State {
             } else if command == "resume"
                 && (self.operation == Operation::Review || self.thread_id.is_none())
             {
-                Some("Resume requires an owned same-task session. Independent Review requires a fresh session; choose /new.".into())
+                Some("Resume requires an owned same-task session. Independent Review requires a fresh provider session; choose /session-new.".into())
             } else if matches!(
                 command,
                 "paths" | "sessions" | "role-plan" | "role-implement"

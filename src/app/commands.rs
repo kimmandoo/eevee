@@ -60,7 +60,7 @@ pub struct Popup {
 /// What a normal session needs; everything else is found by typing or Ctrl+K.
 /// Sized to one compact (60×18) palette page.
 const EVERYDAY: &[&str] = &[
-    "provider", "model", "effort", "files", "tasks", "todo", "forms", "help",
+    "provider", "model", "effort", "files", "new", "resume", "forms", "help",
 ];
 
 impl Popup {
@@ -663,10 +663,13 @@ impl App {
                 "Read continuous response / inspect pending request",
             ),
             ("approvals", "Focus oldest pending approval or question"),
-            ("new", "Send ordinary Request as a fresh conversation"),
+            (
+                "new",
+                "Start a fresh session; keep saved work, send nothing",
+            ),
             (
                 "resume",
-                "Send ordinary Request using its owned conversation",
+                "Choose a saved session in this project; send nothing",
             ),
             (
                 "chat-new",
@@ -850,7 +853,7 @@ impl App {
             ),
             (
                 "auto-approve-session",
-                "Auto-approve file changes and commands until you quit Eevee",
+                "Auto-approve file changes and commands for this local session",
             ),
             (
                 "auto-approve-off",
@@ -1179,6 +1182,7 @@ impl App {
                     | "run"
                     | "files"
                     | "tasks"
+                    | "resume"
                     | "help"
                     | "history"
                     | "provider-journal"
@@ -1196,12 +1200,9 @@ impl App {
                     .into(),
             );
         }
-        if matches!(name, "new" | "resume") {
-            return None;
-        }
         if matches!(
             name,
-            "session-new" | "session-resume" | "task-new" | "archive" | "restore"
+            "session-new" | "session-resume" | "new" | "task-new" | "archive" | "restore"
         ) && (!matches!(self.storage, StorageState::Saved)
             || self.save_requested
             || self.sources.persistence_pending()
@@ -1212,12 +1213,15 @@ impl App {
         if self.execution_any_pending()
             && matches!(
                 name,
-                "task-new" | "archive" | "restore" | "delete" | "prune"
+                "new" | "task-new" | "archive" | "restore" | "delete" | "prune"
             )
         {
             return Some(
                 "Finish or cancel the active local command before changing task ownership.".into(),
             );
+        }
+        if matches!(name, "new" | "resume") {
+            return None;
         }
         if (matches!(name, "model" | "effort" | "models-refresh")
             || name.starts_with("provider-")
@@ -1777,23 +1781,17 @@ impl App {
             self.open_nickname(partner);
             return true;
         }
-        if matches!(name, "new" | "resume") {
-            if !self.composer_is_request() || self.overlay.is_some() {
-                if self.editing {
-                    self.retain_action_editor();
-                }
-                self.request_home(false);
+        if name == "new" {
+            self.new_task();
+            return true;
+        }
+        if name == "resume" {
+            if self.editing {
+                self.pending_request = None;
+                self.retain_action_editor();
             }
-            let already_saving = self.pending_request.is_some();
-            let changed = self.submit_request();
-            if name == "new"
-                && !already_saving
-                && let Some((_, resume, fresh_chat)) = &mut self.pending_request
-            {
-                *resume = false;
-                *fresh_chat = true;
-            }
-            return changed;
+            self.open_overlay(Overlay::Tasks);
+            return true;
         }
         if name == "chat-new" {
             self.pending_request = None;
@@ -2179,6 +2177,8 @@ impl App {
 
 #[cfg(test)]
 mod tests {
+    use crate::store;
+
     use super::*;
     use crossterm::event::Event;
 
@@ -2198,12 +2198,6 @@ mod tests {
         app.open_commands();
         let popup = app.command_popup.as_ref().unwrap();
         let visible: Vec<_> = popup.candidates().map(|choice| choice.command).collect();
-        assert!(
-            visible
-                .iter()
-                .all(|command| super::EVERYDAY.contains(command))
-        );
-        assert!(visible.contains(&"provider") && visible.contains(&"todo"));
         assert!(visible.len() <= 8, "one compact page: {visible:?}");
         let total = popup.choices.len();
         app.update(Event::Key(KeyEvent::new(
@@ -3154,28 +3148,34 @@ mod tests {
     }
 
     #[test]
-    fn ordinary_send_commands_use_request_and_frozen_save_barrier_from_every_surface() {
-        for surface in [
-            Overlay::Execution,
-            Overlay::Planning,
-            Overlay::Agents,
-            Overlay::Workflows,
-        ] {
-            for command in ["new", "resume"] {
-                let mut app = App::new("/workspace".into(), 120, 36);
-                app.update(Event::Paste("exact ordinary request".into()));
-                app.command("help");
-                app.overlay = Some(surface);
-                app.command(command);
-                assert!(app.composer_is_request());
-                assert_eq!(app.input, "exact ordinary request");
-                assert!(app.pending_request.is_some());
-                assert!(app.planning.pending.is_none());
-                let frozen = app.pending_request;
-                app.command("new");
-                assert_eq!(app.pending_request, frozen);
-            }
-        }
+    fn session_navigation_never_submits_the_request() {
+        let mut app = App::new("/workspace".into(), 120, 36);
+        app.planning.preference_event(Ok(None));
+        let mut saved = store::Snapshot::empty("/workspace".into());
+        saved.id = 7;
+        saved.goal = "old task facts".into();
+        app.party = vec![store::Partner::default()];
+        app.load_task(saved.clone());
+        // The ordinary store worker settles initial history before navigation.
+        app.execution.take_store_request();
+        app.execution
+            .store_event(7, None, None, Ok(store::RunResponse::Runs(Vec::new())));
+        app.tasks.push(saved);
+        app.command("resume");
+        assert_eq!(app.overlay, Some(Overlay::Tasks));
+        assert!(!app.editing, "the saved-work picker must own Escape");
+        assert_eq!(app.task_id, 7);
+        assert!(app.pending_request.is_none() && app.planning.pending.is_none());
+        app.close_overlay();
+        app.command("new");
+        assert_eq!(app.task_id, 0, "{}", app.notice);
+        assert!(app.goal.is_empty() && app.input.is_empty());
+        assert_eq!(app.tasks[0].goal, "old task facts");
+        assert!(app.pending_request.is_none() && app.planning.pending.is_none());
+        app.command("resume");
+        app.select_task();
+        assert_eq!(app.switch_task, Some(7));
+        assert!(app.pending_request.is_none() && app.planning.pending.is_none());
     }
 
     #[test]

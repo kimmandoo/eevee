@@ -136,9 +136,8 @@ class Journey(evolution_smoke.Journey):
     def restart_with(self, *extra):
         self.finish()
         self.restart_argv.extend(extra)
-        self.session = SurfaceSession(self.restart_argv, self.project, self.restart_environment,
-                                      self.restart_size, self.output / ('restart-' + str(getattr(self, '_restarts', 0))),
-                                      )
+        self.session = SurfaceSession([*self.restart_argv, '--continue'], self.project, self.restart_environment,
+                                      self.restart_size, self.output / ('restart-' + str(getattr(self, '_restarts', 0))),)
         self._restarts = getattr(self, '_restarts', 0) + 1
         wait_for(self.session, 'Storage: saved', timeout=35)
 
@@ -317,8 +316,8 @@ def run(binary, output, root, size, ascii_mode, ):
             other_project.mkdir()
             subprocess.run(['git', 'init', '-q', '--template='], cwd=other_project,
                            check=True, capture_output=True)
-            journey.session = SurfaceSession(journey.restart_argv, other_project, journey.restart_environment,
-                                              journey.restart_size, output / 'other-project', )
+            journey.session = SurfaceSession([*journey.restart_argv, '--continue'], other_project, journey.restart_environment,
+                                              journey.restart_size, output / 'other-project',)
             wait_for(journey.session, 'Storage: saved', timeout=35)
             journey.session.command('held')
             assert memory_label not in journey.session.display() and PATH not in journey.session.display(), \
@@ -326,8 +325,8 @@ def run(binary, output, root, size, ascii_mode, ):
             journey.capture('project-isolated-with-shared-data')
             journey.finish()
             assert journey.held_rows() == saved, 'visiting another project rewrote original scoped preference'
-            journey.session = SurfaceSession(journey.restart_argv, journey.project, journey.restart_environment,
-                                              journey.restart_size, output / 'original-project-return', )
+            journey.session = SurfaceSession([*journey.restart_argv, '--continue'], journey.project, journey.restart_environment,
+                                              journey.restart_size, output / 'original-project-return',)
             wait_for(journey.session, 'Storage: saved', timeout=35)
             journey.session.command('lead 1')
             journey.session.command('vaporeon')

@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-10-31
+
+- feat(sessions)!: started ordinary `ev` launches with blank local work, added explicit `--continue`/`--resume [ID]` selection, changed `/new` and `/resume` into non-sending local navigation, preserved retained facts/drafts/carets and refused silent missing/foreign/archived target substitution.
+- fix(approvals)!: ended in-memory task/session approval on fresh work and saved-task switches while retaining session consent across request-state resets in the same local work.
+- fix(ui): painted the complete TUI canvas and cleared overlay margins black, kept both text palettes readable and matched indexed/cell/Sixel sprite composition without changing terminal default colors or Kitty source alpha.
+- fix(auth): honored callback-free account-login recommendations on WSL/SSH, drained bounded hidden redirect input promptly, added clear/paste recovery and retained safe stage/status diagnostics instead of hiding newer connection/save errors behind stale authentication outcomes.
+- fix(sessions): kept fresh task creation bound to an existing party member after the first partner was released, and migrated retained-work terminal journeys to explicit continuation.
+- chore(release): advanced the package version to 0.1.42.
+
 ## 2026-10-30
 
 - docs(release): published v0.1.41 from `ee36d8d` after native41041773990 attempt1 and release41046301959, verified all eight public assets and seven checksum rows against the five exact qualified package artifacts, and preserved earlier tags/releases.
@@ -337,6 +346,14 @@
 - docs(release): published v0.1.19 from source `c4ce4a2` after exact-source Check/all-five-native qualification and immutable promotion, retaining Schema 16 and complete SDK bridge 8.
 - test(terminal): acknowledged the new one-time evolution receipt before checking preserved goal/edit/discard behavior in the actual compact installed runtime without changing the published executable.
 - docs(verification): verified all public assets, sixteen bilingual automatic-review/file-progress journeys/64 groups, 24 file journeys/126 groups, evolution popups and preserved typing, scrolling/tooltips, native 176 groups, cooperation 24, six genuine schema upgrade/refusal/resume cases and 23 installation groups/all 34 installed terminal scenarios.
+
+## 0.1.42
+
+- feat(sessions)!: opened fresh local work by default; added `ev --continue`, `ev --resume [ID]` and non-sending `/new`/`/resume` navigation while retaining old tasks and exact drafts/carets.
+- fix(ui): unified the TUI and sprite fallback on a solid-black canvas with readable light text, visible selections and unchanged native sprite alpha.
+- fix(auth): suggested Device login for remote/WSL sessions, handled long hidden redirect pastes promptly and displayed safe login-stage/HTTP-status/recovery details without leaking private responses or concealing current save failures.
+- fix(approvals)!: stopped session approval at fresh/resumed local-work boundaries instead of carrying it into a different saved task.
+- fix(sessions): preserved a valid party owner for fresh work and retained explicit save/ownership/no-replay guards; no live-provider eligibility, billing or physical-terminal compatibility was inferred from controlled verification.
 
 ## 0.1.41
 

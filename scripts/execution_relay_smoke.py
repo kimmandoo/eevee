@@ -180,7 +180,15 @@ def main():
                 assert rows()[3] == 0, "local relay navigation created a provider journal"
                 session.command("lead #2")
                 session.command("provider-codex")
-                session.command("new")
+                for _ in range(8):
+                    if session.display().rstrip().splitlines()[-1].strip().startswith(
+                            ("Type Request |", "Enter Send |", "Draft only |")):
+                        break
+                    session.send(ESC)
+                else:
+                    raise AssertionError("Request composer not reachable\n" + session.display())
+                if session.display().rstrip().splitlines()[-1].strip().startswith("Type Request |"):
+                    session.send("\r")
                 session.paste("COOP_IDLE_BUSY")
                 session.send("\r")
                 deadline = time.monotonic() + 60

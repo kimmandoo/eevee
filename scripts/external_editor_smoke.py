@@ -123,8 +123,7 @@ def journey(binary, output, size):
 
     def launch():
         nonlocal session
-        session = Session([str(binary), '--data-dir', str(data), '--images', 'off', '--color', 'mono'],
-                          project, env, size, output / ('terminal-' + str(len(report['journeys']))), controlling_tty=True)
+        session = Session([str(binary), '--continue', '--data-dir', str(data), '--images', 'off', '--color', 'mono'], project, env, size, output / ('terminal-' + str(len(report['journeys']))), controlling_tty=True)
         wait_for(session, 'Storage: saved', timeout=30)
 
     def finish():

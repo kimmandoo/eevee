@@ -60,7 +60,7 @@ class Journey:
                            CODEX_API_KEY="cooperation-fixture-not-real", EV_COOP_CONTROL=str(self.control),
                            EV_COOP_LOG=str(self.log), EV_COOP_EDIT_PATH="calc.py", EV_COOP_EDIT_CONTENT=self.replacement,
                            EV_PROVIDER="compatible", EV_API_BASE_URL="http://127.0.0.1:9/v1", EV_API_MODEL="unused", EV_API_KEYLESS="1")
-        self.argv = [str(binary), "--data-dir", str(self.data), "--images", "off", "--color", "mono"]
+        self.argv = [str(binary), "--continue", "--data-dir", str(self.data), "--images", "off", "--color", "mono"]
         if size[0] == 60:
             self.argv.append("--ascii")
         self.size, self.environment, self.output = size, environment, output / f"{size[0]}-{name}"

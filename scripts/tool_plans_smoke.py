@@ -122,8 +122,7 @@ def main():
                 subprocess.run(['git', '-c', 'core.hooksPath=', *argv], cwd=project,
                                check=True, capture_output=True, timeout=10)
             def launch(label):
-                session = Session([str(binary), '--data-dir', str(data), '--images', 'off', '--color', 'mono'],
-                                  project, terminal_environment('mono'), (120, 36), output / label)
+                session = Session([str(binary), '--continue', '--data-dir', str(data), '--images', 'off', '--color', 'mono'], project, terminal_environment('mono'), (120, 36), output / label)
                 sessions.append(session)
                 wait_for(session, 'Storage: saved')
                 return session

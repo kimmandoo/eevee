@@ -143,6 +143,11 @@ jobs:
           python scripts/native_workflows_smoke.py \
             --binary target/release/ev${{ runner.os == 'Windows' && '.exe' || '' }} \
             --output "$NATIVE_SMOKE_OUTPUT" --profile "${{ matrix.profile }}" --jobs 2
+      - name: Exercise fresh and explicit saved sessions
+        run: |
+          python scripts/session_smoke.py \
+            --binary target/release/ev${{ runner.os == 'Windows' && '.exe' || '' }} \
+            --output "$NATIVE_SMOKE_OUTPUT/sessions"
       - name: Exercise reviewed contract capabilities
         # Every size on the full-profile target; the compact size elsewhere.
         run: |

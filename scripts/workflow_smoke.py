@@ -89,8 +89,7 @@ def main():
                     session.pump(0.05)
 
             def launch(name, cwd=project, restored_memory=False):
-                session = Session([str(binary), "--data-dir", str(data), "--images", "off", "--color", "mono"],
-                                  cwd, terminal_environment("mono"), (120, 36), output / name)
+                session = Session([str(binary), "--continue", "--data-dir", str(data), "--images", "off", "--color", "mono"], cwd, terminal_environment("mono"), (120, 36), output / name)
                 sessions.append(session)
                 if restored_memory:
                     wait_for(session, "Approved memories", timeout=35)
@@ -450,7 +449,7 @@ def main():
             quit_app(resumed)
             recovered = launch("linked-evidence-resume", restored_memory=True)
             recovered.command("tasks")
-            wait_for(recovered, "Task cards / committed snapshots")
+            wait_for(recovered, "Saved sessions / committed tasks")
             wait_for(recovered, "Storage: saved")
             recovered.send(HOME)
             wait_for(recovered, "Storage: saved")
@@ -478,7 +477,7 @@ def main():
             passed("Unresolved finding and exact next action resume with inspectable stored source and actual run output")
             recovered.send(ESC)
             recovered.command("tasks")
-            wait_for(recovered, "Task cards / committed snapshots")
+            wait_for(recovered, "Saved sessions / committed tasks")
             wait_for(recovered, "Storage: saved")
             recovered.send(HOME)
             recovered.command("delete")

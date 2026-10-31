@@ -14,6 +14,26 @@ const INPUT_LIMIT: usize = 16 * 1024;
 const DEVICE_TIMEOUT: Duration = Duration::from_secs(900);
 const EXPIRY_SKEW: u64 = 60;
 
+/// Content-free login diagnostics. Only locally authored stages/reasons and an
+/// HTTP status may cross back into the workbench; never response bodies or URLs.
+#[derive(Clone, Copy, Debug)]
+pub struct OpenAiFailure {
+    stage: &'static str,
+    reason: &'static str,
+    status: Option<u16>,
+}
+impl OpenAiFailure {
+    pub fn message(self) -> String {
+        let status = self
+            .status
+            .map_or(String::new(), |status| format!(" (HTTP {status})"));
+        format!(
+            "{}{}: {} No connection settings changed; no task sent.",
+            self.stage, status, self.reason
+        )
+    }
+}
+
 /// A one-use result of the reviewed OAuth exchange, never a generic bearer guess.
 /// No Debug/serialization surface exposes identity or secret bytes. Renewal is
 /// deliberately not automatic: reconnect when this access grant expires.
@@ -209,6 +229,7 @@ struct Endpoint {
     issuer: String,
     client: reqwest::Client,
     poll_floor: Duration,
+    failure: std::cell::Cell<Option<OpenAiFailure>>,
 }
 impl Endpoint {
     fn official() -> Result<Self, Outcome> {
@@ -224,6 +245,7 @@ impl Endpoint {
             issuer: ISSUER.into(),
             client,
             poll_floor: Duration::from_secs(1),
+            failure: std::cell::Cell::new(None),
         })
     }
     #[cfg(test)]
@@ -241,39 +263,64 @@ impl Endpoint {
                 .build()
                 .unwrap(),
             poll_floor: Duration::ZERO,
+            failure: std::cell::Cell::new(None),
         }
+    }
+    fn failed(
+        &self,
+        stage: &'static str,
+        reason: &'static str,
+        status: Option<u16>,
+        outcome: Outcome,
+    ) -> Outcome {
+        self.failure.set(Some(OpenAiFailure {
+            stage,
+            reason,
+            status,
+        }));
+        outcome
     }
     async fn send(
         &self,
+        stage: &'static str,
         request: reqwest::RequestBuilder,
         control: &mut impl FnMut() -> Result<(), Outcome>,
     ) -> Result<(u16, Value), Outcome> {
+        self.failure.set(Some(OpenAiFailure {
+            stage,
+            reason: "The identity service returned incomplete or invalid login data. Start a fresh login; no credential was accepted.",
+            status: None,
+        }));
         let mut response = guarded(request.send(), control)
             .await?
-            .map_err(|_| Outcome::Failed)?;
+            .map_err(|error| self.failed(stage, if error.is_timeout() {
+                "The identity service timed out. Check your network/proxy and start a fresh login deliberately."
+            } else {
+                "Could not reach the identity service. Check your network, proxy and TLS trust settings, then start a fresh login."
+            }, None, Outcome::Failed))?;
         let status = response.status().as_u16();
         if (300..400).contains(&status) {
-            return Err(Outcome::Refused);
+            return Err(self.failed(stage, "The identity service redirected this private request; redirects are refused. Check your proxy/network and start a fresh login.", Some(status), Outcome::Refused));
         }
         if response
             .content_length()
             .is_some_and(|len| len > BODY_LIMIT as u64)
         {
-            return Err(Outcome::Failed);
+            return Err(self.failed(stage, "The identity service response exceeded the safe size limit. Start a fresh login; do not paste tokens into the Request.", None, Outcome::Failed));
         }
         let mut bytes = Vec::new();
         while let Some(chunk) = guarded(response.chunk(), control)
             .await?
-            .map_err(|_| Outcome::Failed)?
+            .map_err(|_| self.failed(stage, "The identity service response was interrupted. Start a fresh login; this exchange was not resent.", None, Outcome::Failed))?
         {
             if bytes.len() + chunk.len() > BODY_LIMIT {
-                return Err(Outcome::Failed);
+                return Err(self.failed(stage, "The identity service response exceeded the safe size limit. Start a fresh login; do not paste tokens into the Request.", None, Outcome::Failed));
             }
             bytes.extend_from_slice(&chunk);
         }
         // Error bodies are neither printed nor required to be JSON.
         let body = if (200..300).contains(&status) {
-            serde_json::from_slice(&bytes).map_err(|_| Outcome::Failed)?
+            serde_json::from_slice(&bytes).map_err(|_| self.failed(stage, "The identity service returned an unreadable response. Check your proxy/network and start a fresh login.", None, Outcome::Failed))?
         } else {
             Value::Null
         };
@@ -300,11 +347,11 @@ impl Endpoint {
                 ("code_verifier", verifier),
                 ("redirect_uri", redirect),
             ]);
-        let (status, value) = self.send(request, control).await?;
+        let (status, value) = self.send("Token exchange", request, control).await?;
         if status != 200 {
-            return Err(Outcome::NotAuthenticated);
+            return Err(self.failed("Token exchange", "The identity service refused the authorization code. Check network/workspace policy and start a fresh login; old redirects/codes cannot be reused.", Some(status), if matches!(status, 400 | 401) { Outcome::NotAuthenticated } else { Outcome::Failed }));
         }
-        let credential = credential(value, now()?)?;
+        let credential = credential(value, now()?).map_err(|outcome| self.failed("Credential validation", "The returned access grant is expired or has invalid identity/lifetime metadata. Start a fresh login; no credential was accepted.", None, outcome))?;
         control()?;
         Ok(credential)
     }
@@ -315,6 +362,7 @@ impl Endpoint {
     ) -> Result<OpenAiCredential, Outcome> {
         let (status, value) = self
             .send(
+                "Device authorization setup",
                 self.client
                     .post(format!("{}/api/accounts/deviceauth/usercode", self.issuer))
                     .json(&serde_json::json!({"client_id": CLIENT_ID})),
@@ -322,7 +370,7 @@ impl Endpoint {
             )
             .await?;
         if status != 200 {
-            return Err(Outcome::NotAuthenticated);
+            return Err(self.failed("Device authorization setup", "Device login was refused or is unavailable. Check network access and ChatGPT Settings > Security/workspace policy, or explicitly choose Browser login.", Some(status), if status == 401 { Outcome::NotAuthenticated } else { Outcome::Failed }));
         }
         let device_id = value
             .get("device_auth_id")
@@ -353,6 +401,7 @@ impl Endpoint {
                 return Err(Outcome::Expired);
             }
             let (status, result) = self.send(
+                "Device authorization polling",
                 self.client.post(format!("{}/api/accounts/deviceauth/token", self.issuer))
                     .json(&serde_json::json!({"device_auth_id": device_id, "user_code": user_code})), control,
             ).await?;
@@ -367,7 +416,7 @@ impl Endpoint {
                 continue;
             }
             if status != 200 {
-                return Err(Outcome::NotAuthenticated);
+                return Err(self.failed("Device authorization polling", "The identity service refused device authorization. Check network access and ChatGPT Settings > Security/workspace policy, then start a fresh login.", Some(status), if status == 401 { Outcome::NotAuthenticated } else { Outcome::Failed }));
             }
             if started.elapsed() >= DEVICE_TIMEOUT {
                 return Err(Outcome::Expired);
@@ -554,46 +603,8 @@ impl Terminal {
         if self.started.elapsed() >= self.timeout {
             return Err(Outcome::Expired);
         }
-        use crossterm::event::{Event, KeyCode, KeyEventKind, KeyModifiers};
-        match self
-            .input
-            .read_timeout(Duration::ZERO)
-            .map_err(|_| Outcome::Failed)?
-        {
-            Some(Event::Key(key)) if key.kind != KeyEventKind::Release => match key.code {
-                KeyCode::Esc => return Err(Outcome::Cancelled),
-                KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                    return Err(Outcome::Cancelled);
-                }
-                KeyCode::Enter => return Ok(Some(std::mem::take(&mut self.paste))),
-                KeyCode::Backspace => {
-                    self.paste.pop();
-                }
-                KeyCode::Char(ch)
-                    if !ch.is_control()
-                        && !key
-                            .modifiers
-                            .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
-                {
-                    if self.paste.len() + ch.len_utf8() > INPUT_LIMIT {
-                        self.paste.clear();
-                        return Err(Outcome::Refused);
-                    }
-                    self.paste.push(ch);
-                }
-                _ => {}
-            },
-            Some(Event::Paste(value)) => {
-                if self.paste.len() + value.len() > INPUT_LIMIT {
-                    self.paste.clear();
-                    return Err(Outcome::Refused);
-                }
-                self.paste
-                    .extend(value.chars().filter(|ch| !ch.is_control()));
-            }
-            _ => {}
-        }
-        Ok(None)
+        let input = &mut self.input;
+        read_input(&mut self.paste, || input.read_timeout(Duration::ZERO))
     }
     fn read(&mut self) -> Result<Option<String>, Outcome> {
         let next = self.poll()?;
@@ -605,6 +616,59 @@ impl Terminal {
         }
         Ok(())
     }
+}
+
+/// Drain a buffered paste promptly, with bounded work per cancellation poll.
+/// Unbracketed redirects arrive as Key events, not one Paste event; handling
+/// only one per 25ms makes a long manual redirect appear stuck.
+fn read_input(
+    paste: &mut String,
+    mut read: impl FnMut() -> std::io::Result<Option<crossterm::event::Event>>,
+) -> Result<Option<String>, Outcome> {
+    use crossterm::event::{Event, KeyCode, KeyEventKind, KeyModifiers};
+    for _ in 0..256 {
+        match read().map_err(|_| Outcome::Failed)? {
+            Some(Event::Key(key)) if key.kind != KeyEventKind::Release => match key.code {
+                KeyCode::Esc => return Err(Outcome::Cancelled),
+                KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                    return Err(Outcome::Cancelled);
+                }
+                KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                    paste.clear();
+                }
+                KeyCode::Enter => return Ok(Some(std::mem::take(paste))),
+                KeyCode::Backspace => {
+                    paste.pop();
+                }
+                KeyCode::Char(ch)
+                    if !ch.is_control()
+                        && !key
+                            .modifiers
+                            .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+                {
+                    if paste.len() + ch.len_utf8() > INPUT_LIMIT {
+                        paste.clear();
+                        return Err(Outcome::Refused);
+                    }
+                    paste.push(ch);
+                }
+                _ => {}
+            },
+            Some(Event::Paste(value)) => {
+                if paste.len() + value.len() > INPUT_LIMIT {
+                    paste.clear();
+                    return Err(Outcome::Refused);
+                }
+                paste.extend(value.chars().filter(|ch| !ch.is_control()));
+                println!(
+                    "Redirect input received (hidden). Enter submits; Ctrl+U clears; Esc cancels.\r"
+                );
+            }
+            None => break,
+            _ => {}
+        }
+    }
+    Ok(None)
 }
 fn serve(
     mut stream: TcpStream,
@@ -710,6 +774,11 @@ async fn browser(
             "Callback ports unavailable; paste the complete redirect or cancel and choose device authorization.\r"
         );
     }
+    endpoint.failure.set(Some(OpenAiFailure {
+        stage: "Browser authorization",
+        reason: "Browser consent or private callback/input did not complete. Check account/workspace policy; start a fresh Browser login, or explicitly choose Device login when localhost is unavailable.",
+        status: None,
+    }));
     super::devin_web::open_browser(&url);
     loop {
         let pasted = terminal.read()?;
@@ -749,6 +818,7 @@ async fn browser(
 }
 
 pub(super) fn login(method: Method) -> Completion {
+    let mut failure = None;
     let result = (|| {
         let _raw = RawInput::new().map_err(|_| Outcome::Failed)?;
         let input = crate::platform::input::Input::new().map_err(|_| Outcome::Failed)?;
@@ -775,6 +845,7 @@ pub(super) fn login(method: Method) -> Completion {
                     println!("Use only a code from this login you initiated. Expires in 15 minutes; Esc/Ctrl+C cancels.\r");
                 }).await
             } else { browser(&endpoint, &mut terminal).await };
+            failure = endpoint.failure.get();
             terminal.check()?;
             result
         })
@@ -784,8 +855,30 @@ pub(super) fn login(method: Method) -> Completion {
             outcome: Outcome::Authenticated,
             credential: None,
             openai_credential: Some(credential),
+            openai_failure: None,
         },
-        Err(outcome) => Completion::bare(outcome),
+        Err(outcome) => {
+            let detail = match outcome {
+                Outcome::Cancelled => OpenAiFailure {
+                    stage: "Sign-in cancelled",
+                    reason: "Start a new Browser/Device login when ready; do not reuse the old redirect or code. Provider-issued grants are not revoked by cancellation.",
+                    status: None,
+                },
+                Outcome::Expired => failure.filter(|failure| failure.stage == "Credential validation").unwrap_or(OpenAiFailure {
+                    stage: "Sign-in expired",
+                    reason: "Start a new login and complete it before its deadline; old redirects/codes cannot be reused.",
+                    status: None,
+                }),
+                _ => failure.unwrap_or(OpenAiFailure {
+                    stage: "Local sign-in setup",
+                    reason: "Could not prepare or continue private terminal/callback input. Reopen login in an interactive terminal, or choose Device login if localhost is unavailable.",
+                    status: None,
+                }),
+            };
+            let mut completion = Completion::bare(outcome);
+            completion.openai_failure = Some(detail);
+            completion
+        }
     }
 }
 

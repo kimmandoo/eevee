@@ -9,9 +9,9 @@ use crate::platform::native_process::{INTERRUPTED, NativeChild, NativeSignals};
 use crate::{providers::agent, workspace::runner};
 
 mod openai;
-pub use openai::OpenAiCredential;
 #[cfg(test)]
 pub(crate) use openai::test_credential as test_openai_credential;
+pub use openai::{OpenAiCredential, OpenAiFailure};
 
 const LIFETIME: Duration = Duration::from_secs(300);
 const LOGIN_TIMEOUT: Duration = Duration::from_secs(600);
@@ -595,6 +595,7 @@ pub struct Completion {
     pub outcome: Outcome,
     pub credential: Option<SessionCredential>,
     pub openai_credential: Option<OpenAiCredential>,
+    pub openai_failure: Option<OpenAiFailure>,
 }
 impl Completion {
     fn bare(outcome: Outcome) -> Self {
@@ -602,6 +603,7 @@ impl Completion {
             outcome,
             credential: None,
             openai_credential: None,
+            openai_failure: None,
         }
     }
 }
@@ -1281,6 +1283,7 @@ mod devin_web {
                                     outcome: Outcome::Authenticated,
                                     credential: Some(credential),
                                     openai_credential: None,
+                                    openai_failure: None,
                                 },
                                 Err(reason) => {
                                     println!("Devin token exchange failed: {reason}.\r");
@@ -1319,6 +1322,7 @@ mod devin_web {
                                         expires_at: jwt_expiry(trimmed),
                                     }),
                                     openai_credential: None,
+                                    openai_failure: None,
                                 };
                             }
                             let (code, got_state) = parse_callback_input(&pasted);
@@ -1330,6 +1334,7 @@ mod devin_web {
                                             outcome: Outcome::Authenticated,
                                             credential: Some(credential),
                                             openai_credential: None,
+                                            openai_failure: None,
                                         },
                                         Err(reason) => {
                                             println!("Devin token exchange failed: {reason}.\r");

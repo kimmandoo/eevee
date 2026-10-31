@@ -37,27 +37,28 @@ It also comes with a companion: a party of Eevee forms that evolve with the kind
 
 - **Any model.** OpenAI (account or API), Anthropic, Google Gemini and any OpenAI-compatible endpoint — including local Ollama, vLLM and LM Studio. External agents (Codex, Claude Agent SDK, OpenCode / Gemini / Devin over ACP) work too.
 - **A real coding loop.** Discover, read, create, edit, rename and delete files; run builds, tests and programs; feed the actual output back to the model. Code streams into the transcript as it is written.
-- **You review every effect.** Each file change and command opens a compact review with the exact diff or argv. Trust the run? `/auto-approve` for this task, or `/auto-approve-session` (**Shift+A**) until you quit.
+- **You review every effect.** Each file change and command opens a compact review with the exact diff or argv. Trust the run? `/auto-approve` for this task, or `/auto-approve-session` (**Shift+A**) for this local session; neither follows `/new`, another saved session or a restart.
 - **Rules, not forgotten grants.** Turn a reviewed `cargo test` or `tests/**` edit into a project rule with `/rule-allow`; deletes, shells and unknown effects always ask again.
 - **Steer without cancelling.** Press Enter while the model works to add a correction at the next tool boundary, or queue your next request.
 - **Local-first.** Tasks, drafts, transcripts and run history live in local SQLite. No account, server or Node runtime needed.
 - **Built for the terminal.** Rust + ratatui, 60×18 and up, mouse and keyboard, Kitty/Sixel sprites with text fallback, ASCII/mono modes. macOS, Linux, WSL and Windows, all built and tested in CI.
 
-## What's new in 0.1.41
+## What's new in 0.1.42
 
 | | What changed |
 | --- | --- |
-| **Remembered connections** | Native account/API setup saves owner-private plaintext by default, so saved credentials survive restarts and updates. Storage still offers session-only; access grants can expire. |
-| **Your terminal colors** | Body text and panel backgrounds use terminal defaults. Cell and Kitty sprites keep transparent gaps; Sixel retains its opaque fallback. |
-| **Continuous live code** | Generated source catches up after a review closes when you never scrolled away; paused readers keep their position. |
-| **Readable todo failures** | Refused native todo calls show a short error row and reason instead of argument JSON. Unknown results remain inspectable as raw evidence. |
-| **Todo-aware evolutions** | Short adopted steps use their phase and role words when needed, and todo-driven predictions say where the choice came from. |
+| **Clean starts** | Plain `ev` opens a blank session. `ev --continue` reopens the last saved work; `ev --resume [ID]` chooses a saved session. Nothing is deleted. |
+| **Navigation, not accidental Send** | `/new` starts fresh and `/resume` opens saved work; neither sends a request. Enter remains Send, Ctrl+S remains save-only. |
+| **Black canvas** | Panels, overlay margins and sprite padding share a solid-black background, with readable text in both palettes and 256-color/mono modes. |
+| **Account login recovery** | WSL/SSH suggests callback-free Device login. Long pasted redirects are handled promptly and stay hidden; Ctrl+U clears an incorrect paste. |
+| **Useful failure reasons** | Native OAuth reports the stage, HTTP status when known and a safe next step. A previous authentication result no longer hides a newer connection/save error. |
 
 <details>
-<summary>Capabilities carried over from 0.1.38–0.1.40</summary>
+<summary>Capabilities carried over from 0.1.38–0.1.41</summary>
 
 | Feature | How to use it |
 | --- | --- |
+| **Remembered connections** | Account/API setup saves owner-private plaintext by default; Storage still offers session-only, and access grants can expire |
 | **Live code** | Real source fragments keep updating through short provider pauses, with numbered lines |
 | **File choices by Request** | Compact Deny / Allow-once choices sit above the retained draft |
 | **Approval rules** | `/rule-allow` · `/rule-deny` · `/rules` — reuse a reviewed decision for matching commands or file edits |
@@ -141,6 +142,17 @@ ev
 
 The folder you launch from is the project boundary. Git is optional; `/init` only drafts an `AGENTS.md` guide if you want one.
 
+### New session or saved work
+
+```sh
+ev                  # fresh local session; old work remains saved
+ev --continue       # last selected saved session in this project
+ev --resume         # choose saved work; Esc returns to a blank session
+ev --resume 12      # exact project-local task/session number
+```
+
+Inside Eevee, `/new` opens fresh local work and `/resume` opens the same saved-work picker. These are navigation commands, not Send aliases. Saved facts, drafts and carets remain available; opaque provider threads, process-local chat history and approvals never resume after a restart. Account/model choices and your party remain available across sessions. An unavailable, archived or foreign-project ID never silently selects a different task.
+
 ### Everyday controls
 
 | Want to… | Use |
@@ -155,7 +167,7 @@ The folder you launch from is the project boundary. Git is optional; `/init` onl
 | Run your own command | `/command-edit` → `/execute`; history in `/run` |
 | Restrict which files may be written | `/paths` (`[]` clears it) |
 | Plan without writing | `/role-plan`, or say "read only" |
-| Start a fresh chat / new task | `/chat-new` · `/reset` · `/tasks` |
+| Start fresh / reopen saved work / clear only native chat | `/new` · `/resume` · `/chat-new` |
 | Cancel / quit safely | `/cancel` · `/cancel-all` · `/quit` |
 
 ```sh
@@ -201,6 +213,8 @@ Sprites render via Kitty/Sixel when supported; installers fetch artwork separate
 
 The method you choose decides the transport — `ev` never silently falls back to another account, billing route, protocol or model. Exact custom model IDs work even when the provider's model list is unavailable. Credentials are saved by default as owner-private plaintext under `~/.eevee-connections/` (not an OS keychain), so logins survive restarts and updates; choose session-only in Storage to keep them in memory.
 
+For OpenAI account setup, remote/WSL launches suggest **Device login**; Browser remains an explicit choice. If a callback cannot return to this terminal, use Device or paste the complete browser redirect into the hidden native prompt, then Enter. **Ctrl+U** clears a mistaken paste; **Esc/Ctrl+C** cancels. Error recovery names the failing stage and HTTP status without displaying response bodies, codes or tokens. Saved account access grants still expire and require explicit reconnect; saving is not automatic renewal or proof of model entitlement.
+
 Details, limits and per-route enforcement: [Agent compatibility](docs/AGENT_COMPATIBILITY.md).
 
 ## Safety model
@@ -209,7 +223,7 @@ Details, limits and per-route enforcement: [Agent compatibility](docs/AGENT_COMP
 
 - **Files** — every create/edit/rename/delete is frozen against the exact bytes and paths it will touch, then reviewed. Edits of existing files show just the changed region. Stale content, links, protected paths and your exclusions are refused. Up to 1024 files per request, 4 MiB each.
 - **Commands** — shown as a readable argv with working directory and resolved executable before they run. Nonzero, cancelled or unknown outcomes are never reported as success, and nothing is replayed automatically.
-- **Auto-approve** — an explicit, visible, in-memory grant for the lead partner. `AUTO-APPROVE · task` ends when the task changes; `AUTO-APPROVE · session` lasts until you quit Eevee. Neither is saved. Questions, other partners, helper rounds and MCP calls still ask.
+- **Auto-approve** — an explicit, visible, in-memory grant for the lead partner. Both task/session grants stop on `/new`, switching to another saved task, `/auto-approve-off` or quit. Session scope survives request-state resets within the same selected local work, not a new/resumed session. Neither is saved. Questions, other partners, helper rounds and MCP calls still ask.
 - **Rules** — you create each one from a request under review; it pins the project, executable and argument prefix (or write paths), is listed in `/rules` and can be revoked instantly. Deletes, renames, shells, selected commits and unknown effects never match.
 - **Retry** — only a round the provider refused before processing is resent, unchanged and visibly; tool effects are never repeated.
 - **Ownership** — approvals belong to the request that asked. Evolution, restart and saved settings never restore a grant.

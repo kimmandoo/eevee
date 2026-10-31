@@ -49,7 +49,7 @@ def run(binary,output,root,size,):
     def launch():
         nonlocal serial,session
         serial+=1
-        session=Session([str(binary),'--data-dir',str(data),'--images','off','--color','mono',*(['--ascii'] if size[0]==60 else [])],project,env,size,output/('terminal-'+str(serial)))
+        session=Session([str(binary), '--continue', '--data-dir', str(data),'--images','off','--color','mono',*(['--ascii'] if size[0]==60 else [])], project,env,size,output/('terminal-'+str(serial)))
         wait_for(session,'Storage: saved',timeout=35)
     def homeward():
         for _ in range(8):

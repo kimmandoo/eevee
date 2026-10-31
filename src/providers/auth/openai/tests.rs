@@ -180,6 +180,139 @@ fn native_fixture_reads_fragmented_nonblocking_request_by_content_length() {
 }
 
 #[test]
+fn native_unbracketed_manual_redirect_drains_promptly_and_exchanges_once() {
+    use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
+    let fixture = Fixture::new(vec![Reply::json(200, tokens())]);
+    let mut grant = BrowserGrant::new(1455).unwrap();
+    let code = "c".repeat(4096);
+    let redirect = format!("{}?code={code}&state={}", grant.redirect, grant.state);
+    let mut events: std::collections::VecDeque<_> = redirect
+        .chars()
+        .map(|ch| Event::Key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE)))
+        .chain(std::iter::once(Event::Key(KeyEvent::new(
+            KeyCode::Enter,
+            KeyModifiers::NONE,
+        ))))
+        .collect();
+    let mut paste = String::new();
+    let mut polls = 0;
+    let submitted = loop {
+        polls += 1;
+        assert!(
+            polls <= redirect.len().div_ceil(256) + 1,
+            "manual paste stalled"
+        );
+        if let Some(value) = read_input(&mut paste, || Ok(events.pop_front())).unwrap() {
+            break value;
+        }
+    };
+    assert!(
+        polls < 20,
+        "a buffered redirect must not wait one UI tick per character"
+    );
+    assert!(paste.is_empty());
+    assert!(events.is_empty());
+    let returned_code = grant.callback(&submitted).unwrap().unwrap();
+    let credential = runtime().block_on(async {
+        Endpoint::fixture(fixture.origin.clone())
+            .exchange(
+                &returned_code,
+                &grant.verifier,
+                &grant.redirect,
+                &mut || Ok(()),
+            )
+            .await
+            .unwrap()
+    });
+    assert_eq!(credential.access_token, "fixture-access-secret");
+    assert_eq!(credential.account_id.as_deref(), Some("fixture-account"));
+    assert!(grant.callback(&submitted).unwrap().is_none());
+    let requests = fixture.finish();
+    assert_eq!(requests.len(), 1);
+    assert!(requests[0].contains(&format!("code={code}")));
+}
+
+#[test]
+fn native_hidden_manual_input_can_be_cleared_cancelled_and_bounded() {
+    use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
+    let key = |code, modifiers| Event::Key(KeyEvent::new(code, modifiers));
+    let mut paste = "old-secret-redirect".to_owned();
+    let mut events = std::collections::VecDeque::from([
+        key(KeyCode::Char('u'), KeyModifiers::CONTROL),
+        Event::Paste("corrected-hidden-redirect\r\n".into()),
+        key(KeyCode::Enter, KeyModifiers::NONE),
+    ]);
+    assert_eq!(
+        read_input(&mut paste, || Ok(events.pop_front()))
+            .unwrap()
+            .as_deref(),
+        Some("corrected-hidden-redirect")
+    );
+    assert!(paste.is_empty());
+    let mut events = std::collections::VecDeque::from([
+        Event::Paste("private-input".into()),
+        key(KeyCode::Esc, KeyModifiers::NONE),
+    ]);
+    assert_eq!(
+        read_input(&mut paste, || Ok(events.pop_front())),
+        Err(Outcome::Cancelled)
+    );
+    let mut events = std::collections::VecDeque::from([Event::Paste("x".repeat(INPUT_LIMIT + 1))]);
+    assert_eq!(
+        read_input(&mut paste, || Ok(events.pop_front())),
+        Err(Outcome::Refused)
+    );
+    assert!(paste.is_empty());
+}
+
+#[test]
+fn native_identity_failures_keep_actionable_stage_status_but_not_private_body() {
+    let private = "PRIVATE_RESPONSE_CODE_TOKEN_ACCOUNT_MUST_NOT_SURVIVE";
+    for (status, expected_stage) in [
+        (403, "Device authorization setup"),
+        (503, "Device authorization setup"),
+    ] {
+        let fixture = Fixture::new(vec![Reply {
+            status,
+            body: private.into(),
+            headers: String::new(),
+            delay: Duration::ZERO,
+        }]);
+        let endpoint = Endpoint::fixture(fixture.origin.clone());
+        let result = runtime().block_on(endpoint.device(&mut || Ok(()), |_| {}));
+        assert_eq!(
+            result.unwrap_err(),
+            Outcome::Failed,
+            "access/service refusal does not prove the account is signed out"
+        );
+        let message = endpoint.failure.get().unwrap().message();
+        assert!(message.contains(expected_stage));
+        assert!(message.contains(&format!("HTTP {status}")));
+        assert!(message.contains("Settings > Security"));
+        assert!(!message.contains(private));
+        assert_eq!(fixture.finish().len(), 1);
+    }
+    let fixture = Fixture::new(vec![Reply::json(
+        400,
+        serde_json::json!({"error": private}),
+    )]);
+    let endpoint = Endpoint::fixture(fixture.origin.clone());
+    let result = runtime().block_on(endpoint.exchange(
+        "private-code",
+        &"v".repeat(43),
+        "http://127.0.0.1:1455/auth/callback",
+        &mut || Ok(()),
+    ));
+    assert_eq!(result.unwrap_err(), Outcome::NotAuthenticated);
+    let message = endpoint.failure.get().unwrap().message();
+    assert!(message.contains("Token exchange (HTTP 400)"));
+    assert!(message.contains("fresh login"));
+    assert!(!message.contains(private));
+    assert!(!message.contains("private-code"));
+    assert_eq!(fixture.finish().len(), 1);
+}
+
+#[test]
 fn native_browser_state_pkce_exact_return_and_single_use() {
     assert_eq!(
         challenge("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"),
@@ -347,7 +480,7 @@ fn native_device_denial_cancellation_expiry_and_bad_pkce_never_exchange() {
                 .await
                 .unwrap_err()
         });
-        assert_eq!(outcome, Outcome::NotAuthenticated);
+        assert_eq!(outcome, Outcome::Failed);
         assert!(
             fixture
                 .finish()

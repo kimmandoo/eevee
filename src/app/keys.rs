@@ -624,11 +624,18 @@ impl App {
         generation: Option<u64>,
         credential: Option<crate::providers::auth::OpenAiCredential>,
         outcome: crate::providers::auth::Outcome,
+        failure: Option<crate::providers::auth::OpenAiFailure>,
     ) {
         let owner = (self.task_id, self.lead.id, self.planning.agent);
         let admitted = self.overlay == Some(Overlay::Agents) && self.authentication_ready();
-        self.agents
-            .finish_openai_login(plan, generation, credential, outcome, &owner, admitted);
+        self.agents.finish_openai_login(
+            plan,
+            generation,
+            credential,
+            (outcome, failure),
+            &owner,
+            admitted,
+        );
         self.connection_settings_changed();
         if self.agents.use_for_task == Some(crate::providers::Agent::ChatGPT.index())
             && self.agents.pick == Some("model")

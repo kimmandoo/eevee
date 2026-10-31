@@ -116,7 +116,6 @@ impl App {
                 && self.planning.operation != crate::providers::Operation::Review
                 && !(self.planning.agent == crate::providers::Agent::Codex
                     && self.planning.operation == crate::providers::Operation::Implement),
-            false,
         ));
         self.pending_request_owner = Some(self.lead.id);
         self.flush_save();
@@ -125,7 +124,7 @@ impl App {
     }
 
     pub(super) fn drive_request(&mut self) -> bool {
-        let Some((revision, resume, fresh_chat)) = self.pending_request else {
+        let Some((revision, resume)) = self.pending_request else {
             return false;
         };
         if self
@@ -189,7 +188,7 @@ impl App {
         self.input.clear();
         self.composer_return = Some(EditorField::Request);
         self.open_overlay(Overlay::Planning);
-        self.planning.prepare_fresh_chat(fresh_chat);
+        self.planning.prepare_fresh_chat(false);
         self.planning_command(if resume { "resume" } else { "new" });
         if self.planning.owns_work() {
             self.planning.send_after_prepare = true;
@@ -792,29 +791,5 @@ mod tests {
         assert_eq!(app.composer_candidates().next(), Some(0));
         app.lead.form = 3;
         assert_eq!(app.composer_candidates().next(), Some(1));
-    }
-    #[test]
-    fn explicit_new_is_not_inferred_from_missing_or_native_thread_ids() {
-        for agent in [Agent::Compatible, Agent::Codex] {
-            for action in ["enter", "resume", "new"] {
-                let mut app = App::new("/workspace".into(), 120, 36);
-                app.task_id = 7;
-                app.goal = "Saved public task".into();
-                app.planning.agent = agent;
-                app.planning
-                    .set_operation(crate::providers::Operation::Plan);
-                app.planning.thread_id = Some("opaque-thread-not-native-history".into());
-                app.input = "Continue the public conversation.".into();
-                app.cursor = app.input.len();
-                if action == "enter" {
-                    app.submit_request();
-                } else {
-                    app.command(action);
-                }
-                let (_, resume_transport, fresh_chat) = app.pending_request.unwrap();
-                assert_eq!(fresh_chat, action == "new");
-                assert_eq!(resume_transport, action != "new" && !agent.is_direct());
-            }
-        }
     }
 }

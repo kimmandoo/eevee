@@ -271,7 +271,7 @@ class Journey(EvolutionJourney):
                 'byte_identical': True, 'schema': self.records()['schema'], 'reason_screen': observed}
 
     def resume(self, label):
-        self.session = SurfaceSession(self.restart_argv, self.project, self.restart_environment,
+        self.session = SurfaceSession([*self.restart_argv, '--continue'], self.project, self.restart_environment,
                                       self.restart_size, self.output / label)
         wait_for(self.session, 'Storage: saved', timeout=40)
         self.workspace()

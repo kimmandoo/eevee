@@ -31,7 +31,7 @@ impl App {
     }
 
     /// In-memory consent for the lead partner's file changes and commands,
-    /// scoped to the current task or to this whole Eevee session (until quit).
+    /// scoped to the current local session, never a later new/resumed session.
     /// Enabling also settles the currently pending one.
     pub(super) fn auto_approve_command(&mut self, command: &str) -> bool {
         let (enabled, session) = match command {

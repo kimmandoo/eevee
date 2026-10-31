@@ -4462,3 +4462,118 @@ fn first_run_send_opens_the_full_provider_list() {
     app.agents.begin_provider_list();
     assert!(app.agents.notice.contains("Not connected yet"));
 }
+
+#[test]
+fn launch_sessions_are_fresh_unless_saved_work_is_explicitly_selected() {
+    use crate::config::LaunchSession;
+    let mut task = store::Snapshot::empty("/workspace".into());
+    task.id = 7;
+    task.goal = "Retained goal".into();
+    task.form = 5;
+    task.navigation.overlay = Some(2);
+    task.partner_drafts.insert(
+        1,
+        store::PartnerDrafts {
+            drafts: vec![store::Draft {
+                field: store::EditorField::Request,
+                text: "Retained 요청 draft".into(),
+                cursor: 8,
+            }],
+            editing: true,
+            editor_field: store::EditorField::Request,
+            previous_form: Some(3),
+        },
+    );
+    let project = store::Project {
+        tasks: vec![task],
+        partners: vec![store::Partner::default()],
+        active_id: Some(7),
+        usage_bytes: 0,
+    };
+    for launch in [
+        LaunchSession::Fresh,
+        LaunchSession::Continue,
+        LaunchSession::Picker,
+        LaunchSession::Task(7),
+        LaunchSession::Task(99),
+    ] {
+        let mut app = App::new("/workspace".into(), 120, 36);
+        app.launch_session = Some(launch);
+        app.store_event(store::Event::Loaded(project.clone()));
+        assert_eq!(
+            app.tasks.len(),
+            1,
+            "fresh sessions never delete retained work"
+        );
+        assert!(app.pending_request.is_none() && app.planning.pending.is_none());
+        if matches!(launch, LaunchSession::Continue | LaunchSession::Task(7)) {
+            assert_eq!(app.task_id, 7);
+            assert_eq!(app.goal, "Retained goal");
+            assert_eq!(app.form(), 5);
+            assert_eq!(app.overlay, Some(Overlay::Help));
+            app.close_overlay();
+            assert_eq!((app.input.as_str(), app.cursor), ("Retained 요청 draft", 8));
+        } else {
+            assert_eq!(app.task_id, 0);
+            assert!(app.goal.is_empty() && app.input.is_empty());
+            assert_eq!(app.form(), 0);
+            assert_eq!(
+                app.overlay,
+                if launch == LaunchSession::Fresh {
+                    None
+                } else {
+                    Some(Overlay::Tasks)
+                }
+            );
+            if launch == LaunchSession::Task(99) {
+                assert!(app.notice.contains("#99"));
+            }
+            app.store_event(store::Event::Loaded(project.clone()));
+            assert_eq!(
+                app.task_id, 0,
+                "storage reopen must not resume old selection"
+            );
+        }
+    }
+}
+
+#[test]
+fn fresh_launch_preserves_input_typed_while_storage_is_loading() {
+    let mut app = App::new("/workspace".into(), 120, 36);
+    app.launch_session = Some(crate::config::LaunchSession::Fresh);
+    app.update(Event::Paste("new 요청 before load".into()));
+    let cursor = app.cursor;
+    let mut old = store::Snapshot::empty("/workspace".into());
+    old.id = 7;
+    old.goal = "Must not replace the new input".into();
+    app.store_event(store::Event::Loaded(store::Project {
+        tasks: vec![old],
+        partners: vec![store::Partner::default()],
+        active_id: Some(7),
+        usage_bytes: 0,
+    }));
+    assert_eq!(app.task_id, 0);
+    assert!(app.goal.is_empty());
+    assert_eq!(
+        (app.input.as_str(), app.cursor),
+        ("new 요청 before load", cursor)
+    );
+    assert!(app.save_requested);
+    assert!(app.pending_request.is_none());
+}
+
+#[test]
+fn fresh_session_uses_a_real_retained_partner_after_the_first_was_released() {
+    let mut app = App::new("/workspace".into(), 120, 36);
+    let partner = store::Partner {
+        id: 5,
+        ..store::Partner::default()
+    };
+    app.party = vec![partner];
+    app.load_task(store::Snapshot::empty("/workspace".into()));
+    assert_eq!(app.lead.id, 5);
+    app.finish_new_task();
+    assert_eq!(app.snapshot("/workspace").lead_partner, 5);
+    assert_eq!(app.form(), 0);
+    assert!(app.pending_request.is_none());
+}

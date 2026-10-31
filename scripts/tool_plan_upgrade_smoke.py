@@ -58,7 +58,7 @@ def main():
             environment.update(HOME=str(home), USERPROFILE=str(home), XDG_CONFIG_HOME=str(home / 'config'), XDG_DATA_HOME=str(home / 'data'), XDG_CACHE_HOME=str(home / 'cache'), EV_PROVIDER='compatible', EV_API_BASE_URL='http://127.0.0.1:9/v1', EV_API_MODEL='unused', EV_API_KEYLESS='1')
             database = data / 'workbench.sqlite3'
             def launch(binary, label):
-                session = SurfaceSession([str(binary), '--data-dir', str(data), '--images', 'off', '--color', 'mono', '--no-animation'], project, environment, (120, 36), output / label, )
+                session = SurfaceSession([str(binary), *(['--continue'] if binary == current else []), '--data-dir', str(data), '--images', 'off', '--color', 'mono', '--no-animation'], project, environment, (120, 36), output / label, )
                 sessions.append(session)
                 return session
             def finish(session):

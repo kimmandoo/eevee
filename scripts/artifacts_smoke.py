@@ -83,12 +83,9 @@ def run_quota_capture(journey, binary, output, root, size, payload, log):
                        LOCALAPPDATA=str(home / 'cache'), CODEX_HOME=str(home / 'codex'),
                        GEMINI_CLI_HOME=str(home / 'gemini'), PATH=str(root / 'empty-bin'),
                        NO_PROXY='127.0.0.1,localhost', no_proxy='127.0.0.1,localhost')
-    session = ArtifactSession(
-        [str(binary), '--data-dir', str(journey.data), '--quota-kib', '65536',
-         '--images', 'off', '--color', 'mono'],
-        journey.project, environment, size, output / 'quota-tui',
-        spool_kib=64,
-    )
+    session = ArtifactSession([str(binary), '--continue', '--data-dir', str(journey.data), '--quota-kib', '65536',
+     '--images', 'off', '--color', 'mono'], journey.project, environment, size, output / 'quota-tui',
+    spool_kib=64,)
     journey.session = session
     wait_for(session, 'Storage: saved')
     before_runs = [record['handle']['id'] for record, _ in read_rows(journey.data)

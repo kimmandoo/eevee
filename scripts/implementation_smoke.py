@@ -61,8 +61,7 @@ def main():
             index_before = (project / '.git/index').read_bytes()
 
             def launch(name):
-                session = Session([str(binary), '--data-dir', str(data), '--images', 'off', '--color', 'mono'],
-                                  project, terminal_environment('mono'), (120, 36), output / name)
+                session = Session([str(binary), '--continue', '--data-dir', str(data), '--images', 'off', '--color', 'mono'], project, terminal_environment('mono'), (120, 36), output / name)
                 sessions.append(session)
                 wait_for(session, 'Storage: saved')
                 return session

@@ -99,7 +99,7 @@ def main():
                                EV_API_MODEL='unused', EV_API_KEYLESS='1')
 
             def launch(binary, name):
-                session = Session([str(binary), '--data-dir', str(data), '--images', 'off', '--color', 'mono'],
+                session = Session([str(binary), *(['--continue'] if binary == current else []), '--data-dir', str(data), '--images', 'off', '--color', 'mono'],
                                   project, environment, (120, 36), output / name)
                 sessions.append(session)
                 return session

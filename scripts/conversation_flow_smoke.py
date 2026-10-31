@@ -53,14 +53,14 @@ def native_case(binary, output, size, ):
                 session.command('role-plan')
                 journey.workspace()
 
-                def send(text, history, answer, label, command=None):
+                def send(text, history, answer, label, *, fresh=False):
                     journey.write_request(text)
+                    if fresh:
+                        session.command('chat-new')
+                        journey.workspace()
                     before = len(peer.snapshot('POST'))
                     peer.plans.put(('complete', answer))
-                    if command is None:
-                        session.send('\r', settle=False)
-                    else:
-                        session.command(command, settle=False)
+                    session.send('\r', settle=False)
                     until(session, lambda: len(peer.snapshot('POST')) == before + 1,
                           label + ': exactly one actual native POST')
                     row = peer.snapshot('POST')[-1]
@@ -80,8 +80,8 @@ def native_case(binary, output, size, ):
                     return history + [('user', text), ('assistant', answer)]
 
                 history = send('A_PUBLIC_REQUEST_713', [], 'A_PUBLIC_ANSWER_829', 'ordinary-first-turn')
-                # The advanced /session-new action freezes the same explicit
-                # fresh boundary as /new, but deliberately does not dispatch it.
+                # Advanced /session-new freezes a fresh public-context boundary
+                # without dispatching it or replacing the saved local session.
                 journey.write_request('UNSENT_FRESH_PREPARATION_947')
                 before = len(peer.snapshot('POST'))
                 before_network = len(peer.snapshot())
@@ -119,10 +119,10 @@ def native_case(binary, output, size, ):
                 history = send('B_AFTER_CANCEL_163', history, 'B_PUBLIC_ANSWER_277',
                                'cancelled-fresh-preparation-retains-A')
                 history = send('C_EXPLICIT_RESUME_389', history, 'C_PUBLIC_ANSWER_491',
-                               'explicit-resume-retains-A-and-B', command='resume')
+                               'ordinary-follow-up-retains-A-and-B')
                 old_text = [text for _, text in history]
                 history = send('D_EXPLICIT_NEW_503', [], 'D_PUBLIC_ANSWER_617',
-                               'explicit-new-excludes-completed-A-B-C', command='new')
+                               'chat-new-excludes-completed-A-B-C', fresh=True)
                 encoded = json.dumps(peer.snapshot('POST')[-1]['body'])
                 assert all(text not in encoded for text in old_text), 'fresh native POST leaked prior public history'
                 assert 'UNSENT_FRESH_PREPARATION_947' not in encoded

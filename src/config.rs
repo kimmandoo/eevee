@@ -29,6 +29,15 @@ pub enum LayoutMode {
     Linear,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum LaunchSession {
+    #[default]
+    Fresh,
+    Continue,
+    Picker,
+    Task(i64),
+}
+
 #[derive(Clone, Debug)]
 pub struct Config {
     pub ascii: bool,
@@ -46,6 +55,7 @@ pub struct Config {
     pub capture_capacity: u64,
     pub native_transport: crate::providers::NativeTransport,
     pub retry: crate::providers::direct::retry::Policy,
+    pub launch_session: LaunchSession,
 }
 
 #[derive(Debug)]
@@ -104,7 +114,9 @@ Offline data recovery (never starts the application):
   provider sessions or usable grants. No automatic dispatch or execution.
 
 Options:
-  --theme dark|light    Terminal theme (default: dark)
+  -c, --continue      Reopen the last saved session in this project
+  -r, --resume [ID]   Choose a saved session, or reopen its numeric ID
+  --theme dark|light    Text palette on a black canvas (default: dark)
   --color auto|256|mono Color mode (default: auto)
   --ascii              Use ASCII borders (cell previews use luminance)
   --no-animation       Force static activity and transitions for this launch
@@ -136,6 +148,8 @@ Auto images require negotiated Kitty/Sixel support and real pixel/cell dimension
 Unsupported or too-small terminals show text, not a pixelated approximation.
 --images cells explicitly opts into low-resolution previews. Startup stays offline.
 
+Plain ev opens a fresh session. Saved work stays in /resume; nothing is erased.
+Use /new for a fresh session and /resume to choose saved work; neither sends.
 Type in the Request box; Enter saves and sends, Ctrl+S only saves locally.
 Use / commands: /connect, /provider, /model, /effort, /forms, /images, /help.
 Commands, writes and risky connections retain review; model pickers fetch metadata only.
@@ -226,6 +240,8 @@ fn parse_with(
     let mut capture_capacity = 64 * 1024;
     let mut native_transport = crate::providers::NativeTransport::Auto;
     let mut retry = crate::providers::direct::retry::Policy::Safe;
+    let mut launch_session = LaunchSession::Fresh;
+    let mut session_selected = false;
     let mut download = false;
     let mut action = None;
     while let Some(argument) = args.next() {
@@ -236,6 +252,37 @@ fn parse_with(
             .split_once('=')
             .map_or((text, None), |(flag, value)| (flag, Some(value)));
         match flag {
+            "--continue" | "-c" | "--resume" | "-r" => {
+                if session_selected {
+                    return Err("Choose only one of --continue or --resume".into());
+                }
+                session_selected = true;
+                launch_session = if matches!(flag, "--continue" | "-c") {
+                    if attached.is_some() {
+                        return Err("--continue takes no value; use --resume ID".into());
+                    }
+                    LaunchSession::Continue
+                } else {
+                    let id = attached.map(str::to_owned).or_else(|| {
+                        args.peek()
+                            .and_then(|value| value.to_str())
+                            .filter(|value| !value.starts_with('-'))
+                            .map(str::to_owned)
+                            .inspect(|_| {
+                                args.next();
+                            })
+                    });
+                    match id {
+                        None => LaunchSession::Picker,
+                        Some(id) => LaunchSession::Task(
+                            id.parse::<i64>()
+                                .ok()
+                                .filter(|id| *id > 0)
+                                .ok_or("--resume requires a positive numeric session ID")?,
+                        ),
+                    }
+                };
+            }
             "--theme" => {
                 let value = value(flag, attached, &mut args)?;
                 theme = match value.as_ref() {
@@ -391,6 +438,11 @@ fn parse_with(
         return Ok(action);
     }
     let data_dir = data_dir.ok_or("platform data directory unavailable; use --data-dir PATH")?;
+    if session_selected && (download || export.is_some()) {
+        return Err(
+            "Session selection cannot be combined with artwork download or data export".into(),
+        );
+    }
     if data_dir.to_str().is_none() {
         return Err(
             "--data-dir must be a Unicode path; non-Unicode identities are not merged".into(),
@@ -454,6 +506,7 @@ fn parse_with(
         capture_capacity,
         native_transport,
         retry,
+        launch_session,
     };
     Ok(if download {
         Command::Download(config)
@@ -615,6 +668,38 @@ mod tests {
         match parse(args, variables).unwrap() {
             Command::Run(config) => config,
             _ => panic!("expected runnable configuration"),
+        }
+    }
+
+    #[test]
+    fn session_launch_selection_rejects_ambiguous_or_invalid_targets() {
+        assert_eq!(config(&[], &[]).launch_session, LaunchSession::Fresh);
+        for args in [vec!["--continue"], vec!["-c"]] {
+            assert_eq!(config(&args, &[]).launch_session, LaunchSession::Continue);
+        }
+        for args in [vec!["--resume"], vec!["-r", "--ascii"]] {
+            assert_eq!(config(&args, &[]).launch_session, LaunchSession::Picker);
+        }
+        for args in [
+            vec!["--resume", "42"],
+            vec!["--resume=42"],
+            vec!["-r", "42"],
+        ] {
+            assert_eq!(config(&args, &[]).launch_session, LaunchSession::Task(42));
+        }
+        for args in [
+            vec!["--continue", "--resume"],
+            vec!["--resume", "--continue"],
+            vec!["--continue=42"],
+            vec!["--resume="],
+            vec!["--resume", "0"],
+            vec!["--resume", "-1"],
+            vec!["--resume", "missing"],
+            vec!["--resume", "9223372036854775808"],
+            vec!["--resume", "--download-artwork"],
+            vec!["--continue", "--export-data", "out.json"],
+        ] {
+            assert!(parse(&args, &[]).is_err(), "{args:?}");
         }
     }
 

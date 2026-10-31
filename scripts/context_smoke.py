@@ -91,9 +91,8 @@ def main():
             index_before = hashlib.sha256((project / ".git" / "index").read_bytes()).hexdigest()
 
             def launch(name, size=(120, 36)):
-                session = Session([str(binary), "--data-dir", str(data), "--images", "off", "--color", "mono",
-                                   "--exclude-context", "EXCLUDED", "--exclude-context", "unused-prefix"],
-                                  project, terminal_environment("mono"), size, output / name)
+                session = Session([str(binary), "--continue", "--data-dir", str(data), "--images", "off", "--color", "mono",
+                                   "--exclude-context", "EXCLUDED", "--exclude-context", "unused-prefix"], project, terminal_environment("mono"), size, output / name)
                 sessions.append(session)
                 session.context_query = ""
                 session.context_mode = "closed"
@@ -138,7 +137,7 @@ def main():
             def switch_task(session, index, task_id, goal):
                 close_sources(session)
                 session.command("tasks")
-                wait_for(session, "Task cards / committed snapshots")
+                wait_for(session, "Saved sessions / committed tasks")
                 wait_for(session, "Storage: saved")
                 session.send(HOME + DOWN * index)
                 wait_for(session, "Storage: saved")
