@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-11-01
+
+- docs(release): published v0.1.43 from `1d94a2f` after native41210647678 attempt1 and release41212749583, verified all eight public asset digests/seven checksum rows/five exact qualified native archives and preserved every older tag and release.
+- docs(verification): passed downloaded-host response/color/file-stream/file-consent/evolution/graphics journeys, the10-case intent backtest, real Ghostty source/review/resize/exit captures and one complete24-group installation lifecycle with all34 installed terminal scenarios; retained the separate device-antivirus and terminal-font limits.
+
 ## 2026-10-31
 
 - ci(macos): moved ARM64 qualification and recurring terminal regression to pinned supported macOS15 runners, preserved the native architecture and all acceptance steps, and removed the retiring macOS14 runner dependency.
