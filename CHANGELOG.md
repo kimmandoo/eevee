@@ -7,7 +7,7 @@
 - fix(ui): painted the complete TUI canvas and cleared overlay margins black, kept both text palettes readable and matched indexed/cell/Sixel sprite composition without changing terminal default colors or Kitty source alpha.
 - fix(auth): honored callback-free account-login recommendations on WSL/SSH, drained bounded hidden redirect input promptly, added clear/paste recovery and retained safe stage/status diagnostics instead of hiding newer connection/save errors behind stale authentication outcomes.
 - fix(sessions): kept fresh task creation bound to an existing party member after the first partner was released, and migrated retained-work terminal journeys to explicit continuation.
-- fix(verification): migrated custom receipt, screenshot, MCP, motion, local-move, repository and warm-start acceptance launchers to explicit continuation without changing production startup or no-replay guards.
+- fix(verification): migrated custom receipt, screenshot, MCP, motion, local-move, repository and warm-start acceptance launchers to explicit continuation, and used bounded semantic waits for controlled in-flight artifact review without weakening idle-console or no-replay guards.
 - chore(release): advanced the package version to 0.1.42.
 
 ## 2026-10-30

@@ -1,5 +1,12 @@
 # Troubleshooting
 
+### [2026-10-31] Windows artifact review waited for idle during an intentionally active response
+
+- **Context / Symptom:** Native41183573842 passed Check and all four Unix rows, but both Windows artifact journeys failed at the first Ctrl+K with `native console output did not settle within the bounded capture window`. The captured screen showed a healthy pending response and the open command chooser.
+- **Root Cause:** The controlled provider deliberately held the response until the UI reviewed a frozen artifact. Artifact navigation nevertheless used the Windows idle-only input default, so normal waiting animation prevented the required idle interval before the fixture could release its own response gate.
+- **Solution:** Used existing `settle=False` only for navigation within that known in-flight phase, including identity selection and purge-review paging. Kept bounded semantic waits, the original idle assertion elsewhere and all artifact/permission/purge checks. Both complete local PTY journeys passed with strict idle defaults after the change; actual Windows qualification requires a new complete five-platform run.
+- **Prevention / Reference:** Original Windows evidence is retained at `target/release042-windows-failure/`; strict-idle local proof is `target/release042-artifacts-strict-idle/`. Do not increase global settle caps, suppress capture failures or qualify a partial rerun.
+
 ### [2026-10-31] Retained-work acceptance overrides still assumed automatic startup restoration
 
 - **Context / Symptom:** The first full native candidate passed six drivers but failed retained receipts after restart: `Outgoing receipt requires an exact task and partner`. The old receipt remained durable; the restarted app was correctly on a blank task.

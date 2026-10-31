@@ -55,17 +55,17 @@ def reveal_retained_text(session, text, reason):
 
 
 
-def select_artifact(journey, record):
-    """Choose an immutable identity without assuming refresh selects the newest."""
+def select_artifact(journey, record, *, settle=None):
+    """Select an immutable identity; active turns use semantic, not idle waits."""
     session = journey.session
     identity = record['handle']['id'][:12]
     count = len(read_rows(journey.data))
     for _ in range(count):
-        session.send(ESC + '[A')
+        session.send(ESC + '[A', settle=settle)
     for _ in range(count):
         if identity in session.display():
             return
-        session.send(ESC + '[B')
+        session.send(ESC + '[B', settle=settle)
     raise AssertionError('artifact identity not selectable: ' + identity + '\n' + session.display())
 
 def run_quota_capture(journey, binary, output, root, size, payload, log):
@@ -239,20 +239,21 @@ def run_case(binary, output, root, size, ):
                 elif inspect_permission_scope(session):
                     pass
                 elif 'Alt+A' in session.display():
-                    session.send(ESC + 'a')
+                    session.send(ESC + 'a', settle=False)
                 return False
             until(session, dispatched, 'native owned tool dispatch did not start', timeout=40)
             until(session, lambda: 'record' in evidence, 'first owned capture was not retained')
-            session.command('artifacts')
+            # The controlled response remains in flight until capture_gate below.
+            session.command('artifacts', settle=False)
             wait_for(session, LABELS['title'])
-            select_artifact(journey, evidence['record'])
-            session.send('d')
+            select_artifact(journey, evidence['record'], settle=False)
+            session.send('d', settle=False)
             wait_for(session, LABELS['purge'])
             first_revision = evidence['record']['handle']['revision'][:12]
             def reviewed_revision_visible():
                 if first_revision in session.display():
                     return True
-                session.send(PAGE_DOWN)
+                session.send(PAGE_DOWN, settle=False)
                 return first_revision in session.display()
 
             until(session, reviewed_revision_visible,
