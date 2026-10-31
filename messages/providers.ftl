@@ -841,8 +841,8 @@ providers-planning-permission-auto-review-actions =
     { "Then choose and confirm | Esc later · no approval" }
 
 providers-planning-file-auto-review-actions =
-    { "Left/Right choose · Enter inspect or confirm choice" }
-    { "Nothing selected yet · Esc later; draft kept" }
+    { "Left/Right choose · Enter inspects the change" }
+    { "No choice · Esc later; request stays pending" }
 
 providers-planning-file-generating = { "Generating · not saved" }
 
@@ -951,8 +951,16 @@ providers-planning-file-external = { "External SDK policy; not OS confinement." 
 providers-planning-file-details = { "d Complete change, scope & exact request" }
 
 providers-planning-file-actions =
-    { "Left/Right choose | Enter confirms | a/y Allow" }
-    { "n Deny · d Details · A Allow session · Esc later" }
+    { "Left/Right choose · Enter inspects the change" }
+    { "n Deny · d Details · Esc later (still pending)" }
+
+providers-planning-file-deny-actions =
+    { "Enter denies this request · Left/Right change" }
+    { "n Deny · d Details · Esc later (still pending)" }
+
+providers-planning-file-allow-actions =
+    { "Enter allows this change once · Left/Right change" }
+    { "a/y Allow · n Deny · d Details · A Session grant" }
 
 providers-planning-file-unavailable =
     { "PgUp/Dn: review all scope before allowing." }

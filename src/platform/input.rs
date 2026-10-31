@@ -139,6 +139,7 @@ mod decoding {
         pub(super) graphics_changed: bool,
         query_deadline: Option<Instant>,
         query_finished: bool,
+        query_cell_received: bool,
         reply_overflow: bool,
         expired_escape: bool,
         detached_escape: bool,
@@ -155,9 +156,9 @@ mod decoding {
         pub(super) fn query_graphics(&mut self) {
             self.query_finished = false;
             self.query_deadline = Some(Instant::now() + QUERY_TIMEOUT);
-            if self.graphics.cell_size.take().is_some() {
-                self.graphics_changed = true;
-            }
+            // A resize starts a bounded refresh, not a negative capability
+            // reply. Retain the last measured cells to avoid a cell-art flash.
+            self.query_cell_received = false;
         }
 
         pub(super) fn graphics_pending(&mut self) -> bool {
@@ -178,6 +179,9 @@ mod decoding {
                     .is_some_and(|deadline| Instant::now() >= deadline)
             {
                 self.query_finished = true;
+                if !self.query_cell_received {
+                    self.graphics.cell_size = None;
+                }
                 self.graphics_changed = true;
             }
         }
@@ -205,6 +209,7 @@ mod decoding {
                     && width > 0
                 {
                     self.graphics.cell_size = Some((width, height));
+                    self.query_cell_received = self.query_deadline.is_some();
                 }
             } else if let Some(body) = sequence
                 .strip_prefix("\x1b_G")
@@ -886,15 +891,28 @@ mod decoding {
         }
 
         #[test]
-        fn resizing_invalidates_measured_cells_until_the_terminal_replies() {
+        fn resize_refresh_keeps_native_until_fresh_metrics_or_deadline() {
             let mut decoder = Decoder::default();
             decoder.query_graphics();
             assert!(feed(&mut decoder, REPLIES).is_empty());
             decoder.graphics_changed = false;
             decoder.query_graphics();
-            assert_eq!(decoder.graphics.cell_size, None);
+            assert_eq!(decoder.graphics.cell_size, Some((10, 20)));
             assert!(decoder.graphics.kitty && decoder.graphics.sixel);
-            assert!(decoder.graphics_changed);
+            assert!(!decoder.graphics_changed);
+            assert_eq!(
+                feed(&mut decoder, "한"),
+                vec![key('한', KeyModifiers::NONE)]
+            );
+            assert!(feed(&mut decoder, "\x1b[6;24;12t").is_empty());
+            assert_eq!(decoder.graphics.cell_size, Some((12, 24)));
+            decoder.query_deadline = Some(Instant::now() - QUERY_TIMEOUT);
+            decoder.expire_graphics_query();
+            assert_eq!(decoder.graphics.cell_size, Some((12, 24)));
+            decoder.query_graphics();
+            decoder.query_deadline = Some(Instant::now() - QUERY_TIMEOUT);
+            decoder.expire_graphics_query();
+            assert_eq!(decoder.graphics.cell_size, None);
             assert!(feed(&mut decoder, "\x1b[6;24;12t").is_empty());
             assert_eq!(decoder.graphics.cell_size, Some((12, 24)));
         }

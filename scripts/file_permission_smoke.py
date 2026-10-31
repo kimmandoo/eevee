@@ -102,8 +102,6 @@ def run_case(binary, output, root, size, route, protocol, form):
                 assert any('Deny' in row and 'Allow' in row
                            for row in rows[max(2, composer_row - 8):composer_row]), (
                     'File decisions were not attached above Request\n' + session.display())
-                border = rows[composer_row - 1].strip()
-                assert border.startswith(('└', '╚', '+')), 'File decision was separated from the composer'
                 session.send('ay')
                 session.paste('a\ny')
                 assert current() == original and len(peer.snapshot('POST')) == posts

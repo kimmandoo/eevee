@@ -6,9 +6,7 @@ use ratatui::{
     widgets::{BorderType, Clear, Paragraph, Wrap},
 };
 
-use super::{
-    Paint, artwork::Artwork, centered, clipped, panel, row, selection_details, sheet, text,
-};
+use super::{Paint, centered, clipped, panel, row, selection_details, sheet, text};
 use crate::{app::App, config::Config, store};
 
 /// Extend the factual header without moving the composer or native portrait.
@@ -197,13 +195,7 @@ pub(super) fn approval_owner(app: &App) -> String {
 }
 
 /// Only real working/waiting identities take space above the composer.
-pub(super) fn strip(
-    frame: &mut Frame,
-    area: Rect,
-    app: &App,
-    paint: &Paint,
-    artwork: &Artwork,
-) -> Rect {
+pub(super) fn strip(frame: &mut Frame, area: Rect, app: &App, paint: &Paint) -> Rect {
     let rows = app.work_rows();
     if rows.is_empty()
         || rows.len() == 1 && rows[0].owner.partner == app.lead().id && app.own_approval_pending()
@@ -227,18 +219,6 @@ pub(super) fn strip(
     } else {
         for (index, work) in rows.iter().take(4).enumerate() {
             let line = row(board, index as u16, 1);
-            let line = if artwork.original(work.owner.form).is_some() {
-                let sprite = working_sprite(line);
-                artwork.render(work.owner.form, sprite, frame.buffer_mut());
-                Rect::new(
-                    line.x + sprite.width + 1,
-                    line.y,
-                    line.width.saturating_sub(sprite.width + 1),
-                    1,
-                )
-            } else {
-                line
-            };
             let label = format!(
                 "{} · {} · {}",
                 store::Attribution::label(Some(&work.owner)),
@@ -254,26 +234,6 @@ pub(super) fn strip(
         }
     }
     row(area, 0, area.height.saturating_sub(height))
-}
-
-fn working_sprite(line: Rect) -> Rect {
-    Rect::new(line.x, line.y, line.width.min(6), line.height.min(1))
-}
-
-/// Shares the exact HUD geometry with cell preparation and native erasure.
-pub(super) fn sprite_targets(app: &App, area: Rect, targets: &mut Vec<(usize, Rect)>) {
-    if app.width < 90 {
-        return;
-    }
-    let forms = app.working_forms().take(4);
-    let height = (forms.clone().count() as u16).min(area.height);
-    let board = row(area, area.height.saturating_sub(height), height);
-    targets.extend(
-        forms
-            .take(height as usize)
-            .enumerate()
-            .map(|(index, form)| (form, working_sprite(row(board, index as u16, 1)))),
-    );
 }
 
 pub(super) fn board(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &Paint) {

@@ -55,7 +55,13 @@ pub(super) fn render(
     if !state.visible() {
         return;
     }
-    let area = super::sheet(area, 104, area.height);
+    let height =
+        if matches!(state.confirmation, Some(Confirmation::Approval)) && !state.approval_full {
+            area.height.min(24)
+        } else {
+            area.height
+        };
+    let area = super::sheet(area, 104, height);
     let paint = Paint::new(config, &FORMS[2], 2);
     frame.render_widget(Clear, area);
     let block = panel(
@@ -103,7 +109,11 @@ pub(super) fn render(
         frame,
         row(content, 1, 2),
         &execution::safe_text(&banner),
-        paint.muted,
+        if state.error.is_some() {
+            paint.output_style(crate::output_style::Kind::Error, paint.surface)
+        } else {
+            paint.muted
+        },
     );
     let footer_rows = if content.height >= 12 { 3 } else { 2 };
     let body_height = content.height.saturating_sub(3 + footer_rows);
@@ -296,15 +306,18 @@ fn confirmation(
             },
         ),
     ]);
-    // Choices that fit one row give that row to the command summary.
-    let summary_start = if choices.width() <= area.width as usize {
-        2
+    // Keep the decision below the immutable scope, with the same total row
+    // budget as the former top-of-dialog buttons at every supported width.
+    let choice_rows = if choices.width() <= area.width as usize {
+        1
     } else {
-        3
+        2
     };
+    let footer_rows = choice_rows + 2;
+    let summary_start = 1;
     frame.render_widget(
         Paragraph::new(choices).wrap(Wrap { trim: false }),
-        row(area, 1, summary_start - 1),
+        row(area, area.height.saturating_sub(footer_rows), choice_rows),
     );
     let mut summary = match confirm {
         Confirmation::Approval => state.prepared.as_ref().map_or_else(
@@ -414,7 +427,8 @@ fn confirmation(
             last.clear();
             last.push_str(editing);
         }
-        let available = (area.height as usize).saturating_sub(summary_start as usize + 2);
+        let available =
+            (area.height as usize).saturating_sub((summary_start + footer_rows) as usize);
         let required = summary.len() - 1;
         let spare = available.saturating_sub(required);
         let command =
@@ -435,7 +449,7 @@ fn confirmation(
         row(
             area,
             summary_start,
-            summary_height.min(area.height.saturating_sub(summary_start + 2)),
+            summary_height.min(area.height.saturating_sub(summary_start + footer_rows)),
         ),
         &summary,
         paint,
@@ -444,7 +458,7 @@ fn confirmation(
         area,
         summary_start + summary_height,
         area.height
-            .saturating_sub(summary_start + 2 + summary_height),
+            .saturating_sub(summary_start + footer_rows + summary_height),
     );
     let paragraph = Paragraph::new(description)
         .style(paint.surface)
@@ -463,7 +477,7 @@ fn confirmation(
                 Message::ProvidersExecutionYConfirmNStayTabChooseEnter
             },
         ),
-        paint.accent,
+        paint.muted,
     );
 }
 
@@ -759,7 +773,9 @@ fn output(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
             let style = if !state.search.is_empty() && line.text.contains(&state.search) {
                 paint.selected
             } else {
-                paint.surface
+                crate::output_style::diagnostic(&line.text).map_or(paint.surface, |kind| {
+                    paint.output_style(kind, paint.surface)
+                })
             };
             Line::from(Span::styled(line.text.as_str(), style))
         })
@@ -783,6 +799,8 @@ mod tests {
 
     fn paint() -> Paint {
         Paint {
+            color: crate::config::ColorMode::Mono,
+            ascii: true,
             base: Style::default(),
             surface: Style::default(),
             muted: Style::default(),
@@ -891,11 +909,6 @@ mod tests {
             "scope is visible without End or PgDown"
         );
         assert!(state.detail_max > 0);
-        assert!(
-            terminal.backend().buffer()[(0, 1)]
-                .modifier
-                .contains(Modifier::REVERSED)
-        );
         state.detail_scroll = state.detail_max;
         terminal
             .draw(|frame| {

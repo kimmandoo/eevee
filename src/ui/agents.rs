@@ -1122,6 +1122,8 @@ mod tests {
         use crate::providers::{Agent, auth::Outcome};
         let style = Style::default();
         let paint = Paint {
+            color: crate::config::ColorMode::Mono,
+            ascii: true,
             base: style,
             surface: style,
             muted: style,
@@ -1176,6 +1178,8 @@ mod tests {
         use crate::providers::{Agent, diagnostics::Failure};
         let style = Style::default();
         let paint = Paint {
+            color: crate::config::ColorMode::Mono,
+            ascii: true,
             base: style,
             surface: style,
             muted: style,
@@ -1249,6 +1253,8 @@ mod tests {
         };
         let style = Style::default();
         let paint = Paint {
+            color: crate::config::ColorMode::Mono,
+            ascii: true,
             base: style,
             surface: style,
             muted: style,

@@ -816,10 +816,11 @@ fn execution_description(clause: &str, action: &str) -> bool {
             && !any(clause, &["실행해", "빌드해", "컴파일해"])
 }
 
-// Improvement prose can describe a plan/method rather than request a change.
+// Repair/improvement prose can describe a plan or method instead of a change.
 // Reuse the bounded command-description guard, including compound imperatives.
-fn improvement_description(clause: &str, action: &str) -> bool {
-    matches!(action, "improve" | "enhance" | "polish" | "개선" | "다듬")
+fn change_description(clause: &str, action: &str) -> bool {
+    (REPAIRS.contains(&action)
+        || matches!(action, "improve" | "enhance" | "polish" | "개선" | "다듬"))
         && execution_description(clause, action)
 }
 
@@ -1126,14 +1127,15 @@ pub fn classify(text: &str) -> Option<Selection> {
                         contains(clause, action)
                             && !(verb_description(clause, action)
                                 || planning_artifact(clause, action)
-                                || improvement_description(clause, action)
+                                || change_description(clause, action)
                                 || rule.form == 2 && execution_description(clause, action))
                     })
                     && (task_object(clause, rule) || source_context)
-            }) || REPAIRS
-                .iter()
-                .any(|action| contains(clause, action) && !verb_description(clause, action))
-                && diagnosis_context
+            }) || REPAIRS.iter().any(|action| {
+                contains(clause, action)
+                    && !verb_description(clause, action)
+                    && !change_description(clause, action)
+            }) && diagnosis_context
                 || [
                     "write",
                     "create",
@@ -1152,6 +1154,7 @@ pub fn classify(text: &str) -> Option<Selection> {
                 .any(|action| {
                     contains(clause, action)
                         && !verb_description(clause, action)
+                        && !change_description(clause, action)
                         && !planning_artifact(clause, action)
                 }) && (source_path(clause)
                     || any(
@@ -1191,7 +1194,7 @@ pub fn classify(text: &str) -> Option<Selection> {
             rule.actions.iter().any(|action| {
                 contains(clause, action)
                     && !(verb_description(clause, action)
-                        || improvement_description(clause, action)
+                        || change_description(clause, action)
                         || rule.form == 2 && execution_description(clause, action)
                         || rule.form == 5
                             && matches!(*action, "check" | "점검")
@@ -1536,7 +1539,7 @@ impl App {
                 (!self.planning.plan_conversation()).then_some(Selection {
                     form: todo.map_or_else(|| self.form(), |todo| todo.form),
                     operation: Operation::Implement,
-                    reason: todo.map_or(Message::CoreEvolutionImplementation, |todo| todo.reason),
+                    reason: todo.map_or(Message::CoreEvolutionGeneral, |todo| todo.reason),
                 })
             })?;
         if !self.lead.auto_form {
@@ -1824,6 +1827,15 @@ mod tests {
             "todo 툴 UI가 중복으로 출력돼. 이부분 개선해줘.",
             "Diagnose the tool UI and improve its layout.",
             "UI를 분석해서 레이아웃을 개선해줘.",
+            "Diagnose how to fix the error.",
+            "Diagnose how to fix src/main.rs.",
+            "Review how to repair the code.",
+            "오류 수정 방법을 분석해줘.",
+            "Diagnose the error and fix it if needed.",
+            "Review the patch; then repair it.",
+            "오류를 분석하고 수정해줘.",
+            "Review the patch; do not fix it.",
+            "Review the patch: \"fix src/main.rs\".",
             "Review tool UI, then fix its layout.",
             "UI를 개선하지 말고 점검해줘.",
             "Read src/main.rs; do not change files.",
@@ -2530,6 +2542,13 @@ mod tests {
                 3,
                 Operation::Implement,
             ),
+            // Describing a repair is not an instruction to perform it.
+            ("Diagnose how to fix the error.", 5, Operation::Plan),
+            ("Diagnose how to fix src/main.rs.", 5, Operation::Plan),
+            ("Review how to repair the code.", 7, Operation::Plan),
+            ("오류 수정 방법을 분석해줘.", 5, Operation::Plan),
+            ("Review the patch; do not fix it.", 7, Operation::Plan),
+            ("Review the patch: \"fix src/main.rs\".", 7, Operation::Plan),
             // A diagnosis prefix must not hide the later repair of its object.
             ("Investigate the crash and fix it", 5, Operation::Implement),
             (
@@ -2538,6 +2557,13 @@ mod tests {
                 Operation::Implement,
             ),
             ("크래시 원인 분석해서 수정해줘", 5, Operation::Implement),
+            (
+                "Diagnose the error and fix it if needed.",
+                5,
+                Operation::Implement,
+            ),
+            ("Review the patch; then repair it.", 7, Operation::Implement),
+            ("오류를 분석하고 수정해줘.", 5, Operation::Implement),
             ("Analyze the error and summarize it", 5, Operation::Plan),
             // Imperative requests keep their capability.
             (
@@ -2909,6 +2935,9 @@ mod tests {
                 ("구현해줘", Operation::Implement),
                 ("Implement it.", Operation::Implement),
                 ("Edit `src/main.rs`.", Operation::Implement),
+                ("Diagnose how to fix src/main.rs.", Operation::Plan),
+                ("Review how to repair the code.", Operation::Plan),
+                ("오류 수정 방법을 분석해줘.", Operation::Plan),
                 (
                     "Write project documentation to README.md.",
                     Operation::Implement,

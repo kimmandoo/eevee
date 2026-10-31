@@ -102,9 +102,8 @@ def run(binary, output, size, keep):
         if 'Response ' in j.session.display():
             view = response_view(j.session)
             wheel(j.session, 'up', view['point'], 2)
-            # Status rows may sit inside the framed RESPONSE panel.
-            paused = next((line.strip().strip('│║|').strip() for line in j.session.display().splitlines()
-                           if line.strip().strip('│║|').strip().startswith('Paused ')), None)
+            paused = next((line.strip() for line in j.session.display().splitlines()
+                           if line.strip().startswith('Paused ')), None)
             assert paused is not None, 'wheel did not pause the actual retained output'
         starts = len(j.peers('started'))
         j.session.command('retained-responses')
@@ -127,7 +126,7 @@ def run(binary, output, size, keep):
         j.session.capture('jump-reflow-preserves-owner')
         j.workspace()
         if paused is not None:
-            assert any(line.strip().strip('│║|').strip().startswith('Paused ') for line in j.session.display().splitlines()), 'landmark navigation resumed paused output'
+            assert any(line.strip().startswith('Paused ') for line in j.session.display().splitlines()), 'landmark navigation resumed paused output'
         j.finish('COOP_RETAINED_B')
         j.until(lambda: not j.claims(), 'other partner settled')
         j.session.resize(size)

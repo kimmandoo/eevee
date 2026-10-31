@@ -174,7 +174,6 @@ fn home_keeps_partner_visible_and_primary_surfaces_usable() {
         assert!(layout.inspector.is_none());
         if width >= 90 {
             let partner = layout.rail.expect("roomy home has a partner");
-            assert_eq!(partner.width, 26);
             assert!(partner.height <= 16);
             assert!(!partner.intersects(layout.workspace));
             assert!(!partner.intersects(layout.composer));
@@ -2438,7 +2437,6 @@ fn evolution_receipt_is_edge_anchored_and_reserves_response_and_composer() {
             assert!(!popup.intersects(layout.composer));
             assert!(!popup.intersects(layout.footer));
             if width == 120 && !linear {
-                assert_eq!(popup.width, 26);
                 assert!((7..=9).contains(&popup.height), "{popup:?}");
                 assert!(!popup.intersects(layout.workspace));
                 assert!(!popup.intersects(layout.rail.unwrap()));

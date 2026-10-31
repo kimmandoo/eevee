@@ -3,6 +3,7 @@ mod command_help;
 mod config;
 mod domain;
 mod messages;
+mod output_style;
 mod platform;
 mod providers;
 mod store;
@@ -426,6 +427,7 @@ fn run(config: Config) -> io::Result<()> {
                 let repaint_native = dirty || clear_needed;
                 if clear_needed {
                     terminal::clear(terminal)?;
+                    graphics.terminal_cleared();
                     clear_needed = false;
                 }
                 terminal.draw(|frame| {

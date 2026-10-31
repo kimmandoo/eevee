@@ -3669,6 +3669,35 @@ fn response_lines_and_viewport_pages_traverse_attributed_item_boundaries() {
 }
 
 #[test]
+fn response_one_line_scroll_crosses_spacers_in_both_directions() {
+    let mut state = active();
+    streamed(&mut state, "older", "old response\nold tail", true);
+    streamed(&mut state, "newer", "new response\nnew tail", true);
+    state.items[0].request = "older request".into();
+    state.items[1].request = "newer request".into();
+    state.response_rows(60, 1, false).count();
+    let total = state.response_position().2;
+    for _ in 0..total {
+        let before = state.response_position().0;
+        state.scroll_response_lines(-1);
+        state.response_rows(60, 1, false).count();
+        assert_eq!(state.response_position().0, before.saturating_sub(1).max(1));
+    }
+    assert_eq!(
+        state.response_rows(60, 1, false).next(),
+        Some("old response")
+    );
+    for _ in 0..total {
+        let before = state.response_position().0;
+        state.scroll_response_lines(1);
+        state.response_rows(60, 1, false).count();
+        assert_eq!(state.response_position().0, (before + 1).min(total));
+    }
+    assert_eq!(state.response_rows(60, 1, false).next(), Some("new tail"));
+    assert!(!state.following);
+}
+
+#[test]
 fn paused_unicode_content_keeps_its_byte_anchor_across_reflow_and_appends() {
     let mut state = active();
     let initial = "前置\n界界e\u{301}界界e\u{301}界界e\u{301}\ntail\nlast";
@@ -4359,10 +4388,9 @@ fn live_code_keeps_following_after_output_arrives_behind_a_review() {
     assert!(state.new_output, "arrival behind a review is unread");
     state.awaiting_preview = false;
     // The user never scrolled away, so the next frame shows the newest code.
-    let rows = state.response_rows(60, 3, false).collect::<Vec<_>>();
-    assert!(
-        rows.last().is_some_and(|row| row.contains("5 | e")),
-        "{rows:?}"
-    );
-    assert!(state.following && !state.new_output);
+    for height in [3, 1, 2, 1, 3] {
+        let rows = state.response_rows(60, height, false).collect::<Vec<_>>();
+        assert!(rows.iter().any(|row| row.contains("5 | e")), "{rows:?}");
+        assert!(state.following && !state.new_output);
+    }
 }

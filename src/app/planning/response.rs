@@ -21,6 +21,9 @@ pub struct ResponseRow<'a> {
     pub text: &'a str,
     pub kind: ItemKind,
     pub header: bool,
+    /// Physical edges belong to the typed file projection, not source bytes.
+    pub file_top: bool,
+    pub file_bottom: bool,
     /// A cached projection of a qualified todo, never a text-prefix guess.
     pub todo: bool,
     /// Status of a readable tool projection; `None` for raw or non-tool rows.
@@ -30,6 +33,9 @@ pub struct ResponseRow<'a> {
     /// Part of the file lines that arrived in the latest snapshot, within
     /// [`FRESH`]. Lets the UI flash real arrivals; content is never delayed.
     pub fresh: bool,
+    /// Cached semantic ranges overlapping this row, in original text bytes.
+    pub tokens: &'a [crate::output_style::Token],
+    pub offset: usize,
 }
 
 /// How long newly received file lines stay highlighted.
@@ -56,12 +62,15 @@ struct Segment {
     gap: bool,
     display: Option<String>,
     suppressed: bool,
+    styling: Vec<crate::output_style::Token>,
+    styling_valid: bool,
 }
 
 struct Anchor {
     identity: Arc<Identity>,
     byte: usize,
     header: bool,
+    spacer: bool,
 }
 
 /// One bounded transcript; text rows borrow their original observations. Only
@@ -75,12 +84,21 @@ pub(super) struct Layout {
     comfortable: bool,
     /// Tool rows live in the side panel instead of the transcript.
     dock_tools: bool,
+    /// A one-row viewport must show source, not only a decorative closing edge.
+    close_files: bool,
     anchor: Option<Anchor>,
     total: usize,
     grouping_dirty: bool,
 }
 
-fn wrap(rows: &mut Vec<Row>, text: &str, width: usize, header: bool, spaced: bool) {
+fn wrap(
+    rows: &mut Vec<Row>,
+    text: &str,
+    width: usize,
+    header: bool,
+    spaced: bool,
+    mut base: usize,
+) {
     let mut push = |range: Range<usize>| {
         if spaced
             && !range.is_empty()
@@ -100,7 +118,6 @@ fn wrap(rows: &mut Vec<Row>, text: &str, width: usize, header: bool, spaced: boo
             spacer: false,
         });
     };
-    let mut base = 0;
     for line in text.split_terminator('\n') {
         let mut start = 0;
         let mut used = 0;
@@ -174,13 +191,15 @@ impl Layout {
 
     fn update(
         &mut self,
-        width: u16,
+        size: (u16, u16),
         items: &[Item],
         agent: &str,
         verbose: bool,
         comfortable: bool,
         dock_tools: bool,
     ) {
+        let (width, height) = size;
+        let close_files = height > 1;
         let mut regroup = self.grouping_dirty
             || self.verbose != verbose
             || self.dock_tools != dock_tools
@@ -222,6 +241,8 @@ impl Layout {
                     continued: false,
                     gap: false,
                     display: None,
+                    styling: Vec::new(),
+                    styling_valid: false,
                     suppressed: false,
                 };
                 if index < self.segments.len() {
@@ -241,6 +262,7 @@ impl Layout {
                     .flatten();
                 segment.observation_valid = true;
                 segment.display = None;
+                segment.styling_valid = false;
                 segment.header_valid = false;
                 segment.todo_updates = 0;
                 segment.tool_shown = false;
@@ -309,6 +331,7 @@ impl Layout {
                     } else {
                         None
                     };
+                    segment.styling_valid = false;
                 }
             }
             // Compare with the previous visible segment: docked tools and
@@ -337,7 +360,10 @@ impl Layout {
                 continue;
             }
             previous = Some(index);
-            if reflow || !segment.valid {
+            if reflow
+                || !segment.valid
+                || self.close_files != close_files && matches!(item.kind, ItemKind::File(_))
+            {
                 if !segment.header_valid
                     || segment.kind != item.kind
                     || self.verbose != verbose
@@ -354,7 +380,8 @@ impl Layout {
                     } else if let ItemKind::File(phase) = item.kind {
                         let _ = write!(
                             segment.header,
-                            "{} {}",
+                            "{} · {} {}",
+                            item.text.lines().next().unwrap_or(""),
                             Message::ProvidersPlanningFileLabel.text(),
                             super::file_phase_message(phase).text(),
                         );
@@ -479,6 +506,14 @@ impl Layout {
                     segment.header_valid = true;
                 }
                 let content = segment.display.as_deref().unwrap_or(&item.text);
+                if !segment.styling_valid {
+                    crate::output_style::classify(
+                        &mut segment.styling,
+                        content,
+                        matches!(item.kind, ItemKind::File(_)),
+                    );
+                    segment.styling_valid = true;
+                }
                 segment.rows.clear();
                 // File cards paint a gutter on every row, so they never get a gap.
                 if segment.gap && !matches!(item.kind, ItemKind::File(_)) {
@@ -488,10 +523,11 @@ impl Layout {
                         spacer: true,
                     });
                 }
-                // The file-only panel gutter is painted separately on every row,
-                // including wrapped continuations and a viewport starting mid-code.
-                let content_width = if matches!(item.kind, ItemKind::File(_)) {
-                    width.saturating_sub(2).max(1)
+                // Reserve both box edges, interior spacing and the live caret;
+                // source ranges remain absolute in the original observation.
+                let file = matches!(item.kind, ItemKind::File(_));
+                let content_width = if file {
+                    width.saturating_sub(5).max(1)
                 } else {
                     width.max(1)
                 };
@@ -502,6 +538,7 @@ impl Layout {
                         usize::from(content_width),
                         true,
                         false,
+                        0,
                     );
                 }
                 if comfortable
@@ -516,15 +553,28 @@ impl Layout {
                         spacer: true,
                     });
                 }
+                let source_start = if file {
+                    content.find('\n').map_or(content.len(), |end| end + 1)
+                } else {
+                    0
+                };
                 wrap(
                     &mut segment.rows,
-                    content,
+                    &content[source_start..],
                     usize::from(content_width),
                     false,
                     comfortable
                         && segment.display.is_none()
                         && matches!(item.kind, ItemKind::Message | ItemKind::Plan),
+                    source_start,
                 );
+                if file && close_files {
+                    segment.rows.push(Row {
+                        range: content.len()..content.len(),
+                        header: false,
+                        spacer: true,
+                    });
+                }
                 segment.valid = true;
             }
             self.total += segment.rows.len();
@@ -535,6 +585,7 @@ impl Layout {
         self.attributed = attributed;
         self.comfortable = comfortable;
         self.dock_tools = dock_tools;
+        self.close_files = close_files;
     }
 
     fn segment_at(&self, row: usize) -> Option<usize> {
@@ -560,14 +611,42 @@ impl Layout {
             .find(|segment| segment.identity == anchor.identity)?;
         let mut fallback = None;
         for (index, row) in segment.rows.iter().enumerate() {
-            if !row.spacer && row.header == anchor.header {
+            if row.spacer == anchor.spacer && row.header == anchor.header {
                 fallback = Some(segment.start + index);
                 if row.range.end > anchor.byte || row.range.start >= anchor.byte {
                     return fallback;
                 }
             }
         }
-        fallback.or(Some(segment.start))
+        fallback
+            .or_else(|| {
+                // Density changes may remove a spacer; keep its following byte
+                // anchor rather than jumping to the start of the observation.
+                anchor
+                    .spacer
+                    .then(|| {
+                        segment.rows.iter().enumerate().find_map(|(index, row)| {
+                            (!row.spacer
+                                && row.header == anchor.header
+                                && (row.range.end > anchor.byte || row.range.start >= anchor.byte))
+                                .then_some(segment.start + index)
+                        })
+                    })
+                    .flatten()
+            })
+            .or_else(|| {
+                anchor
+                    .spacer
+                    .then(|| {
+                        segment
+                            .rows
+                            .iter()
+                            .rposition(|row| !row.spacer && row.header == anchor.header)
+                            .map(|index| segment.start + index)
+                    })
+                    .flatten()
+            })
+            .or(Some(segment.start))
     }
 
     fn pin(&mut self, row: usize) {
@@ -575,16 +654,12 @@ impl Layout {
             return;
         };
         let segment = &self.segments[index];
-        if let Some(row) = segment
-            .rows
-            .iter()
-            .skip(row.saturating_sub(segment.start))
-            .find(|row| !row.spacer)
-        {
+        if let Some(row) = segment.rows.get(row.saturating_sub(segment.start)) {
             self.anchor = Some(Anchor {
                 identity: Arc::clone(&segment.identity),
                 byte: row.range.start,
                 header: row.header,
+                spacer: row.spacer,
             });
         }
     }
@@ -609,6 +684,7 @@ impl Layout {
             identity,
             byte: 0,
             header: false,
+            spacer: false,
         });
     }
 }
@@ -956,7 +1032,7 @@ impl State {
         }
         let dock_tools = self.tools_docked;
         self.response_cache.update(
-            width,
+            (width, height),
             &self.items,
             self.agent.label(),
             verbose,
@@ -1018,9 +1094,25 @@ impl State {
                         segment.display.as_deref().unwrap_or(&items[index].text)
                     };
                     ResponseRow {
+                        tokens: if row.header || row.spacer {
+                            &[]
+                        } else {
+                            let first = segment
+                                .styling
+                                .partition_point(|token| token.range.end <= row.range.start);
+                            let last = segment
+                                .styling
+                                .partition_point(|token| token.range.start < row.range.end);
+                            &segment.styling[first..last]
+                        },
+                        offset: row.range.start,
                         text: &text[row.range.clone()],
                         kind: segment.kind,
                         header: row.header,
+                        file_top: matches!(segment.kind, ItemKind::File(_))
+                            && row.header
+                            && row.range.start == 0,
+                        file_bottom: matches!(segment.kind, ItemKind::File(_)) && row.spacer,
                         todo: segment.display.is_some() && !segment.tool_shown,
                         tool: segment
                             .tool
@@ -1030,10 +1122,12 @@ impl State {
                         writing_edge: segment.kind
                             == ItemKind::File(crate::providers::FilePhase::Generating)
                             && !row.header
+                            && !row.spacer
                             && text.contains('\n')
                             && row.range.end == text.trim_end_matches('\n').len(),
                         fresh: matches!(segment.kind, ItemKind::File(_))
                             && !row.header
+                            && !row.spacer
                             && growth.get(&items[index].item_id).is_some_and(|(from, at)| {
                                 row.range.end > *from && now.duration_since(*at) < FRESH
                             }),

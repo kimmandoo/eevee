@@ -258,17 +258,22 @@ pub(super) fn commands(frame: &mut Frame, area: Rect, app: &App, config: &Config
             crate::command_help::key(choice.command)
                 .map_or(choice.label.as_str(), |message| paint.hint(message))
         };
-        let label = format!(
-            "{}{} {command:command_width$} {}",
-            if selected { ">" } else { " " },
-            if unavailable { "x" } else { " " },
-            description,
-        );
-        text(
-            frame,
+        frame.render_widget(
+            Paragraph::new(Line::from(vec![
+                Span::styled(if selected { ">" } else { " " }, style),
+                Span::styled(if unavailable { "x " } else { "  " }, style),
+                Span::styled(
+                    format!("{command:command_width$} "),
+                    if selected || unavailable {
+                        style
+                    } else {
+                        paint.accent
+                    },
+                ),
+                Span::styled(description, if selected { style } else { paint.muted }),
+            ]))
+            .style(style),
             row(content, visible as u16 + 1, 1),
-            &clipped(&label, content.width as usize),
-            style,
         );
     }
     if count == 0 {

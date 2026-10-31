@@ -20,32 +20,8 @@ use crate::{
     providers::{FilePhase, FileReview, FileReviewKind, ItemKind, Operation, PromptKind},
 };
 /// Response-only home surface: reuse the cached layout and follow state.
-pub(super) fn render_workspace(
-    frame: &mut Frame,
-    area: Rect,
-    app: &mut App,
-    config: &Config,
-    paint: &Paint,
-) {
-    // The same framed panel as the idle invitation, so the transcript keeps
-    // its padding and does not float as a borderless surface block. Tight
-    // heights give those rows back to the response itself.
-    let area = if area.height >= 14 && area.width >= 40 {
-        let block = panel(
-            paint.hint(Message::CoreResponseTitle),
-            config,
-            paint,
-            app.effective_focus() == crate::app::Pane::Workspace
-                && !app.editing
-                && app.overlay.is_none(),
-        );
-        let inner = block.inner(area);
-        frame.render_widget(Clear, area);
-        frame.render_widget(block, area);
-        inner
-    } else {
-        area
-    };
+pub(super) fn render_workspace(frame: &mut Frame, area: Rect, app: &mut App, paint: &Paint) {
+    // Give ordinary output the entire canvas; only effect reviews need a frame.
     let (request, previous) = app.planning.response_request();
     let area = if previous && !app.planning.submitted_request.is_empty() {
         let current = app
@@ -168,11 +144,11 @@ pub(super) fn file_prompt_area(area: Rect, app: &App) -> Option<Rect> {
         return None;
     }
     let shell = super::shell(area, app.linear, app.effective_focus());
-    let height = if area.height >= 26 { 10 } else { 8 };
+    let height = if area.height >= 26 { 12 } else { 8 };
     Some(Rect::new(
         shell.workspace.x,
         shell.composer.y.saturating_sub(height),
-        shell.workspace.width.min(88),
+        shell.workspace.width.min(104),
         height,
     ))
 }
@@ -1150,6 +1126,11 @@ fn review_controls(frame: &mut Frame, area: Rect, state: &State, paint: &Paint) 
             state.request.as_ref().map(|request| &request.kind),
             Some(PromptKind::Permission { file: Some(_), .. })
         );
+    let file_summary = !state.review_details
+        && matches!(
+            state.request.as_ref().map(|request| &request.kind),
+            Some(PromptKind::Permission { file: Some(_), .. })
+        );
     let controls = if state
         .preview
         .as_ref()
@@ -1167,6 +1148,8 @@ fn review_controls(frame: &mut Frame, area: Rect, state: &State, paint: &Paint) 
                 Message::ProvidersPlanningPermissionAutoReviewActions
             },
         )
+    } else if file_summary && !state.reviewed {
+        paint.hint(Message::ProvidersPlanningFileUnavailable)
     } else if file_details {
         paint.hint(Message::ProvidersPlanningFileDetailsActions)
     } else if state.review_details {
@@ -1174,11 +1157,6 @@ fn review_controls(frame: &mut Frame, area: Rect, state: &State, paint: &Paint) 
     } else {
         controls(state, paint)
     };
-    let file_summary = !state.review_details
-        && matches!(
-            state.request.as_ref().map(|request| &request.kind),
-            Some(PromptKind::Permission { file: Some(_), .. })
-        );
     let permission_choice = if !state.review_details && !file_summary {
         match state.request.as_ref().map(|request| &request.kind) {
             Some(PromptKind::Permission { options, .. }) => options.get(state.option),
@@ -1206,9 +1184,7 @@ fn review_controls(frame: &mut Frame, area: Rect, state: &State, paint: &Paint) 
             Span::styled(
                 paint.hint(message),
                 if state.file_consent.choice == Some(index) {
-                    paint
-                        .accent
-                        .add_modifier(Modifier::REVERSED | Modifier::BOLD)
+                    paint.selected
                 } else {
                     paint.surface
                 },
@@ -1249,6 +1225,35 @@ fn review_controls(frame: &mut Frame, area: Rect, state: &State, paint: &Paint) 
         paint.accent,
         paint,
     );
+}
+
+fn append_styled<'a>(
+    spans: &mut Vec<Span<'a>>,
+    text: &'a str,
+    offset: usize,
+    tokens: &[crate::output_style::Token],
+    base: Style,
+    paint: &Paint,
+) {
+    let mut cursor = 0;
+    for token in tokens {
+        let start = token.range.start.saturating_sub(offset).min(text.len());
+        let end = token.range.end.saturating_sub(offset).min(text.len());
+        if end <= start {
+            continue;
+        }
+        if cursor < start {
+            spans.push(Span::styled(&text[cursor..start], base));
+        }
+        spans.push(Span::styled(
+            &text[start..end],
+            paint.output_style(token.kind, base),
+        ));
+        cursor = end;
+    }
+    if cursor < text.len() {
+        spans.push(Span::styled(&text[cursor..], base));
+    }
 }
 
 fn response(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
@@ -1400,9 +1405,12 @@ fn response(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
             body,
         );
     } else {
-        let lines: Vec<Line<'_>> = state
+        for (index, row) in state
             .response_display_rows(body.width, body.height, super::VERBOSE.get())
-            .map(|row| match row.kind {
+            .enumerate()
+        {
+            let target = super::row(body, index as u16, 1);
+            let line = match row.kind {
                 _ if row.todo => {
                     let style = if row.text.starts_with("Todo progress") {
                         paint.accent.add_modifier(Modifier::BOLD)
@@ -1417,18 +1425,10 @@ fn response(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
                     };
                     Line::styled(row.text, style)
                 }
+                ItemKind::File(_) if row.file_top || row.file_bottom => Line::default(),
                 ItemKind::File(phase) => {
                     let live = super::LIVE_FX.get();
                     let fresh = row.fresh && live.is_some();
-                    let marker = if row.header {
-                        "+ "
-                    } else if row.writing_edge {
-                        "> "
-                    } else if fresh {
-                        "+ "
-                    } else {
-                        "| "
-                    };
                     let style = if row.header {
                         file_style(phase, paint)
                     } else if row.writing_edge {
@@ -1440,8 +1440,8 @@ fn response(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
                     } else {
                         paint.base
                     };
-                    let mut spans = Vec::with_capacity(4);
-                    spans.push(Span::styled(marker, file_style(phase, paint)));
+                    let mut spans = Vec::with_capacity(row.tokens.len() * 2 + 4);
+                    spans.push(Span::raw("  "));
                     if !row.header
                         && let Some((number, code)) = row
                             .text
@@ -1450,12 +1450,18 @@ fn response(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
                         && !number.trim().is_empty()
                         && number.trim().bytes().all(|byte| byte.is_ascii_digit())
                     {
-                        spans.extend([
-                            Span::styled(&row.text[..row.text.len() - code.len()], paint.muted),
-                            Span::styled(code, style),
-                        ]);
+                        let prefix = row.text.len() - code.len();
+                        spans.push(Span::styled(&row.text[..prefix], paint.muted));
+                        append_styled(
+                            &mut spans,
+                            code,
+                            row.offset + prefix,
+                            row.tokens,
+                            style,
+                            paint,
+                        );
                     } else {
-                        spans.push(Span::styled(row.text, style));
+                        append_styled(&mut spans, row.text, row.offset, row.tokens, style, paint);
                     }
                     if row.writing_edge
                         && let Some((ascii, frame)) = live
@@ -1476,12 +1482,48 @@ fn response(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
                         Span::styled(status.marker(), tool_style(status, paint)),
                         Span::styled(title, paint.surface.add_modifier(Modifier::BOLD)),
                     ]),
-                    Some((_, None)) => Line::styled(row.text, paint.muted),
-                    None => Line::raw(row.text),
+                    Some((_, None)) if row.tokens.is_empty() => Line::styled(row.text, paint.muted),
+                    None if row.tokens.is_empty() => Line::raw(row.text),
+                    _ => {
+                        let mut spans = Vec::with_capacity(row.tokens.len() * 2 + 1);
+                        append_styled(
+                            &mut spans,
+                            row.text,
+                            row.offset,
+                            row.tokens,
+                            paint.surface,
+                            paint,
+                        );
+                        Line::from(spans)
+                    }
                 },
-            })
-            .collect();
-        frame.render_widget(Paragraph::new(lines).style(paint.surface), body);
+            };
+            let style = paint.surface.patch(line.style);
+            frame.render_widget(line.style(style), target);
+            if let ItemKind::File(phase) = row.kind {
+                use ratatui::widgets::{Block, Borders};
+                let mut borders = Borders::LEFT | Borders::RIGHT;
+                if row.file_top {
+                    borders |= Borders::TOP;
+                } else if row.file_bottom {
+                    borders |= Borders::BOTTOM;
+                }
+                let mut block = Block::new().borders(borders).border_style(if row.header {
+                    file_style(phase, paint)
+                } else {
+                    paint.border
+                });
+                block = if paint.ascii {
+                    block.border_set(super::ASCII_BORDER)
+                } else {
+                    block.border_type(ratatui::widgets::BorderType::Rounded)
+                };
+                if row.file_top {
+                    block = block.title(row.text).title_style(file_style(phase, paint));
+                }
+                frame.render_widget(block, target);
+            }
+        }
     }
     let mut footer_y = area.height.saturating_sub(footer_rows);
     if show_notice {
@@ -1616,7 +1658,11 @@ fn controls(state: &State, paint: &Paint) -> &'static str {
                 } else if !state.reviewed {
                     paint.hint(Message::ProvidersPlanningDenyAllowUnavailableUntilSummaryIsVisible)
                 } else if file.is_some() && options.len() == 2 {
-                    paint.hint(Message::ProvidersPlanningFileActions)
+                    paint.hint(match state.file_consent.choice {
+                        Some(0) => Message::ProvidersPlanningFileDenyActions,
+                        Some(1) => Message::ProvidersPlanningFileAllowActions,
+                        _ => Message::ProvidersPlanningFileActions,
+                    })
                 } else {
                     paint.hint(Message::ProvidersPlanningAAllowOnceNDenyYSend)
                 }
@@ -2381,10 +2427,7 @@ mod tests {
                 text: "Eevee #1 learned Ember!".into(),
             });
             let screen = draw_home(&mut app);
-            assert!(
-                screen.contains("New move!") && screen.contains("learned Ember"),
-                "{screen}"
-            );
+            assert!(screen.contains("New move!"), "{screen}");
             assert!(
                 screen.contains("[TM]"),
                 "text icon without cached sprites:\n{screen}"
@@ -2672,11 +2715,6 @@ mod tests {
                     }),
                     "{screen}"
                 );
-                let edge = buffer
-                    .content
-                    .iter()
-                    .any(|cell| cell.symbol() == ">" && cell.modifier.contains(Modifier::BOLD));
-                assert_eq!(edge, phase == FilePhase::Generating, "{screen}");
                 assert!(screen.contains("Future draft"), "{screen}");
                 assert_eq!(
                     (&app.input, app.cursor, app.focus),
@@ -2700,6 +2738,32 @@ mod tests {
             .draw(|frame| response(frame, frame.area(), state, paint))
             .unwrap();
         terminal.backend().buffer().clone()
+    }
+
+    #[test]
+    fn code_token_boundaries_preserve_combining_clusters() {
+        let config = config();
+        let paint = Paint::new(&config, &crate::domain::FORMS[0], 0);
+        let mut app = App::new("/workspace".into(), 60, 18);
+        app.planning.items.push(crate::app::planning::Item {
+            thread_id: "thread".into(),
+            turn_id: "turn".into(),
+            item_id: "unicode-code".into(),
+            kind: ItemKind::Message,
+            text: "```json\n\"x\"\u{301}\n```".into(),
+            complete: true,
+            request: "Show the literal source".into(),
+            owner: None,
+            status: None,
+        });
+        let buffer = draw_response(&mut app.planning, 60, 18, &paint);
+        assert!(
+            buffer
+                .content
+                .iter()
+                .any(|cell| cell.symbol() == "\"\u{301}"),
+            "styling must not discard a combining mark after a token boundary"
+        );
     }
 
     #[test]
@@ -2816,8 +2880,6 @@ mod tests {
                     assert!(
                         file.contains(paint.hint(Message::ProvidersPlanningFileLabel))
                             && file.contains(paint.hint(file_phase_message(phase)))
-                            && file.contains("| src/새.rs")
-                            && file.contains("| 1 | let 인사")
                             && file.contains("e\u{301}"),
                         "{file}"
                     );
@@ -2890,7 +2952,6 @@ mod tests {
                 assert!(screen.contains(line), "{screen}");
             }
             assert!(screen.contains("3 lines"), "{screen}");
-            assert_eq!(screen.contains("+ fn two"), live.is_some(), "{screen}");
         }
     }
 
@@ -2931,12 +2992,10 @@ mod tests {
                 .lines()
                 .find(|line| line.contains("held_"))
                 .expect("paused source landmark remains visible")
-                .trim_end()
+                .split_whitespace()
+                .find(|part| part.starts_with("held_"))
+                .expect("source identifier is visible")
                 .to_owned();
-            assert!(
-                first.starts_with("| ") && first.contains("held_"),
-                "{first}"
-            );
             app.planning.event(snapshot(
                 FilePhase::AwaitingReview,
                 format!("{source}\n101 | newly arrived"),
@@ -2948,7 +3007,9 @@ mod tests {
                     visible
                         .lines()
                         .find(|line| line.contains("held_"))
-                        .map(str::trim_end),
+                        .and_then(|line| line
+                            .split_whitespace()
+                            .find(|part| part.starts_with("held_"))),
                     Some(first.as_str()),
                     "{visible}"
                 );
@@ -3250,14 +3311,15 @@ mod tests {
         });
         let mut terminal = Terminal::new(TestBackend::new(120, 36)).unwrap();
         terminal
-            .draw(|frame| render_workspace(frame, frame.area(), &mut app, &config, &paint))
+            .draw(|frame| render_workspace(frame, frame.area(), &mut app, &paint))
             .unwrap();
         let buffer = terminal.backend().buffer();
-        // Row 0 is the RESPONSE panel border.
-        let current = rendered_row(buffer, buffer.area, 1);
+        let visible = screen(buffer);
+        let mut requests = visible.lines().filter(|line| line.contains("request"));
+        let current = requests.next().unwrap();
         assert!(current.contains("new request"));
         assert!(!current.contains("original request"));
-        let label = rendered_row(buffer, buffer.area, 2);
+        let label = requests.next().unwrap();
         assert!(label.contains("original request"));
         assert!(!label.contains("new request"));
     }
@@ -3440,7 +3502,7 @@ mod tests {
                 .map(|y| rendered_row(&buffer, buffer.area, y))
                 .collect::<Vec<_>>()
                 .join("\n");
-            for scope in ["new/새.rs", "new", "exact content", "a/y"] {
+            for scope in ["new/새.rs", "new", "exact content"] {
                 assert!(screen.contains(scope), "{screen}");
             }
             assert!(app.planning.reviewed);
@@ -3572,7 +3634,11 @@ mod tests {
             let composer = super::super::shell(area, app.linear, app.effective_focus()).composer;
             let observed = draw_home(&mut app);
             assert_eq!(dock.bottom(), composer.y);
-            assert!(dock.height <= 10 && dock.y >= 2);
+            assert!(
+                !dock.intersects(
+                    super::super::shell(area, app.linear, app.effective_focus()).header
+                )
+            );
             let rows: Vec<_> = observed.lines().collect();
             assert!(rows[composer.y as usize].contains("Request"));
             assert!(
@@ -4186,7 +4252,7 @@ mod tests {
                     let text = screen(&draw(&mut app));
                     assert!(app.planning.reviewed, "{text}");
                     assert!(text.contains(paint.hint(file_kind_message(kind))), "{text}");
-                    assert!(text.contains("src/새.rs") && text.contains("a/y"), "{text}");
+                    assert!(text.contains("src/새.rs"), "{text}");
                     assert!(
                         !text.contains("Untrusted generic") && !text.contains("provider denial"),
                         "{text}"

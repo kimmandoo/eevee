@@ -24,9 +24,9 @@
 ---
 
 <p align="center">
-  <img src="docs/assets/screenshot.png" width="900" alt="The real ev terminal app in Ghostty, with Eevee displayed as a full-color native pixel sprite in the partner panel">
+  <img src="docs/assets/screenshot.png" width="900" alt="The real ev terminal app in Ghostty, with an open response canvas, colored Rust and diagnostics, and the original Eevee native pixel portrait">
   <br>
-  <sub>Eevee is rendered as native pixels, not text or a composited overlay. This isolated first-launch capture made no provider/model request. <a href="docs/ASSET_LICENSES.md">Artwork attribution and rights limits.</a></sub>
+  <sub>Actual macOS/Ghostty capture; Eevee is native terminal pixels, not pasted into the screenshot. Response text comes from a deterministic loopback fixture, not a live model. No account or paid provider was used. <a href="docs/ASSET_LICENSES.md">Artwork attribution and rights limits.</a></sub>
 </p>
 
 `ev` is a single native binary that turns any folder into an agent workspace. Type a request; the model you connected reads your project, writes files, runs builds and tests, reads the real errors and fixes them — the same loop you know from Codex or Claude Code, with any provider and with every effect shown to you first.
@@ -43,21 +43,25 @@ It also comes with a companion: a party of Eevee forms that evolve with the kind
 - **Local-first.** Tasks, drafts, transcripts and run history live in local SQLite. No account, server or Node runtime needed.
 - **Built for the terminal.** Rust + ratatui, 60×18 and up, mouse and keyboard, Kitty/Sixel sprites with text fallback, ASCII/mono modes. macOS, Linux, WSL and Windows, all built and tested in CI.
 
-## What's new in 0.1.42
+## What's new in 0.1.43
 
 | | What changed |
 | --- | --- |
-| **Clean starts** | Plain `ev` opens a blank session. `ev --continue` reopens the last saved work; `ev --resume [ID]` chooses a saved session. Nothing is deleted. |
-| **Navigation, not accidental Send** | `/new` starts fresh and `/resume` opens saved work; neither sends a request. Enter remains Send, Ctrl+S remains save-only. |
-| **Black canvas** | Panels, overlay margins and sprite padding share a solid-black background, with readable text in both palettes and 256-color/mono modes. |
-| **Account login recovery** | WSL/SSH suggests callback-free Device login. Long pasted redirects are handled promptly and stay hidden; Ctrl+U clears an incorrect paste. |
-| **Useful failure reasons** | Native OAuth reports the stage, HTTP status when known and a safe next step. A previous authentication result no longer hides a newer connection/save error. |
+| **Open responses** | Removed the transcript box and inner padding. At 120 columns the response gains seven text columns and two rows; the original Eevee portrait stays the same size. |
+| **Readable code and diagnostics** | Supported language-tagged code fences and file previews distinguish keywords, strings, comments, numbers and names. Error/warning labels stand out in responses and command output; monochrome keeps text and emphasis without colors. |
+| **Live source boxes** | Actual incoming file contents appear inside a filename/status box with line numbers, syntax colors and a live edge. Ordinary answers stay open; PgUp/PgDn reads earlier code and Alt+End follows the newest fragment. |
+| **Calmer reviews** | Single rounded popup/composer outlines, clearer command names and fixed decisions below command scope. Roomier file reviews retain your draft and unoccluded partner portrait; inspection, one-shot consent and deferral stay distinct. |
+| **Resize recovery** | Resizing, clearing or returning from an overlay restores the original native sprite pixels instead of reusing an empty image ID. |
+| **Intent-matched evolution** | “Diagnose how to fix…” stays read-only; a separate “diagnose and fix it if needed” remains an implementation request. Pinned forms, explicit policy and negation still win. |
+| **Windows release security** | Native qualification scans the exact executable and archive with current Defender intelligence and real-time/PUA/cloud protection enabled. A clean CI scan is not a guarantee against device-specific detections. |
 
 <details>
-<summary>Capabilities carried over from 0.1.38–0.1.41</summary>
+<summary>Capabilities carried over from 0.1.38–0.1.42</summary>
 
 | Feature | How to use it |
 | --- | --- |
+| **Fresh local sessions** | Plain `ev` starts blank; `--continue`/`--resume [ID]` reopen saved work. `/new` and `/resume` navigate without sending. |
+| **Black canvas and account recovery** | A consistent black canvas; WSL/SSH Device-login guidance, responsive hidden redirect paste and actionable connection failures. |
 | **Remembered connections** | Account/API setup saves owner-private plaintext by default; Storage still offers session-only, and access grants can expire |
 | **Live code** | Real source fragments keep updating through short provider pauses, with numbered lines |
 | **File choices by Request** | Compact Deny / Allow-once choices sit above the retained draft |
@@ -110,11 +114,11 @@ Pin a version:
 
 ```sh
 curl -fsSLo install-ev.sh https://github.com/kimmandoo/eevee/releases/latest/download/install.sh
-sh ./install-ev.sh --version v0.1.42
+sh ./install-ev.sh --version v0.1.43
 ```
 
 ```powershell
-& ([scriptblock]::Create((irm https://github.com/kimmandoo/eevee/releases/latest/download/install.ps1))) -Version v0.1.42
+& ([scriptblock]::Create((irm https://github.com/kimmandoo/eevee/releases/latest/download/install.ps1))) -Version v0.1.43
 ```
 
 Offline: download the matching archive, `SHA256SUMS` and installer from one release, then:
@@ -141,7 +145,7 @@ ev
 1. **Connect** — `/connect`, pick a provider, pick a model. Setup never sends your draft.
 2. **Ask** — type what you want and press **Enter**:
    > Create a snake game in Python, run it, and fix anything that breaks.
-3. **Review** — file changes and commands appear for review. **a** allows once, **n** denies, **Shift+A** allows everything for the rest of this session.
+3. **Review** — inspect the proposed change or command, then explicitly choose and confirm. File reviews start with **no choice**: **Right** selects Allow once, **Left** selects Deny, and **Enter** confirms the visible choice. On arrival, **Enter** opens the change instead of approving it.
 
 The folder you launch from is the project boundary. Git is optional; `/init` only drafts an `AGENTS.md` guide if you want one.
 
@@ -157,6 +161,28 @@ ev --resume 12      # exact project-local task/session number
 Inside Eevee, `/new` opens fresh local work and `/resume` opens the same saved-work picker. These are navigation commands, not Send aliases. Saved facts, drafts and carets remain available; opaque provider threads, process-local chat history and approvals never resume after a restart. Account/model choices and your party remain available across sessions. An unavailable, archived or foreign-project ID never silently selects a different task.
 
 `/new` first finishes the exact old draft save through the existing local save barrier; it does not require you to race autosave or send the draft. A failed save keeps recoverable input instead of opening a falsely saved session. Active work, unsettled effects and failed journals still require ordinary resolution before switching.
+
+### Review without losing your draft
+
+| In the review | What to do |
+| --- | --- |
+| Inspect a file proposal | **Enter** on arrival, or **d** for the complete change and exact request. Enter in Details does not allow it. |
+| Decide on a file | Read all required scope; **Left/Right** chooses Deny/Allow once, then **Enter** confirms that choice. |
+| Inspect a command | Review argv, cwd, resolved executable and effects above the bottom decision row. **d** opens full identity/enforcement details; **PgUp/PgDn** scroll. |
+| Defer without answering | **Esc** keeps the request pending and your draft intact; **Alt+A** or `/approvals` reopens it. |
+| Grant broader trust deliberately | From an engaged review, **Shift+A** grants this local session; `/auto-approve` grants this task. These are broader grants, not a different spelling of Allow once. |
+
+Hidden or undersized reviews, skipped scope, ordinary typing, paste and held keys cannot approve an effect. Colored source and diagnostic labels improve reading; they are not proof that code ran or passed.
+
+<details>
+<summary>Live file source before approval</summary>
+
+<img src="docs/assets/live-source.png" width="900" alt="Actual incoming file code in a dedicated numbered source box, marked Generating and not saved, with the original partner portrait retained">
+
+Actual macOS/Ghostty capture of a deterministic keyless loopback fixture. The received code is a preview, not a completed file write. Inspection, a selected one-shot decision and the exact file effect remain separate.
+
+</details>
+
 
 ### Everyday controls
 
@@ -182,6 +208,11 @@ ev --no-animation         # static indicators
 ev --data-dir /abs/path   # separate, isolated storage
 ev --help
 ```
+
+### CJK text and terminal fonts
+
+`ev` preserves Korean, Chinese, Japanese and combining characters, but your **terminal chooses the font and fallback**. It does not bundle a font or change OS/terminal settings. For a clean Korean/CJK monospace face, install and select **D2Coding** or **Sarasa Mono K** in the terminal profile you use for `ev`. In Windows Terminal: **Settings → Profiles → your profile → Appearance → Font face**. Select the installed face there; an app update alone cannot replace a terminal's serif fallback.
+
 
 ## Meet the party
 

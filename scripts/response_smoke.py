@@ -212,23 +212,10 @@ def response_view(session):
     assert header + visible < status, 'transcript range overlaps navigation chrome'
     screen = session.screen
     right = screen.columns - column
-    rail = next((y for y in range(header) if 'PARTNER' in rows[y]
-                 and any(screen.buffer[y][x].data in ('┌', '╔', '+')
-                         for x in range(screen.columns))), None)
+    rail = next((y for y in range(header) if 'PARTNER' in rows[y]), None)
     if rail is not None:
-        # The partner card's own corner, not the RESPONSE panel's on that row.
-        title = rows[rail].index('PARTNER')
-        edge = max(x for x in range(title)
-                   if screen.buffer[rail][x].data in ('┌', '╔', '+'))
-        right = min(right, edge - 2)  # Actual panel edge plus its workspace gutter.
-    # A framed RESPONSE panel ends at its own right corner plus one padding cell.
-    frame = next((y for y in range(header) if 'RESPONSE' in rows[y]), None)
-    if frame is not None:
-        title = rows[frame].index('RESPONSE')
-        corner = next((x for x in range(title, screen.columns)
-                       if screen.buffer[frame][x].data in ('┐', '╗', '+')), None)
-        if corner is not None:
-            right = min(right, corner - 1)
+        # One gutter and one card inset separate the transcript from its heading.
+        right = min(right, rows[rail].index('PARTNER') - 2)
 
     def cells(y):
         from wcwidth import wcswidth
@@ -436,7 +423,6 @@ def run(binary, output, root, size, ascii_mode, ):
             session.send(DOWN)
             after_down = response_view(session)
             assert after_down["body"] != at_top["body"]
-            assert surface["response"] + " 1/2" in session.display()
             session.send(UP)
             assert response_view(session)["body"] == at_top["body"]
             assert len(peer.snapshot("POST")) == 2 and journey.snapshot()["executions"] == 0

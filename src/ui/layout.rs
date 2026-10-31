@@ -28,9 +28,9 @@ pub(super) fn shell(area: Rect, linear: bool, focus: Pane) -> Shell {
         .then(|| Rect::new(body.right().saturating_sub(30), body.y, 30, body.height));
     let rail = (!linear && area.width >= 90 && inspector.is_none()).then(|| {
         Rect::new(
-            body.right().saturating_sub(26),
+            body.right().saturating_sub(24),
             body.y,
-            26,
+            24,
             body.height.min(16),
         )
     });
@@ -41,7 +41,7 @@ pub(super) fn shell(area: Rect, linear: bool, focus: Pane) -> Shell {
     let reserved = if inspector.is_some() {
         32
     } else if rail.is_some() {
-        28
+        25
     } else {
         0
     };
@@ -66,9 +66,9 @@ const TOOLS_MIN_HEIGHT: u16 = 4;
 
 pub(super) fn companion_portrait(area: Rect) -> Rect {
     Rect::new(
-        area.x + 2,
+        area.x + 1,
         area.y + 3,
-        area.width.saturating_sub(4),
+        area.width.saturating_sub(2),
         area.height.saturating_sub(6).min(10),
     )
 }

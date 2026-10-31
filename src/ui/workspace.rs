@@ -1,15 +1,8 @@
 //! Home workspace, partner card, inspector and repository panes.
 use super::*;
 
-pub(super) fn workspace(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &Paint) {
-    let block = panel(
-        paint.hint(Message::CoreResponseTitle),
-        config,
-        paint,
-        app.effective_focus() == Pane::Workspace && !app.editing && app.overlay.is_none(),
-    );
-    let content = block.inner(area);
-    frame.render_widget(block, area);
+pub(super) fn workspace(frame: &mut Frame, area: Rect, app: &App, paint: &Paint) {
+    let content = area;
     let heading = if app.goal.trim().is_empty() {
         Line::styled(paint.hint(Message::CoreRequestInvitation), paint.accent)
     } else {
@@ -79,15 +72,22 @@ pub(super) fn compact_companion(
     frame: &mut Frame,
     area: Rect,
     app: &App,
-    config: &Config,
     paint: &Paint,
     artwork: &mut Artwork,
     show_image: bool,
 ) {
     let focused = app.effective_focus() == Pane::Companion;
-    let block = panel(" PARTNER ", config, paint, focused);
+    let block = Block::new()
+        .padding(Padding::new(1, 1, 1, 1))
+        .style(paint.surface);
     let content = block.inner(area);
     frame.render_widget(block, area);
+    text(
+        frame,
+        row(area, 0, 1),
+        " PARTNER ",
+        if focused { paint.accent } else { paint.muted },
+    );
     text(frame, row(content, 0, 1), &app.lead_label(), paint.accent);
     text(
         frame,
@@ -359,7 +359,7 @@ pub(super) fn tool_panel(frame: &mut Frame, area: Rect, app: &App, config: &Conf
         ),
         ..area
     };
-    let block = panel(&title, config, paint, false);
+    let block = panel(&title, config, paint, false).padding(Padding::horizontal(0));
     let content = block.inner(area);
     frame.render_widget(Clear, area);
     frame.render_widget(block, area);

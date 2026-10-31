@@ -184,9 +184,23 @@ def main():
                             assert 'a=d' in changed, 'Kitty placement not removed for overlay'
                         session.send(ESC)
                         session.command('goal')  # Resume the retained composer draft after help.
+                        previous_images = len(images())
                         session.resize((100, 30))
                         respond()
-                        session.pump(.4)
+                        until(lambda: len(images()) > previous_images, 'resize did not restore actual image pixels after clearing the terminal')
+                        original_pixels(images()[-1], source, box)
+                        # Dropping below the home-card threshold and returning
+                        # exercises cache residency, not only changed geometry.
+                        previous_images = len(images())
+                        session.resize((80, 24))
+                        respond()
+                        session.pump(.2)
+                        assert len(images()) == previous_images, 'hidden partner portrait was transmitted'
+                        session.resize((120, 40))
+                        respond()
+                        until(lambda: len(images()) > previous_images, 'same-size portrait did not return after resize/hide')
+                        original_pixels(images()[-1], source, box)
+                        evidence['resize_and_hide_show_pixels_restored'] = True
                     else:
                         session.pump(.7)
                         assert not sixels(session.text) and not kitty_images(session.text), 'unsupported mode emitted native image'

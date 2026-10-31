@@ -276,39 +276,6 @@ impl App {
         rows
     }
 
-    /// Match work-row ordering without cloning names, event text or row vectors.
-    pub(crate) fn working_forms(&self) -> impl Iterator<Item = usize> + Clone + '_ {
-        let providers = std::iter::once(&self.planning)
-            .chain(self.cooperation.parked.values())
-            .filter(|state| state.owns_work())
-            .filter_map(|state| state.owner().or(state.front.as_ref()));
-        let executions = std::iter::once(&self.execution)
-            .chain(self.cooperation.executions.values())
-            .filter(|state| state.busy() || state.outcome_unknown())
-            .filter_map(|state| state.owner.as_ref());
-        let active = providers.clone().chain(executions.clone());
-        let saving = self
-            .cooperation
-            .command_saves
-            .values()
-            .filter(move |(_, owner, _)| {
-                !active
-                    .clone()
-                    .any(|current| current.partner == owner.partner)
-            })
-            .map(|(_, owner, _)| owner);
-        providers
-            .chain(executions)
-            .chain(saving)
-            .chain(
-                self.delegation
-                    .children
-                    .values()
-                    .filter_map(|child| child.bench.as_ref().or(child.state.front.as_ref())),
-            )
-            .map(|owner| owner.form)
-    }
-
     pub fn write_owner(&self) -> Option<&store::WorkClaim> {
         std::iter::once(&self.planning)
             .chain(self.cooperation.parked.values())

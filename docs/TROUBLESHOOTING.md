@@ -1,5 +1,54 @@
 # Troubleshooting
 
+### [2026-10-31] Closing source borders hid the only readable compact row
+
+- **Context / Symptom:** Source E passed source gates and all four wide actual framed-stream journeys, but all four60×18 rows failed at the cancellation preview with `actual output was not visible: STREAM_STAGE_TWO`. The compact snapshot had one source-body row containing only the closing border, although the latest source fragment was retained.
+- **Root Cause:** Decorative closing edges counted as ordinary transcript rows, so following in a one-row viewport selected an empty edge instead of actual source. Whole-row resize assertions also included width-dependent right borders rather than the code landmark.
+- **Solution:** Cached whether the actual viewport could afford closing edges, reflowed only affected file cards when that budget changed and gave the sole row to source. Kept absolute byte/grapheme anchors and a nearest-source fallback when decoration disappeared. Extended the existing last-source-following regression through heights3→1→2→1→3; F passed2010 Rust tests/two ignored and all eight actual framed-stream journeys without reducing gates, deadlines, source or effect coverage.
+- **Prevention / Reference:** Preserve `target/ui043-e-file-progress/` as the original four-wide-pass/four-compact-fail report. Final corrected proof is `target/ui043-f-file-progress/`; filename/lifecycle/source/consent are distinct from decorative borders.
+
+### [2026-10-31] Manual GUI streaming outlived the fixture's automatic gate
+
+- **Context / Symptom:** The first owned interactive stream became Unknown after showing partial source; no file was created. The local peer raised `fixture terminal-frame gate was not released`.
+- **Root Cause:** Its existing15-second test gate was held while manual inspection continued across several tool turns. This was not a live-provider failure or evidence that partial code had been applied.
+- **Solution:** Retained the original Unknown capture and batched real UI waits, screenshots and explicit fixture releases within the unchanged gate budget. F exposed five real stages before any effect, then neutral review, inspect-only Details and resize revocation; only a separate explicit confirmation wrote the exact130 bytes. Did not extend application/acceptance deadlines, fabricate completion or replay the failed request.
+- **Prevention / Reference:** `target/ui043-visual/source-F-results.json` and actual PNG captures bind the proof to F. A genuine Unknown screenshot must never be relabelled as successful streaming/write proof.
+
+### [2026-10-31] Docked review admitted native sprites from a covered workspace
+
+- **Context / Symptom:** Source D passed its Rust and actual file-consent/progress journeys, but the real `approval-d-arrival-corrected.png` showed an `Image` placeholder overwriting the file dock's bottom edge. Read-only review also found unread-scope controls offered before the automatic review had been engaged.
+- **Root Cause:** The new dock retained the main partner portrait but also prepared cooperation sprite targets from the untrimmed workspace; native painting happened after the dialog and ignored that dock. Separately, hint precedence showed paging/denial/detail keys while the unengaged handler intentionally accepted only Enter or decision navigation.
+- **Solution:** Kept the unoccluded partner portrait for a dock and removed the unusable one-row native thumbnails from the factual work strip, including their obsolete projection API. The original home/picker/drawer portraits remain. Restored engagement-first controls, showing unread-scope paging only after deliberate engagement. Final F actual consent/streaming and real GUI proved that no placeholder overpaint remained; resize revoked an armed choice and one explicit reselected confirmation wrote exactly130 bytes.
+- **Prevention / Reference:** Qualify actual native graphics and key instructions, not just frame-cell buffers or successful writes. Preserve the original D capture and its passing-but-incomplete journey evidence; final corrected-source runtime proof is recorded separately in the checkpoint.
+
+### [2026-10-31] Resizing cleared terminal pixels while Kitty cache residency stayed marked valid
+
+- **Context / Symptom:** The user reported broken Eevee graphics after resizing. The real Ghostty capture `target/ui043-visual/after-real-response.png` had no portrait; its observed stream contained235 ED2 clears but only one image transmission, followed by placement commands referring to old pixels. The expanded actual PTY resize regression passed Sixel but failed Kitty with `resize did not restore actual image pixels after clearing the terminal` on frozen B.
+- **Root Cause:** `NativeGraphics` retained `transmitted=true` across full-terminal clears, although ED2 can discard the terminal's image data. Moving an unchanged22×10 target reused a now-invalid image ID. Starting every metric refresh also immediately removed measured cell dimensions, briefly selecting low-resolution fallback during ordinary resize.
+- **Solution:** Full clears now invalidate terminal residency while retaining encoded bytes; the next paint retransmits pixels before placing them. A bounded refresh retains the last positive measurement, adopts a fresh reply and revokes stale dimensions if the refresh times out. Extended pixel-decoding acceptance covers resize, below-card hide and same-geometry return rather than counting only a startup payload.
+- **Prevention / Reference:** [Kitty interaction with terminal clears](https://sw.kovidgoyal.net/kitty/graphics-protocol/#interaction-with-other-terminal-actions). Original failed evidence remains under `target/ui043-resize-before/`; final native/physical resize proof belongs in the current checkpoint. Do not treat a passing simulated capability probe as physical GUI qualification.
+
+### [2026-10-31] Transcript spacers trapped upward reading and token colors split combining clusters
+
+- **Context / Symptom:** Actual compact response navigation stopped at a response boundary. Three focused regressions failed before correction: one-line scroll restored row4 instead of3; JSON code lost U+0301 after a closing quote; successful `thread 'worker' started successfully` text was classified as an error.
+- **Root Cause:** `Layout::pin` skipped spacer rows and its anchor could not represent them. Syntax ranges were UTF-8-safe but not grapheme-safe, so Paragraph discarded a zero-width mark in a separate styled span. Diagnostic classification accepted every `thread '` prefix, not just panic messages.
+- **Solution:** Retained/restored spacer identity and byte anchors with a density-change fallback; aligned cached syntax ranges to whole graphemes without copying or rewriting text; required the Rust panic marker. Frozen B passed2010 Rust tests/two ignored, both actual response journeys and six actual style/Unicode rows, including a genuinely approved failing command with distinct error/warning colors.
+- **Prevention / Reference:** Keep these behavior regressions and actual scroll/resize/source-gutter/consent journeys. Removed the old default `Response 1/2` wording assertion and decorative26-column pins instead of making production reproduce obsolete chrome. Original A/baseline failures remain distinct.
+
+### [2026-10-31] Repair explanations incorrectly selected mutation capability
+
+- **Context / Symptom:** Actual offline `/evolution-preview` backtesting on frozen A selected Implement for “Diagnose how to fix the error”, a filename variant, “Review how to repair the code” and “오류 수정 방법을 분석해줘”. Six explicit/conditional repair, negation, quoted-source and read-only controls passed, giving6/10.
+- **Root Cause:** Repair verbs bypassed the description guard in ordinary mutation matching and diagnosed/filename fallback paths.
+- **Solution:** Reused the bounded description guard consistently rather than adding vocabulary/defaults. Frozen B passed the same10/10 backtest and both expanded actual evolution journeys, preserving automatic/pinned appearance, restrictive policy, exact consent, no implicit execution and restart behavior.
+- **Prevention / Reference:** `scripts/evolution_smoke.py` retains the regression cases. The first throwaway matrix accidentally appended drafts using unsupported ordinary-editor Ctrl+U and compared operation labels with wrong case; retain that report as invalid fixture evidence, not classifier outcomes. The corrected matrix uses the existing acknowledged home/delete sequence. No live model, account or billing claim follows from this local selection backtest.
+
+### [2026-10-31] GUI capture required real raw input and terminal replies
+
+- **Context / Symptom:** A direct automated Ghostty launch/capture initially had missing graphics and command text was sent as ordinary local-fixture input rather than opening the chooser.
+- **Root Cause:** High-level GUI text injection followed paste semantics rather than the raw input path used by the acceptance harness. The initial missing-picture cause was not isolated independently of the separately confirmed resize/cache-lifetime defect; do not relabel it as a proven environment failure.
+- **Solution:** Used an owned PTY relay inside the real Ghostty window, copying actual terminal geometry and forwarding real input/graphics replies unchanged. A private local control socket sent the same raw bytes as existing smoke drivers. Captures came directly from `screencapture`, not a reconstructed cell image or pasted portrait.
+- **Prevention / Reference:** Keep isolated HOME/data, keyless loopback-only inference and exact owned window IDs. Do not change system accessibility/security or global font settings to make a fixture pass. Native PNG captures qualify only the observed macOS/Ghostty tuple.
+
 ### [2026-10-31] Windows antivirus execution block was not covered by native release CI
 
 - **Context / Symptom:** A user reported that Windows refused to start `ev.exe` because the file contained a virus or potentially unwanted software. The public v0.1.42 executable was unsigned (SHA256 `c726b0ba3f9019564698ebd882e686f4c76c8bfb874825b22761f803e01a2728`); its ZIP matched both the published checksum and GitHub digest.

@@ -117,9 +117,18 @@ def paced_plan(peer, path, content):
     return ('custom', reply), first, final, tokens
 
 
-def visible(journey, marker):
-    files.until(journey.session, lambda: marker in journey.session.display(),
-                'actual generated code was not visible before argument completion: ' + marker, timeout=10)
+def visible(journey, marker, *, boxed=False):
+    def shown():
+        rows = journey.session.display().splitlines()
+        source = [row.strip() for row in rows
+                  if re.match(r'^[│|+>]\s*\d+\s+[│|]\s', row.strip())]
+        return (any(marker in row for row in rows)
+                and (not boxed or (source and all(
+                    row.startswith(('│', '|')) and row.endswith(('│', '|'))
+                    for row in source))))
+    files.until(journey.session, shown,
+                ('actual source box was not visible: ' if boxed else 'actual output was not visible: ') + marker,
+                timeout=10)
 
 
 def no_preview_journal(journey):
@@ -152,7 +161,7 @@ def run(binary, output, root, size, ascii_mode, protocol, ):
             plain_rows = [line.lstrip() for line in journey.session.display().splitlines()
                           if 'OLD_RESPONSE_ANCHOR_' in line or 'OLD_RESPONSE_END' in line]
             # A file gutter is a marker plus a line number; a panel border is not.
-            assert plain_rows and all(not re.match(r'^(?:[│║|]\s+)?[+|>]\s+\d+\s+│', line)
+            assert plain_rows and all(not re.match(r'^[│|+>]\s*\d+\s+[│|]\s', line)
                                       for line in plain_rows), 'plain response received a file gutter'
             if protocol == 'gemini':
                 plan, first, final = gated_plan(peer, PATH, CONTENT)
@@ -164,7 +173,7 @@ def run(binary, output, root, size, ascii_mode, protocol, ):
                 plan, files.response_plan(peer, text='ACTUAL_FILE_APPLIED', number=1)])
             for index, (marker, gate) in enumerate(tokens):
                 files.until(journey.session, gate.ready.is_set, 'paced source gate missing: ' + marker)
-                visible(journey, marker.rstrip())
+                visible(journey, marker.rstrip(), boxed=True)
                 view = journey.session.display()
                 assert 'STREAM_STAGE_ONE' not in view, 'fixture reached a newline before the within-line sample'
                 if index + 1 < len(tokens):
@@ -180,15 +189,12 @@ def run(binary, output, root, size, ascii_mode, protocol, ):
                 files.until(journey.session, final.ready.is_set, 'whole-call proposal did not reach the gate')
             else:
                 files.until(journey.session, first.ready.is_set, 'partial arguments did not reach the gate')
-            visible(journey, 'STREAM_STAGE_ONE' if protocol != 'gemini' else 'STREAM_STAGE_TWO')
+            visible(journey, 'STREAM_STAGE_ONE' if protocol != 'gemini' else 'STREAM_STAGE_TWO', boxed=True)
             preview_rows = journey.session.display().splitlines()
             assert any(label in '\n'.join(preview_rows) for label in ('[FILE]', )), 'file preview lacked explicit file identity'
             marker = 'STREAM_STAGE_ONE' if protocol != 'gemini' else 'STREAM_STAGE_TWO'
-            # Drop the RESPONSE panel's left border when the transcript is framed.
-            code_rows = [re.sub(r'^[│║|]\s(?=[+|>]\s)', '', line.lstrip()) for line in preview_rows if marker in line]
-            assert any(re.match(r'^[+|>]\s+\d+\s+│\s*', line) for line in code_rows), 'generated source lacked its numbered code gutter'
-            if protocol != 'gemini':
-                assert any(line.startswith('> ') for line in code_rows), 'actual arriving code lacked its writing-edge indicator'
+            code_rows = [line.lstrip() for line in preview_rows if marker in line]
+            assert any(re.match(r'^[│|]\s*\d+\s+[│|]\s*', line) for line in code_rows), 'generated source lacked its numbered code gutter'
             if protocol != 'gemini':
                 assert 'STREAM_STAGE_TWO' not in journey.session.display(), 'fixture delivered later code before the first gate'
             journey.capture('live-code-before-complete-input')

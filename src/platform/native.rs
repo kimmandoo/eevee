@@ -154,6 +154,16 @@ impl NativeGraphics {
         self.kind.is_some() && self.cell.is_some()
     }
 
+    /// ED2 and terminal resets may evict Kitty image data, not just placements.
+    /// Keep encoded pixels but renew terminal residency before the next paint.
+    pub fn terminal_cleared(&mut self) {
+        for cached in self.cache.iter_mut().flatten() {
+            if let Encoded::Kitty { transmitted, .. } = &mut cached.encoded {
+                *transmitted = false;
+            }
+        }
+    }
+
     /// Returns true when the caller MUST clear the terminal AND reset its draw
     /// buffer before drawing. Sixel cannot reliably be erased using cell diffs.
     /// Caches survive hiding and reappearing; no image is encoded on idle frames.
@@ -517,6 +527,25 @@ mod tests {
         let second = String::from_utf8(second).unwrap();
         assert!(!second.contains("a=t,"));
         assert!(second.contains("a=p,"));
+        // A full erase during resize can remove the terminal's cached pixels.
+        graphics.terminal_cleared();
+        let mut restored = Vec::new();
+        graphics.paint_to(&mut restored).unwrap();
+        let restored = String::from_utf8(restored).unwrap();
+        let mut pixels = Vec::new();
+        for command in restored.split("\x1b_G").skip(1) {
+            let (header, payload) = command.split_once(';').unwrap();
+            let payload = payload.split("\x1b\\").next().unwrap();
+            if !header.contains("a=p") {
+                pixels.extend(base64_simd::STANDARD.decode_to_vec(payload).unwrap());
+            } else {
+                assert_eq!(
+                    pixels,
+                    *image.as_raw(),
+                    "restore pixels before placing them"
+                );
+            }
+        }
         graphics.visible = 0;
         let mut hidden = Vec::new();
         graphics.paint_to(&mut hidden).unwrap();

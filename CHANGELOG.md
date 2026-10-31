@@ -2,6 +2,17 @@
 
 ## 2026-10-31
 
+- fix(ui): prioritized actual source over a closing edge in one-row viewports, preserved byte landmarks when decorative rows disappeared and removed unrenderable one-row native thumbnails from the factual work strip without changing the original partner portrait.
+- fix(evolution): described unclassified requests as general work instead of falsely claiming code-change intent while retaining existing appearance, effective capability and explicit policy.
+- feat(ui): enclosed actual growing file snapshots in filename/lifecycle source boxes with numbered highlighted code, resize-safe byte anchors and real live edges while leaving ordinary answers open and preserving exact approval boundaries.
+- feat(ui): simplified popup outlines, separated command names from descriptions, widened local confirmation/file-review sheets, kept unoccluded partner portraits visible during docked file review and placed command decisions after their immutable scope without changing approval authority.
+- fix(graphics): renewed Kitty pixel residency after full-terminal clears, retransmitted cached pixels before same-geometry placements on resize and retained confirmed cell metrics during bounded refresh instead of flashing a low-resolution fallback.
+- fix(evolution): kept explanatory repair requests read-only across ordinary, diagnosed and filename-based routing while retaining separately requested conditional repairs and explicit policy/negation/quoted-source boundaries.
+- fix(ui): retained spacer anchors during one-line transcript traversal so scrolling crossed response boundaries, and aligned cached syntax ranges to grapheme clusters so colors did not drop combining marks.
+- feat(ui): highlighted supported fenced code and file-preview syntax with cached semantic ranges, emphasized error/warning labels in responses and local command output, and preserved original text, CJK offsets, monochrome emphasis and approval authority.
+- fix(ui): removed the response box and interior padding, widened ordinary transcripts beside a borderless compact partner card and preserved the original 22×10 Eevee portrait, full-width composer and framed effect approvals.
+- fix(verification): removed obsolete response-frame parsing and a stale default item-ordinal assertion while retaining response ownership, scrolling, CJK reflow and source-gutter checks.
+- chore(release): advanced the package version to 0.1.43.
 - fix(ci): required current-intelligence Defender scans of the exact Windows executable and archive before offline installation and package upload, enabled real-time/behavior/downloaded-file/PUA/archive/cloud protections only on disposable runners, refused detections/errors/changed inputs and retained scan hashes and engine/signature evidence.
 - docs(windows): distinguished antivirus execution blocks from execution-policy/unknown-publisher warnings, documented safe protection-history diagnostics and retained the unresolved device-specific detection instead of claiming unsigned packages or a clean CI scan proved safety.
 - docs(release): published v0.1.42 from `51730ec` after exact-source native41188757779 attempt1 and release41190449121, verified all eight public assets/seven checksum rows/five qualified native packages and preserved earlier releases.
@@ -352,6 +363,17 @@
 - docs(release): published v0.1.19 from source `c4ce4a2` after exact-source Check/all-five-native qualification and immutable promotion, retaining Schema 16 and complete SDK bridge 8.
 - test(terminal): acknowledged the new one-time evolution receipt before checking preserved goal/edit/discard behavior in the actual compact installed runtime without changing the published executable.
 - docs(verification): verified all public assets, sixteen bilingual automatic-review/file-progress journeys/64 groups, 24 file journeys/126 groups, evolution popups and preserved typing, scrolling/tooltips, native 176 groups, cooperation 24, six genuine schema upgrade/refusal/resume cases and 23 installation groups/all 34 installed terminal scenarios.
+
+## 0.1.43
+
+- feat(ui): showed code as it actually arrived inside dedicated filename/status boxes, retained numbered highlighted source and transcript navigation, and added no artificial typing delay.
+- fix(graphics): restored original sprite pixels after window resize/full erase and hide/show cycles instead of reusing terminal image IDs whose pixels had been discarded.
+- feat(ui): clarified inspection versus Deny/Allow-once/deferred states, kept Request drafts visible beside roomier file reviews and replaced heavy active frames with single rounded outlines and consistent selection emphasis.
+- fix(evolution): distinguished English/Korean repair explanations from requested repairs in previews and submitted capability, without changing pinned appearances or overriding explicit read-only/review policy.
+- feat(ui): added offline syntax colors for language-tagged code fences and file previews, plus readable error/warning emphasis in response/log output, without changing source bytes or treating colored text as verified execution evidence.
+- fix(ui): opened ordinary responses onto the black canvas without a surrounding box, recovered seven text columns at 120-column width and two rows where the old frame appeared, and kept the original Eevee portrait at the same size in a quieter partner column.
+- fix(ci): scanned exact Windows executable/archive bytes with refreshed Microsoft Defender intelligence and real-time/PUA/cloud protections enabled before qualifying packages; detections, missing protection, scan errors and changed bytes refused publication.
+- docs(windows): documented safe antivirus-block diagnostics without disabling protection, adding exclusions or claiming a clean CI scan resolved every device-specific detection.
 
 ## 0.1.42
 

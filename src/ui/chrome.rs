@@ -519,7 +519,7 @@ pub(super) fn confirmation(
     let area = if area.width < 30 || area.height < 10 {
         area
     } else {
-        sheet(area, 62, 10)
+        sheet(area, 78, 10)
     };
     frame.render_widget(Clear, area);
     let block = panel(

@@ -1,6 +1,6 @@
 [package]
 name = "eevee"
-version = "0.1.42"
+version = "0.1.43"
 edition = "2024"
 rust-version = "1.90"
 description = "A local-first evolution workbench for LLM-assisted development"
@@ -33,6 +33,7 @@ rusqlite = { version = "=0.37.0", features = ["bundled"] }
 parking_lot = "=0.12.5"
 syn = { version = "=2.0.119", features = ["full", "visit"] }
 proc-macro2 = { version = "=1.0.107", features = ["span-locations"] }
+syntect = { version = "=5.3.0", default-features = false, features = ["default-syntaxes", "regex-fancy"] }
 
 [dev-dependencies]
 fluent-syntax = "=0.12.0"

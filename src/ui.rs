@@ -136,6 +136,8 @@ fn brief(value: &str) -> Cow<'_, str> {
 }
 
 struct Paint {
+    color: ColorMode,
+    ascii: bool,
     base: Style,
     surface: Style,
     muted: Style,
@@ -149,6 +151,8 @@ impl Paint {
         if config.color == ColorMode::Mono {
             let base = Style::default().fg(Color::White).bg(Color::Black);
             return Self {
+                color: config.color,
+                ascii: config.ascii,
                 base,
                 surface: base,
                 muted: base,
@@ -181,6 +185,8 @@ impl Paint {
         };
         let base = Style::default().fg(foreground).bg(image_background(config));
         Self {
+            color: config.color,
+            ascii: config.ascii,
             base,
             surface: base,
             muted: base.fg(muted),
@@ -192,6 +198,36 @@ impl Paint {
                 .add_modifier(Modifier::BOLD),
         }
     }
+    fn output_style(&self, kind: crate::output_style::Kind, base: Style) -> Style {
+        use crate::output_style::Kind;
+        if self.color == ColorMode::Mono {
+            return match kind {
+                Kind::Error => base.add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
+                Kind::Warning | Kind::Keyword => base.add_modifier(Modifier::BOLD),
+                _ => base,
+            };
+        }
+        let ((r, g, b), indexed) = match kind {
+            Kind::Keyword => ((203, 166, 247), 183),
+            Kind::String => ((166, 218, 149), 150),
+            Kind::Number => ((245, 169, 127), 216),
+            Kind::Type => ((125, 207, 255), 117),
+            Kind::Function => ((238, 212, 159), 223),
+            Kind::Error => ((255, 117, 127), 210),
+            Kind::Warning => ((240, 198, 116), 222),
+            Kind::Comment | Kind::Fence => return base.patch(self.muted),
+        };
+        let style = base.fg(if self.color == ColorMode::TrueColor {
+            Color::Rgb(r, g, b)
+        } else {
+            Color::Indexed(indexed)
+        });
+        if matches!(kind, Kind::Error | Kind::Warning) {
+            style.add_modifier(Modifier::BOLD)
+        } else {
+            style
+        }
+    }
 
     /// The same tokens drawn directly on the canvas, for chrome outside panels
     /// (header and status rows) that should not paint a surface band.
@@ -201,6 +237,8 @@ impl Paint {
             None => style,
         };
         Self {
+            color: self.color,
+            ascii: self.ascii,
             base: self.base,
             surface: canvas(self.surface),
             muted: canvas(self.muted),
@@ -252,7 +290,7 @@ fn panel<'a>(title: &'a str, config: &Config, paint: &Paint, focused: bool) -> B
         block.border_set(ASCII_BORDER)
     } else {
         block.border_type(if focused {
-            BorderType::Double
+            BorderType::Rounded
         } else {
             BorderType::Plain
         })
@@ -290,14 +328,15 @@ pub fn portrait_targets(app: &App, area: Rect, targets: &mut Vec<(usize, Rect)>)
             }
         }
         Some(Overlay::Companion) => targets.push((app.form(), portrait(drawer(area)))),
-        Some(_) => {}
-        None => {
-            let layout = shell(area, app.linear, app.effective_focus());
-            if let Some(rail) = layout.rail {
-                targets.push((app.form(), companion_portrait(rail)));
+        None | Some(Overlay::Planning) => {
+            if app.overlay.is_none() || planning::file_prompt_area(area, app).is_some() {
+                let layout = shell(area, app.linear, app.effective_focus());
+                if let Some(rail) = layout.rail {
+                    targets.push((app.form(), companion_portrait(rail)));
+                }
             }
-            cooperation::sprite_targets(app, layout.workspace, targets);
         }
+        Some(_) => {}
     }
     targets.retain(|&(_, target)| !occluded(area, app, target));
 }
@@ -438,10 +477,9 @@ fn render_content(
                 frame,
                 rail,
                 app,
-                config,
                 &paint,
                 artwork,
-                app.overlay.is_none()
+                (app.overlay.is_none() || file_prompt.is_some())
                     && !occluded(area, app, companion_portrait(rail))
                     && !(app.editing
                         && matches!(
@@ -461,7 +499,7 @@ fn render_content(
         } else {
             workspace_area
         };
-        let workspace_area = cooperation::strip(frame, workspace_area, app, &paint, artwork);
+        let workspace_area = cooperation::strip(frame, workspace_area, app, &paint);
         let workspace_area = if matches!(app.overlay, Some(Overlay::Tasks | Overlay::Forms)) {
             workspace_area
         } else {
@@ -476,9 +514,9 @@ fn render_content(
             .filter(|_| app.response_on_home() && !app.verbose);
         app.planning.set_tools_docked(tools.is_some());
         if app.response_on_home() {
-            planning::render_workspace(frame, workspace_area, app, config, &paint);
+            planning::render_workspace(frame, workspace_area, app, &paint);
         } else {
-            workspace(frame, workspace_area, app, config, &paint);
+            workspace(frame, workspace_area, app, &paint);
         }
         if let Some(tools) = tools {
             tool_panel(frame, tools, app, config, &paint);
