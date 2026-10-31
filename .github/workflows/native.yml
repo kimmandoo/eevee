@@ -115,6 +115,20 @@ jobs:
           python scripts/license_notices.py --report target/native-licenses.json --output target/THIRD_PARTY_NOTICES
       - name: Package the standalone native executable
         run: python scripts/package_binary.py --binary target/release/ev --notices target/THIRD_PARTY_NOTICES --output target/packages
+      - name: Scan Windows release bytes with current Defender intelligence
+        shell: python
+        run: |
+          import os, subprocess
+          if os.name == "nt":
+              subprocess.run([
+                  "pwsh", "-NoLogo", "-NoProfile", "-NonInteractive", "-File",
+                  "scripts/windows_defender_scan.ps1",
+                  "-Binary", "target/release/ev.exe",
+                  "-Archive", "target/packages/ev-windows-x86_64.zip",
+                  "-Output", "target/windows-defender",
+              ], check=True, timeout=600)
+          else:
+              print("Microsoft Defender qualification applies to the native Windows package.")
       - name: Install the package offline and run it
         shell: python
         run: |
@@ -149,12 +163,13 @@ jobs:
             --binary target/release/ev${{ runner.os == 'Windows' && '.exe' || '' }} \
             --output "$NATIVE_SMOKE_OUTPUT/sessions"
       - name: Retain platform file workflow evidence
-        if: ${{ always() && env.NATIVE_SMOKE_OUTPUT != '' }}
+        if: ${{ always() && (env.NATIVE_SMOKE_OUTPUT != '' || runner.os == 'Windows') }}
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: file-workflows-${{ matrix.package }}
           path: |
-            ${{ env.NATIVE_SMOKE_OUTPUT }}/
+            ${{ env.NATIVE_SMOKE_OUTPUT || 'target/missing-native-smoke' }}/
+            target/windows-defender/
           if-no-files-found: error
           retention-days: 14
       - name: Upload native installation package

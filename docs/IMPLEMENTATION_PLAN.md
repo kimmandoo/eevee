@@ -1,8 +1,14 @@
 # Eevee Implementation Plan
 
-Updated 2026-10-31. Completed black-canvas rendering, actionable provider account connection recovery, fresh-by-default local sessions, reduced per-push smoke cost and the qualified 0.1.42 release. No unrelated roadmap work or paid/live provider calls were started.
+Updated 2026-10-31. Active: diagnose the reported Windows antivirus execution block; the device-specific threat name/security-intelligence version is unavailable. Completed the missing release-security gate and protected-runner public-byte validation, not the user's root-cause repair. The qualified public release remains 0.1.42; no tag or public asset was changed.
 
 Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPATIBILITY.md). Live-provider conformance remains distinct from implemented transports and deterministic runtime proof.
+
+## Active delivery — Windows antivirus execution block
+
+1. Verified public0.1.42 ZIP SHA256 `dc4aaaedbfc07b1ed48e8d3615b945e313ff81022da10e9519e7b63c3fe5900a` and executable SHA256 `c726b0ba3f9019564698ebd882e686f4c76c8bfb874825b22761f803e01a2728`. The PE has no Authenticode certificate. Existing native CI executed with real-time/PUA/archive protections disabled by the hosted image; native execution success was not antivirus clearance.
+2. Added `scripts/windows_defender_scan.ps1` to the native gate after packaging/before offline install and artifact upload. On disposable Actions runners it strengthens protections, refreshes intelligence, scans both unchanged inputs without remediation/exclusions, fails closed and retains JSON/text evidence even before terminal smoke initialization. Run41194678788 exercised that exact script: public executable/archive both exit0/no threats, protected `ev --version` printed0.1.42, missing input refused; engine1.1.26100.4/signatures1.463.56.0. Local actionlint and qualified Python suite passed; the initial system-Python3.9 invocation failed because this repository requires modern Python.
+3. **Blocked root-cause step:** obtain the user's Protection history threat name and Defender intelligence version (plus affected release/path/hash when available). A clean Server2022 CI scan does not disprove a Windows10/11 device's cloud/reputation verdict or establish a false positive. Reproduce the specific verdict before changing executable behavior or publishing replacement bytes. Microsoft false-positive review requires its submission portal; code signing requires a real trusted certificate/service, neither is fabricated by this patch. No unrelated application/strategy change or new release was made.
 
 ## Completed delivery — Clean local sessions, account usability and CI smoke diet (0.1.42)
 

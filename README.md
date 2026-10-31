@@ -91,6 +91,9 @@ $env:PATH = "$env:LOCALAPPDATA\ev\bin;" + $env:PATH
 
 Installers verify SHA-256 checksums and never edit your shell profile or persistent `PATH`.
 
+> [!WARNING]
+> If Windows says `ev.exe` contains a virus or potentially unwanted software, leave the block in place. This is an antivirus detection, not a PowerShell execution-policy error or just an unknown-publisher warning; `Unblock-File` and execution-policy changes do not resolve it. Do not disable Defender or add an exclusion. Check **Windows Security → Virus & threat protection → Protection history** and report the exact threat name, affected `ev.exe` path, release version and Defender security-intelligence version. A matching SHA-256 proves release-byte identity, not that a file is safe. Windows packages are currently unsigned; a CI scan cannot guarantee every device's cloud/reputation decision.
+
 ```sh
 ev update --check   # is there a newer release?
 ev update           # upgrade in place

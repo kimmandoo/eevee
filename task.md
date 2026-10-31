@@ -8,7 +8,7 @@ Only unfinished work belongs here. Completed specifications and stable dependenc
 - **Included milestones:** A08 → UX04A → S04 and P04A → P04B → T01B shipped: actionable connection diagnostics, persistent text density, reviewed portable workflows, reviewed updates/safe rollback and exact local context comparison. Specifications remain in [COMPLETED.md](tasks/COMPLETED.md).
 - **Compatibility:** Public 0.1.42 retains SQL20, complete SDK bridge11 and formation2; parameterized moves use TM2 while literal TM1 imports remain supported. Ignorable task-workflow/receipt fields are preserved, but unknown declared critical fields refuse. Older releases did not gain forward compatibility retroactively; profiles/delegated receipts/expanded move metadata can still make them refuse. Replace sidecar source/policy/dependencies together; bridge10 mixes refuse before dispatch. Back up the whole data directory before upgrading; version/schema equality never restores grants, sessions or lifecycle rollback eligibility.
 - **Remaining:** **27 tasks**: 13 assigned F/H/conditional structure tasks and14 unassigned V audit tasks. All nine X implementations passed local source/runtime acceptance; XC07 absorbed VA09's typed parameters and portable TM2 contract.
-- **Latest request (completed):** Shipped black-canvas rendering, account-login recovery/diagnostics, fresh-by-default work and explicit continuation. Verified the CI smoke diet with all five core rows plus a separate three-OS artifact-backed regression dispatch. Published and verified 0.1.42, including public-byte integrity, actual changed-surface runtime and installation/update/uninstall continuation. Original failed/interrupted evidence remains distinct; live accounts/models remain untested. Unrelated F/H/R/V tasks stay unchanged.
+- **Latest request (active; device evidence needed):** Investigated the Windows antivirus execution block on public v0.1.42. Exact public bytes passed Windows Defender scans and `--version` with real-time/behavior/downloaded-file/PUA/archive/cloud protections enabled (run41194678788, engine1.1.26100.4/signatures1.463.56.0); this does not resolve the user's device-specific block. Added a fail-closed native Windows release scan gate and safe reporting guidance. Need the affected device's exact Protection history threat name and security-intelligence version before a root-cause fix or replacement release; no existing tag/asset was changed. Unrelated F/H/R/V tasks stay unchanged.
 
 ## Completed Pokémon milestone
 
@@ -32,7 +32,7 @@ A/B/C/D/E/G/I/J/K/L/U/X are implemented; F/H/R and14 V tasks retain their explic
 
 ### Next order
 
-1. No release work remains. Select remaining F/H/R/V work only on a new authorized request; do not start Wave8 automatically.
+1. Continue the Windows execution-block investigation when the affected device's exact threat name/security-intelligence version arrives. Compare actual file/release identity, reproduce the named detection, then fix and qualify only evidenced replacement bytes or pursue Microsoft false-positive analysis as appropriate; do not disable protection, add exclusions or rebuild solely to evade a hash verdict. Select unrelated F/H/R/V work only on a new request.
 2. Local Q01/Q02/P03 evidence remains separate from full Wave8/live acceptance. Remaining F/H/R/V work is not implied complete by the X-track release.
 
 ## Execution rules

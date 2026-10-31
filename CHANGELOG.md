@@ -2,6 +2,8 @@
 
 ## 2026-10-31
 
+- fix(ci): required current-intelligence Defender scans of the exact Windows executable and archive before offline installation and package upload, enabled real-time/behavior/downloaded-file/PUA/archive/cloud protections only on disposable runners, refused detections/errors/changed inputs and retained scan hashes and engine/signature evidence.
+- docs(windows): distinguished antivirus execution blocks from execution-policy/unknown-publisher warnings, documented safe protection-history diagnostics and retained the unresolved device-specific detection instead of claiming unsigned packages or a clean CI scan proved safety.
 - docs(release): published v0.1.42 from `51730ec` after exact-source native41188757779 attempt1 and release41190449121, verified all eight public assets/seven checksum rows/five qualified native packages and preserved earlier releases.
 - docs(verification): passed downloaded session/provider/OAuth/graphics journeys, completed interrupted installation acceptance through retained27 plus seven missing terminal cases and explicit uninstall/reinstall checks, and recorded actual core CI reductions separately from three-OS artifact-backed deep regressions.
 - ci(smoke): separated five-platform push/PR core qualification from daily/manual protocol/tool/contract regressions, retained compact/wide file and session boundaries, and reused exact qualified native packages without rebuilding expanded jobs.
