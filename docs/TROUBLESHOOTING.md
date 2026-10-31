@@ -1,5 +1,12 @@
 # Troubleshooting
 
+### [2026-10-31] Defender intelligence update failed before Windows package scanning
+
+- **Context / Symptom:** Native41205790684 at source6c51cab passed Check and all four non-Windows targets, but `Update-MpSignature` raised `The remote procedure call failed.` Both exact Windows input hashes were retained with null scan exit codes; the release qualifier correctly refused the run. This was not a malware verdict.
+- **Root Cause:** The failing operation was the PowerShell intelligence-update call, before any custom scan. The disposed runner did not retain enough service evidence to establish the underlying RPC failure. Independent diagnostics also observed an active platform transition4.18.26090.9→4.18.26100.4, so an updater path cannot safely be assumed to remain the current scanner path.
+- **Solution:** Replaced the cmdlet with one supported `MpCmdRun.exe -SignatureUpdate`, required exit0 and retained its output/exit code, then resolved the active platform scanner again. Kept all enabled-protection checks, non-remediating scans, exact-byte checks and failure refusal. Isolated run41207894923 used unchanged public0.1.42 bytes: both initial and already-protected invocations refreshed successfully, all four file scans returned0, and protected execution printed0.1.42. No retry, exclusion, disabled protection or hash-changing workaround was added.
+- **Prevention / Reference:** [Microsoft native updater and custom-scan contract](https://learn.microsoft.com/en-us/defender-endpoint/command-line-arguments-microsoft-defender-antivirus). Original failure: `target/release043-proof/windows-scan-failure/`; diagnostic provenance/reports: `target/defender043-investigation/`. These diagnostics do not qualify the new0.1.43 packages or establish clearance on the user's Windows device.
+
 ### [2026-10-31] Closing source borders hid the only readable compact row
 
 - **Context / Symptom:** Source E passed source gates and all four wide actual framed-stream journeys, but all four60×18 rows failed at the cancellation preview with `actual output was not visible: STREAM_STAGE_TWO`. The compact snapshot had one source-body row containing only the closing border, although the latest source fragment was retained.

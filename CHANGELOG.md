@@ -2,6 +2,7 @@
 
 ## 2026-10-31
 
+- fix(ci): refreshed Defender intelligence with its supported native updater, required and retained its exit code/log, and resolved the active scanner again after platform changes without retries, protection waivers or relaxed scan acceptance.
 - fix(ui): prioritized actual source over a closing edge in one-row viewports, preserved byte landmarks when decorative rows disappeared and removed unrenderable one-row native thumbnails from the factual work strip without changing the original partner portrait.
 - fix(evolution): described unclassified requests as general work instead of falsely claiming code-change intent while retaining existing appearance, effective capability and explicit policy.
 - feat(ui): enclosed actual growing file snapshots in filename/lifecycle source boxes with numbered highlighted code, resize-safe byte anchors and real live edges while leaving ordinary answers open and preserving exact approval boundaries.
@@ -373,6 +374,7 @@
 - feat(ui): added offline syntax colors for language-tagged code fences and file previews, plus readable error/warning emphasis in response/log output, without changing source bytes or treating colored text as verified execution evidence.
 - fix(ui): opened ordinary responses onto the black canvas without a surrounding box, recovered seven text columns at 120-column width and two rows where the old frame appeared, and kept the original Eevee portrait at the same size in a quieter partner column.
 - fix(ci): scanned exact Windows executable/archive bytes with refreshed Microsoft Defender intelligence and real-time/PUA/cloud protections enabled before qualifying packages; detections, missing protection, scan errors and changed bytes refused publication.
+- fix(ci): replaced the failing PowerShell intelligence-update operation with one checked native update and retained update logs; protected unchanged-byte Windows diagnostics passed both initial and already-enabled invocations.
 - docs(windows): documented safe antivirus-block diagnostics without disabling protection, adding exclusions or claiming a clean CI scan resolved every device-specific detection.
 
 ## 0.1.42

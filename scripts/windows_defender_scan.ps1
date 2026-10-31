@@ -18,6 +18,16 @@ $report = [ordered]@{
     files = @()
     error = $null
 }
+function Get-DefenderScanner([string]$PlatformVersion) {
+    $platformRoot = Join-Path $env:ProgramData 'Microsoft/Windows Defender/Platform'
+    $scanner = Join-Path $platformRoot ($PlatformVersion + '-0/MpCmdRun.exe')
+    if (-not (Test-Path -LiteralPath $scanner -PathType Leaf)) {
+        $scanner = Join-Path $env:ProgramFiles 'Windows Defender/MpCmdRun.exe'
+    }
+    if (-not (Test-Path -LiteralPath $scanner -PathType Leaf)) { throw 'Microsoft Defender scanner is unavailable.' }
+    return $scanner
+}
+
 try {
     $inputs = @((Resolve-Path -LiteralPath $Binary).Path, (Resolve-Path -LiteralPath $Archive).Path)
     foreach ($file in $inputs) {
@@ -34,7 +44,16 @@ try {
     Set-MpPreference -DisableRealtimeMonitoring $false -DisableBehaviorMonitoring $false `
         -DisableIOAVProtection $false -DisableArchiveScanning $false -DisableBlockAtFirstSeen $false `
         -PUAProtection Enabled -MAPSReporting Advanced -SubmitSamplesConsent SendSafeSamples
-    Update-MpSignature -ErrorAction Stop
+    # Use the supported native updater, not the cmdlet's failing RPC update path.
+    # One failed update still refuses qualification; there is no retry or waiver.
+    $updater = Get-DefenderScanner (Get-MpComputerStatus).AMProductVersion
+    $report.signatureUpdater = $updater
+    & $updater -SignatureUpdate 2>&1 |
+        Tee-Object -FilePath (Join-Path $reportDirectory 'signature-update.txt')
+    $report.signatureUpdateExitCode = $LASTEXITCODE
+    if ($report.signatureUpdateExitCode -ne 0) {
+        throw "Defender intelligence update failed (exit $($report.signatureUpdateExitCode)); see signature-update.txt"
+    }
     $status = Get-MpComputerStatus
     if (-not $status.AMServiceEnabled -or -not $status.AntivirusEnabled -or
         $status.AMRunningMode -ne 'Normal' -or -not $status.RealTimeProtectionEnabled -or
@@ -54,12 +73,8 @@ try {
     $report.signatures = $status.AntivirusSignatureVersion
     $report.signaturesUpdatedUtc = $status.AntivirusSignatureLastUpdated.ToUniversalTime().ToString('o')
     $report.signatureStatus = [string](Get-AuthenticodeSignature -LiteralPath $inputs[0]).Status
-    $platformRoot = Join-Path $env:ProgramData 'Microsoft/Windows Defender/Platform'
-    $scanner = Join-Path $platformRoot ($status.AMProductVersion + '-0/MpCmdRun.exe')
-    if (-not (Test-Path -LiteralPath $scanner -PathType Leaf)) {
-        $scanner = Join-Path $env:ProgramFiles 'Windows Defender/MpCmdRun.exe'
-    }
-    if (-not (Test-Path -LiteralPath $scanner -PathType Leaf)) { throw 'Microsoft Defender scanner is unavailable.' }
+    # An update can change the active platform; resolve its scanner again.
+    $scanner = Get-DefenderScanner $status.AMProductVersion
     $report.scanner = $scanner
     foreach ($entry in $report.files) {
         $log = Join-Path $reportDirectory ((Split-Path $entry.path -Leaf) + '.scan.txt')
