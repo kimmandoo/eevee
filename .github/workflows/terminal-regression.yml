@@ -50,7 +50,7 @@ jobs:
           ids = dict(zip(TARGETS, selected['artifact-ids'].split(','), strict=True))
           rows = [
               {'name': 'linux-x86_64', 'runner': 'ubuntu-22.04', 'package': 'linux-x86_64', 'profile': 'full'},
-              {'name': 'macos-arm64', 'runner': 'macos-14', 'package': 'darwin-arm64', 'profile': 'macos'},
+              {'name': 'macos-arm64', 'runner': 'macos-15', 'package': 'darwin-arm64', 'profile': 'macos'},
               {'name': 'windows-x86_64', 'runner': 'windows-2022', 'package': 'windows-x86_64', 'profile': 'windows'},
           ]
           for row in rows:

@@ -1,5 +1,12 @@
 # Troubleshooting
 
+### [2026-10-31] Scheduled macOS14 runner brownout cancelled native qualification before execution
+
+- **Context / Symptom:** Sourcec224386/native41208468825 passed Check and all four other platforms, including every protected Windows scan/install/runtime step. Its macOS ARM64 job was cancelled before any step with `This job failed because of a scheduled macOS 14 runner image brownout`; exact-source release qualification correctly refused the incomplete matrix.
+- **Root Cause:** GitHub scheduled macOS14 image brownouts, including2026-10-31T14:00Z→2026-11-01T00:00Z, before permanent retirement on2026-11-02. No application build or test ran on the cancelled job; this was not a Rust failure.
+- **Solution:** Moved both the native ARM64 matrix and recurring artifact-backed macOS terminal regression to pinned `macos-15`, whose standard runner architecture is ARM64. Kept `macos-15-intel` for x86_64, the same Rust targets, every acceptance step and the requirement for Check/all five native jobs in one exact-source attempt. Did not bypass the brownout by publishing partial or older green artifacts.
+- **Prevention / Reference:** [Runner retirement and mitigation](https://github.com/actions/runner-images/issues/13518); [official runner architecture labels](https://docs.github.com/en/actions/reference/runners/github-hosted-runners#standard-github-hosted-runners-for-public-repositories). Final supported-runner execution and publication evidence belong in the checkpoint, not inferences from successful actionlint.
+
 ### [2026-10-31] Defender intelligence update failed before Windows package scanning
 
 - **Context / Symptom:** Native41205790684 at source6c51cab passed Check and all four non-Windows targets, but `Update-MpSignature` raised `The remote procedure call failed.` Both exact Windows input hashes were retained with null scan exit codes; the release qualifier correctly refused the run. This was not a malware verdict.
