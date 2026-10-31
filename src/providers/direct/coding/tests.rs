@@ -471,6 +471,484 @@ fn run_with_handler(
 }
 
 #[test]
+fn unfinished_todo_final_continues_owned_work_without_replaying_effects() {
+    for protocol in [
+        Protocol::Responses,
+        Protocol::ChatCompletions,
+        Protocol::Messages,
+        Protocol::Gemini,
+    ] {
+        let fixture = Fixture::new(&["first.txt", "second.txt"]);
+        let (url, server) = peer(vec![
+            wire_tools(
+                protocol,
+                &[
+                    (
+                        "plan",
+                        "todo",
+                        json!({"operation":"init","label":"","steps":[
+                            {"label":"Create selected files","status":"active"}
+                        ]}),
+                    ),
+                    (
+                        "first-effect",
+                        "eevee_write_file",
+                        json!({"path":"first.txt","content":"first exact bytes"}),
+                    ),
+                ],
+                "Working",
+            ),
+            wire(
+                protocol,
+                &[],
+                "First file is ready; I still need to create the second file.",
+            ),
+            wire_tools(
+                protocol,
+                &[
+                    (
+                        "second-effect",
+                        "eevee_write_file",
+                        json!({"path":"second.txt","content":"second exact bytes"}),
+                    ),
+                    (
+                        "finish-plan",
+                        "todo",
+                        json!({"operation":"done","label":"Create selected files","steps":[]}),
+                    ),
+                ],
+                "Completing the remaining work",
+            ),
+            wire(protocol, &[], "Both selected files are ready."),
+        ]);
+        let (mut run, connection) = fixture.prepare(protocol, &url);
+        let ((outcome, message), events) = run_with_answers(&fixture, &mut run, &connection, true);
+        assert_eq!(outcome, Outcome::Completed, "{protocol:?}: {message}");
+        let requests = server.join().unwrap();
+        assert_eq!(requests.len(), 4);
+        assert_eq!(
+            std::fs::read_to_string(fixture.workspace.project.join("first.txt")).unwrap(),
+            "first exact bytes"
+        );
+        assert_eq!(
+            std::fs::read_to_string(fixture.workspace.project.join("second.txt")).unwrap(),
+            "second exact bytes"
+        );
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| matches!(event, Event::Prompt { .. }))
+                .count(),
+            2
+        );
+        let completions = events
+            .iter()
+            .filter_map(|event| match event {
+                Event::NativeCompleted { conversation, .. } => Some(conversation),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(completions.len(), 1);
+        let answer = &completions[0].messages.last().unwrap().text;
+        assert!(answer.contains("Both selected files are ready."));
+        assert!(answer.contains("I still need to create the second file"));
+        assert!(!answer.contains("opaque-signed-state"));
+        assert!(
+            requests[2]
+                .to_string()
+                .contains("I still need to create the second file")
+        );
+        let field = match protocol {
+            Protocol::Responses => "input",
+            Protocol::ChatCompletions | Protocol::Messages => "messages",
+            Protocol::Gemini => "contents",
+            Protocol::Codex => unreachable!(),
+        };
+        let original = requests[0][field].as_array().unwrap();
+        let continued = requests[2][field].as_array().unwrap();
+        assert_eq!(&continued[..original.len()], original.as_slice());
+        assert_eq!(continued.last().unwrap()["role"], "user");
+    }
+}
+
+#[test]
+fn mixed_blocked_and_actionable_todos_finish_reachable_work_then_stop_incomplete() {
+    for protocol in [
+        Protocol::Responses,
+        Protocol::ChatCompletions,
+        Protocol::Messages,
+        Protocol::Gemini,
+    ] {
+        let fixture = Fixture::new(&["blocked.txt", "reachable.txt"]);
+        let (url, server) = peer(vec![
+            wire_tools(
+                protocol,
+                &[(
+                    "plan",
+                    "todo",
+                    json!({"operation":"init","label":"","steps":[
+                        {"label":"Obtain missing prerequisite","status":"blocked"},
+                        {"label":"Create independent file","status":"active"}
+                    ]}),
+                )],
+                "One prerequisite is blocked, but an independent step remains.",
+            ),
+            wire(
+                protocol,
+                &[],
+                "The overall request cannot finish until the prerequisite is available.",
+            ),
+            wire_tools(
+                protocol,
+                &[
+                    (
+                        "reachable-effect",
+                        "eevee_write_file",
+                        json!({"path":"reachable.txt","content":"reachable exact bytes"}),
+                    ),
+                    (
+                        "finish-reachable",
+                        "todo",
+                        json!({"operation":"done","label":"Create independent file","steps":[]}),
+                    ),
+                ],
+                "Completing only the independent step.",
+            ),
+            wire(
+                protocol,
+                &[],
+                "The independent file is ready; the prerequisite remains blocked.",
+            ),
+        ]);
+        let (mut run, connection) = fixture.prepare(protocol, &url);
+        let ((outcome, message), events) = run_with_answers(&fixture, &mut run, &connection, true);
+        assert_eq!(outcome, Outcome::Failed, "{protocol:?}: {message}");
+        assert!(message.contains("request is incomplete"), "{message}");
+        assert_eq!(server.join().unwrap().len(), 4);
+        assert_eq!(
+            std::fs::read_to_string(fixture.workspace.project.join("reachable.txt")).unwrap(),
+            "reachable exact bytes"
+        );
+        assert!(!fixture.workspace.project.join("blocked.txt").exists());
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| matches!(event, Event::Prompt { .. }))
+                .count(),
+            1
+        );
+        assert!(
+            !events
+                .iter()
+                .any(|event| matches!(event, Event::NativeCompleted { .. }))
+        );
+        let final_steps = events
+            .iter()
+            .rev()
+            .find_map(|event| match event {
+                Event::Progress {
+                    steps: Ok(steps), ..
+                } => Some(steps),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(final_steps.len(), 2);
+        assert_eq!(
+            final_steps[0].status,
+            crate::workspace::progress::Status::Blocked
+        );
+        assert_eq!(
+            final_steps[1].status,
+            crate::workspace::progress::Status::Done
+        );
+    }
+}
+
+#[test]
+fn clean_native_answers_and_finished_or_dropped_todos_stop_normally() {
+    for status in [None, Some("done"), Some("dropped")] {
+        let fixture = Fixture::new(&[]);
+        let mut responses = Vec::new();
+        if let Some(status) = status {
+            responses.push(wire_tools(
+                Protocol::Responses,
+                &[(
+                    "plan",
+                    "todo",
+                    json!({"operation":"init","label":"","steps":[
+                        {"label":"Answer the question","status":status}
+                    ]}),
+                )],
+                "",
+            ));
+        }
+        responses.push(wire(Protocol::Responses, &[], "The answer is 42."));
+        let expected = responses.len();
+        let (url, server) = peer(responses);
+        let (mut run, connection) = fixture.prepare(Protocol::Responses, &url);
+        let ((outcome, message), events) = run_with_answers(&fixture, &mut run, &connection, false);
+        assert_eq!(outcome, Outcome::Completed, "{message}");
+        assert_eq!(server.join().unwrap().len(), expected);
+        assert!(
+            !events
+                .iter()
+                .any(|event| matches!(event, Event::Prompt { .. }))
+        );
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| matches!(event, Event::NativeCompleted { .. }))
+                .count(),
+            1
+        );
+    }
+}
+
+#[test]
+fn unfinished_todo_blockers_refusals_and_provider_errors_do_not_resume_as_success() {
+    for mode in ["blocked", "denied", "denied-view", "error", "no-progress"] {
+        let fixture = Fixture::new(&["forbidden.txt"]);
+        let mut calls = vec![(
+            "plan",
+            "todo",
+            json!({"operation":"init","label":"","steps":[
+                {"label":"Finish authorized work","status":if mode == "blocked" { "blocked" } else { "active" }}
+            ]}),
+        )];
+        if mode.starts_with("denied") {
+            calls.push((
+                "effect",
+                "eevee_write_file",
+                json!({"path":"forbidden.txt","content":"must not appear"}),
+            ));
+        }
+        let mut responses = vec![wire_tools(Protocol::Responses, &calls, "")];
+        if mode == "denied-view" {
+            responses.push(wire_tools(
+                Protocol::Responses,
+                &[(
+                    "view-after-denial",
+                    "todo",
+                    json!({"operation":"view","label":"","steps":[]}),
+                )],
+                "",
+            ));
+        }
+        if mode == "error" {
+            responses.push(frame(json!({"type":"response.failed","response":{"status":"failed","error":{"message":"fixture failure"}}})));
+        } else {
+            responses.push(wire(Protocol::Responses, &[], "I cannot finish yet."));
+            if mode == "no-progress" {
+                responses.push(wire(Protocol::Responses, &[], "I still cannot finish."));
+            }
+        }
+        let expected = responses.len();
+        let (url, server) = peer(responses);
+        let (mut run, connection) = fixture.prepare(Protocol::Responses, &url);
+        let ((outcome, message), events) = run_with_answers(&fixture, &mut run, &connection, false);
+        assert_eq!(outcome, Outcome::Failed, "{mode}: {message}");
+        assert_eq!(server.join().unwrap().len(), expected);
+        assert!(!fixture.workspace.project.join("forbidden.txt").exists());
+        assert!(
+            !events
+                .iter()
+                .any(|event| matches!(event, Event::NativeCompleted { .. }))
+        );
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| matches!(event, Event::Prompt { .. }))
+                .count(),
+            usize::from(mode.starts_with("denied"))
+        );
+        if mode == "no-progress" {
+            assert!(message.contains("no progress"), "{message}");
+        }
+    }
+}
+
+#[test]
+fn unfinished_todo_final_cannot_escape_the_logical_round_budget() {
+    let fixture = Fixture::new(&[]);
+    let mut responses = (1..ROUND_LIMIT)
+        .map(|round| {
+            wire_tools(
+                Protocol::Responses,
+                &[(
+                    &format!("plan-{round}"),
+                    "todo",
+                    json!({"operation":"init","label":"","steps":[
+                        {"label":format!("Remaining work {round}"),"status":"active"}
+                    ]}),
+                )],
+                "",
+            )
+        })
+        .collect::<Vec<_>>();
+    responses.push(wire(Protocol::Responses, &[], "More work remains."));
+    let (url, server) = peer(responses);
+    let (mut run, connection) = fixture.prepare(Protocol::Responses, &url);
+    let ((outcome, message), events) = run_with_answers(&fixture, &mut run, &connection, false);
+    assert_eq!(outcome, Outcome::Failed, "{message}");
+    assert!(
+        message.contains(&format!("round limit of {ROUND_LIMIT}")),
+        "{message}"
+    );
+    assert!(message.contains("unfinished todo work"), "{message}");
+    assert_eq!(server.join().unwrap().len(), ROUND_LIMIT);
+    assert!(
+        !events
+            .iter()
+            .any(|event| matches!(event, Event::Prompt { .. } | Event::NativeCompleted { .. }))
+    );
+}
+
+#[test]
+fn repeated_tool_observations_and_changed_todo_acknowledgments_do_not_rearm_forever() {
+    for repeated_read in [false, true] {
+        let fixture = Fixture::new(&[]);
+        std::fs::write(
+            fixture.workspace.project.join("source.txt"),
+            "unchanged source\n",
+        )
+        .unwrap();
+        let mut responses = Vec::new();
+        let rounds = if repeated_read {
+            2
+        } else {
+            COMPLETION_CONTINUATION_LIMIT + 1
+        };
+        for index in 0..rounds {
+            let mut calls = Vec::new();
+            let id = format!("plan-{index}");
+            if index == 0 || !repeated_read {
+                calls.push((
+                    id.as_str(),
+                    "todo",
+                    json!({"operation":"init","label":"","steps":[
+                        {"label":format!("Remaining work {index}"),"status":"active"}
+                    ]}),
+                ));
+            }
+            let read = format!("read-{index}");
+            if repeated_read {
+                calls.push((
+                    read.as_str(),
+                    "eevee_read_file",
+                    json!({"path":"source.txt","start_line":1,"end_line":0}),
+                ));
+            }
+            responses.push(wire_tools(Protocol::Responses, &calls, ""));
+            responses.push(wire(
+                Protocol::Responses,
+                &[],
+                "Acknowledged, but still unfinished.",
+            ));
+        }
+        let expected = responses.len();
+        let (url, server) = peer(responses);
+        let (mut run, connection) = fixture.prepare(Protocol::Responses, &url);
+        let ((outcome, message), events) = run_with_answers(&fixture, &mut run, &connection, false);
+        assert_eq!(outcome, Outcome::Failed, "{message}");
+        assert!(
+            message.contains(if repeated_read {
+                "no progress"
+            } else {
+                "completion continuation limit"
+            }),
+            "{message}"
+        );
+        assert_eq!(server.join().unwrap().len(), expected);
+        assert!(
+            !events
+                .iter()
+                .any(|event| matches!(event, Event::Prompt { .. } | Event::NativeCompleted { .. }))
+        );
+    }
+}
+
+#[test]
+fn prior_task_progress_and_old_views_do_not_bind_a_new_request() {
+    for adopted in [false, true] {
+        for view in [false, true] {
+            let mut fixture = Fixture::new(&[]);
+            let mut progress = crate::workspace::progress::State::default();
+            progress
+                .apply_tool(&json!({"operation":"init","label":"","steps":[
+                    {"label":"Earlier request's remaining work","status":"active"}
+                ]}))
+                .unwrap();
+            if adopted {
+                progress.adopted_revision = Some(progress.revision);
+                progress.adopted_steps = progress.steps.clone();
+            }
+            fixture.input.task.workflows.progress = Some(progress);
+            let mut responses = Vec::new();
+            if view {
+                responses.push(wire_tools(
+                    Protocol::Responses,
+                    &[(
+                        "old-view",
+                        "todo",
+                        json!({"operation":"view","label":"","steps":[]}),
+                    )],
+                    "",
+                ));
+            }
+            responses.push(wire(Protocol::Responses, &[], "Answer to the new request."));
+            let expected = responses.len();
+            let (url, server) = peer(responses);
+            let (mut run, connection) = fixture.prepare(Protocol::Responses, &url);
+            let ((outcome, message), events) =
+                run_with_answers(&fixture, &mut run, &connection, false);
+            assert_eq!(
+                outcome,
+                Outcome::Completed,
+                "adopted={adopted}, view={view}: {message}"
+            );
+            assert_eq!(server.join().unwrap().len(), expected);
+            assert!(
+                !events
+                    .iter()
+                    .any(|event| matches!(event, Event::Prompt { .. }))
+            );
+        }
+    }
+}
+
+#[test]
+fn planning_answer_does_not_execute_its_proposed_future_todos() {
+    let fixture = Fixture::for_operation(&[], Operation::Plan);
+    let (url, server) = peer(vec![
+        wire_tools(
+            Protocol::Responses,
+            &[(
+                "future-plan",
+                "todo",
+                json!({"operation":"init","label":"","steps":[
+                    {"label":"Implement the proposed design","status":"pending"}
+                ]}),
+            )],
+            "",
+        ),
+        wire(
+            Protocol::Responses,
+            &[],
+            "Here is the requested plan; implementation is a separate request.",
+        ),
+    ]);
+    let (mut run, connection) = fixture.prepare(Protocol::Responses, &url);
+    let ((outcome, message), events) = run_with_answers(&fixture, &mut run, &connection, false);
+    assert_eq!(outcome, Outcome::Completed, "{message}");
+    assert_eq!(server.join().unwrap().len(), 2);
+    assert!(
+        !events
+            .iter()
+            .any(|event| matches!(event, Event::Prompt { .. }))
+    );
+}
+
+#[test]
 fn screenshot_real_png_survives_responses_tools_and_revalidates_source_and_selection() {
     use crate::workspace::context::screenshot::{Attachment, Capture, Format};
     use image::ImageEncoder;
@@ -1091,9 +1569,22 @@ fn approved_create_rechecks_appeared_leaf_and_parent_before_any_effect() {
 #[test]
 fn cancel_during_permission_closes_prompt_without_write_or_continuation() {
     let fixture = Fixture::new(&[]);
-    let (url, server) = peer(vec![wire(
+    let (url, server) = peer(vec![wire_tools(
         Protocol::Responses,
-        &[("call", "new/file.txt", "content")],
+        &[
+            (
+                "plan",
+                "todo",
+                json!({"operation":"init","label":"","steps":[
+                    {"label":"Create requested file","status":"active"}
+                ]}),
+            ),
+            (
+                "call",
+                "eevee_write_file",
+                json!({"path":"new/file.txt","content":"content"}),
+            ),
+        ],
         "",
     )]);
     let (mut run, connection) = fixture.prepare(Protocol::Responses, &url);

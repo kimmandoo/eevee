@@ -162,6 +162,29 @@ jobs:
           python scripts/session_smoke.py \
             --binary target/release/ev${{ runner.os == 'Windows' && '.exe' || '' }} \
             --output "$NATIVE_SMOKE_OUTPUT/sessions"
+      - name: Exercise owned unfinished-work continuation
+        run: |
+          python scripts/completion_smoke.py \
+            --binary target/release/ev${{ runner.os == 'Windows' && '.exe' || '' }} \
+            --output "$NATIVE_SMOKE_OUTPUT/completion"
+      - name: Exercise ordinary Windows PowerShell startup and restoration
+        shell: python
+        run: |
+          import os, pathlib, subprocess, sys
+          if os.name == "nt":
+              output = pathlib.Path(os.environ["NATIVE_SMOKE_OUTPUT"])
+              assets = output / "powershell-assets"
+              binary = pathlib.Path("target/release/ev.exe").resolve()
+              subprocess.run([str(binary), "--download-artwork", "--assets-dir", str(assets),
+                              "--data-dir", str(output / "powershell-download-data")],
+                             check=True, timeout=120)
+              for script, backend in [("windows_powershell_pty_smoke.py", "conpty"),
+                                      ("windows_powershell_smoke.py", "classic")]:
+                  subprocess.run([sys.executable, "scripts/" + script, "--binary", str(binary),
+                                  "--assets-dir", str(assets), "--output", str(output / ("powershell-" + backend))],
+                                 check=True, timeout=300)
+          else:
+              print("PowerShell console qualification applies to the native Windows package.")
       - name: Retain platform file workflow evidence
         if: ${{ always() && (env.NATIVE_SMOKE_OUTPUT != '' || runner.os == 'Windows') }}
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0

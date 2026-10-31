@@ -2,6 +2,13 @@
 
 ## 2026-11-01
 
+- feat(agent): continued native current-request unfinished todo work within one owned logical request, retained actual turns/results and bounded completion reminders without replaying completed effects.
+- fix(agent): kept blocked, denied, cancelled, waiting, failed and no-progress obligations distinct from completion, preserved reachable independent work and propagated qualified outcomes through cooperation and delegation.
+- fix(agent): excluded observation-cache telemetry from useful-progress fingerprints while preserving substantive source evidence and the exact model-visible tool results.
+- fix(agent): bound completion obligations to successful todo mutations in the current request instead of inherited task adoption or old views, preserving ordinary fresh-request answers.
+- ci(windows): added ordinary PowerShell-parent ConPTY and private classic-console startup, pinned-sprite, native-input, explicit-exit and full restoration qualification alongside the existing protected package scans.
+- test(agent): reproduced published0.1.43 stopping before a second approved file and added actual terminal/filesystem continuation and stopping-boundary acceptance.
+- docs(windows): retained the affected-device startup incident as unresolved after unchanged public bytes passed controlled PowerShell checks and documented executable/version/error/exit diagnostics without protection bypasses.
 - docs(release): published v0.1.43 from `1d94a2f` after native41210647678 attempt1 and release41212749583, verified all eight public asset digests/seven checksum rows/five exact qualified native archives and preserved every older tag and release.
 - docs(verification): passed downloaded-host response/color/file-stream/file-consent/evolution/graphics journeys, the10-case intent backtest, real Ghostty source/review/resize/exit captures and one complete24-group installation lifecycle with all34 installed terminal scenarios; retained the separate device-antivirus and terminal-font limits.
 

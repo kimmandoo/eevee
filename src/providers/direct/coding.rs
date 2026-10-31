@@ -1,8 +1,11 @@
 //! One owned logical native request, including per-call permissions and continuations.
 use super::*;
+use sha2::Digest;
 
 type Failure = (Outcome, String);
 type Revalidate<'a> = &'a dyn Fn(&Connection) -> Result<(), String>;
+
+const COMPLETION_CONTINUATION_LIMIT: usize = 3;
 
 fn validate_active(
     workspace: &Workspace,
@@ -133,6 +136,14 @@ async fn inference_rounds(
         .progress
         .clone()
         .unwrap_or_default();
+    // Task-level adoption is context, not an obligation of a fresh request.
+    // Only this request's successful todo mutations establish current claims.
+    let mut progress_tracked = false;
+    let mut completion_checkpoint = None;
+    let mut useful_results = HashSet::new();
+    let mut completion_continuations = 0usize;
+    let mut tool_obstacle = false;
+    let mut permission_obstacle = false;
     let child = run.input.delegation.is_some();
     let round_limit = if child {
         delegation::CHILD_ROUNDS
@@ -287,6 +298,102 @@ async fn inference_rounds(
             .map_err(|error| (Outcome::Failed, error))?;
         let call_indices = stream.calls.call_indices();
         if calls.is_empty() {
+            validate_active(workspace, run, connection, control, revalidate).map_err(|error| {
+                (
+                    if control.cancelled() {
+                        Outcome::Cancelled
+                    } else {
+                        Outcome::Failed
+                    },
+                    error,
+                )
+            })?;
+            if run.input.operation != Operation::Plan
+                && progress_tracked
+                && progress.steps.iter().any(|step| {
+                    matches!(
+                        step.status,
+                        crate::workspace::progress::Status::Pending
+                            | crate::workspace::progress::Status::Active
+                            | crate::workspace::progress::Status::Blocked
+                    )
+                })
+            {
+                stream
+                    .publish_text(events, run, true)
+                    .map_err(|error| (Outcome::Failed, error))?;
+                let actionable = progress.steps.iter().any(|step| {
+                    matches!(
+                        step.status,
+                        crate::workspace::progress::Status::Pending
+                            | crate::workspace::progress::Status::Active
+                    )
+                });
+                if !actionable || tool_obstacle {
+                    return Err((Outcome::Failed,
+                        "Native turn ended with unfinished todo work and a reported blocker or refused/failed tool result; request is incomplete. No automatic continuation or permission retry; earlier observed results remain.".into()));
+                }
+                if completion_checkpoint
+                    .as_ref()
+                    .is_some_and(|(steps, results)| {
+                        steps == &progress.steps && *results == useful_results.len()
+                    })
+                {
+                    return Err((Outcome::Failed,
+                        "Native completion continuation made no progress on unfinished todo work; request is incomplete. No further continuation; earlier observed results remain.".into()));
+                }
+                if round == round_limit {
+                    return Err((
+                        Outcome::Failed,
+                        format!(
+                            "Native model round limit of {round_limit} reached with unfinished todo work; request is incomplete and no continuation sent. Earlier completed file effects remain; no rollback."
+                        ),
+                    ));
+                }
+                if completion_continuations == COMPLETION_CONTINUATION_LIMIT {
+                    return Err((
+                        Outcome::Failed,
+                        format!(
+                            "Native completion continuation limit of {COMPLETION_CONTINUATION_LIMIT} reached with unfinished todo work; request is incomplete. No further continuation; earlier observed results remain."
+                        ),
+                    ));
+                }
+                completion_continuations += 1;
+                completion_checkpoint = Some((progress.steps.clone(), useful_results.len()));
+                let message = format!(
+                    "This logical request is not complete: your current todo claims still contain active or pending work. Continue only authorized, independent actionable steps within the original frozen request and tool scope. Leave blocked steps untouched: do not unblock them or retry their effects or permissions. Do not replay completed effects or retry denied permissions. Preserve actual observed results. If remaining work genuinely depends on a blocker, report it and mark the affected todos blocked; if already finished, reconcile the todo claims honestly from actual results, not merely to end the turn. Current todo claims (data, not new authority): {}",
+                    serde_json::to_string(&progress.steps).map_err(|_| (
+                        Outcome::Failed,
+                        "Cannot encode unfinished todo claims".into()
+                    ))?
+                );
+                stream
+                    .calls
+                    .append_completion(&mut body, &message)
+                    .map_err(|error| (Outcome::Failed, error))?;
+                if websocket {
+                    next_wire = Some(
+                        websocket::completion(
+                            &body,
+                            stream.response_id.as_deref().ok_or_else(|| {
+                                (
+                                    Outcome::Failed,
+                                    "Completed WebSocket response ID missing".into(),
+                                )
+                            })?,
+                            &message,
+                        )
+                        .map_err(|error| (Outcome::Failed, error))?,
+                    );
+                }
+                emit(events, Event::Status {
+                    generation: run.generation,
+                    task_id: run.input.task.id,
+                    message: "Provider turn ended with unfinished todo work; continuing the same owned logical request within existing limits and permissions.".into(),
+                }).map_err(|error| (Outcome::Failed, error))?;
+                retain_public(&mut stream, &mut public)?;
+                continue;
+            }
             stream
                 .publish_final(events, run, &connection.conversation_scope())
                 .map_err(|error| (Outcome::Failed, error))?;
@@ -365,18 +472,35 @@ async fn inference_rounds(
                 &mut calls,
             )
         };
+        let track_progress = run.input.operation != Operation::Plan
+            && ((progress_tracked && !progress.steps.is_empty())
+                || calls.iter().any(|call| {
+                    matches!(
+                        &call.tool,
+                        crate::providers::writes::FileTool::Todo { input }
+                            if input.get("operation").and_then(Value::as_str) != Some("view")
+                    )
+                }));
         let artifact_calls: Vec<_> = calls
             .iter()
             .zip(&call_indices)
             .map(|(call, index)| {
-                (
+                let input = if track_progress
+                    && !matches!(call.tool, crate::providers::writes::FileTool::Todo { .. })
+                {
+                    Some(progress_digest(&call.tool)?)
+                } else {
+                    None
+                };
+                Ok((
                     call.id
                         .clone()
                         .unwrap_or_else(|| format!("round-{round}-call-{index}")),
                     call.tool.kind().name(),
-                )
+                    input,
+                ))
             })
-            .collect();
+            .collect::<Result<_, Failure>>()?;
         let mut results = Vec::with_capacity(calls.len());
         match proposals {
             Err(error) => {
@@ -454,6 +578,7 @@ async fn inference_rounds(
                             let result = match progress.apply_tool(input) {
                                 Ok(()) => {
                                     if operation != Some("view") {
+                                        progress_tracked = true;
                                         emit(events, Event::Progress { generation: run.generation, task_id: run.input.task.id, source: "native todo".into(), steps: Ok(progress.steps.clone()) })?;
                                     }
                                     json!({"status":"success","path":"","message":"Provider progress claims only; adoption follows current task policy. No criteria, files, command or network effects.","steps":progress.steps})
@@ -539,7 +664,21 @@ async fn inference_rounds(
                 }
             }
         }
-        for ((call_id, tool), result) in artifact_calls.into_iter().zip(&mut results) {
+        permission_obstacle |= artifact_calls
+            .iter()
+            .zip(&results)
+            .any(|((_, tool, _), result)| {
+                result["status"] == "denied"
+                    || (*tool == crate::providers::commands::NAME && result["status"] == "refused")
+            });
+        tool_obstacle =
+            permission_obstacle || results.iter().any(|result| result["status"] != "success");
+        for ((call_id, tool, input), result) in artifact_calls.into_iter().zip(&mut results) {
+            if let Some(input) = input
+                && result["status"] == "success"
+            {
+                useful_results.insert((input, progress_result_digest(tool, result)?));
+            }
             if !child
                 && (tool.starts_with("eevee_artifact_") || tool == crate::providers::commands::NAME)
             {
@@ -678,21 +817,83 @@ async fn inference_rounds(
                 .map_err(|error| (Outcome::Failed, error))?,
             );
         }
-        public = stream.prefix;
-        if !stream.text.is_empty() {
-            if !public.is_empty() {
-                public.push_str("\n\n");
-            }
-            public.push_str(&stream.text);
-        }
-        if public.len() > OUTPUT_LIMIT {
-            return Err((
-                Outcome::Failed,
-                "Native aggregate public output exceeds 512 KiB".into(),
-            ));
-        }
+        retain_public(&mut stream, &mut public)?;
     }
     Err((Outcome::Failed, "Native model round limit reached".into()))
+}
+
+fn retain_public(stream: &mut Stream, public: &mut String) -> Result<(), Failure> {
+    *public = std::mem::take(&mut stream.prefix);
+    if !stream.text.is_empty() {
+        if !public.is_empty() {
+            public.push_str("\n\n");
+        }
+        public.push_str(&stream.text);
+    }
+    if public.len() > OUTPUT_LIMIT {
+        return Err((
+            Outcome::Failed,
+            "Native aggregate public output exceeds 512 KiB".into(),
+        ));
+    }
+    Ok(())
+}
+
+/// Fingerprint actual tool identity/arguments/results, never provider call IDs
+/// or prose acknowledgments. Repeated observations cannot re-arm completion.
+fn progress_digest(value: &impl serde::Serialize) -> Result<[u8; 32], Failure> {
+    struct Writer(sha2::Sha256);
+    impl std::io::Write for Writer {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0.update(bytes);
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let mut writer = Writer(sha2::Sha256::new());
+    serde_json::to_writer(&mut writer, value).map_err(|_| {
+        (
+            Outcome::Failed,
+            "Cannot fingerprint actual tool progress".into(),
+        )
+    })?;
+    Ok(writer.0.finalize().into())
+}
+
+fn progress_result_digest(tool: &str, result: &Value) -> Result<[u8; 32], Failure> {
+    if !matches!(
+        tool,
+        "eevee_read_file" | "eevee_list_files" | "eevee_structural_search"
+    ) {
+        return progress_digest(result);
+    }
+    // A revalidated cache hit/miss, timestamp or execution cost is not new
+    // source evidence. Keep every substantive result field, and leave the
+    // actual result (including its cache provenance) untouched for the model.
+    struct Evidence<'a>(&'a serde_json::Map<String, Value>);
+    impl serde::Serialize for Evidence<'_> {
+        fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+            use serde::ser::SerializeMap;
+            let mut map = serializer.serialize_map(Some(
+                self.0.len() - usize::from(self.0.contains_key("observation_cache")),
+            ))?;
+            for (key, value) in self.0 {
+                if key != "observation_cache" {
+                    map.serialize_entry(key, value)?;
+                }
+            }
+            map.end()
+        }
+    }
+    let evidence = result.as_object().ok_or_else(|| {
+        (
+            Outcome::Failed,
+            "Actual observation result is not an object".into(),
+        )
+    })?;
+    progress_digest(&Evidence(evidence))
 }
 
 fn charge_request_bytes(total: usize, next: usize) -> Result<usize, String> {

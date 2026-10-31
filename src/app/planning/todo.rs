@@ -1,4 +1,4 @@
-//! Display-only projections of qualified provider observations. Raw items stay untouched.
+//! Request-scoped projections and completion obligations from qualified observations.
 use std::{fmt::Write, sync::Arc};
 
 use serde_json::Value;
@@ -154,6 +154,83 @@ impl Observation {
             );
         }
         text
+    }
+}
+
+impl super::State {
+    /// A provider turn is not whole-request completion while its exact current
+    /// request still owns a prompt, an unsettled tool, or unfinished todo claims.
+    /// Unsupported adapters stop honestly here; this never dispatches a replay.
+    pub(super) fn completion_obligation(
+        &self,
+        generation: u64,
+        task_id: i64,
+    ) -> Option<(crate::providers::Outcome, &'static str)> {
+        use crate::providers::Outcome;
+        if self.request.is_some() || !self.queued_prompts.is_empty() {
+            return Some((
+                Outcome::Unknown,
+                "Provider turn ended while an owned permission/question was still waiting; logical request completion is not established. No automatic answer or continuation.",
+            ));
+        }
+        let current = |item: &&Item| {
+            Arc::ptr_eq(&item.request, &self.submitted_request)
+                && item.owner.as_ref() == self.owner()
+                && item.status.as_ref().is_some_and(|status| {
+                    status.generation == generation
+                        && status.task_id == task_id
+                        && status.agent == self.agent
+                })
+        };
+        if self
+            .items
+            .iter()
+            .filter(current)
+            .any(|item| item.kind == ItemKind::Tool && !item.complete)
+        {
+            return Some((
+                Outcome::Unknown,
+                "Provider turn ended with an unsettled tool obligation; logical request completion and effects are not established. No automatic continuation or replay.",
+            ));
+        }
+        // A read-only planning answer may intentionally describe future work.
+        // It is not an authorization to execute that plan automatically.
+        if self.operation == crate::providers::Operation::Plan {
+            return None;
+        }
+        let latest = self.items.iter().rev().filter(current).find_map(|item| {
+            // Viewing an old proposal does not authorize unfinished work in a
+            // fresh request. Native mutations are identified by the raw call.
+            if self.agent.is_direct()
+                && serde_json::from_str::<Value>(&item.text)
+                    .ok()
+                    .is_some_and(|value| value["arguments"]["operation"] == "view")
+            {
+                return None;
+            }
+            Observation::read(item)
+        })?;
+        if latest
+            .steps
+            .iter()
+            .any(|step| step.status == Status::Blocked)
+        {
+            Some((
+                Outcome::Failed,
+                "Provider turn ended with blocked todo claims; logical request remains incomplete. Resolve the reported blocker deliberately; no automatic continuation or permission retry.",
+            ))
+        } else if latest
+            .steps
+            .iter()
+            .any(|step| matches!(step.status, Status::Active | Status::Pending))
+        {
+            Some((
+                Outcome::Failed,
+                "Provider turn ended with active or pending todo claims; logical request remains incomplete. This adapter did not finish those obligations within this request; no automatic replay.",
+            ))
+        } else {
+            None
+        }
     }
 }
 
@@ -516,5 +593,191 @@ mod tests {
             assert!(!rows.iter().any(|row| row.text == "old line" && row.fresh));
         }
         assert_eq!(state.items[2].text, source);
+    }
+
+    fn running(agent: Agent) -> State {
+        State {
+            task: 1,
+            generation: Some(7),
+            active: true,
+            agent,
+            operation: Operation::Implement,
+            submitted_request: "Finish this exact request".into(),
+            ..State::default()
+        }
+    }
+
+    fn claim(state: &State, status: &str) -> Item {
+        let (id, kind, text) = match state.agent {
+            Agent::Compatible => ("todo-1-0", ItemKind::Plan, json!({
+                "tool":"todo","arguments":{"operation":"init","label":"","steps":[]},
+                "result":{"status":"success","steps":[{"label":"Finish remaining work","status":status}]}
+            }).to_string()),
+            Agent::Codex => ("eevee-turn-plan", ItemKind::Plan, format!("Current work\n{status}: Finish remaining work")),
+            Agent::Claude => ("sdk-todo", ItemKind::Tool, json!({
+                "provider":"Claude Agent SDK","tool":"TodoWrite","status":"completed","is_error":false,
+                "progress":{"todos":[{"content":"Finish remaining work","status":status}]}
+            }).to_string()),
+            _ => ("acp-plan-7", ItemKind::Plan, json!([{"content":"Finish remaining work","status":status}]).to_string()),
+        };
+        item(state.agent, &state.submitted_request, id, kind, text)
+    }
+
+    fn finish_request(state: &mut State, outcome: crate::providers::Outcome) {
+        state.event(crate::providers::Event::Finished {
+            generation: 7,
+            task_id: 1,
+            outcome,
+            message: "Provider turn stopped".into(),
+        });
+    }
+
+    #[test]
+    fn adapter_turn_success_does_not_complete_known_unfinished_request_claims() {
+        use crate::providers::Outcome;
+        for agent in [
+            Agent::Compatible,
+            Agent::Codex,
+            Agent::Claude,
+            Agent::OpenCode,
+            Agent::Gemini,
+            Agent::Devin,
+        ] {
+            for (status, expected) in [
+                ("pending", Outcome::Failed),
+                ("in_progress", Outcome::Failed),
+                ("blocked", Outcome::Failed),
+                ("completed", Outcome::Completed),
+                ("cancelled", Outcome::Completed),
+            ] {
+                let status = if agent.is_direct() {
+                    match status {
+                        "in_progress" => "active",
+                        "completed" => "done",
+                        "cancelled" => "dropped",
+                        status => status,
+                    }
+                } else {
+                    status
+                };
+                let mut state = running(agent);
+                state.items.push(claim(&state, status));
+                finish_request(&mut state, Outcome::Completed);
+                assert_eq!(
+                    state.last_outcome,
+                    Some((7, expected)),
+                    "{agent:?}: {status}: {}",
+                    state.notice
+                );
+                assert!(!state.active && state.pending.is_none() && state.request.is_none());
+                if expected == Outcome::Failed {
+                    assert!(
+                        state.notice.contains("logical request remains incomplete"),
+                        "{}",
+                        state.notice
+                    );
+                    assert_eq!(
+                        state.items[0].status.as_ref().unwrap().outcome,
+                        Some(Outcome::Failed)
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn ordinary_answers_plans_old_views_and_foreign_claims_remain_terminal() {
+        use crate::providers::Outcome;
+        for mode in [
+            "answer",
+            "plan",
+            "old-request",
+            "old-generation",
+            "foreign-owner",
+            "view",
+            "latest-done",
+        ] {
+            let mut state = running(Agent::Compatible);
+            if mode != "answer" {
+                let mut observation = claim(&state, "active");
+                match mode {
+                    "plan" => state.operation = Operation::Plan,
+                    "old-request" => observation.request = "Previous request".into(),
+                    "old-generation" => {
+                        Arc::make_mut(observation.status.as_mut().unwrap()).generation = 6
+                    }
+                    "foreign-owner" => {
+                        observation.owner = Some(crate::store::Attribution::of(
+                            &crate::store::Partner::default(),
+                        ))
+                    }
+                    "view" => {
+                        let mut value: Value = serde_json::from_str(&observation.text).unwrap();
+                        value["arguments"]["operation"] = json!("view");
+                        observation.text = value.to_string();
+                    }
+                    _ => {}
+                }
+                state.items.push(observation);
+                if mode == "latest-done" {
+                    state.items.push(claim(&state, "done"));
+                }
+            }
+            finish_request(&mut state, Outcome::Completed);
+            assert_eq!(
+                state.last_outcome,
+                Some((7, Outcome::Completed)),
+                "{mode}: {}",
+                state.notice
+            );
+            assert!(state.pending.is_none());
+        }
+    }
+
+    #[test]
+    fn incomplete_tools_and_waiting_permissions_never_become_completed_requests() {
+        use crate::providers::{Outcome, Prompt, PromptKind};
+        for waiting_permission in [false, true] {
+            let mut state = running(Agent::Codex);
+            if waiting_permission {
+                state.request = Some(Prompt {
+                    arrival: 1,
+                    request_id: json!("permission"),
+                    thread_id: "thread".into(),
+                    turn_id: "turn".into(),
+                    item_id: "tool".into(),
+                    kind: PromptKind::Permission {
+                        description: "Review exact effect".into(),
+                        file: None,
+                        options: Vec::new(),
+                    },
+                });
+            } else {
+                let mut tool = item(
+                    state.agent,
+                    &state.submitted_request,
+                    "tool",
+                    ItemKind::Tool,
+                    "Still executing".into(),
+                );
+                tool.complete = false;
+                state.items.push(tool);
+            }
+            finish_request(&mut state, Outcome::Completed);
+            assert_eq!(
+                state.last_outcome,
+                Some((7, Outcome::Unknown)),
+                "{}",
+                state.notice
+            );
+            assert!(state.pending.is_none());
+        }
+        for outcome in [Outcome::Cancelled, Outcome::Failed, Outcome::Unknown] {
+            let mut state = running(Agent::Codex);
+            state.items.push(claim(&state, "in_progress"));
+            finish_request(&mut state, outcome);
+            assert_eq!(state.last_outcome, Some((7, outcome)));
+            assert!(state.pending.is_none());
+        }
     }
 }

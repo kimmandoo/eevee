@@ -548,15 +548,21 @@ impl App {
                 outcome,
                 message,
             } => {
-                if child.state.matches(generation, task_id) && child.terminal.is_none() {
-                    child.terminal = Some((outcome, message.clone()));
-                }
+                let owned = child.state.matches(generation, task_id);
                 child.state.event(providers::Event::Finished {
                     generation,
                     task_id,
                     outcome,
                     message,
                 });
+                if owned && child.terminal.is_none() {
+                    let settled = child
+                        .state
+                        .last_outcome
+                        .filter(|(settled, _)| *settled == generation)
+                        .map_or(outcome, |(_, outcome)| outcome);
+                    child.terminal = Some((settled, child.state.notice.clone()));
+                }
             }
             providers::Event::Error {
                 generation,

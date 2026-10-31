@@ -204,6 +204,83 @@ fn only_output(packet: &Value, anchor: &str, call: &str, status: &str, path: &st
 }
 
 #[test]
+fn unfinished_todo_final_continues_on_the_retained_socket_without_effect_replay() {
+    let fixture = fixture(&["first.txt", "second.txt"]);
+    let (url, server) = websocket_peer(|socket| {
+        let first = packet(socket);
+        send(socket, created("todo-start"));
+        let mut event = completed(
+            "todo-start",
+            1,
+            &[("first-effect", "first.txt", "first bytes")],
+            "Working",
+        );
+        event["response"]["output"].as_array_mut().unwrap().push(json!({
+            "type":"function_call","id":"todo-item-start","call_id":"todo-start-call","name":"todo",
+            "arguments":json!({"operation":"init","label":"","steps":[{"label":"Create selected files","status":"active"}]}).to_string()
+        }));
+        send(socket, event);
+        let after_first = packet(socket);
+        round(
+            socket,
+            "premature-final",
+            &[],
+            "The second file remains unfinished.",
+        );
+        let completion = packet(socket);
+        send(socket, created("remaining-work"));
+        let mut event = completed(
+            "remaining-work",
+            1,
+            &[("second-effect", "second.txt", "second bytes")],
+            "Finishing",
+        );
+        event["response"]["output"].as_array_mut().unwrap().push(json!({
+            "type":"function_call","id":"todo-item-done","call_id":"todo-done-call","name":"todo",
+            "arguments":json!({"operation":"done","label":"Create selected files","steps":[]}).to_string()
+        }));
+        send(socket, event);
+        let after_second = packet(socket);
+        round(socket, "actual-final", &[], "Both files are ready.");
+        closed_without_replay(socket);
+        vec![first, after_first, completion, after_second]
+    });
+    let (mut run, connection) = fixture.prepare(Protocol::Responses, &url);
+    let ((outcome, message), events) = run_with_answers(&fixture, &mut run, &connection, true);
+    assert_eq!(outcome, Outcome::Completed, "{message}");
+    let trace = server.join().unwrap();
+    assert_eq!(trace.packets.len(), 4);
+    let completion: Value = serde_json::from_str(&trace.packets[2]).unwrap();
+    assert_eq!(completion["previous_response_id"], "premature-final");
+    let input = completion["input"].as_array().unwrap();
+    assert_eq!(input.len(), 1);
+    assert_eq!(input[0]["role"], "user");
+    assert_ne!(input[0]["type"], "function_call_output");
+    assert_eq!(
+        std::fs::read_to_string(fixture.workspace.project.join("first.txt")).unwrap(),
+        "first bytes"
+    );
+    assert_eq!(
+        std::fs::read_to_string(fixture.workspace.project.join("second.txt")).unwrap(),
+        "second bytes"
+    );
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| matches!(event, Event::Prompt { .. }))
+            .count(),
+        2
+    );
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| matches!(event, Event::NativeCompleted { .. }))
+            .count(),
+        1
+    );
+}
+
+#[test]
 fn native_websocket_ambient_tls_roots_apply_only_to_secure_transport() {
     const CHILD: &str = "EEVEE_TEST_WEBSOCKET_AMBIENT_TLS_CHILD";
     if std::env::var_os(CHILD).is_some() {

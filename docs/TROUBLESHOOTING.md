@@ -1,5 +1,26 @@
 # Troubleshooting
 
+### [2026-11-01] Windows console diagnostics initially failed in their own launcher
+
+- **Context / Symptom:** Diagnostic41216821992 never launched the application: a process-basename check rejected a native console window owned by `python.exe`, cleanup lost `result.json`, and the workflow timed out. Diagnostic41219377387 then captured `ev: Eevee requires interactive stdin and stdout terminals; use --help for usage` before any UI. After correcting handle inheritance,41219893462 reached saved UI, nine sprites and durable typed input in all eight cases but the driver incorrectly required a quit dialog after an already-clean explicit quit.
+- **Root Cause:** `GetConsoleWindow` ownership is not a reliable host-process-basename test; private `CONIN$`/`CONOUT$` handles were noninheritable and were not explicitly passed to PowerShell. Early cleanup could itself raise on a large console buffer. The test also confused conditional unsaved-work review with every explicit quit. None established the user's startup cause.
+- **Solution:** Launched the owned worker with `CREATE_NEW_CONSOLE`, required visible `ConsoleWindowClass` metadata, explicitly inherited only its console handles, recorded PowerShell redirection flags, bounded bootstrap and always atomically published failure evidence. Accepted direct clean quit or an actually offered review, retaining native exit0, primary-buffer, modes/codepage/cursor restoration and persisted-input assertions.
+- **Prevention / Reference:** Final diagnostic41220326752/source4ebb062 passed all eight classic-console cases and four PowerShell-parent ConPTY cases on unchanged public0.1.43 bytes with protected Defender. Default pinned sprites/off,60×18/120×36 and raw-stderr variants are separate evidence; the affected device's path/version/error/exit status remains required. Reports: `target/startup044-investigation/run-41220326752/`.
+
+### [2026-11-01] Cache telemetry falsely rearmed unfinished-work continuation
+
+- **Context / Symptom:** The repeated-read completion regression exhausted its exact HTTP fixtures and returned transport Unknown instead of stopping incomplete after unchanged source evidence.
+- **Root Cause:** A first cache miss and identical later hit carried different `observation_cache` timing/provenance metadata. Hashing that telemetry incorrectly counted the same read as new useful progress.
+- **Solution:** Streamed borrowed read/list/structural-search result fingerprints without only that top-level telemetry envelope. Kept all substantive result fields and the exact model-visible result unchanged; other tools retain full-result fingerprints. Exact request-count and incomplete-outcome assertions stayed unchanged.
+- **Prevention / Reference:** `repeated_tool_observations_and_changed_todo_acknowledgments_do_not_rearm_forever` covers actual reads and the separate bounded todo-label-change case; the focused post-fix regression passed.
+
+### [2026-11-01] Adopted task progress leaked into a fresh request's completion gate
+
+- **Context / Symptom:** A new ownership regression with an adopted older active todo and a normal terminal answer unexpectedly sent another request, exhausted its fixture and returned transport Unknown.
+- **Root Cause:** Native startup treated task-level adoption as proof that the fresh request owned every earlier unfinished claim, unlike common settlement's exact current-request filtering.
+- **Solution:** Initialized request-local claim tracking as false; only successful todo mutations in this request establish completion obligations. Saved/adopted task context and old views remain inspectable without forcing unrelated continuation.
+- **Prevention / Reference:** Retained `prior_task_progress_and_old_views_do_not_bind_a_new_request` for adopted/unadopted snapshots with and without old views; current-request unfinished work keeps its separate forward-continuation regression.
+
 ### [2026-10-31] Scheduled macOS14 runner brownout cancelled native qualification before execution
 
 - **Context / Symptom:** Sourcec224386/native41208468825 passed Check and all four other platforms, including every protected Windows scan/install/runtime step. Its macOS ARM64 job was cancelled before any step with `This job failed because of a scheduled macOS 14 runner image brownout`; exact-source release qualification correctly refused the incomplete matrix.

@@ -1054,8 +1054,23 @@ impl Calls {
     }
 
     pub(super) fn append_results(&self, body: &mut Value, results: &[Value]) -> Result<(), String> {
+        self.append_turn(body, results, None)
+    }
+
+    /// Preserve the successfully ended assistant turn before asking it to
+    /// finish its own outstanding work. This is not a replay of tool calls.
+    pub(super) fn append_completion(&self, body: &mut Value, message: &str) -> Result<(), String> {
+        self.append_turn(body, &[], Some(message))
+    }
+
+    fn append_turn(
+        &self,
+        body: &mut Value,
+        results: &[Value],
+        continuation: Option<&str>,
+    ) -> Result<(), String> {
         let calls = self.finish(true)?;
-        if calls.is_empty() || calls.len() != results.len() {
+        if calls.len() != results.len() || (calls.is_empty() != continuation.is_some()) {
             return Err("Tool result count does not match call set".into());
         }
         for result in results {
@@ -1091,6 +1106,12 @@ impl Calls {
                     value
                 }).collect();
                 let mut assistant = json!({"role":"assistant","content":if self.text.is_empty() { Value::Null } else { Value::String(self.text.clone()) },"tool_calls":tool_calls});
+                if calls.is_empty() {
+                    assistant
+                        .as_object_mut()
+                        .ok_or("Invalid assistant turn")?
+                        .remove("tool_calls");
+                }
                 if !self.reasoning.is_empty() {
                     assistant["reasoning_content"] = Value::String(self.reasoning.clone());
                 }
@@ -1111,10 +1132,12 @@ impl Calls {
                     content.push(value);
                 }
                 additions.push(json!({"role":"assistant","content":content}));
-                let content: Vec<_> = calls.iter().zip(results).map(|(call, result)| {
-                    Ok(json!({"type":"tool_result","tool_use_id":call.id,"is_error":result["status"] != "success","content":serde_json::to_string(result).map_err(|_| "Cannot encode tool result")?}))
-                }).collect::<Result<_, String>>()?;
-                additions.push(json!({"role":"user","content":content}));
+                if !calls.is_empty() {
+                    let content: Vec<_> = calls.iter().zip(results).map(|(call, result)| {
+                        Ok(json!({"type":"tool_result","tool_use_id":call.id,"is_error":result["status"] != "success","content":serde_json::to_string(result).map_err(|_| "Cannot encode tool result")?}))
+                    }).collect::<Result<_, String>>()?;
+                    additions.push(json!({"role":"user","content":content}));
+                }
                 "messages"
             }
             Protocol::Gemini => {
@@ -1138,10 +1161,21 @@ impl Calls {
                         json!({"functionResponse":response})
                     })
                     .collect();
-                additions.push(json!({"role":"user","parts":parts}));
+                if !calls.is_empty() {
+                    additions.push(json!({"role":"user","parts":parts}));
+                }
                 "contents"
             }
         };
+        if let Some(text) = continuation {
+            additions.push(match self.protocol {
+                Protocol::Responses | Protocol::Codex =>
+                    json!({"type":"message","role":"user","content":[{"type":"input_text","text":text}]}),
+                Protocol::ChatCompletions => json!({"role":"user","content":text}),
+                Protocol::Messages => json!({"role":"user","content":[{"type":"text","text":text}]}),
+                Protocol::Gemini => json!({"role":"user","parts":[{"text":text}]}),
+            });
+        }
         // Preflight the exact serialized growth before touching the immutable original prefix.
         let original = encoded_len(body)?;
         let array = body

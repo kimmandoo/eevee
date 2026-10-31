@@ -43,6 +43,12 @@ It also comes with a companion: a party of Eevee forms that evolve with the kind
 - **Local-first.** Tasks, drafts, transcripts and run history live in local SQLite. No account, server or Node runtime needed.
 - **Built for the terminal.** Rust + ratatui, 60×18 and up, mouse and keyboard, Kitty/Sixel sprites with text fallback, ASCII/mono modes. macOS, Linux, WSL and Windows, all built and tested in CI.
 
+## Unreleased
+
+- **Finish known unfinished work.** Native model turns with current-request active/pending todos continue forward within the same owned request, up to three completion reminders and the existing request limits. Actual outputs remain in context; completed file effects are not replayed. Blocked prerequisites do not prevent independent authorized work.
+- **Stop honestly.** Denial, cancellation, errors, unresolved permissions and repeated no-progress replies do not become task completion. External agent adapters report known unfinished obligations as incomplete; they are not automatically resubmitted. Ordinary answers and read-only future plans still end normally.
+- **PowerShell diagnosis.** Added real PowerShell-parent checks under both ConPTY and a private classic console, with default pinned sprites, normal/minimum sizes, typed input, explicit quit and terminal restoration. Published0.1.43 passed these controlled Windows checks; this does not establish why another device closes immediately. No startup fix or new release is claimed yet.
+
 ## What's new in 0.1.43
 
 | | What changed |
@@ -97,6 +103,17 @@ Installers verify SHA-256 checksums and never edit your shell profile or persist
 
 > [!WARNING]
 > If Windows says `ev.exe` contains a virus or potentially unwanted software, leave the block in place. This is an antivirus detection, not a PowerShell execution-policy error or just an unknown-publisher warning; `Unblock-File` and execution-policy changes do not resolve it. Do not disable Defender or add an exclusion. Check **Windows Security → Virus & threat protection → Protection history** and report the exact threat name, affected `ev.exe` path, release version and Defender security-intelligence version. A matching SHA-256 proves release-byte identity, not that a file is safe. Windows packages are currently unsigned; a CI scan cannot guarantee every device's cloud/reputation decision.
+
+If the window closes immediately without an antivirus message, use an already-open PowerShell window and collect the actual executable, version and exit status:
+
+```powershell
+(Get-Command ev.exe).Source
+ev.exe --version
+ev.exe
+"exit=$LASTEXITCODE"
+```
+
+Include the last error line and whether this was Windows Terminal or the classic console. Do not pipe or redirect the interactive program's stdin/stdout; it requires a terminal. A successful `--version` alone does not prove interactive startup works.
 
 ```sh
 ev update --check   # is there a newer release?

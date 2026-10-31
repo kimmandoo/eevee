@@ -83,7 +83,6 @@ pub(super) fn continuation(
     response: &str,
     outputs: Vec<Value>,
 ) -> Result<String, String> {
-    checked_identity(response)?;
     // Actual function outputs, optionally followed by explicit user steering (XC03).
     let steering = outputs
         .iter()
@@ -97,6 +96,23 @@ pub(super) fn continuation(
     {
         return Err("WebSocket continuation requires only actual function outputs".into());
     }
+    continuation_frame(body, response, outputs)
+}
+
+/// A host-owned completion reminder follows an already completed response on
+/// the same socket. It contains no replayed output or invented tool result.
+pub(super) fn completion(body: &Value, response: &str, message: &str) -> Result<String, String> {
+    continuation_frame(
+        body,
+        response,
+        vec![
+            json!({"type":"message","role":"user","content":[{"type":"input_text","text":message}]}),
+        ],
+    )
+}
+
+fn continuation_frame(body: &Value, response: &str, outputs: Vec<Value>) -> Result<String, String> {
+    checked_identity(response)?;
     // Copy only frozen options, never the growing full logical input.
     let mut next = Value::Object(
         body.as_object()

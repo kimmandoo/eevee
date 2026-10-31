@@ -1,8 +1,18 @@
 # Eevee Implementation Plan
 
-Updated 2026-11-01. Completed0.1.43 UI/README delivery and exact-source five-platform/public-package acceptance. Published original-portrait resize recovery, open responses, actual live source boxes, syntax/diagnostic colors, intent routing and calmer reviews. Device-specific antivirus diagnosis and actual terminal-font configuration still require their missing device/profile facts.
+Updated 2026-11-01. Active0.1.44 request: fix immediate PowerShell startup exit and improve bounded agent continuation/completion before publishing another fully qualified release. Preserve the original portrait/UI and every owner, cancellation and approval boundary. Completed0.1.43 evidence remains below; device-specific antivirus/font facts are separate.
 
 Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPATIBILITY.md). Live-provider conformance remains distinct from implemented transports and deterministic runtime proof.
+
+## Active delivery — PowerShell startup and unfinished-agent work (0.1.44)
+
+1. Accept the reported immediate PowerShell exit as the incident. Diagnose unchanged public0.1.43 executable/ZIP with genuine classic-console PowerShell handles, ordinary inherited color environment, default pinned sprites versus images off, small/normal viewports and normal scrollback. Retain first-screen/error/NTSTATUS evidence; do not substitute `--version`, ConPTY-only success, a pause or a protection waiver for fixing startup.
+2. Fix only evidence-backed startup causes, retain exact terminal restoration and add the missing actual PowerShell scenario to qualification. Keep existing user stores/profile settings untouched and distinguish returned errors from process aborts.
+3. Reconcile known current-request unfinished work at successful provider-stop boundaries. Continue forward within the same bounded logical request when authorized, retain actual assistant/tool results and existing budgets, and never replay effects. Normal no-obligation answers end normally; blocked, failed, cancelled, permission-waiting and no-progress work remain distinct from completion. Inspect the supplied reference behavior without copying code or identifiers.
+4. Verify actual Windows startup and real deterministic provider continuation, completed-work, blocked/no-progress/error/cancel/approval boundaries; run integrated source/SDK gates after owners finish. Update README/rules/changelog/troubleshooting/checkpoint, then commit the complete fix as a new version.
+5. Only after both requested changes pass, require newest same-source Check/all five native rows/every step including protected Windows scans. Publish a new immutable tag and verify public asset/native identities and downloaded-host acceptance without replacing0.1.43 or claiming the older device-antivirus issue was resolved.
+
+Current checkpoint: unchanged public0.1.43 passed actual Windows diagnostic41220326752 (eight classic-console and four PowerShell-parent ConPTY cases), including normal terminal handles, default pinned sprites, typed persistence and restored exit0. Earlier runs exposed launcher/cleanup/quit-test defects, not a product startup cause. The affected-device executable path/version/last error/exit status was requested; step2 and publication remain blocked on that unreachable device evidence. Current-request native continuation and cross-adapter incomplete settlement passed2022 Rust tests/two ignored, strict all-feature Clippy and ten actual local forward/blocker/denial/no-progress/cancel journeys after a published-binary premature-stop RED. Full progress/native qualification remains active. Keep the manifest/public tag at0.1.43 until the complete release is ready.
 
 ## Completed delivery — Open responses, live source boxes and readable reviews (0.1.43)
 

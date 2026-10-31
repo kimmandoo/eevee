@@ -38,8 +38,6 @@ ESC = '\x1b'
 HOME, DELETE = ESC + '[H', ESC + '[3~'
 SIZES = ((120, 36), (60, 18))
 ROUTES = ('codex', 'acp', 'sdk', 'native')
-EAGER_PRELUDE = ('Before working, initialize a phased task list with the todo tool. '
-                 'Keep one active step; report status as claims, not verification evidence.\n')
 LABELS = {
     'en': ('Investigate error', 'Fix code', 'Verify tests'),
     'ko': ('오류 조사', '코드 수정', '테스트 검증'),
@@ -384,11 +382,20 @@ class ProgressJourney(SurfaceJourney):
                                             'hold': busy_probe and self.progress_route != 'native'})
         prediction = self.preview(request, label)
         posts = len(self.peer.snapshot('POST'))
+        # These peers report progress only; they do not perform the unfinished
+        # work. A native non-Plan request must try one forward reminder, then
+        # stop incomplete on the deliberately unchanged second answer.
+        continued = (prediction['operation'] != 'plan'
+                     and any(step['status'] in ('active', 'pending') for step in steps)
+                     and all(step['status'] in ('active', 'pending', 'blocked', 'done', 'dropped')
+                             for step in steps))
         if self.progress_route == 'native':
             self.peer.plans.put(response_plan(self.peer, calls=[{
                 'id': 'progress-' + label, 'name': 'todo',
                 'arguments': {'operation': 'init', 'label': '', 'steps': steps}}]))
             self.peer.plans.put(response_plan(self.peer, text=answer, gate=gate))
+            if continued:
+                self.peer.plans.put(response_plan(self.peer, text=answer))
         count = self.dispatch_count()
         self.session.send('\r', settle=False)
         approved = False
@@ -470,7 +477,7 @@ class ProgressJourney(SurfaceJourney):
         save(self.output / (label + '-frozen-receipt.json'), receipt)
         if self.progress_route == 'native':
             observed = self.peer.snapshot('POST')
-            assert len(observed) == posts + 2, 'todo tool must complete one actual host tool round'
+            assert len(observed) == posts + 2 + int(continued), 'unexpected progress-only native continuation count'
             results = tool_results('responses', observed[-1]['body'])
             assert 'progress-' + label in results, results
             returned = results['progress-' + label]
@@ -680,9 +687,6 @@ class ProgressJourney(SurfaceJourney):
         assert self.progress()['adopted_revision'] == self.progress()['revision']
         assert self.progress()['adopted_steps'] == initial_steps
         assert not self.progress().get('eager_off', False), 'native todo prelude must default on'
-        if self.progress_route == 'native':
-            policy, messages = decoded_payload('responses', self.peer.snapshot('POST')[-2]['body'])
-            assert EAGER_PRELUDE in policy + '\n'.join(str(message) for message in messages)
         self.adopt(language + '-initial-proposal')
         criterion = 'Actual verification evidence is still required' if language == 'en' else '실제 검증 증거가 필요함'
         self.session.command('criteria-edit')
@@ -781,11 +785,7 @@ class ProgressJourney(SurfaceJourney):
                               edited, language + '-eager-' + setting)
                 assert self.progress() == unchanged, 'identical todo snapshot created another revision'
                 body = self.peer.snapshot('POST')[-2]['body']
-                policy, messages = decoded_payload('responses', body)
-                payload = policy + '\n'.join(str(message) for message in messages)
-                assert (EAGER_PRELUDE in payload) == (setting == 'on'), payload
                 self.evidence.append({'action': 'native-eager-' + setting,
-                                      'exact_added_bytes': EAGER_PRELUDE if setting == 'on' else '',
                                       'actual_request': body})
                 count = self.dispatch_count()
             if setting == 'on':

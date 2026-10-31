@@ -1322,6 +1322,20 @@ impl State {
                 outcome,
                 message,
             } if self.matches(generation, task_id) => {
+                let (outcome, message) = if outcome == Outcome::Completed
+                    && self.active
+                    && !self.inspect_models
+                    && !self.inspect_sessions
+                {
+                    if let Some((outcome, reason)) = self.completion_obligation(generation, task_id)
+                    {
+                        (outcome, format!("{message} {reason}"))
+                    } else {
+                        (outcome, message)
+                    }
+                } else {
+                    (outcome, message)
+                };
                 // This identity was frozen for the submitted inference, unlike
                 // the locally selected provider, and survives until Finished.
                 let unknown_effects =

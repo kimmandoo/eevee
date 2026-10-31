@@ -1543,9 +1543,10 @@ impl App {
                 task_id,
                 outcome,
                 ..
-            } if state.matches(*generation, *task_id) => {
-                state.work.clone().map(|claim| (claim, *outcome))
-            }
+            } if state.matches(*generation, *task_id) => state
+                .work
+                .clone()
+                .map(|claim| (claim, *generation, *outcome)),
             _ => None,
         };
         let implemented = match &event {
@@ -1578,6 +1579,13 @@ impl App {
             None
         };
         state.event(event);
+        let move_finished = move_finished.map(|(claim, generation, reported)| {
+            let outcome = state
+                .last_outcome
+                .filter(|(settled, _)| *settled == generation)
+                .map_or(reported, |(_, outcome)| outcome);
+            (claim, outcome)
+        });
         let resolved = previous.as_ref().is_some_and(|previous| {
             state
                 .request
