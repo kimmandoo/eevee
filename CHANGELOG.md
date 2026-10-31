@@ -2,6 +2,8 @@
 
 ## 2026-10-31
 
+- docs(release): published v0.1.42 from `51730ec` after exact-source native41188757779 attempt1 and release41190449121, verified all eight public assets/seven checksum rows/five qualified native packages and preserved earlier releases.
+- docs(verification): passed downloaded session/provider/OAuth/graphics journeys, completed interrupted installation acceptance through retained27 plus seven missing terminal cases and explicit uninstall/reinstall checks, and recorded actual core CI reductions separately from three-OS artifact-backed deep regressions.
 - ci(smoke): separated five-platform push/PR core qualification from daily/manual protocol/tool/contract regressions, retained compact/wide file and session boundaries, and reused exact qualified native packages without rebuilding expanded jobs.
 - feat(sessions)!: started ordinary `ev` launches with blank local work, added explicit `--continue`/`--resume [ID]` selection, changed `/new` and `/resume` into non-sending local navigation, waited for the exact old draft save before fresh work and refused silent missing/foreign/archived target substitution.
 - fix(approvals)!: ended in-memory task/session approval on fresh work and saved-task switches while retaining session consent across request-state resets in the same local work.
@@ -351,6 +353,7 @@
 
 ## 0.1.42
 
+- ci(smoke): kept five-platform core qualification on pushes/PRs and moved expanded protocol/tool/contract coverage to daily/manual same-source qualified-artifact runs without recompilation.
 - feat(sessions)!: opened fresh local work by default; added `ev --continue`, `ev --resume [ID]` and non-sending `/new`/`/resume` navigation while retaining old tasks and exact drafts/carets.
 - fix(ui): unified the TUI and sprite fallback on a solid-black canvas with readable light text, visible selections and unchanged native sprite alpha.
 - fix(auth): suggested Device login for remote/WSL sessions, handled long hidden redirect pastes promptly and displayed safe login-stage/HTTP-status/recovery details without leaking private responses or concealing current save failures.

@@ -107,11 +107,11 @@ Pin a version:
 
 ```sh
 curl -fsSLo install-ev.sh https://github.com/kimmandoo/eevee/releases/latest/download/install.sh
-sh ./install-ev.sh --version v0.1.41
+sh ./install-ev.sh --version v0.1.42
 ```
 
 ```powershell
-& ([scriptblock]::Create((irm https://github.com/kimmandoo/eevee/releases/latest/download/install.ps1))) -Version v0.1.41
+& ([scriptblock]::Create((irm https://github.com/kimmandoo/eevee/releases/latest/download/install.ps1))) -Version v0.1.42
 ```
 
 Offline: download the matching archive, `SHA256SUMS` and installer from one release, then:

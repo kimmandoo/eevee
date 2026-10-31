@@ -1,5 +1,19 @@
 # Troubleshooting
 
+### [2026-10-31] Release installation acceptance outlived its outer command deadline
+
+- **Context / Symptom:** The900s outer command expired after17 successful installation/update phases and27 passed installed-terminal cases; no final installation summary had been written.
+- **Root Cause:** The nested34-case terminal harness alone allowed1100s, beyond the outer budget before accounting for bootstrap/update work.
+- **Solution:** Preserved `public-installation/interruption.json` and the original failed terminal summary. Continued only the seven unexecuted cases using existing real-session/lifecycle helpers and the same public executable, then checked foreign-metadata uninstall refusal, unrelated-data preservation and exact-byte reinstall. The composed34-case result passed in `public-installation-continuation/results.json`; the interrupted invocation was never relabelled.
+- **Prevention / Reference:** Budget the enclosing command for its aggregate nested work. Resume from explicit completed-case identities instead of repeating expensive successful checks; a composed pass is not a single uninterrupted run. No production behavior or assertion was changed.
+
+### [2026-10-31] Repeated deep terminal suites dominated every native CI push
+
+- **Context / Symptom:** Complete pre-diet41186174517 took32m50s on Windows; Linux x86_64 spent1375s in native/session/contract terminal work. The user requested a smoke diet.
+- **Root Cause:** Shared protocol/tool journeys ran on three OS rows and all five targets repeated long reviewed-contract suites on every push, alongside necessary native builds/tests.
+- **Solution:** Kept all five native source/build/console/package/offline-install and compact/wide file/session gates, and moved expanded protocols/tools/contracts to daily/manual `terminal-regression.yml`. It installs exact qualified same-source artifact IDs rather than rebuilding. Core41188757779 passed all steps: longest job18m06s, Linux terminal work93s. Separate regression41188775073 passed all three OS rows against explicit qualified source `addd6dd`.
+- **Prevention / Reference:** Treat these as observed CI times, not a fixed performance guarantee. Keep core and expanded evidence separately attributed; pending/failed qualification must not select another source, skip selected failures or replace package bytes. Remaining Windows test/release compilation consumed828s, so deleting more smoke does not remove that build cost.
+
 ### [2026-10-31] Windows artifact review waited for idle during an intentionally active response
 
 - **Context / Symptom:** Native41183573842 passed Check and all four Unix rows, but both Windows artifact journeys failed at the first Ctrl+K with `native console output did not settle within the bounded capture window`. The captured screen showed a healthy pending response and the open command chooser.

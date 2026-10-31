@@ -1,16 +1,16 @@
 # Eevee Implementation Plan
 
-Updated 2026-10-31. The active request covers black-canvas rendering, actionable provider account connection recovery, fresh-by-default local sessions, reduced per-push smoke cost and a qualified 0.1.42 release. Unrelated roadmap work and paid/live provider calls remain outside this request.
+Updated 2026-10-31. Completed black-canvas rendering, actionable provider account connection recovery, fresh-by-default local sessions, reduced per-push smoke cost and the qualified 0.1.42 release. No unrelated roadmap work or paid/live provider calls were started.
 
 Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPATIBILITY.md). Live-provider conformance remains distinct from implemented transports and deterministic runtime proof.
 
-## Active delivery — Clean local sessions and account usability (0.1.42)
+## Completed delivery — Clean local sessions, account usability and CI smoke diet (0.1.42)
 
 1. Reused the current palette/artwork pipeline, native OAuth terminal ownership and task/store lifecycle; kept account/model preferences and retained work separate from a new local session. `/new` and `/resume` became local navigation, not Send aliases.
-2. Required source formatting, strict Clippy, complete Rust/Python/SDK checks and actual compact/wide session/provider/graphics journeys. Saved-work drivers must explicitly request continuation; no original failed result may be relabelled.
-3. Reduced every-push terminal work to representative file consent/effects and fresh/explicit-resume sessions on all five native targets; retained all native unit/build/console/install and shared policy gates. Moved full protocol/tool/contract journeys to daily/manual regressions using exact qualified artifacts without rebuilding. Validate workflow syntax, actual core execution, artifact selection/installation and expanded dispatch; record measured CI times rather than promising a fixed speedup.
-4. Required a new exact-source main-push native run with Check and all five native jobs, including real-terminal fresh/continue/resume journeys. Only its immutable package artifact IDs may qualify a new annotated tag; expanded regression results remain separately attributed to their selected source.
-5. After publication, verify the public assets/checksums and exact qualified package bytes, then exercise downloaded-host installation and changed session/provider surfaces. Record verification scope and live-account/physical-terminal limits in the checkpoint; keep older tags/releases fixed.
+2. Passed Rust1.90 formatting, strict Clippy,2002 Rust tests/two ignored, Python24/four Windows skips and SDK45. Actual compact/wide session/provider/OAuth and five graphics modes passed on local frozen bytes and again on downloaded public host bytes. Saved-work drivers explicitly request continuation; original failed reports remain distinct.
+3. Reduced every-push terminal work to representative file consent/effects and fresh/explicit-resume sessions on all five targets, retaining native source/build/console/install and shared policy gates. Core41188757779 passed every step: longest job1970→1086s and Linux terminal work1375→93s versus complete pre-diet41186174517. Separate daily/manual regression41188775073 passed on Linux/macOS/Windows using qualified `addd6dd` packages without rebuilding; this is not a relabelled full-regression result for the newer source.
+4. Qualified exact source `51730ec1fd8d7969c37dfa4f054205c237466944` in native41188757779 attempt1/Check/all five jobs. Annotated v0.1.42 and publication41190449121 promoted only its five immutable package IDs. No older tag/release/assets were replaced.
+5. Verified all eight public digests, seven checksum rows, five exact qualified archive/header/layout identities and identifier exclusion. Downloaded-host sessions2/provider2/OAuth2/graphics5 passed. Installation/update reached27 terminal rows before an outer900s limit interrupted the nested1100s run; retained that failure and executed the seven missing terminal cases plus uninstall/refusal/reinstall separately. Composed34 coverage and user-data preservation passed on unchanged public bytes, not a fabricated single-invocation pass. Checkpoint records commands/evidence and live-account/physical-terminal limits; no next roadmap task starts automatically.
 
 
 ## Completed delivery — Connection retention and terminal rendering (0.1.41)
