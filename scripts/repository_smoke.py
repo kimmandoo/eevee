@@ -25,7 +25,7 @@ def main():
     result = {"status": "failed", "cases": []}
     sessions = []
     def launch(name, project, data, size):
-        session = Session([str(binary), "--data-dir", str(data), "--images", "off", "--color", "mono"],
+        session = Session([str(binary), "--continue", "--data-dir", str(data), "--images", "off", "--color", "mono"],
                           project, terminal_environment("mono"), size, output / name)
         sessions.append(session)
         session.pump(0.5)

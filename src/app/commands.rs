@@ -1202,7 +1202,7 @@ impl App {
         }
         if matches!(
             name,
-            "session-new" | "session-resume" | "new" | "task-new" | "archive" | "restore"
+            "session-new" | "session-resume" | "task-new" | "archive" | "restore"
         ) && (!matches!(self.storage, StorageState::Saved)
             || self.save_requested
             || self.sources.persistence_pending()
@@ -1782,7 +1782,7 @@ impl App {
             return true;
         }
         if name == "new" {
-            self.new_task();
+            self.request_navigation(super::execution::Action::ResetTask);
             return true;
         }
         if name == "resume" {
@@ -3175,6 +3175,32 @@ mod tests {
         app.command("resume");
         app.select_task();
         assert_eq!(app.switch_task, Some(7));
+        assert!(app.pending_request.is_none() && app.planning.pending.is_none());
+    }
+
+    #[test]
+    fn new_session_waits_for_the_old_draft_save_without_sending() {
+        let mut app = App::new("/workspace".into(), 120, 36);
+        app.planning.preference_event(Ok(None));
+        app.store_event(store::Event::Loaded(store::Project {
+            tasks: Vec::new(),
+            partners: vec![store::Partner::default()],
+            active_id: None,
+            usage_bytes: 0,
+        }));
+        app.update(Event::Paste("Retained 요청 before new".into()));
+        app.command("new");
+        assert!(app.reset_after_save);
+        assert_eq!(app.input, "Retained 요청 before new");
+        assert!(app.pending_request.is_none() && app.planning.pending.is_none());
+        let mut committed = app.snapshot("/workspace");
+        committed.id = 7;
+        app.save_submitted();
+        app.store_event(store::Event::Saved(committed));
+        assert!(!app.reset_after_save);
+        assert_eq!(app.task_id, 0);
+        assert!(app.input.is_empty());
+        assert_eq!(app.tasks[0].request_text(), "Retained 요청 before new");
         assert!(app.pending_request.is_none() && app.planning.pending.is_none());
     }
 

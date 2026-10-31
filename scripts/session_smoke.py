@@ -144,11 +144,25 @@ class Fixture:
         assert GOAL not in session.display() and 'draft 941' not in session.display()
         self.quit()
         assert self.draft() == saved
+        session = self.launch('new-with-pending-draft')
+        pending = 'Keep pending 요청 without Send 517'
+        session.paste(pending, settle=False)
+        session.command('new', settle=False)
+        until(session, lambda: any(
+            draft['text'] == pending
+            for task in self.state()['tasks']
+            for state in json.loads(task['partner_drafts']).values()
+            for draft in state.get('drafts', [])), 'old pending draft committed before fresh session')
+        until(session, lambda: pending not in session.display(), 'new session waited for the draft save')
+        self.fresh()
+        session.capture('pending-draft-saved-before-new-no-send')
+        self.quit()
         assert all(value == 0 for value in self.state()['effects'].values()), self.state()
         return {'status': 'passed', 'size': list(self.size), 'task_id': task_id,
                 'cases': ['fresh-launch-preserved-retained-draft', 'neutral-picker-no-materialization',
                     'explicit-continue-and-id', 'new-and-resume-no-send-no-inherited-approval',
-                    'missing-and-foreign-id-no-substitution', 'black-canvas', 'zero-provider-or-command-effects']}
+                    'missing-and-foreign-id-no-substitution', 'new-waits-for-pending-draft-save',
+                    'black-canvas', 'zero-provider-or-command-effects']}
 
 
 def main():

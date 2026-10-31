@@ -317,7 +317,7 @@ def run(binary, output, root, size):
             result['cases'] += ['unknown-blocks-native-write-rule-and-task-auto', 'unknown-blocks-native-command-rule-and-task-auto']
             journey.finish()
             from response_smoke import SurfaceSession
-            journey.session = SurfaceSession(journey.restart_argv, journey.project, journey.restart_environment,
+            journey.session = SurfaceSession([*journey.restart_argv, '--continue'], journey.project, journey.restart_environment,
                                              journey.restart_size, output / 'restart')
             wait_for(journey.session, 'Storage: saved', timeout=35)
             journey.session.command('mcp')

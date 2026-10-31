@@ -28,7 +28,7 @@ class ReceiptJourney(Journey):
         self.serial += 1
         quota = getattr(self, 'quota_kib', None)
         self.session = RecordsSession([
-            str(self.binary), '--data-dir', str(self.data), '--images', 'off',
+            str(self.binary), '--continue', '--data-dir', str(self.data), '--images', 'off',
             '--color', 'mono', *(['--ascii'] if self.ascii_mode else []),
             *(['--quota-kib', str(quota)] if quota is not None else []),
         ], self.project, self.environment, self.size,

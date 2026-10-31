@@ -535,7 +535,7 @@ def main():
             (output / "q02_workload.py").write_text(WORKLOAD, encoding="utf-8")
 
             def launch(name, data, cwd=project):
-                session = Session([str(binary), "--data-dir", str(data), "--assets-dir", str(root / "assets"),
+                session = Session([str(binary), "--continue", "--data-dir", str(data), "--assets-dir", str(root / "assets"),
                                    "--images", "off", "--color", "mono", "--spool-kib", str(args.spool_kib)],
                                   cwd, environment, (120, 36), output / name)
                 sessions.append(session)

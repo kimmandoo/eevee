@@ -1,5 +1,12 @@
 # Troubleshooting
 
+### [2026-10-31] Retained-work acceptance overrides still assumed automatic startup restoration
+
+- **Context / Symptom:** The first full native candidate passed six drivers but failed retained receipts after restart: `Outgoing receipt requires an exact task and partner`. The old receipt remained durable; the restarted app was correctly on a blank task.
+- **Root Cause:** Custom `launch` overrides and direct relaunches bypassed their already-migrated base helper. The receipt/screenshot, MCP, motion, local-move, repository and warm-start drivers still omitted explicit continuation.
+- **Solution:** Added `--continue` to those retained-work launch sites, while leaving fresh-launch acceptance and genuine older-reader probes unchanged. Kept exact owner, durable history, no-effect and no-replay assertions. Corrected receipt2 and MCP2 journeys passed on unchanged candidate B bytes; the original six-of-seven native report remains failed, not relabelled.
+- **Prevention / Reference:** Audit overridden and multiline constructors, not only the base `Journey.launch`; new local sessions must not infer ownership from the database's previous selection. `/new` also uses the existing local save barrier so immediate navigation retains a pending old draft without sending it.
+
 ### [2026-10-31] Actual terminal checks exposed picker ownership and an OAuth fixture selector error
 
 - **Context / Symptom:** The first new session journey stayed in the saved-work picker after Esc. The initial native OAuth driver expected Browser but reached Device setup instead; its original `limits` string incorrectly claimed no public identity request.

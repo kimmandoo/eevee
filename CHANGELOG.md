@@ -2,11 +2,12 @@
 
 ## 2026-10-31
 
-- feat(sessions)!: started ordinary `ev` launches with blank local work, added explicit `--continue`/`--resume [ID]` selection, changed `/new` and `/resume` into non-sending local navigation, preserved retained facts/drafts/carets and refused silent missing/foreign/archived target substitution.
+- feat(sessions)!: started ordinary `ev` launches with blank local work, added explicit `--continue`/`--resume [ID]` selection, changed `/new` and `/resume` into non-sending local navigation, waited for the exact old draft save before fresh work and refused silent missing/foreign/archived target substitution.
 - fix(approvals)!: ended in-memory task/session approval on fresh work and saved-task switches while retaining session consent across request-state resets in the same local work.
 - fix(ui): painted the complete TUI canvas and cleared overlay margins black, kept both text palettes readable and matched indexed/cell/Sixel sprite composition without changing terminal default colors or Kitty source alpha.
 - fix(auth): honored callback-free account-login recommendations on WSL/SSH, drained bounded hidden redirect input promptly, added clear/paste recovery and retained safe stage/status diagnostics instead of hiding newer connection/save errors behind stale authentication outcomes.
 - fix(sessions): kept fresh task creation bound to an existing party member after the first partner was released, and migrated retained-work terminal journeys to explicit continuation.
+- fix(verification): migrated custom receipt, screenshot, MCP, motion, local-move, repository and warm-start acceptance launchers to explicit continuation without changing production startup or no-replay guards.
 - chore(release): advanced the package version to 0.1.42.
 
 ## 2026-10-30

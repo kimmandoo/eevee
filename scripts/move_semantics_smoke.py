@@ -42,7 +42,7 @@ class SemanticsDriver(Driver):
     def launch(self):
         # Local commands and TMs require no selected provider or catalogue peer.
         self.serial += 1
-        self.session = Session([str(self.binary), "--data-dir", str(self.data),
+        self.session = Session([str(self.binary), "--continue", "--data-dir", str(self.data),
             "--images", "off", "--color", "mono", ],
             self.project, self.environment, self.size,
             self.output / ("terminal-%02d" % self.serial))

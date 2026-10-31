@@ -62,7 +62,7 @@ class Journey(response.SurfaceJourney):
         confirm_exit(self.session)
         assert self.session.wait_exit() == 0
         self.session.close()
-        self.session = response.SurfaceSession([*self.argv, *extra], self.project,
+        self.session = response.SurfaceSession([*self.argv, '--continue', *extra], self.project,
             self.environment, self.size, self.output / name, )
         wait_for(self.session, 'Storage: saved')
         self.session.pump(.8)
@@ -216,7 +216,7 @@ def run(binary, output, root, size, previous_binary=None):
                 finally:
                     previous.close()
                 assert stored_bytes() == before, 'older writer changed data on exit'
-                journey.session = response.SurfaceSession(journey.argv, journey.project,
+                journey.session = response.SurfaceSession([*journey.argv, '--continue'], journey.project,
                     journey.environment, journey.size, output / 'current-resume', )
                 wait_for(journey.session, 'Storage: saved')
                 assert preference(journey.data).get('reduced_motion') is True
