@@ -268,12 +268,6 @@ def run(binary, output, root, size, ascii_mode, protocol, ):
             result['cases'].append('cumulative credential/private-ID filtering and cancellation retained zero effects, no retry and no durable preview')
             journey.workspace()
             journey.session.command('quit')
-            owned_titles = ('ALL owned work', )
-            files.until(journey.session, lambda: not journey.session.alive()
-                        or any(title in journey.session.display() for title in owned_titles)
-                        or 'Confirm exit' in journey.session.display(), 'quit review missing')
-            if journey.session.alive() and any(title in journey.session.display() for title in owned_titles):
-                journey.session.send('y')
             confirm_exit(journey.session)
             assert journey.session.wait_exit() == 0
             result['status'] = 'passed'

@@ -376,7 +376,6 @@ fn render_authoring(frame: &mut Frame, area: Rect, app: &mut App, config: &Confi
         && app.nickname_editor.is_none()
         && app.composer_menu.is_none()
         && app.cooperation_ui.release.is_none()
-        && app.cooperation.cancel_review.is_none()
         && app.cooperation.journal_discard.is_none();
     let area = centered(
         row(area, 2, area.height.saturating_sub(4)),

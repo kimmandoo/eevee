@@ -718,7 +718,7 @@ fn cached_rows_remain_selectable_after_refresh_failure_and_error_is_optional() {
     assert!(state.picker == Some(Picker::Model));
     assert!(!state.review_details);
     state.key(
-        KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL),
+        KeyEvent::new(KeyCode::Char('d'), KeyModifiers::ALT),
         true,
         &task(),
         &[],
@@ -1896,7 +1896,7 @@ fn obsolete_action_letters_and_digits_never_launch_or_change_idle_selection() {
     for action in "nrsfgxdhbcq12345".chars() {
         press(&mut state, KeyCode::Char(action), true);
         assert!(state.pending.is_none() && state.switch_to.is_none());
-        assert!(state.paths_editor.is_none() && !state.edit_goal && !state.quit_review);
+        assert!(state.paths_editor.is_none() && !state.edit_goal && !state.quit_ready);
         assert_eq!(state.agent, Agent::Codex);
         assert_eq!(state.operation, Operation::Plan);
     }
@@ -2451,28 +2451,23 @@ fn pasted_commands_are_literal_and_cjk_cursor_stays_on_graphemes() {
 }
 
 #[test]
-fn small_exit_is_neutral_and_unknown_outcome_requires_second_choice() {
+fn quit_intent_is_immediate_and_unknown_outcome_does_not_require_another_choice() {
     let mut state = active();
     state.request_quit();
-    press(&mut state, KeyCode::Enter, false);
-    assert!(!state.quit_ready);
-    assert!(!state.cancelling);
-    state.request_quit();
-    press(&mut state, KeyCode::Tab, false);
-    press(&mut state, KeyCode::Enter, false);
+    assert!(state.quit_ready);
+    assert!(
+        !state.cancelling,
+        "App owns all-owner cancellation and the save barrier"
+    );
+    state.cancel_owned();
     assert!(state.cancelling);
-    assert!(!state.quit_ready);
     state.event(Event::Finished {
         generation: 11,
         task_id: 7,
         outcome: Outcome::Unknown,
         message: "unknown outcome".into(),
     });
-    assert!(state.quit_review);
-    assert!(!state.affirmative);
-    assert!(!state.quit_ready);
-    press(&mut state, KeyCode::Tab, false);
-    press(&mut state, KeyCode::Enter, false);
+    assert!(state.outcome_unknown());
     assert!(state.quit_ready);
 }
 
@@ -2705,12 +2700,13 @@ fn resize_and_quit_reset_permission_to_deny() {
     state.reviewed = true;
     press(&mut state, KeyCode::Tab, true);
     state.request_quit();
-    press(&mut state, KeyCode::Esc, true);
+    assert!(state.quit_ready);
     assert_eq!(state.option, 0);
+    state.cancel_owned();
     press(&mut state, KeyCode::Enter, true);
     assert!(matches!(
         state.pending,
-        Some(Request::Answer { answer, .. }) if answer == json!({"permission":"deny"})
+        Some(Request::Cancel { generation: 11 })
     ));
 }
 
@@ -3424,12 +3420,21 @@ fn terminal_without_provider_item_keeps_safe_bounded_request_evidence() {
         .collect::<Vec<_>>()
         .join("\n");
     assert!(
-        view.contains("Failed") && view.contains("original-request-model"),
+        view.contains("Failed") && view.contains("Provider refused"),
         "{view}"
     );
     assert!(
         !view.contains("sk-secret123456") && !view.contains("Explicit future request"),
         "{view}"
+    );
+    let details = state
+        .response_rows(60, 100, true)
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(details.contains("original-request-model"), "{details}");
+    assert!(
+        !details.contains("sk-secret123456") && !details.contains("Explicit future request"),
+        "{details}"
     );
 }
 
@@ -3447,8 +3452,8 @@ fn activity_excludes_local_review_and_reports_cancellation_until_acknowledged() 
     let mut state = active();
     assert_eq!(state.activity_label(), Some("Connecting"));
     state.request_quit();
-    assert_eq!(state.activity_label(), None);
-    press(&mut state, KeyCode::Esc, true);
+    assert!(state.quit_ready);
+    assert_eq!(state.activity_label(), Some("Connecting"));
     state.cancel();
     assert_eq!(state.activity_label(), Some("Cancelling"));
 }

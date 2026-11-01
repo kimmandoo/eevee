@@ -2,6 +2,19 @@
 
 ## 2026-11-01
 
+- fix(windows): prevented installer errors from terminating a calling PowerShell host, isolated invocation state from caller script variables and preserved catchable failures, caller settings and atomic installation ownership.
+- fix(runtime): replaced repeated quit/cancellation reviews with direct stop and idempotent safe exit, waited only for actual work and required writes, prevented read-only memory hydration and stale terminal generations from trapping exit, and blocked authentication handoff during shutdown.
+- fix(storage): coalesced draft writes after 1.5 seconds idle with a 10-second continuous-edit cap, deferred caret/view-only persistence and retained exact latest metadata on explicit Send/save/quit without weakening stale-ack protection.
+- fix(agent): separated valid incomplete responses and bounded pauses from genuine failures, kept public answers usable for explicit follow-up and surfaced actual safe tool/error causes before generic diagnostics without replaying effects.
+- fix(ui): showed one compact typed reason/action summary per logical request, separated scroll pause from execution, retained source boxes and original Eevee artwork, preserved verbose producer attribution and moved picker details to Alt+D.
+- fix(ui): kept late evolution receipts behind current incomplete, stopped, failed and unknown results without consuming the retained transition, preserving the actual cause and useful output at compact sizes.
+- fix(terminal): printed post-restoration shutdown warnings on a fresh primary-screen line instead of overwriting the caller's current line.
+- fix(runtime): recovered queued and known-unsent follow-ups without truncation, retained overflow for explicit recovery and used one neutral storage/loss choice instead of silently discarding drafts.
+- test(windows): reproduced original caller termination on PS5.1/PS7 and passed fixed native41277346967 install/update/rejected-checksum/caller-state/interactive-quit/uninstall paths without security-policy or antivirus bypass.
+- test(ux): reproduced repeated task writes during continuous typing on the frozen request baseline at both supported sizes and added actual terminal quiet-save/caret/restart/stop/quit/failure acceptance.
+- test(ui): passed all ten direct-exit/save/restart/failure journeys, both continuous-response viewport journeys, both full evolution/intent backtests and five original-pixel graphics modes; retained the initial overlay failure and its RED/GREEN regression.
+- test(windows): passed default interactive installer animation and caller continuation/state on PS5.1/PS7 in protected native41282660432 without bypassing validation or protection.
+- chore(release): advanced the package version to 0.1.44.
 - feat(agent): continued native current-request unfinished todo work within one owned logical request, retained actual turns/results and bounded completion reminders without replaying completed effects.
 - fix(agent): kept blocked, denied, cancelled, waiting, failed and no-progress obligations distinct from completion, preserved reachable independent work and propagated qualified outcomes through cooperation and delegation.
 - fix(agent): excluded observation-cache telemetry from useful-progress fingerprints while preserving substantive source evidence and the exact model-visible tool results.

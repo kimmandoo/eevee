@@ -99,12 +99,11 @@ def run(binary, output, size, keep):
         j.until(lambda: j.draft(1) and j.draft(1)['text'] == draft, 'exact dirty draft persisted')
         saved = j.draft(1).copy()
         paused = None
-        if 'Response ' in j.session.display():
+        if 'Alt+End' in j.session.display():
             view = response_view(j.session)
             wheel(j.session, 'up', view['point'], 2)
-            paused = next((line.strip() for line in j.session.display().splitlines()
-                           if line.strip().startswith('Paused ')), None)
-            assert paused is not None, 'wheel did not pause the actual retained output'
+            paused = response_view(j.session)
+            assert not paused['following'], 'wheel did not pause the actual retained output'
         starts = len(j.peers('started'))
         j.session.command('retained-responses')
         j.until(lambda: 'provider journal' in j.session.display() and 'Reading bounded' not in j.session.display(), 'retained journal list')
@@ -126,7 +125,7 @@ def run(binary, output, size, keep):
         j.session.capture('jump-reflow-preserves-owner')
         j.workspace()
         if paused is not None:
-            assert any(line.strip().startswith('Paused ') for line in j.session.display().splitlines()), 'landmark navigation resumed paused output'
+            assert not response_view(j.session)['following'], 'landmark navigation resumed paused output'
         j.finish('COOP_RETAINED_B')
         j.until(lambda: not j.claims(), 'other partner settled')
         j.session.resize(size)

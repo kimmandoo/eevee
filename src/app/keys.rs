@@ -73,10 +73,6 @@ impl App {
                     review.reviewed = false;
                     review.affirmative = false;
                 }
-                if let Some(review) = self.cooperation.cancel_review.as_mut() {
-                    review.reviewed = false;
-                    review.affirmative = false;
-                }
                 if let Some(review) = self.cooperation.journal_discard.as_mut() {
                     review.reviewed = false;
                     review.affirmative = false;
@@ -93,8 +89,7 @@ impl App {
                 false
             }
             Event::Paste(_)
-                if self.cooperation.cancel_review.is_some()
-                    || self.cooperation.journal_discard.is_some()
+                if self.cooperation.journal_discard.is_some()
                     || self.cooperation_ui.release.is_some() =>
             {
                 false
@@ -222,7 +217,7 @@ impl App {
             && !self.quit
             && !self.quit_after_save
             && self.revision == revision
-            && (navigation != self.navigation() || input_state != (self.input.len(), self.cursor))
+            && self.input.len() != input_state.0
             && (self.task_id > 0
                 || !self.goal.is_empty()
                 || self.draft_dirty()
@@ -230,6 +225,17 @@ impl App {
                 || matches!(self.storage, StorageState::Saving))
         {
             self.changed_implicitly(now);
+        }
+        if changed
+            && !resized
+            && (navigation != self.navigation() || self.cursor != input_state.1)
+            && (self.task_id > 0
+                || !self.goal.is_empty()
+                || self.draft_dirty()
+                || self.save_requested
+                || matches!(self.storage, StorageState::Saving))
+        {
+            self.view_dirty = true;
         }
         let presented = self.reconcile_permission_review();
         changed
@@ -250,7 +256,6 @@ impl App {
             || self.command_popup.is_some()
             || self.nickname_editor.is_some()
             || self.cooperation_ui.release.is_some()
-            || self.cooperation.cancel_review.is_some()
             || self.cooperation.journal_discard.is_some()
             || !matches!(self.overlay, None | Some(Overlay::Planning))
             || self.overlay.is_none()
@@ -344,7 +349,6 @@ impl App {
             && key.code == KeyCode::Char('c')
             && self.width >= 60
             && self.height >= 18
-            && !self.planning.quit_review
             && !self.planning.journal_mode
             && self.planning.picker.is_none()
             && self.planning.selection_change.is_none()
@@ -475,7 +479,6 @@ impl App {
             && self.planning.picker.is_none()
             && self.planning.paths_editor.is_none()
             && self.planning.switch_to.is_none()
-            && !self.planning.quit_review
             && !self.planning.journal_mode
             && self.planning.inspection.is_none()
             && key.code == KeyCode::Esc
@@ -578,7 +581,12 @@ impl App {
     }
 
     pub fn authentication_ready(&self) -> bool {
-        self.committed_input_ready() && !self.planning_any_busy() && !self.execution_any_pending()
+        !self.quit
+            && !self.quit_after_save
+            && !self.cooperation.quitting
+            && self.committed_input_ready()
+            && !self.planning_any_busy()
+            && !self.execution_any_pending()
     }
 
     pub(super) fn planning_input_ready(&self) -> bool {
@@ -845,7 +853,6 @@ impl App {
             && self.planning.paths_editor.is_none()
             && self.planning.switch_to.is_none()
             && self.planning.inspection.is_none()
-            && !self.planning.quit_review
             && !self.planning.inspect_models
             && !self.planning.inspect_sessions
             && !self.planning.journal_mode
@@ -932,6 +939,45 @@ impl App {
     }
 
     pub(super) fn key(&mut self, key: KeyEvent, now: std::time::Instant) -> bool {
+        if key.code == KeyCode::Char('c')
+            && key.modifiers == KeyModifiers::CONTROL
+            && key.kind != KeyEventKind::Press
+        {
+            return false;
+        }
+        if key.kind == KeyEventKind::Press && key.modifiers == KeyModifiers::CONTROL {
+            match key.code {
+                KeyCode::Char('c') => {
+                    if !self.cooperation.quitting
+                        && !self.cancelling_owned_work()
+                        && self.cancellable_work_pending()
+                    {
+                        self.cancel_owned_work(false);
+                    } else {
+                        self.request_quit();
+                    }
+                    return true;
+                }
+                KeyCode::Char('d') => {
+                    if self.confirmation.is_none()
+                        && self.editing
+                        && self.overlay.is_none()
+                        && !self.input.is_empty()
+                    {
+                        return self.edit_key(KeyEvent::new(KeyCode::Delete, KeyModifiers::NONE));
+                    }
+                    self.request_quit();
+                    return true;
+                }
+                _ => {}
+            }
+        }
+        if self
+            .confirmation
+            .is_some_and(|confirmation| confirmation.kind == ConfirmationKind::Quit)
+        {
+            return self.confirmation_key(key);
+        }
         if let Some(handled) = self.steer_choice_key(key) {
             return handled;
         }
@@ -939,8 +985,7 @@ impl App {
         if self.overlay == Some(Overlay::Agents) && !scoped_inspector {
             self.agents.connection_owner = Some((self.task_id, self.lead.id, self.planning.agent));
         }
-        if self.journal_discard_key(key) || self.cancellation_key(key) || self.cooperation_key(key)
-        {
+        if self.journal_discard_key(key) || self.cooperation_key(key) {
             return true;
         }
         if self.overlay == Some(Overlay::Agents)
@@ -994,9 +1039,10 @@ impl App {
             }
             return false;
         }
-        if self.quit_after_save {
+        if self.quit_after_save || self.cooperation.quitting {
             if key.code == KeyCode::Esc {
-                self.quit_after_save = false;
+                self.cancel_record_quit();
+                self.notice = "Exit cancelled; drafts and completed effects are kept.".into();
                 return true;
             }
             return false;
@@ -1446,50 +1492,32 @@ impl App {
     }
 
     pub(super) fn request_quit(&mut self) {
+        if self.cooperation.quitting {
+            return;
+        }
         self.sources.cancel_memory_adoption();
         self.workflow.authoring.invalidate();
-        if self.quit_requires_work_review()
-            || self.planning_any_unknown()
-            || self.execution_any_unknown()
-            || self.planning_any_journal_failed()
-            || self.execution_any_journal_failed()
-        {
-            self.open_cancel_review(true);
-        } else {
-            self.request_navigation(execution::Action::Quit);
-        }
+        self.reset_after_save = false;
+        self.return_after_cancel = None;
+        self.pending_provider_picker = None;
+        self.pending_openai_selection = None;
+        self.confirmation = None;
+        self.command_popup = None;
+        self.cooperation.journal_discard = None;
+        self.cooperation_ui.release = None;
+        self.cancel_owned_work(true);
+        self.finish_request_quit();
     }
 
     pub(super) fn finish_request_quit(&mut self) {
-        self.cancel_pending_moves();
-        if self.moves.failed.is_some() {
-            self.open_moves();
-            self.notice = "Move storage failed. Retry or explicitly review discarding that local operation before exit.".into();
-            return;
+        self.cooperation.quitting = true;
+        if !self.cooperation.quit_flushed {
+            self.cooperation.quit_flushed = true;
+            self.cancel_pending_moves();
+            self.flush_save();
         }
-        // A committed, clean task exits directly; only unsaved or failed
-        // state needs the save/stay decision.
-        if self.draft_dirty()
-            || self.revision != self.saved_revision
-            || self.sources.persistence_pending()
-            || self.sources.store_failed
-            || self.planning_any_journal_failed()
-            || self.moves.learning.is_some()
-        {
-            self.confirmation = Some(Confirmation {
-                kind: ConfirmationKind::Quit,
-                destructive: false,
-            });
-        } else if self.planning_any_busy()
-            || self.execution_any_pending()
-            || self.moves.persistence_pending()
-            || self.recipe_export_busy()
-        {
-            self.quit_after_save = true;
-            self.notice = "Finishing local persistence before exit…".into();
-        } else {
-            self.quit = true;
-        }
+        self.quit_after_save = true;
+        self.settle_exit();
     }
 
     pub fn deletion_pages(&self) -> usize {
@@ -1517,7 +1545,21 @@ impl App {
         }
         if key.modifiers.is_empty() {
             match key.code {
+                KeyCode::Char('r')
+                    if self.confirmation.is_some_and(|confirmation| {
+                        confirmation.kind == ConfirmationKind::Quit
+                    }) =>
+                {
+                    self.retry_exit_storage();
+                    return true;
+                }
                 KeyCode::Char('n') => {
+                    if self
+                        .confirmation
+                        .is_some_and(|confirmation| confirmation.kind == ConfirmationKind::Quit)
+                    {
+                        self.cancel_record_quit();
+                    }
                     self.confirmation = None;
                     self.confirmation_reviewed = false;
                     return true;
@@ -1570,6 +1612,9 @@ impl App {
         let confirmation = self.confirmation.as_mut().expect("active confirmation");
         match key.code {
             KeyCode::Esc => {
+                if confirmation.kind == ConfirmationKind::Quit {
+                    self.cancel_record_quit();
+                }
                 self.confirmation = None;
                 true
             }
@@ -1613,21 +1658,9 @@ impl App {
                             self.changed_task();
                         }
                         ConfirmationKind::Quit => {
-                            self.flush_save();
-                            if matches!(
-                                self.storage,
-                                StorageState::Pending
-                                    | StorageState::Saving
-                                    | StorageState::Loading
-                            ) || self.sources.persistence_pending()
-                                || self.execution_any_pending()
-                                || self.planning_any_busy()
-                                || self.moves.persistence_pending()
-                            {
-                                self.quit_after_save = true;
-                            } else {
-                                self.quit = true;
-                            }
+                            self.cooperation.quitting = true;
+                            self.cooperation.quit_abandon = self.cooperation.quit_error.is_some();
+                            self.finish_request_quit();
                         }
                         ConfirmationKind::Complete => {
                             if !self.criteria.is_empty()
@@ -1651,6 +1684,8 @@ impl App {
                             self.transitioning = true;
                         }
                     }
+                } else if confirmation.kind == ConfirmationKind::Quit {
+                    self.cancel_record_quit();
                 }
                 true
             }

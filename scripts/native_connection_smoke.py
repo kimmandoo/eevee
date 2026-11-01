@@ -178,6 +178,8 @@ class Peer:
                     return
                 row['fixture_mode'] = mode
                 if mode == 'rate_limited':
+                    if answer is not None and not answer():
+                        return
                     # Refused before processing: the client may resend the same body.
                     encoded = json.dumps({'error': 'fixture rate limit'}).encode()
                     self.send_response(429)
@@ -847,9 +849,7 @@ class Journey:
         peer.assert_clean()
         self.workspace()
         session.command('quit')
-        # Cancellation intentionally records unknown remote outcome; acknowledge
-        # only that necessary exit review, not another inference approval.
-        confirm_exit(session, owned_work=True)
+        confirm_exit(session)
         assert session.wait_exit() == 0
         self.cases.append('bounded-clean-exit-terminal-modes-restored-no-provider-programs')
 

@@ -3,8 +3,8 @@ use std::time::{Duration, Instant};
 
 use super::{App, StorageState};
 
-const QUIET: Duration = Duration::from_millis(500);
-const MAX_PENDING: Duration = Duration::from_secs(2);
+const QUIET: Duration = Duration::from_millis(1500);
+const MAX_PENDING: Duration = Duration::from_secs(10);
 
 pub(super) struct Window {
     first: Instant,
@@ -51,6 +51,7 @@ impl App {
     pub fn save_submitted(&mut self) {
         self.save_inflight = Some(self.revision);
         self.save_requested = false;
+        self.view_dirty = false;
         self.autosave = None;
         self.refresh_save_state();
     }
@@ -58,6 +59,10 @@ impl App {
     /// Promote pending edits to an immediate write without applying the editor,
     /// changing task ownership, or dispatching an action after acknowledgement.
     pub(super) fn flush_save(&mut self) {
+        if self.view_dirty && !self.save_requested {
+            self.revision = self.revision.saturating_add(1);
+            self.save_requested = true;
+        }
         self.autosave = None;
         self.refresh_save_state();
     }
@@ -158,9 +163,9 @@ mod tests {
         assert!(!app.save_due(now + QUIET - Duration::from_nanos(1)));
         assert!(app.save_due(now + QUIET));
 
-        key(&mut app, KeyCode::Left, now + Duration::from_millis(300));
-        assert!(!app.save_due(now + Duration::from_millis(799)));
-        let snapshot = submit(&mut app, now + Duration::from_millis(800));
+        key(&mut app, KeyCode::Left, now + QUIET / 2);
+        assert!(!app.save_due(now + QUIET - Duration::from_nanos(1)));
+        let snapshot = submit(&mut app, now + QUIET);
         assert_eq!(app.storage, StorageState::Saving);
         assert!(app.save_wait(now + MAX_PENDING).is_none());
         let draft = &snapshot.partner_drafts[&app.lead().id].drafts[0];
@@ -172,28 +177,18 @@ mod tests {
     }
 
     #[test]
-    fn twenty_keys_at_four_hertz_collapse_to_three_bounded_writes() {
+    fn a_typing_burst_coalesces_without_losing_the_latest_draft() {
         let start = Instant::now();
+        let interval = QUIET.min(MAX_PENDING) / 40;
         let mut app = editor();
-        let mut writes = Vec::new();
         for index in 0..20 {
-            let now = start + Duration::from_millis(index * 250);
+            let now = start + interval * index;
             key(&mut app, KeyCode::Char('x'), now);
-            if app.save_due(now) {
-                let snapshot = submit(&mut app, now);
-                writes.push((now.duration_since(start), app.input.len()));
-                app.store_event(store::Event::Saved(snapshot));
-            }
+            assert!(!app.save_due(now));
         }
-        assert_eq!(
-            writes,
-            [
-                (Duration::from_millis(2000), 9),
-                (Duration::from_millis(4250), 18),
-            ]
-        );
-        assert!(!app.save_due(start + Duration::from_millis(5249)));
-        let snapshot = submit(&mut app, start + Duration::from_millis(5250));
+        let deadline = (start + interval * 19 + QUIET).min(start + MAX_PENDING);
+        assert!(!app.save_due(deadline - Duration::from_nanos(1)));
+        let snapshot = submit(&mut app, deadline);
         assert_eq!(
             snapshot.partner_drafts[&app.lead().id].drafts[0].text,
             "xxxxxxxxxxxxxxxxxxxx"
@@ -209,12 +204,10 @@ mod tests {
     fn continuous_edits_cannot_extend_the_maximum_pending_deadline() {
         let start = Instant::now();
         let mut app = editor();
-        for millis in [0, 400, 800, 1200, 1600, 1999] {
-            key(
-                &mut app,
-                KeyCode::Char('x'),
-                start + Duration::from_millis(millis),
-            );
+        let mut offset = Duration::ZERO;
+        while offset < MAX_PENDING {
+            key(&mut app, KeyCode::Char('x'), start + offset);
+            offset += QUIET / 2;
         }
         assert!(!app.save_due(start + MAX_PENDING - Duration::from_nanos(1)));
         assert!(app.save_due(start + MAX_PENDING));
@@ -251,10 +244,13 @@ mod tests {
         app.load_task(task);
         app.editing = false;
         let old_focus = app.focus;
+        let revision = app.revision;
         key(&mut app, KeyCode::Tab, now);
         assert_ne!(app.focus, old_focus);
-        assert_eq!(app.storage, StorageState::Pending);
-        assert!(!app.save_due(now));
+        assert_eq!(app.revision, revision);
+        assert_eq!(app.storage, StorageState::Saved);
+        assert!(app.view_dirty);
+        assert!(app.save_wait(now + MAX_PENDING).is_none());
         control(&mut app, 's', now);
         assert!(app.save_due(now));
         let snapshot = submit(&mut app, now);
@@ -470,7 +466,7 @@ mod tests {
         assert_eq!(app.storage, StorageState::Pending);
         assert!(!app.save_due(now));
         key(&mut app, KeyCode::Left, now + Duration::from_millis(250));
-        assert!(!app.save_due(now + QUIET));
+        assert!(!app.save_due(now + QUIET - Duration::from_nanos(1)));
         control(&mut app, 's', now + Duration::from_millis(250));
         assert!(app.save_due(now + Duration::from_millis(250)));
         let snapshot = submit(&mut app, now + Duration::from_millis(250));

@@ -1,5 +1,47 @@
 # Troubleshooting
 
+### [2026-11-01] A late evolution receipt covered the actual request failure
+
+- **Context / Symptom:** The real60×18 HTTP429 journey first displayed its cause, then a late Eevee→Vaporeon receipt covered the typed Failed/reason/action rows. Retained sourceb981ce42/target/ux044-interaction-final captured the visible Evolution box while the actual cause survived only in a truncated footer.
+- **Root Cause:** Evolution notification eligibility protected consent, questions and live file code but ignored current terminal non-success status. Asynchronous form-record settlement could therefore overpaint an already-failed response.
+- **Solution:** Extended the existing exact-request-bound guard to Incomplete, Stopped, Failed and Unknown outcomes, without consuming the transition, changing form selection or hiding another request's state. Kept original portraits and useful content intact.
+- **Prevention / Reference:** Added a real-render regression for both widths and both already-visible/pending receipts; it failed before the guard, then the complete pinned Rust suite passed2034/two ignored. Guarded binaryb0f41761 passed all ten actual interaction journeys, including the previously hidden compact HTTP429 cause and navigable full verbose details. Both full evolution/intent journeys and original-pixel graphics also passed; this is not physical-font certification.
+
+### [2026-11-01] Runtime selectors still assumed old phase wording and writer scope
+
+- **Context / Symptom:** Response acceptance could not find the renamed scroll-pause footer or phase-only Completed metadata. Initial interaction cases expected a writer for an explicitly read-only request, overplanned eight HTTP429 responses despite the existing four attempts, and expected all verbose details on one compact page.
+- **Root Cause:** The harness selected phase prose rather than structural request/viewport controls, and its fixture assumptions did not match the real intent scope, bounded retry policy or paged inspector.
+- **Solution:** Parsed the request caption and numeric viewport/Alt+End controls, checked held reading positions and actual lease/retained-text settlement instead of old wording, and migrated shared consumers. Used the actual nonwriting lease, exact four refusal plans and explicit detail paging. Preserved all no-replay/permission/filesystem/terminal-restoration assertions.
+- **Prevention / Reference:** Kept failed reports separate. Final interaction10, response2 and completion10 journeys passed; no failed/pending or partially selected command was relabelled a full pass. Used isolated pinned pyte0.8.2/wcwidth0.2.13/Pillow12.1.0 under target/ux044-python instead of changing global Python packages.
+
+### [2026-11-01] Installer errors terminated the calling PowerShell host
+
+- **Context / Symptom:** The documented called ScriptBlock installer command could immediately terminate PowerShell instead of returning an actionable error. Isolated baseline probes on Windows PowerShell5.1 and PowerShell7 both exited1 without reaching either the caller catch or continuation marker.
+- **Root Cause:** The installer's top-level catch called `exit 1`, which terminated the calling host even under `& ([scriptblock]::Create(...))`. Mutable `$script:` fields also belonged to the caller's script scope under that invocation. Testing only a separate `powershell -File` process did not cover either caller contract.
+- **Solution:** Rethrew the original error and moved invocation state into a local shared state object. Kept nonzero separate-process failure, checksum/ownership/atomic-publication validation and independently owned cleanup-process exits. Added both PS5.1/PS7 -File and same-host ScriptBlock install/update/rejected-checksum/state/installed-TUI-quit/uninstall qualification.
+- **Prevention / Reference:** Diagnostic41277346967/sourcea51a757 passed both protocols and engines on protected unchanged public0.1.43 EXE800d3795938d999a7ba8c8661dd9934f3a5b20efa361ec8272d5f50abdc6c6e5 / ZIPfa9f05b8162b381ca4d196cb532aadf549258c1278feb3def8d0023139531a0f. Defender update/scans exited0 with realtime/PUA/cloud protection, intelligence1.463.68.0; Authenticode remained NotSigned. This proves the caller fix, not another device's antivirus clearance or final0.1.44 qualification.
+
+### [2026-11-01] Native installer probe used an invalid archive basename and unavailable hash cmdlet
+
+- **Context / Symptom:** Diagnostic41275991958 refused `Archive basename must be exactly ev-windows-x86_64.zip.` After correcting that fixture,41276533487 passed all -File cases and all PS7 same-host cases, but PS5.1 stopped with `Get-FileHash ... is not recognized` after successful install/update.
+- **Root Cause:** The workflow renamed a real platform archive to public-043.zip, violating the intentional installer boundary. The cross-engine isolated-home probe also depended on hash-cmdlet/module availability not supplied by that PS5.1 environment.
+- **Solution:** Retained the exact platform basename instead of weakening validation, and computed probe hashes with disposable .NET SHA256/file streams rather than module auto-loading. Kept every engine/case mandatory, caller-state assertions and actual TUI/restoration checks.
+- **Prevention / Reference:** Preserved both original failed runs separately. Corrected41277346967 passed every case; no policy change, scan waiver, fake success, skipped engine or unchanged rerun was used.
+
+### [2026-11-01] Safe quit waited forever for read-only hydration after a successful save
+
+- **Context / Symptom:** Integrated quit regressions retained exact committed drafts but `app.quit` stayed false after the first matching Saved acknowledgment; normal exit could remain at saving despite no write being outstanding.
+- **Root Cause:** First save assigns a task identity and queues read-only memory hydration. Exit settlement treated every memory request as an approved mutation. A retained terminal provider generation could separately manufacture cancellation without a transport owner; quit also traversed repeated owner/unknown/save reviews.
+- **Solution:** Waited only for actual memory mutations/required writes and actual owned workers, rejected cancellation without transport/prepared ownership, retired future Send/navigation and used one centralized flush/exit state. Kept unknown outcomes and deliberate failed-write/loss review; prevented authentication from taking terminal ownership during shutdown.
+- **Prevention / Reference:** Added explicit no-hydration-ack quit and stale-generation regressions; integrated pinned Rust1.90 tests passed2033/two ignored, strict all-target/all-feature Clippy passed, and an actual0.1.44 release binary was built. Actual terminal and final native publication verification remain separate gates.
+
+### [2026-11-01] Host defaults differed from the repository verification toolchains
+
+- **Context / Symptom:** Plain Python3.9 failed release-script discovery with missing `tomllib` and empty downstream runner results. Plain Rust1.97 Clippy additionally reported new lints outside this change; removed UI messages also correctly surfaced generated dead-code diagnostics.
+- **Root Cause:** macOS command defaults were not the repository's CI verification contract: Python3.12 and Rust1.90. Removing obsolete rendering/review callers left unused catalogue keys.
+- **Solution:** Used the installed Python3.12 interpreter and explicit `cargo +1.90.0` without changing global settings, removed obsolete catalogue entries rather than suppressing dead code, and retained the strict warning gate.
+- **Prevention / Reference:** Python3.12 ran28 tests with24 passed/four Windows-only skips; SDK policy passed45 tests, actionlint passed, and pinned Rust passed2033/two ignored plus strict Clippy/build. Python3.9 output and the initial Clippy failure were not reported as successful gates.
+
 ### [2026-11-01] Completion acceptance sampled an already-ended lease and waited for spinner silence
 
 - **Context / Symptom:** Native41222598163 at60b4386 passed shared gates and native Rust tests but Linux completion acceptance failed `native operation bypassed its actual lease mode`. The retained screen already showed local work idle and the correct no-progress incomplete result. Windows passed nine journeys, then compact cancellation failed `native console output did not settle within the bounded capture window`.

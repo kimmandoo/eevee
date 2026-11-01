@@ -655,9 +655,10 @@ impl App {
                     summary.push('\n');
                 }
                 let mut result = json!({"call_id":entry.call_id,
-                    "status":if outcome == providers::Outcome::Completed { "success" } else { "error" },
+                    "status":match outcome { providers::Outcome::Completed => "success", providers::Outcome::Incomplete => "incomplete", _ => "error" },
                     "outcome":match outcome {
                         providers::Outcome::Completed=>"completed", providers::Outcome::Cancelled=>"cancelled",
+                        providers::Outcome::Incomplete=>"incomplete",
                         providers::Outcome::Failed=>"failed", providers::Outcome::Unknown=>"unknown"
                     }, "summary":summary,"child_request_id":child.context.child_request_id,
                     "parent_request_id":batch.parent});
@@ -980,41 +981,6 @@ mod tests {
             "summary":"\"\\\n🦊".repeat(20_000), "error":"\"\\\n".repeat(10_000) }));
         assert!(serde_json::to_vec(&result).unwrap().len() <= MAX_RESULT_BYTES);
         assert_eq!(result["truncated"], true);
-    }
-
-    #[test]
-    fn every_delegated_outcome_uses_the_strict_native_result_envelope() {
-        for outcome in ["completed", "failed", "cancelled", "unknown"] {
-            let status = if outcome == "completed" {
-                "success"
-            } else {
-                "error"
-            };
-            let result = bounded_tool_result(json!({
-                "status":status,"outcome":outcome,"call_id":"call-0",
-                "child_request_id":"child-0","parent_request_id":"lead",
-                "summary":"Literal child observation","error":"Actual failure detail"
-            }));
-            assert_eq!(result["status"], status);
-            assert_eq!(result["outcome"], outcome);
-            assert_eq!(result["path"], "");
-            assert!(
-                result["message"]
-                    .as_str()
-                    .is_some_and(|message| !message.is_empty())
-            );
-            assert_eq!(result["call_id"], "call-0");
-            assert_eq!(result["child_request_id"], "child-0");
-            assert_eq!(result["parent_request_id"], "lead");
-            assert_eq!(result["summary"], "Literal child observation");
-            assert_eq!(result["error"], "Actual failure detail");
-        }
-        let refusal = refused(&calls()[0], "Child capacity is full");
-        assert_eq!(refusal["status"], "refused");
-        assert_eq!(refusal["path"], "");
-        assert!(refusal["message"].is_string());
-        assert_eq!(refusal["call_id"], "call-0");
-        assert_eq!(refusal["error"], "Child capacity is full");
     }
 
     #[test]

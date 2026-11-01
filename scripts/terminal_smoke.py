@@ -705,18 +705,12 @@ def terminal_environment(mode):
     return environment
 
 
-def confirm_exit(session, choice=RIGHT + "\r", *, owned_work=False):
-    """Finish a requested exit; all-owner cancellation needs explicit fixture opt-in."""
+def confirm_exit(session):
+    """Observe direct save/cancel exit; never grant consent or retry a write."""
     deadline = time.monotonic() + 10
     while session.alive():
-        if "Confirm exit" in session.display():
-            session.send(choice)
-            return
-        if owned_work and any(title in session.display() for title in ("Quit / ALL owned work", )):
-            session.send(RIGHT + "\r")
-            owned_work = False
-            continue
-        assert time.monotonic() < deadline, "application neither exited nor offered exit review"
+        assert "Confirm exit" not in session.display(), "healthy exit unexpectedly required an unsaved-data decision"
+        assert time.monotonic() < deadline, "application did not finish direct save/cancel exit"
         session.pump(0.02)
 
 

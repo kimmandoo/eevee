@@ -92,7 +92,6 @@ pub struct State {
     notified_habits: HashSet<String>,
     habit_hint: bool,
     current_activity: Option<records::Activity>,
-    quit_discard: bool,
 }
 impl Default for State {
     fn default() -> Self {
@@ -151,7 +150,6 @@ impl Default for State {
             notified_habits: HashSet::new(),
             habit_hint: false,
             current_activity: None,
-            quit_discard: false,
         }
     }
 }
@@ -1124,22 +1122,8 @@ impl App {
         if !self.records.mutation_pending() {
             return true;
         }
-        if self.records.failed.is_some() {
-            self.records.quit_discard = true;
-            if self.overlay != Some(Overlay::Records) || self.records.mode != Mode::Discard {
-                self.open_records(Mode::Discard);
-                self.records.return_mode = Mode::Summary;
-            }
-        } else {
-            self.records.hint = Some(Message::RecordsWaiting);
-        }
+        self.records.hint = Some(Message::RecordsWaiting);
         false
-    }
-    fn record_stay(&mut self) {
-        if self.records.quit_discard {
-            self.records.quit_discard = false;
-            self.cancel_record_quit();
-        }
     }
     pub fn record_paste(&mut self, _value: &str) -> bool {
         self.overlay == Some(Overlay::Records)
@@ -1161,9 +1145,6 @@ impl App {
             return true;
         }
         if key.code == KeyCode::Esc {
-            if self.records.mode == Mode::Discard {
-                self.record_stay();
-            }
             if matches!(self.records.mode, Mode::Resolve | Mode::Discard) {
                 let mode = self.records.return_mode;
                 self.records.enter(mode);
@@ -1246,7 +1227,6 @@ impl App {
                 }
             }
             KeyCode::Enter if self.records.mode == Mode::Discard && !self.records.affirmative => {
-                self.record_stay();
                 let mode = self.records.return_mode;
                 self.records.enter(mode);
             }
@@ -1258,7 +1238,6 @@ impl App {
                 if let Some(request) = self.records.failed.take() {
                     self.release_record_owner(&request);
                 }
-                self.records.quit_discard = false;
                 self.records.failed_error.clear();
                 let mode = self.records.return_mode;
                 self.records.enter(mode);
@@ -1438,6 +1417,7 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app::StorageState;
     fn owner() -> store::Attribution {
         store::Attribution {
             partner: 1,
@@ -1747,29 +1727,42 @@ mod tests {
         assert_eq!(app.planning.selection, saved.selection);
     }
     #[test]
-    fn quit_discard_review_survives_repeated_gate_and_stay_retains_failed_owner() {
+    fn failed_record_exit_uses_one_global_choice_and_stay_retains_failed_owner() {
         let mut app = App::new("/project".into(), 60, 18);
+        app.storage = StorageState::Saved;
         app.records.failed = Some(Request {
             task_id: 7,
             operation: Operation::SetFlavor { enabled: false },
         });
-        app.quit = true;
-        assert!(!app.records_allow_quit(true));
-        app.records.reviewed = true;
-        app.records.scroll = 3;
-        assert!(!app.records_allow_quit(true));
-        assert!(app.records.reviewed);
-        assert_eq!(app.records.scroll, 3);
-        app.record_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        app.request_quit();
         assert!(!app.quit);
-        assert!(!app.quit_after_save);
+        assert!(app.confirmation.is_some());
+        assert!(
+            app.quit_failure_message()
+                .unwrap()
+                .contains("local records")
+        );
+        app.confirmation_reviewed = true;
+        app.settle_exit();
+        assert!(app.confirmation_reviewed);
+        app.update(crossterm::event::Event::Key(KeyEvent::new(
+            KeyCode::Esc,
+            KeyModifiers::NONE,
+        )));
+        assert!(!app.quit && !app.quit_after_save);
+        assert!(app.confirmation.is_none());
         assert!(app.records.failed.is_some());
-        app.quit = true;
-        assert!(!app.records_allow_quit(true));
-        app.record_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
-        assert!(!app.quit);
-        assert!(!app.quit_after_save);
-        assert!(app.records.failed.is_some());
+        app.request_quit();
+        app.confirmation_reviewed = true;
+        app.update(crossterm::event::Event::Key(KeyEvent::new(
+            KeyCode::Char('y'),
+            KeyModifiers::NONE,
+        )));
+        assert!(app.quit);
+        assert!(
+            app.records.failed.is_some(),
+            "exiting never forges a committed record"
+        );
     }
     #[test]
     fn route_visits_never_infer_output_links_from_ordinals_or_proximity() {
@@ -1888,7 +1881,7 @@ mod tests {
         app.records_event(request.clone(), Err("disk full".into()));
         assert_eq!(app.records.failed.as_ref(), Some(&request));
         assert!(!app.records_allow_quit(true));
-        assert_eq!(app.records.mode, Mode::Discard);
+        assert_eq!(app.records.mode, Mode::Ribbons);
         app.records.retry();
         assert_eq!(app.records.pending.as_ref(), Some(&request));
         assert!(app.planning.pending.is_none());

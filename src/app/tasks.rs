@@ -111,6 +111,7 @@ impl App {
     }
 
     pub(super) fn load_task(&mut self, snapshot: store::Snapshot) {
+        self.view_dirty = false;
         self.invalidate_held_review();
         self.records.restoring = true;
         let task_changed = self.task_id != snapshot.id;
@@ -312,22 +313,22 @@ impl App {
     }
 
     pub(super) fn request_navigation(&mut self, action: execution::Action) {
-        if self.recipe_export_busy() {
-            if matches!(action, execution::Action::Quit) {
-                self.finish_request_quit();
-            } else {
-                self.notice = (crate::messages::Message::RecipeAuthoringBusy)
-                    .text()
-                    .into();
-            }
+        if matches!(action, execution::Action::Quit) {
+            self.request_quit();
             return;
         }
-        if !matches!(action, execution::Action::Quit) && !self.records_can_switch() {
+        if self.recipe_export_busy() {
+            self.notice = (crate::messages::Message::RecipeAuthoringBusy)
+                .text()
+                .into();
+            return;
+        }
+        if !self.records_can_switch() {
             self.notice =
                 "Wait for the local record batch to commit before switching forms or tasks.".into();
             return;
         }
-        if !matches!(action, execution::Action::Quit) && self.moves.mutation_pending() {
+        if self.moves.mutation_pending() {
             self.notice =
                 "Wait for the local move operation to commit before changing tasks or forms."
                     .into();
@@ -344,9 +345,7 @@ impl App {
             return;
         }
         let form_only = matches!(action, execution::Action::SelectForm(_));
-        let blocked = if matches!(action, execution::Action::Quit) {
-            self.quit_requires_work_review()
-        } else if form_only {
+        let blocked = if form_only {
             // The front local command has its own neutral cancel-and-wait
             // review below. Provider work and other unsettled owners do not.
             self.planning.owns_work()
@@ -372,16 +371,6 @@ impl App {
         } else {
             self.planning_any_busy()
         };
-        if matches!(action, execution::Action::Quit)
-            && (blocked
-                || self.planning_any_unknown()
-                || self.execution_any_unknown()
-                || self.planning_any_journal_failed()
-                || self.execution_any_journal_failed())
-        {
-            self.open_cancel_review(true);
-            return;
-        }
         if blocked
             || !form_only
                 && (self.planning_any_journal_failed()
@@ -391,8 +380,7 @@ impl App {
             self.notice = "Finish or explicitly cancel owned work, and inspect retained journal/outcome before changing tasks; /party-board lists every owner.".into();
             return;
         }
-        if !form_only && !matches!(action, execution::Action::Quit) && self.execution_any_pending()
-        {
+        if !form_only && self.execution_any_pending() {
             let only_front_command = self.execution.busy()
                 && self.cooperation.command_saves.is_empty()
                 && self
@@ -401,7 +389,7 @@ impl App {
                     .values()
                     .all(|state| !state.busy() && !state.storage_pending());
             if !only_front_command {
-                self.notice = "Other owned commands or command saves must settle before changing tasks; /cancel-all reviews every owner.".into();
+                self.notice = "Other owned commands or command saves must settle before changing tasks; /cancel-all stops every owner.".into();
                 return;
             }
         }
@@ -457,7 +445,7 @@ impl App {
                     self.finish_new_task();
                 }
             }
-            execution::Action::Quit => self.finish_request_quit(),
+            execution::Action::Quit => self.request_quit(),
             execution::Action::SelectForm(index) => {
                 let auto_form = index == 0;
                 if self.form() != index || self.lead.auto_form != auto_form {
@@ -533,33 +521,157 @@ impl App {
         }
     }
     pub fn settle_exit(&mut self) {
-        if self.quit_after_save && self.moves.failed.is_some() {
-            self.quit_after_save = false;
-            self.open_moves();
-            self.notice = "Move storage failed during exit. Retry or review discard; nothing was silently lost.".into();
+        if !self.cooperation.quitting && !self.quit_after_save {
             return;
         }
-        if self.quit_after_save
-            && matches!(self.storage, StorageState::Saved)
-            && self.saved_revision == self.revision
-            && !self.save_requested
-            && self.save_inflight.is_none()
-            && !self.sources.persistence_pending()
-            && !self.execution_any_pending()
-            && !self.planning_any_busy()
-            && !self.moves.persistence_pending()
-            && !self.recipe_export_busy()
-        {
-            if self.sources.store_failed || self.planning_any_journal_failed() {
-                self.quit_after_save = false;
+        self.cooperation.quitting = true;
+        let scope = self.exit_storage_failure_scope();
+        if !self.cooperation.quit_abandon && scope.iter().any(|failed| *failed) {
+            if self.cooperation.quit_failure_scope != scope {
+                self.cooperation.quit_failure_scope = scope;
+                let mut reason = String::from("Not saved: ");
+                for (failed, label) in scope.into_iter().zip([
+                    "task/draft/follow-up",
+                    "attachments",
+                    "work journal",
+                    "preferences/usage/ownership",
+                    "outgoing receipts",
+                    "local records",
+                    "move draft/operation",
+                ]) {
+                    if failed {
+                        if !reason.ends_with(": ") {
+                            reason.push_str(", ");
+                        }
+                        reason.push_str(label);
+                    }
+                }
+                reason.push_str(". Exit anyway keeps committed data but loses unsaved state. Accepted writes may finish. Effects are not rolled back; remote outcomes may remain unknown.");
+                self.cooperation.quit_error = Some(reason);
+                self.confirmation_reviewed = false;
                 self.confirmation = Some(Confirmation {
                     kind: ConfirmationKind::Quit,
                     destructive: false,
                 });
-            } else {
-                self.quit = true;
             }
+            self.quit_after_save = false;
+            self.quit = false;
+            return;
         }
+        if self.cooperation.quit_error.is_some() && !self.cooperation.quit_abandon {
+            return;
+        }
+        if self.cancellable_work_pending() {
+            return;
+        }
+        let saved = matches!(self.storage, StorageState::Saved)
+            && self.saved_revision == self.revision
+            && !self.save_requested
+            && self.save_inflight.is_none()
+            && !self.sources.persistence_pending()
+            && !std::iter::once(&self.execution)
+                .chain(self.cooperation.executions.values())
+                .any(|state| state.busy() || state.exit_persistence_pending())
+            && !self.planning_any_busy()
+            && !self.moves.mutation_pending()
+            && !self.recipe_export_busy()
+            && !self.memory.saving
+            && self.memory.pending.is_none()
+            && self
+                .memory_request
+                .as_ref()
+                .is_none_or(|request| request.mutation.is_none())
+            && self.management.is_none()
+            && self.party_request.is_none()
+            && !self.party_inflight;
+        if self.cooperation.quit_abandon
+            || saved && self.records_allow_quit(true) && self.preferences_allow_quit(true)
+        {
+            self.quit_after_save = false;
+            self.quit = true;
+        } else {
+            self.quit_after_save = true;
+            self.notice = "Saving drafts and settling owned work before exit… Esc stays. Unknown remote effects are not replayed.".into();
+        }
+    }
+
+    fn exit_storage_failure_scope(&self) -> [bool; 7] {
+        let mut scope = [
+            matches!(self.storage, StorageState::Failed(_)) || self.followup_recovery_pending(),
+            self.sources.store_failed || self.sources.screenshot_storage_failed(),
+            self.planning_any_journal_failed() || self.execution_any_journal_failed(),
+            std::iter::once(&self.planning)
+                .chain(self.cooperation.parked.values())
+                .chain(self.delegation.children.values().map(|child| &child.state))
+                .any(|state| {
+                    state.work_error.is_some()
+                        || state.preference_error().is_some() && state.preferences_pending()
+                        || state.usage.error.is_some() && state.usage_pending()
+                }),
+            std::iter::once(&self.planning)
+                .chain(self.cooperation.parked.values())
+                .chain(self.delegation.children.values().map(|child| &child.state))
+                .any(|state| state.receipts.error.is_some() && state.receipts.pending()),
+            self.records.failed.is_some() && self.records.mutation_pending(),
+            self.moves.failed.is_some() && self.moves.mutation_pending()
+                || self.moves.learning.is_some(),
+        ];
+        if scope.iter().any(|failed| *failed)
+            && (self.save_requested || self.revision != self.saved_revision || self.view_dirty)
+        {
+            scope[0] = true;
+        }
+        scope
+    }
+
+    pub fn quit_failure_message(&self) -> Option<&str> {
+        self.cooperation.quit_error.as_deref()
+    }
+
+    pub fn exit_warning(&self) -> Option<&'static str> {
+        if self.cooperation.quit_abandon {
+            Some(
+                "ev: Exited without saving uncommitted local state. Committed data is kept; accepted writes may finish. Effects were not rolled back and remote outcomes may remain unknown.",
+            )
+        } else if self.planning_any_unknown() || self.execution_any_unknown() {
+            Some(
+                "ev: Local work stopped; remote effects or billing may continue. The unknown outcome is retained, not treated as success or replayed.",
+            )
+        } else {
+            None
+        }
+    }
+
+    pub(super) fn retry_exit_storage(&mut self) {
+        self.confirmation = None;
+        self.confirmation_reviewed = false;
+        self.cooperation.quit_error = None;
+        self.cooperation.quit_failure_scope = [false; 7];
+        if matches!(self.storage, StorageState::Failed(_)) {
+            self.retry_storage = true;
+            self.storage = StorageState::Loading;
+        }
+        self.retry_cooperation_storage();
+        self.planning.retry_journal();
+        self.planning.receipts.retry();
+        for state in self.cooperation.parked.values_mut() {
+            state.retry_journal();
+            state.receipts.retry();
+        }
+        for state in
+            std::iter::once(&mut self.execution).chain(self.cooperation.executions.values_mut())
+        {
+            state.command("journal-retry");
+        }
+        self.records.retry();
+        self.moves.retry_failed();
+        self.sources
+            .command("journal-retry", self.task_id, self.repository.as_ref());
+        self.sources
+            .command("screenshot-retry", self.task_id, self.repository.as_ref());
+        self.recover_cancelled_followups();
+        self.flush_save();
+        self.quit_after_save = true;
     }
 
     pub(super) fn source_key(&mut self, key: KeyEvent) -> bool {

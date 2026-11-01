@@ -410,7 +410,7 @@ fn model_picker_keeps_focus_current_and_optional_provenance_distinct() {
             }
             app.update(Event::Key(KeyEvent::new(
                 KeyCode::Char('d'),
-                KeyModifiers::CONTROL,
+                KeyModifiers::ALT,
             )));
             terminal
                 .draw(|frame| {
@@ -1950,13 +1950,10 @@ fn cooperation_reviews_withhold_native_images_without_moving_home_artwork() {
     assert_eq!(targets, original);
     app.request_cancel_all();
     portrait_targets(&app, area, &mut targets);
-    assert!(
-        targets.is_empty(),
-        "native pictures must not cover owner scope"
+    assert_eq!(
+        targets, original,
+        "direct cancellation must not move home artwork"
     );
-    app.update(Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)));
-    portrait_targets(&app, area, &mut targets);
-    assert_eq!(targets, original);
 }
 
 #[test]
@@ -2384,6 +2381,82 @@ fn evolution_popup_waits_for_safe_surface_and_live_file_code_without_being_consu
         app.evolution.popup_shown,
         "completed file never released the pending evolution receipt"
     );
+}
+
+#[test]
+fn evolution_receipt_yields_to_current_unsuccessful_result_without_losing_it() {
+    use crate::app::planning::{Item, RequestStatus};
+    use crate::providers::{Agent, ItemKind, Operation, Outcome};
+    use ratatui::{Terminal, backend::TestBackend};
+    use std::sync::Arc;
+    for (width, height) in [(60, 18), (120, 36)] {
+        for already_shown in [false, true] {
+            for outcome in [
+                Outcome::Incomplete,
+                Outcome::Cancelled,
+                Outcome::Failed,
+                Outcome::Unknown,
+            ] {
+                let config = home_config();
+                let mut app = App::new("/workspace".into(), width, height);
+                app.task_id = 7;
+                app.storage = crate::app::StorageState::Saved;
+                app.input = "future 界draft".into();
+                app.cursor = 7;
+                app.editor_field = EditorField::Request;
+                app.editing = true;
+                app.command("flareon");
+                let mut artwork = Artwork::load(&config);
+                let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+                if already_shown {
+                    terminal
+                        .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
+                        .unwrap();
+                    assert!(app.evolution.popup_shown);
+                }
+                app.planning.submitted_request = Arc::from("Inspect this result");
+                app.planning.items.push(Item {
+                    thread_id: "native".into(),
+                    turn_id: "turn".into(),
+                    item_id: "result".into(),
+                    kind: ItemKind::Message,
+                    text: "USEFUL_RECEIVED_RESULT".into(),
+                    complete: true,
+                    request: Arc::clone(&app.planning.submitted_request),
+                    owner: None,
+                    status: Some(Arc::new(RequestStatus {
+                        generation: 11,
+                        task_id: 7,
+                        agent: Agent::Compatible,
+                        operation: Operation::Implement,
+                        model: None,
+                        transport: None,
+                        outcome: Some(outcome),
+                        reason: "ACTUAL_429_CAUSE".into(),
+                        public_context: Some(false),
+                    })),
+                });
+                terminal
+                    .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
+                    .unwrap();
+                let screen = screen_text(&terminal);
+                assert!(
+                    !screen.contains(Message::CoreEvolutionPopupTitle.text()),
+                    "{screen}"
+                );
+                assert!(
+                    screen.contains("USEFUL_RECEIVED_RESULT")
+                        && screen.contains("ACTUAL_429_CAUSE"),
+                    "{screen}"
+                );
+                assert!(
+                    app.evolution.transition.is_some(),
+                    "deferred evolution was consumed"
+                );
+                assert_eq!((app.input.as_str(), app.cursor), ("future 界draft", 7));
+            }
+        }
+    }
 }
 
 #[test]

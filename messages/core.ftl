@@ -12,7 +12,7 @@ core-request-tasks = /resume Saved sessions | /new Fresh session
 core-terminal-too-small =
     { "Terminal too small" }
     { "Need 60 columns x 18 rows" }
-    { "Resize keeps your draft. Ctrl+C opens safe exit." }
+    { "Resize keeps your draft. Ctrl+C stops work or exits idle." }
 
 core-retained-task-fact = { "Task-fact draft retained | /goal | /next" }
 
@@ -90,7 +90,8 @@ core-help-content =
     { " Ctrl+S     Keep draft locally" }
     { " @          Attach files" }
     { " Backspace  Previous form (outside text)" }
-    { " Ctrl+C     Exit" }
+    { " Ctrl+C     Stop work / exit when idle" }
+    { " Ctrl+D     Delete forward; empty Request exits" }
     { "" }
     { "COMMANDS" }
     { " /connect /provider  Provider and connection method" }
@@ -177,15 +178,15 @@ core-tasks-control = { "Enter Resume | /archived | /archive | /restore | /delete
 
 core-approvals-control = { "/ Commands | Esc Defer | /approvals Return" }
 
-core-request-active-control = { "/ Commands | Esc Cancel request | Ctrl+C Safe exit" }
+core-request-active-control = { "/ Commands | Esc Cancel request | Ctrl+C Stop | /quit Exit" }
 
-core-source-filter-control = { "Enter Apply filter/range | Esc Back | Ctrl+C Exit" }
+core-source-filter-control = { "Enter Apply filter/range | Esc Back | Ctrl+C Stop/Exit" }
 
-core-overlay-control = { "/ Commands | Esc Back | Ctrl+C Exit" }
+core-overlay-control = { "/ Commands | Esc Back | Ctrl+C Stop/Exit" }
 
-core-overlay-scroll-control = { "/ Commands | Up/Down Scroll | Esc Back | Ctrl+C Exit" }
+core-overlay-scroll-control = { "/ Commands | Up/Down Scroll | Esc Back | Ctrl+C Stop/Exit" }
 
-core-home-control = { "Type Request | Tab Focus | / Commands | Ctrl+C Exit" }
+core-home-control = { "Type Request | Tab Focus | / Commands | Ctrl+C Stop/Exit" }
 
 core-back = { "Back" }
 

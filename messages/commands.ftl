@@ -72,7 +72,7 @@ cmd-release-partner = { "Review releasing an idle partner" }
 
 cmd-approvals = { "Focus oldest pending approval or question" }
 
-cmd-cancel-all = { "Review cancellation of all owned work" }
+cmd-cancel-all = { "Stop all owned work; no effects are rolled back" }
 
 cmd-run = { "Inspect local execution evidence; never execute" }
 

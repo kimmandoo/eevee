@@ -216,8 +216,8 @@ impl super::State {
             .any(|step| step.status == Status::Blocked)
         {
             Some((
-                Outcome::Failed,
-                "Provider turn ended with blocked todo claims; logical request remains incomplete. Resolve the reported blocker deliberately; no automatic continuation or permission retry.",
+                Outcome::Incomplete,
+                "Response received; remaining steps are blocked. Provide the prerequisite or send a follow-up to continue.",
             ))
         } else if latest
             .steps
@@ -225,8 +225,8 @@ impl super::State {
             .any(|step| matches!(step.status, Status::Active | Status::Pending))
         {
             Some((
-                Outcome::Failed,
-                "Provider turn ended with active or pending todo claims; logical request remains incomplete. This adapter did not finish those obligations within this request; no automatic replay.",
+                Outcome::Incomplete,
+                "Response received; some steps remain. Send a follow-up to continue or adjust the request.",
             ))
         } else {
             None
@@ -644,9 +644,9 @@ mod tests {
             Agent::Devin,
         ] {
             for (status, expected) in [
-                ("pending", Outcome::Failed),
-                ("in_progress", Outcome::Failed),
-                ("blocked", Outcome::Failed),
+                ("pending", Outcome::Incomplete),
+                ("in_progress", Outcome::Incomplete),
+                ("blocked", Outcome::Incomplete),
                 ("completed", Outcome::Completed),
                 ("cancelled", Outcome::Completed),
             ] {
@@ -670,17 +670,10 @@ mod tests {
                     state.notice
                 );
                 assert!(!state.active && state.pending.is_none() && state.request.is_none());
-                if expected == Outcome::Failed {
-                    assert!(
-                        state.notice.contains("logical request remains incomplete"),
-                        "{}",
-                        state.notice
-                    );
-                    assert_eq!(
-                        state.items[0].status.as_ref().unwrap().outcome,
-                        Some(Outcome::Failed)
-                    );
-                }
+                assert_eq!(
+                    state.items[0].status.as_ref().unwrap().outcome,
+                    Some(expected)
+                );
             }
         }
     }

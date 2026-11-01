@@ -275,7 +275,6 @@ impl State {
         self.custom_model = None;
         self.selection_change = None;
         self.switch_to = None;
-        self.quit_review = false;
         self.cancel()
     }
 
@@ -344,6 +343,30 @@ mod tests {
             request_id: id.into(),
             writing: false,
         }
+    }
+
+    #[test]
+    fn cancelling_a_terminal_generation_does_not_create_phantom_work() {
+        let (mut state, task, _) = state();
+        state.generation = Some(11);
+        assert!(!state.transport_pending());
+        assert!(!state.cancel());
+        assert!(!state.cancel_owned());
+        assert!(!state.key(
+            crossterm::event::KeyEvent::new(
+                crossterm::event::KeyCode::Esc,
+                crossterm::event::KeyModifiers::NONE,
+            ),
+            true,
+            &task,
+            &[],
+            None,
+        ));
+        assert!(!state.transport_pending());
+        assert!(!state.cancelling);
+        assert!(state.pending.is_none());
+        state.request_quit();
+        assert!(state.quit_ready);
     }
 
     #[test]

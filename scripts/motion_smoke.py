@@ -121,7 +121,7 @@ def run(binary, output, root, size, previous_binary=None):
             assert len(peer.snapshot('POST')) == 1
             peer.release_append.set()
             peer.release_finish.set()
-            files.until(session, lambda: journey.surface['complete'] in session.display(), 'stream did not finish')
+            files.until(session, lambda: not journey.snapshot()['claims'], 'stream ownership did not settle')
             cases.append('real activity animates with NO_COLOR, persistent optout freezes it without changing owned work')
             journey.restart('restart-reduced')
             # The loopback connection was deliberately session-only. Restore it
@@ -139,7 +139,7 @@ def run(binary, output, root, size, previous_binary=None):
             journey.session.capture('restarted-preference-real-static-activity')
             peer.release_append.set()
             peer.release_finish.set()
-            files.until(journey.session, lambda: journey.surface['complete'] in journey.session.display(), 'restarted stream did not finish')
+            files.until(journey.session, lambda: not journey.snapshot()['claims'], 'restarted stream ownership did not settle')
             journey.workspace()
             journey.write_request('draft界e\u0301')
             session = journey.session

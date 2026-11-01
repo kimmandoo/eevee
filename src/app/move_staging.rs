@@ -486,6 +486,10 @@ impl App {
         };
         let outcome = match outcome {
             providers::Outcome::Completed => Outcome::Completed,
+            // The historical move schema has no Incomplete state. Keep this
+            // unrewarded rather than claiming verified completion or failure;
+            // this does not establish local-effect uncertainty.
+            providers::Outcome::Incomplete => Outcome::Unknown,
             providers::Outcome::Failed => Outcome::Failed,
             providers::Outcome::Cancelled if !dispatched => Outcome::Denied,
             providers::Outcome::Cancelled => Outcome::Cancelled,
@@ -852,7 +856,6 @@ impl App {
         changed |= self.settle_unstarted_move_runs();
         if self.quit
             || self.quit_after_save
-            || self.cooperation.cancel_review.is_some()
             || self
                 .confirmation
                 .is_some_and(|c| c.kind == super::ConfirmationKind::Quit)

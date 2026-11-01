@@ -26,7 +26,7 @@
 <p align="center">
   <img src="docs/assets/screenshot.png" width="900" alt="The real ev terminal app in Ghostty, with an open response canvas, colored Rust and diagnostics, and the original Eevee native pixel portrait">
   <br>
-  <sub>Actual macOS/Ghostty capture; Eevee is native terminal pixels, not pasted into the screenshot. Response text comes from a deterministic loopback fixture, not a live model. No account or paid provider was used. <a href="docs/ASSET_LICENSES.md">Artwork attribution and rights limits.</a></sub>
+  <sub>Actual 0.1.43 macOS/Ghostty capture of the retained open-response/code/portrait layout; 0.1.44 adds quieter result summaries and direct exit. Eevee is native terminal pixels, not pasted into the screenshot. Response text comes from a deterministic loopback fixture, not a live model. No account or paid provider was used. <a href="docs/ASSET_LICENSES.md">Artwork attribution and rights limits.</a></sub>
 </p>
 
 `ev` is a single native binary that turns any folder into an agent workspace. Type a request; the model you connected reads your project, writes files, runs builds and tests, reads the real errors and fixes them — the same loop you know from Codex or Claude Code, with any provider and with every effect shown to you first.
@@ -43,23 +43,18 @@ It also comes with a companion: a party of Eevee forms that evolve with the kind
 - **Local-first.** Tasks, drafts, transcripts and run history live in local SQLite. No account, server or Node runtime needed.
 - **Built for the terminal.** Rust + ratatui, 60×18 and up, mouse and keyboard, Kitty/Sixel sprites with text fallback, ASCII/mono modes. macOS, Linux, WSL and Windows, all built and tested in CI.
 
-## Unreleased
-
-- **Finish known unfinished work.** Native model turns with current-request active/pending todos continue forward within the same owned request, up to three completion reminders and the existing request limits. Actual outputs remain in context; completed file effects are not replayed. Blocked prerequisites do not prevent independent authorized work.
-- **Stop honestly.** Denial, cancellation, errors, unresolved permissions and repeated no-progress replies do not become task completion. External agent adapters report known unfinished obligations as incomplete; they are not automatically resubmitted. Ordinary answers and read-only future plans still end normally.
-- **PowerShell diagnosis.** Added real PowerShell-parent checks under both ConPTY and a private classic console, with default pinned sprites, normal/minimum sizes, typed input, explicit quit and terminal restoration. Published0.1.43 passed these controlled Windows checks; this does not establish why another device closes immediately. No startup fix or new release is claimed yet.
-
-## What's new in 0.1.43
+## What's new in 0.1.44
 
 | | What changed |
 | --- | --- |
-| **Open responses** | Removed the transcript box and inner padding. At 120 columns the response gains seven text columns and two rows; the original Eevee portrait stays the same size. |
-| **Readable code and diagnostics** | Supported language-tagged code fences and file previews distinguish keywords, strings, comments, numbers and names. Error/warning labels stand out in responses and command output; monochrome keeps text and emphasis without colors. |
-| **Live source boxes** | Actual incoming file contents appear inside a filename/status box with line numbers, syntax colors and a live edge. Ordinary answers stay open; PgUp/PgDn reads earlier code and Alt+End follows the newest fragment. |
-| **Calmer reviews** | Single rounded popup/composer outlines, clearer command names and fixed decisions below command scope. Roomier file reviews retain your draft and unoccluded partner portrait; inspection, one-shot consent and deferral stay distinct. |
-| **Resize recovery** | Resizing, clearing or returning from an overlay restores the original native sprite pixels instead of reusing an empty image ID. |
-| **Intent-matched evolution** | “Diagnose how to fix…” stays read-only; a separate “diagnose and fix it if needed” remains an implementation request. Pinned forms, explicit policy and negation still win. |
-| **Windows release security** | Native qualification scans the exact executable and archive with current Defender intelligence and real-time/PUA/cloud protection enabled. A clean CI scan is not a guarantee against device-specific detections. |
+| **Direct stop and exit** | Ctrl+C stops active work; another press while stopping, or Ctrl+C while idle, saves and exits. `/quit` works even during a request or unrelated review. Empty Ctrl+D exits; nonempty Ctrl+D deletes forward. |
+| **Quieter saves** | Draft edits coalesce after 1.5 seconds idle, with a 10-second continuous-edit cap. Cursor/view movement no longer rewrites whole tasks. Send, Ctrl+S and quit still flush the exact draft/caret; a real storage failure gets one explicit decision, not a review maze. |
+| **Clear results** | Received answers with unfinished work show **Incomplete**, not a false Failed. Actual failures show a reason and next action once per request; `/verbose` keeps full details and original ownership/model context. Evolution receipts yield to current error/stopped/incomplete results instead of covering them. Scroll paused does not mean the agent stopped. |
+| **Keep working** | Native current-request active/pending todos continue within the same owned request, up to three completion reminders and existing bounds. Completed effects are not replayed; blocked prerequisites do not suppress independent authorized work. External adapters are not silently resubmitted. |
+| **PowerShell caller stays open** | Installer errors no longer terminate the PowerShell host that called the documented ScriptBlock command. PS5.1/PS7 qualification covers install/update/rejected checksums/caller settings, default interactive animation, installed startup/quit and uninstall. Windows support remains. |
+| **More usable response space** | Ordinary answers stay borderless; useful output precedes compact result metadata. Actual growing source stays in filename/status boxes with numbered highlighted code; PgUp/PgDn reads earlier code and Alt+End follows. |
+| **The original Eevee stays** | The native pixel portrait and resize recovery remain intact. Intent-matched evolution, color/mono code diagnostics, draft-preserving effect reviews and exact consent remain; model-picker details moved to Alt+D. |
+| **Protected Windows qualification** | Exact executable/archive scans require current Defender intelligence and real-time/PUA/cloud protection. Packages remain unsigned; a clean CI scan is not device-specific antivirus clearance. |
 
 <details>
 <summary>Capabilities carried over from 0.1.38–0.1.42</summary>
@@ -101,6 +96,8 @@ $env:PATH = "$env:LOCALAPPDATA\ev\bin;" + $env:PATH
 
 Installers verify SHA-256 checksums and never edit your shell profile or persistent `PATH`.
 
+The installer returns to this PowerShell session on success or error; it does not require administrator rights, change execution policy or close the host. Run `ev` after installation. If an old installer already closed its host, reopen PowerShell and use the latest command above rather than rerunning a cached old script.
+
 > [!WARNING]
 > If Windows says `ev.exe` contains a virus or potentially unwanted software, leave the block in place. This is an antivirus detection, not a PowerShell execution-policy error or just an unknown-publisher warning; `Unblock-File` and execution-policy changes do not resolve it. Do not disable Defender or add an exclusion. Check **Windows Security → Virus & threat protection → Protection history** and report the exact threat name, affected `ev.exe` path, release version and Defender security-intelligence version. A matching SHA-256 proves release-byte identity, not that a file is safe. Windows packages are currently unsigned; a CI scan cannot guarantee every device's cloud/reputation decision.
 
@@ -131,11 +128,11 @@ Pin a version:
 
 ```sh
 curl -fsSLo install-ev.sh https://github.com/kimmandoo/eevee/releases/latest/download/install.sh
-sh ./install-ev.sh --version v0.1.43
+sh ./install-ev.sh --version v0.1.44
 ```
 
 ```powershell
-& ([scriptblock]::Create((irm https://github.com/kimmandoo/eevee/releases/latest/download/install.ps1))) -Version v0.1.43
+& ([scriptblock]::Create((irm https://github.com/kimmandoo/eevee/releases/latest/download/install.ps1))) -Version v0.1.44
 ```
 
 Offline: download the matching archive, `SHA256SUMS` and installer from one release, then:
@@ -145,7 +142,7 @@ sh ./install-ev.sh --archive ./ev-linux-x86_64.tar.gz --checksums ./SHA256SUMS
 ```
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -Archive "$PWD\ev-windows-x86_64.zip" -Checksums "$PWD\SHA256SUMS"
+powershell -NoProfile -File .\install.ps1 -Archive "$PWD\ev-windows-x86_64.zip" -Checksums "$PWD\SHA256SUMS"
 ```
 
 To keep `ev` on `PATH`, add `export PATH="$HOME/.local/bin:$PATH"` to your shell profile, or on Windows add `%LOCALAPPDATA%\ev\bin` to your user `Path`. macOS builds are not notarized; WSL uses the Linux packages.

@@ -81,7 +81,8 @@ impl App {
             && !identity.1.chars().any(char::is_control)
             && self.command_callback_owned(partner, generation, &claim)
             && !cancelled.load(std::sync::atomic::Ordering::Acquire)
-            && self.cooperation.cancel_review.is_none()
+            && !self.cancelling_owned_work()
+            && !self.cooperation.quitting
             && self.cooperation.journal_discard.is_none()
             && !self.cooperation.command_callbacks.contains_key(&partner)
             && !self.cooperation.command_calls.contains(&identity)
@@ -271,7 +272,8 @@ impl App {
         let mut changed = false;
         self.settle_command_callbacks();
         self.track_pending_command();
-        if self.cooperation.cancel_review.is_none()
+        if !self.cancelling_owned_work()
+            && !self.cooperation.quitting
             && self.cooperation.journal_discard.is_none()
             && !self.cooperation.command_saves.is_empty()
             && let Some(task) = self
@@ -529,7 +531,10 @@ impl App {
         if snapshot.id != self.task_id {
             return;
         }
-        if self.cooperation.cancel_review.is_some() || self.cooperation.journal_discard.is_some() {
+        if self.cancelling_owned_work()
+            || self.cooperation.quitting
+            || self.cooperation.journal_discard.is_some()
+        {
             return;
         }
         self.track_pending_command();

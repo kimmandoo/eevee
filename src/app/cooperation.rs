@@ -13,13 +13,6 @@ pub struct WorkRow {
     pub local: bool,
 }
 
-pub struct CancelReview {
-    pub quit: bool,
-    pub reviewed: bool,
-    pub affirmative: bool,
-    pub summary: String,
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Pending {
     Provider {
@@ -53,11 +46,13 @@ pub struct State {
     queued_response: Option<Pending>,
     preference_owners: VecDeque<i64>,
     pub(super) journal_owners: VecDeque<i64>,
-    pub cancel_review: Option<CancelReview>,
     pub journal_discard: Option<super::cooperation_journal::Review>,
     cancelling: bool,
-    quitting: bool,
-    unknown_acknowledged: bool,
+    pub(super) quitting: bool,
+    pub(super) quit_flushed: bool,
+    pub(super) quit_abandon: bool,
+    pub(super) quit_error: Option<String>,
+    pub(super) quit_failure_scope: [bool; 7],
     drive_cursor: usize,
     quit_preferences_waiting: bool,
 }
@@ -150,21 +145,6 @@ impl App {
 
     pub(super) fn cancelling_owned_work(&self) -> bool {
         self.cooperation.cancelling
-    }
-
-    pub(super) fn quit_requires_work_review(&self) -> bool {
-        self.pending_request.is_some()
-            || self.tool_plans.busy()
-            || self.artifacts.busy()
-            || self.tool_catalog.busy()
-            || self.pending_command.is_some()
-            || !self.cooperation.command_saves.is_empty()
-            || std::iter::once(&self.planning)
-                .chain(self.cooperation.parked.values())
-                .any(planning::State::busy)
-            || std::iter::once(&self.execution)
-                .chain(self.cooperation.executions.values())
-                .any(execution::State::busy)
     }
 
     pub fn planning_any_unknown(&self) -> bool {
@@ -285,8 +265,7 @@ impl App {
     }
 
     pub fn work_capacity_reason(&self, partner: i64) -> Option<String> {
-        if self.cooperation.cancel_review.is_some()
-            || self.cooperation.journal_discard.is_some()
+        if self.cooperation.journal_discard.is_some()
             || self.cooperation.cancelling
             || self.cooperation.quitting
         {
@@ -649,6 +628,10 @@ impl App {
         self.records.quit_waiting = false;
         self.cooperation.quit_preferences_waiting = false;
         self.cooperation.quitting = false;
+        self.cooperation.quit_flushed = false;
+        self.cooperation.quit_abandon = false;
+        self.cooperation.quit_error = None;
+        self.cooperation.quit_failure_scope = [false; 7];
     }
 
     pub fn preferences_allow_quit(&mut self, requested: bool) -> bool {
@@ -661,7 +644,9 @@ impl App {
         for id in self.planning_ids() {
             let state = self.planning_state_mut(id).expect("known partner slot");
             allowed &= state.preferences_allow_quit(true);
-            if let Some(reason) = state.preference_error() {
+            if state.preferences_pending()
+                && let Some(reason) = state.preference_error()
+            {
                 error = Some(reason.to_owned());
             }
         }
@@ -670,11 +655,7 @@ impl App {
             self.cooperation.quit_preferences_waiting = false;
             return false;
         }
-        if allowed
-            && !self.planning_any_busy()
-            && !self.execution_any_pending()
-            && !self.recipe_export_busy()
-        {
+        if allowed {
             self.cooperation.quit_preferences_waiting = false;
             true
         } else {
@@ -909,7 +890,6 @@ impl App {
             && self.command_popup.is_none()
             && self.nickname_editor.is_none()
             && self.cooperation_ui.release.is_none()
-            && self.cooperation.cancel_review.is_none()
             && self.cooperation.journal_discard.is_none()
             && self.composer_menu.is_none()
             && (!self.editing || self.composer_is_request())
@@ -1115,68 +1095,52 @@ impl App {
             "Request deferred, not answered. /approvals revisits pending requests.".into();
     }
 
-    pub fn cancel_all_summary(&self) -> String {
-        let mut lines = vec!["Owned work on this task:".into()];
+    pub fn request_cancel_all(&mut self) {
+        self.cancel_owned_work(false);
+    }
+
+    pub(super) fn cancellable_work_pending(&self) -> bool {
+        self.pending_request.is_some()
+            || self.pending_command.is_some()
+            || !self.cooperation.command_saves.is_empty()
+            || self.tool_plans.busy()
+            || std::iter::once(&self.planning)
+                .chain(self.cooperation.parked.values())
+                .chain(self.delegation.children.values().map(|child| &child.state))
+                .any(planning::State::transport_pending)
+            || std::iter::once(&self.execution)
+                .chain(self.cooperation.executions.values())
+                .any(execution::State::cancellable_work_pending)
+    }
+
+    pub(super) fn cancel_owned_work(&mut self, quit: bool) {
+        self.cooperation.quitting |= quit;
+        self.cooperation.cancelling = true;
+        self.recover_cancelled_followups();
+        self.pending_request = None;
+        self.pending_command = None;
+        self.cooperation.command_saves.clear();
         if self.tool_plans.busy() {
-            lines.push("Task-owned tool plan: queued/running nodes; cancellation prevents queued admission.".into());
+            self.cancel_tool_plan();
         }
-        for row in self.work_rows() {
-            lines.push(format!(
-                "{} ({}): {}",
-                row.owner.name,
-                FORMS[row.owner.form.min(FORMS.len() - 1)].name,
-                row.status
-            ));
-        }
-        for state in std::iter::once(&self.execution).chain(self.cooperation.executions.values()) {
-            if state.busy() && state.owner.is_none() {
-                lines.push("Unknown owner: local command working.".into());
+        for id in self.planning_ids() {
+            if let Some(state) = self.planning_state_mut(id) {
+                state.cancel_owned();
             }
         }
-        for state in std::iter::once(&self.planning)
-            .chain(self.cooperation.parked.values())
-            .filter(|state| state.outcome_unknown())
+        for child in self.delegation.children.values_mut() {
+            child.state.cancel_owned();
+        }
+        for state in
+            std::iter::once(&mut self.execution).chain(self.cooperation.executions.values_mut())
         {
-            let owner = state.owner().or(state.front.as_ref());
-            lines.push(format!(
-                "{}: provider outcome unknown.",
-                owner.map_or("Unknown owner", |owner| owner.name.as_str())
-            ));
+            state.cancel_navigation();
+            if state.cancellable_work_pending() {
+                state.request_cancel();
+            }
         }
-        for state in std::iter::once(&self.execution)
-            .chain(self.cooperation.executions.values())
-            .filter(|state| state.outcome_unknown())
-        {
-            lines.push(format!(
-                "{}: command outcome unknown.",
-                state
-                    .owner
-                    .as_ref()
-                    .map_or("Unknown owner", |owner| owner.name.as_str())
-            ));
-        }
-        if self.planning_any_journal_failed() || self.execution_any_journal_failed() {
-            lines.push("Journal failed: retry storage, or explicitly review known-terminal failed provider writes with /journal-discard before leaving.".into());
-        }
-        if self.planning_storage_failed() {
-            lines.push("Ownership/preferences unsettled: /storage-retry.".into());
-        }
-        lines.push("Waits for all work, journals and ownership release.".into());
-        lines.push("No file rollback; remote work/billing may continue.".into());
-        lines.join("\n")
-    }
-
-    pub fn request_cancel_all(&mut self) {
-        self.open_cancel_review(false);
-    }
-
-    pub(super) fn open_cancel_review(&mut self, quit: bool) {
-        self.cooperation.cancel_review = Some(CancelReview {
-            quit,
-            reviewed: false,
-            affirmative: false,
-            summary: self.cancel_all_summary(),
-        });
+        self.refresh_approvals();
+        self.settle_cooperation();
     }
 
     pub(super) fn cancel_lead(&mut self) {
@@ -1214,97 +1178,21 @@ impl App {
         self.refresh_approvals();
     }
 
-    pub(super) fn cancellation_key(&mut self, key: KeyEvent) -> bool {
-        let Some(review) = self.cooperation.cancel_review.as_mut() else {
-            return false;
-        };
-        if key.kind != KeyEventKind::Press {
-            return true;
-        }
-        if key.code == KeyCode::Esc || key.modifiers.is_empty() && key.code == KeyCode::Char('n') {
-            self.cooperation.cancel_review = None;
-            return true;
-        }
-        if !key.modifiers.is_empty() {
-            return true;
-        }
-        if key.code == KeyCode::Enter && !review.affirmative {
-            self.cooperation.cancel_review = None;
-            return true;
-        }
-        match key.code {
-            KeyCode::Left => review.affirmative = false,
-            KeyCode::Right if review.reviewed => review.affirmative = true,
-            KeyCode::Char('y') if review.reviewed => review.affirmative = true,
-            _ => {}
-        }
-        if matches!(key.code, KeyCode::Enter | KeyCode::Char('y'))
-            && review.reviewed
-            && review.affirmative
-        {
-            let quit = review.quit;
-            self.cooperation.cancel_review = None;
-            self.cooperation.quitting = quit;
-            self.cooperation.cancelling = true;
-            self.cooperation.unknown_acknowledged =
-                self.planning_any_unknown() || self.execution_any_unknown();
-            self.pending_request = None;
-            self.pending_command = None;
-            self.cooperation.command_saves.clear();
-            self.cancel_tool_plan();
-            for id in self.planning_ids() {
-                if let Some(state) = self.planning_state_mut(id) {
-                    state.cancel_owned();
-                }
-            }
-            for state in
-                std::iter::once(&mut self.execution).chain(self.cooperation.executions.values_mut())
-            {
-                if state.busy() {
-                    state.request_cancel();
-                }
-            }
-            self.refresh_approvals();
-            self.settle_cooperation();
-        }
-        true
-    }
-
     pub(super) fn settle_cooperation(&mut self) {
-        if self.cooperation.cancel_review.is_some() {
-            let summary = self.cancel_all_summary();
-            if let Some(review) = self.cooperation.cancel_review.as_mut()
-                && review.summary != summary
-            {
-                review.summary = summary;
-                review.reviewed = false;
-                review.affirmative = false;
-            }
-        }
         if !self.cooperation.cancelling {
             return;
         }
-        if self.planning_any_journal_failed() || self.execution_any_journal_failed() {
-            self.notice = "Cancellation waits for retained journal storage. /journal-retry retries storage only; /journal-discard explicitly reviews known-terminal failed provider writes. No replay.".into();
-            return;
-        }
-        if self.planning_storage_failed() {
-            self.notice = "Cancellation waits for ownership release, preference, or reported-usage storage. /storage-retry retries storage only.".into();
-            return;
-        }
-        if self.planning_any_busy() || self.execution_any_pending() {
+        if self.cancellable_work_pending() {
+            self.notice = "Stopping owned work… Effects are not rolled back; remote work may continue. /quit exits after local teardown.".into();
             return;
         }
         self.cooperation.cancelling = false;
+        self.recover_cancelled_followups();
+        if !self.cooperation.quitting && self.followup_recovery_pending() {
+            return;
+        }
         if self.cooperation.quitting {
-            self.cooperation.quitting = false;
-            if (self.planning_any_unknown() || self.execution_any_unknown())
-                && !self.cooperation.unknown_acknowledged
-            {
-                self.open_cancel_review(true);
-            } else {
-                self.finish_request_quit();
-            }
+            self.finish_request_quit();
         } else if self.planning_any_unknown() || self.execution_any_unknown() {
             self.notice = "Owned transports settled; an outcome remains unknown. No file rollback was performed.".into();
         } else {
@@ -2562,7 +2450,7 @@ mod tests {
                 1 => app.reset_after_save = true,
                 2 => app.quit_after_save = true,
                 3 => app.pending_request = Some((app.revision, false)),
-                4 => app.open_cancel_review(false),
+                4 => app.cooperation.cancelling = true,
                 5 => {
                     app.composer_menu = Some(composer::Menu {
                         kind: composer::Kind::Files,
@@ -2578,7 +2466,7 @@ mod tests {
             app.reset_after_save = false;
             app.quit_after_save = false;
             app.pending_request = None;
-            app.cooperation.cancel_review = None;
+            app.cooperation.cancelling = false;
             app.composer_menu = None;
             app.width = 120;
             assert!(app.settle_planning());
@@ -3215,7 +3103,7 @@ mod tests {
     }
 
     #[test]
-    fn lead_cancel_and_neutral_all_review_preserve_other_live_claims() {
+    fn lead_cancel_is_scoped_and_cancel_all_preserves_every_live_claim() {
         let mut app = app();
         for partner in 1..=3 {
             start(&mut app, partner, partner as u64);
@@ -3226,12 +3114,6 @@ mod tests {
         assert!(!app.planning_state(1).unwrap().cancelling);
         assert!(!app.planning_state(3).unwrap().cancelling);
         app.request_cancel_all();
-        app.cancellation_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-        assert!(app.cooperation.cancel_review.is_none());
-        assert!(!app.planning_state(1).unwrap().cancelling);
-        app.request_cancel_all();
-        app.cooperation.cancel_review.as_mut().unwrap().reviewed = true;
-        app.cancellation_key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE));
         for partner in 1..=3 {
             let state = app.planning_state(partner).unwrap();
             assert!(state.cancelling);

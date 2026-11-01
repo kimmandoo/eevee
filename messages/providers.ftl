@@ -111,27 +111,11 @@ providers-agents-back-forget-local-tab-enter-y-n = { "Back [Forget local] | Tab 
 
 providers-agents-back-forget-local-tab-enter-y-n-2 = { "[Back] Forget local | Tab Enter | y/n | Esc" }
 
-providers-planning-unknown-outcome-work-may-have-run-effects =
-    { "UNKNOWN outcome; work may have run." }
-    { "Effects not rolled back." }
-
-providers-planning-waiting-for-cancellation = { "Waiting for cancellation." }
-
-providers-planning-cancel-owned-work-before-exit = { "Cancel owned work before exit." }
-
-providers-planning-stay-exit-with-unknown-outcome = { "Stay / [Exit with unknown outcome]" }
-
-providers-planning-stay-exit-with-unknown-outcome-2 = { "[Stay] / Exit with unknown outcome" }
-
-providers-planning-stay-cancel-and-exit = { "Stay / [Cancel and exit]" }
-
-providers-planning-stay-cancel-and-exit-2 = { "[Stay] / Cancel and exit" }
-
 providers-planning-planning-terminal-too-small-need-60-columns =
     { "Planning: terminal too small" }
     { "Need 60 columns x 18 rows." }
     { "No run or approval available." }
-    { "Esc Cancel / Ctrl+C Safe exit" }
+    { "Esc Cancel / Ctrl+C Stop / /quit Exit" }
     { "Cancellation waits for acknowledgement." }
 
 providers-planning-local-preview-no-provider-connection-authorized = { "LOCAL PREVIEW / no provider connection authorized" }
@@ -210,8 +194,6 @@ providers-planning-you-can-keep-editing-your-next-request = { "You can keep edit
 providers-planning-enter-sends-an-independent-review-request-no = { "Enter sends an independent review request. No source writes or resumed implementation history." }
 
 providers-planning-type-a-request-below-enter-sends-commands = { "Type a request below. Enter sends; commands and file changes require separate approval." }
-
-providers-planning-wheel-pgup-dn-alt-up-down-item = { "Wheel/PgUp/Dn transcript | Alt+Up/Down inspect | Alt+Home top" }
 
 providers-planning-decision-reviews-a-complete-proposal-locally = { "/decision: complete messages/plans only, not file previews" }
 
@@ -293,19 +275,19 @@ providers-planning-catalogue-entries-and-custom-ids-are-not =
     { "" }
     { "Catalogue entries and custom IDs are not access grants. Refresh fetches metadata only; risky connections still require review." }
 
-providers-planning-pgup-dn-scroll-ctrl-d-esc-back = { "↑↓ PgUp/Dn Scroll · Ctrl+D / Esc Back" }
+providers-planning-pgup-dn-scroll-alt-d-esc-back = { "↑↓ PgUp/Dn Scroll · Alt+D / Esc Back" }
 
 providers-planning-default-uses-provider-settings-esc-keeps-current = { "Default uses provider settings · Esc keeps current" }
 
 providers-planning-unavailable = { " [unavailable]" }
 
-providers-planning-loading-metadata-ctrl-d-details = { "Loading metadata… · Ctrl+D Details" }
+providers-planning-loading-metadata-alt-d-details = { "Loading metadata… · Alt+D Details" }
 
-providers-planning-refresh-failed-cached-rows-usable-ctrl-d = { "Refresh failed · cached rows usable · Ctrl+D Error" }
+providers-planning-refresh-failed-cached-rows-usable-alt-d = { "Refresh failed · cached rows usable · Alt+D Error" }
 
-providers-planning-fetch-failed-refresh-to-retry-ctrl-d = { "Fetch failed · Refresh to retry · Ctrl+D Error" }
+providers-planning-fetch-failed-refresh-to-retry-alt-d = { "Fetch failed · Refresh to retry · Alt+D Error" }
 
-providers-planning-focus-current-ctrl-d-details = { "> Focus · * Current · Ctrl+D Details" }
+providers-planning-focus-current-alt-d-details = { "> Focus · * Current · Alt+D Details" }
 
 providers-planning-choose-enter-next-esc-keep-ctrl-u = { "↑↓ Choose · Enter Next · Esc Keep · Ctrl+U Clear" }
 
@@ -376,22 +358,6 @@ providers-planning-select-edit-paths-local-only-json-array =
     { "JSON: [\"src/new/file.rs\"] · [] clears to workspace proposals" }
     { "Enter Apply / Esc Cancel · no writes, sends or grants" }
 
-providers-planning-unknown-outcome-work-may-have-run = { "UNKNOWN OUTCOME: work may have run." }
-
-providers-planning-cancel-owned-work-and-exit-planning = { "Cancel owned work and exit planning?" }
-
-providers-planning-effects-are-not-undone-provider-history-is = { "Effects are not undone; provider history is retained." }
-
-providers-planning-waits-for-acknowledgement-or-bounded-teardown = { "Waits for acknowledgement or bounded teardown." }
-
-providers-planning-unknown-outcome-needs-a-second-explicit-exit = { "Unknown outcome needs a second explicit exit choice." }
-
-providers-planning-stay-cancel-remaining-work-and-exit = { "Stay / [Cancel remaining work and exit]" }
-
-providers-planning-stay-cancel-remaining-work-and-exit-2 = { "[Stay] / Cancel remaining work and exit" }
-
-providers-planning-y-confirm-exit-n-stay-tab-choose = { "y Confirm exit / n Stay / Tab Choose / Enter / Esc Stay" }
-
 providers-planning-enter-esc-keep-draft-no-submission-4096 =
     { "Enter/Esc Keep draft / no submission" }
     { "4096 UTF-8 bytes; paste is text, never approval" }
@@ -399,18 +365,18 @@ providers-planning-enter-esc-keep-draft-no-submission-4096 =
 providers-execution-resize-to-60x18-to-review-approval-no =
     { "Resize to 60x18 to review approval." }
     { "No command can be approved here." }
-    { "Esc closes; /deny denies; Ctrl+C reviews exit." }
+    { "Esc closes; /deny denies; Ctrl+C stops; /quit exits." }
 
 providers-execution-left-stay-right-action-enter-pgup-dn =
     { "Left Stay / Right action / Enter" }
     { "PgUp/Dn details / Esc Stay" }
 
-providers-execution-execution-state-retained-resize-esc-stays-ctrl = { "Execution state retained. Resize; Esc stays; Ctrl+C requests neutral cancel-and-exit." }
+providers-execution-execution-state-retained-resize-esc-stays-ctrl = { "Execution state retained. Resize; Ctrl+C stops active work; /quit saves and exits." }
 
 providers-execution-up-down-select-enter-inspect-retained-output =
     { "Up/Down select · Enter inspect retained output" }
     { "/ choices: purge, command-edit, execute, cancel, refresh" }
-    { "Esc output · Ctrl+C/quit: Stay or Cancel-and-wait" }
+    { "Esc output · Ctrl+C Stop · /quit Save and exit" }
 
 providers-execution-up-down-select-enter-pin-range-review =
     { "Up/Down select · Enter Pin range (review)" }
@@ -453,17 +419,7 @@ providers-execution-purge-this-run-s-output = { "Purge this run's output" }
 
 providers-execution-stay-with-owned-work-or-cancel-and = { "Stay with owned work, or cancel and wait" }
 
-providers-execution-cancel-and-exit-after-saving = { "Cancel and exit after saving" }
-
 providers-execution-cancel-and-wait-then-navigate = { "Cancel and wait, then navigate" }
-
-providers-execution-outcome-unknown-explicit-informed-exit-required = { "Outcome unknown — explicit informed exit required" }
-
-providers-execution-exit-knowing-effects-are-unknown = { "Exit knowing effects are unknown" }
-
-providers-execution-process-ended-but-journal-persistence-failed = { "Process ended, but journal persistence failed" }
-
-providers-execution-exit-without-saved-final-journal = { "Exit without saved final journal" }
 
 providers-execution-stay-return = { " Stay / return " }
 
@@ -488,22 +444,6 @@ providers-execution-deletes-only-this-run-s-retained-local = { "Deletes only thi
 providers-execution-metadata-stays-deleted-evidence-cannot-verify-results = { "Metadata stays; deleted evidence cannot verify results." }
 
 providers-execution-not-secure-erasure-repository-provider-data-unchanged = { "Not secure erasure; repository/provider data unchanged." }
-
-providers-execution-unknown-process-tree-output-closure-not-established = { "UNKNOWN: process-tree/output closure not established." }
-
-providers-execution-effects-may-remain-cancellation-was-not-rollback = { "Effects may remain; cancellation was not rollback." }
-
-providers-execution-quit-acknowledges-unknown-effects-not-success = { "Quit acknowledges unknown effects, not success." }
-
-providers-execution-task-switching-cannot-establish-termination = { "Task switching cannot establish termination." }
-
-providers-execution-final-execution-journal-is-only-in-memory = { "Final execution journal is only in memory." }
-
-providers-execution-exit-loses-unsaved-final-metadata-drafts-stay = { "Exit loses unsaved final metadata; drafts stay separate." }
-
-providers-execution-restart-sees-interruption-no-command-is-replayed = { "Restart sees interruption; no command is replayed." }
-
-providers-execution-stay-and-journal-retry-retries-storage-only = { "Stay and /journal-retry retries storage only." }
 
 providers-execution-y-confirm-n-stay-tab-choose-enter =
     { "y Confirm / n Stay / Tab Choose / Enter / Esc Stay" }
@@ -579,8 +519,6 @@ providers-planning-candidate-default-uses-provider-configuration =
 
 providers-planning-earlier-items-omitted-decision-reviews-a-complete = { $count }{ " earlier items omitted · /decision: complete messages/plans only" }
 
-providers-planning-start-end-total-alt-end-latest = { $status }{ $new }{ " " }{ $start }{ "-" }{ $end }{ "/" }{ $total }{ " | Alt+End latest" }
-
 providers-planning-transcript-segment =
     { $kind }{ " · " }{ $owner }{ $item }
     { "Request: " }{ $request }
@@ -619,12 +557,6 @@ providers-planning-command-approval-command-command-working-directory-cwd =
     { "" }
     { "END OF REQUEST." }
 
-providers-planning-exit-planning-tab-choose-enter-esc-stay =
-    { "Exit planning?" }
-    { $status }
-    { $choices }
-    { "Tab Choose / Enter / Esc Stay" }
-
 providers-execution-new-lines-live-lines-evicted-column = { $status }{ " · " }{ $new }{ " new lines · " }{ $evicted }{ " live lines evicted · column " }{ $column }
 
 providers-execution-retained-bytes-pages = { "Retained bytes " }{ $start }{ ".." }{ $end }{ " / " }{ $total }{ $unavailable }{ $truncated }{ " · [ ] pages" }
@@ -651,27 +583,11 @@ providers-execution-auto-review-actions =
     { "Command approval required · Enter to review (not approve)" }
     { "Then choose and confirm | Esc later · no approval" }
 
-providers-execution-requested-action-the-final-execution-record-is =
-    { "Requested: " }{ $action }
-    { "The final execution record is retained only in memory. On restart, the last committed reservation/run will be interrupted, not magically completed. Spool bytes may remain partial; no command will be re-executed." }
-    { "" }
-    { "Stay and use /journal-retry to retry ONLY storage. Leaving knowingly forfeits the unsaved final metadata, not the task's independent draft/save review." }
-    { "" }
-    { $details }
-
-providers-execution-requested-action-owned-tree-output-closure-could =
-    { "Requested: " }{ $action }
-    { "Owned-tree/output closure could not be established. Effects may remain, and cancellation did NOT roll back edits. Partial journal evidence has been retained. This is not success or verified cancellation." }
-    { "" }
-    { "Stay to inspect. Only an explicit Quit acknowledgement may leave this unresolved ownership outcome; task switching cannot establish termination. Draft/save handling still follows." }
-    { "" }
-    { $details }
-
 providers-execution-requested-action-stay-keeps-this-task-and =
     { "Requested: " }{ $action }
     { "Stay keeps this task and all drafts. Cancel-and-wait first denies any unstarted approval or cancels the owned run, then waits for process-tree exit, after-source observation, and committed journal metadata." }
     { "" }
-    { "No second keypress silently forces termination. Cancellation is not rollback. The parent's normal unsaved/failed-draft save review still follows." }
+    { "Cancellation is not rollback. This changes navigation only; /quit saves drafts and exits without another cancellation review." }
     { "" }
     { $details }
 
@@ -822,15 +738,11 @@ providers-planning-deny-cancel-turn-the-provider-offers-cancellation =
     { "Deny (cancel turn): the provider offers cancellation, not a continue-after-denial option." }
     { "" }
 
-providers-planning-previous = { "Previous " }
-
 providers-planning-response = { "Response" }
 
 providers-planning-plan = { "Plan" }
 
 providers-planning-tool-output = { "Tool output" }
-
-providers-planning-file-preview = { "File preview" }
 
 providers-planning-file-label = { "[FILE]" }
 
@@ -864,23 +776,7 @@ providers-planning-file-reported-failed = { "Provider reported failure · inspec
 
 providers-planning-file-unknown = { "Unknown · inspect effects" }
 
-providers-planning-complete = { "complete" }
-
-providers-planning-streaming = { "streaming" }
-
-providers-planning-partial = { "partial" }
-
-providers-planning-no-response-outcome-unknown = { "No response · outcome unknown" }
-
 providers-planning-response-no-output-yet = { "Response · no output yet" }
-
-providers-planning-paused = { "Paused" }
-
-providers-planning-new-output = { "New output" }
-
-providers-planning-following = { "Following" }
-
-providers-planning-new-2 = { " +new" }
 
 providers-planning-default = { "Default" }
 
@@ -973,8 +869,6 @@ providers-planning-file-details-actions =
 providers-planning-file-deny-button = { "[ Deny ]" }
 
 providers-planning-file-allow-button = { "[ Allow once ]" }
-
-providers-planning-waiting-for-review = { "waiting for your review" }
 
 providers-planning-file-delete = Delete file · irreversible; no rollback
 providers-planning-file-rename = Rename file · no overwrite

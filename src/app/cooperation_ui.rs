@@ -553,37 +553,48 @@ mod tests {
     }
 
     #[test]
-    fn all_owner_reviews_are_neutral_and_busy_release_keeps_snapshot() {
+    fn cancel_all_is_direct_and_busy_release_keeps_snapshot() {
         for (width, height) in [(120, 36), (60, 18), (59, 17)] {
             let config = config();
             let mut artwork = crate::ui::artwork::Artwork::load(&config);
             let mut app = three_owners(width, height);
             let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
             app.request_cancel_all();
-            terminal
-                .draw(|frame| crate::ui::render(frame, &mut app, &config, &mut artwork, "off"))
-                .unwrap();
-            let shown = screen(&terminal);
-            for name in [
-                "Bolt (Flareon)",
-                "Mizu (Vaporeon)",
-                "Shade (Glaceon)",
-                "No file rollback",
-                "Storage:",
-            ] {
-                assert!(shown.contains(name), "{name}: {shown}");
-            }
-            assert!(!app.cooperation.cancel_review.as_ref().unwrap().affirmative);
-            key(&mut app, KeyCode::Enter);
-            assert!(app.cooperation.cancel_review.is_none());
+            assert!(app.planning.transport_pending());
+            assert!(!app.planning.cancelling);
+            assert!(app.planning.pending.is_none());
+            app.provider_event(
+                app.lead.id,
+                providers::Event::Preview(providers::Preview {
+                    transport: None,
+                    comparison_scope: None,
+                    arrival: providers::approval_arrival(),
+                    destination: None,
+                    requires_connection_review: true,
+                    generation: 1,
+                    task_id: 7,
+                    thread_id: None,
+                    trust: Vec::new(),
+                    payload: "{}".into(),
+                    blockers: Vec::new(),
+                }),
+            );
+            assert!(app.planning.cancelling);
+            assert!(matches!(
+                app.planning.pending,
+                Some(providers::Request::Cancel { generation: 1 })
+            ));
+            assert!(
+                app.cooperation
+                    .parked
+                    .values()
+                    .all(|state| state.cancelling)
+            );
             assert_eq!(app.work_rows().len(), 3);
-            app.open_cancel_review(true);
-            terminal
-                .draw(|frame| crate::ui::render(frame, &mut app, &config, &mut artwork, "off"))
-                .unwrap();
-            assert!(screen(&terminal).contains("ALL owned work"));
+            app.request_quit();
+            assert!(app.quit_after_save);
             key(&mut app, KeyCode::Esc);
-            assert!(!app.quit);
+            assert!(!app.quit && !app.quit_after_save);
             app.release_partner_command("#2");
             terminal
                 .draw(|frame| crate::ui::render(frame, &mut app, &config, &mut artwork, "off"))
@@ -692,7 +703,6 @@ mod tests {
         assert!(app.partner_release_refusal(4).is_some());
         assert!(app.partner_release_refusal(5).is_none());
         assert_eq!(app.work_rows().len(), 3);
-        assert!(app.cooperation.cancel_review.is_none());
     }
 
     #[test]

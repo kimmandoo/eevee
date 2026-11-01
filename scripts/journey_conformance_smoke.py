@@ -623,8 +623,8 @@ def row(binary, node, sidecar, output, route, protocol, model, size, account_wir
                 save(output / 'wire.json', peer.snapshot() if native else rows())
                 app.workspace(); session.command('quit')
                 if session.alive():
-                    session.capture('exit-review')
-                confirm_exit(session, owned_work=True)
+                    session.capture('exit-settlement')
+                confirm_exit(session)
                 assert session.wait_exit() == 0
                 if native:
                     assert len(peer.snapshot('POST')) == 6, 'hidden or missing native request round'

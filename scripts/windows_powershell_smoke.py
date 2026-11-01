@@ -453,11 +453,6 @@ def worker(case, binary, shell, width, height, images, launch, timeout):
             result['native_input_persisted'] = True
             result['safe_quit_sent'] = True
             console.type('/quit\r')
-            until(lambda text: (case / 'status.json').exists() or 'Confirm exit' in text,
-                  'explicit-quit-or-review', allow_exit=True)
-            if not (case / 'status.json').exists():
-                console.type('y')
-                result['safe_quit_confirmed'] = True
             until(lambda _: (case / 'status.json').exists(), 'explicit-safe-quit', allow_exit=True)
             result['after'] = console.state()
             result['primary_buffer_restored'] = sample().startswith(primary)

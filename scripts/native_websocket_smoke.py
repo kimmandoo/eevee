@@ -543,7 +543,7 @@ class WebsocketJourney(CreationJourney):
         self.assert_no_replay(2, 1 + (0 if mode in ('unauthorized', 'redirect') else 1))
         assert self.snapshot()['executions'] == 0, 'failure invented command execution'
         self.session.send('\x03')
-        confirm_exit(self.session, owned_work=True)
+        confirm_exit(self.session)
         assert self.session.wait_exit() == 0
         return ['fresh disposable owner with exact successful baseline receipt; no remediation or uncertainty reset', case]
 
@@ -665,7 +665,7 @@ class WebsocketJourney(CreationJourney):
         cases.append('new explicit Send opens fresh connection with completed-public-only context; future Unicode draft/caret preserved')
         assert self.snapshot()['executions'] == 0, 'file tools invented command execution'
         self.session.send('\x03')
-        confirm_exit(self.session, owned_work=True)
+        confirm_exit(self.session)
         assert self.session.wait_exit() == 0
         return cases
 

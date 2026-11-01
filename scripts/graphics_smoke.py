@@ -217,7 +217,7 @@ def main():
                         with sqlite3.connect(database) as db:
                             return db.execute('SELECT goal FROM tasks').fetchall() == [('graphics draft',)]
                     until(goal_saved, 'typed text was lost, duplicated or polluted by terminal replies')
-                    session.send('\x03'); session.send(ESC + '[C'); session.send('\r')
+                    session.send('\x03')
                     assert session.wait_exit() == 0
                     results['cases'].append({'protocol': protocol, **evidence, 'input_preserved': True, 'terminal_restored': True})
                     print('passed:', protocol, evidence, flush=True)

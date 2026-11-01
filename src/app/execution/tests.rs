@@ -496,58 +496,45 @@ fn journal_failure_is_retained_and_retry_never_enqueues_execution() {
 }
 
 #[test]
-fn quit_commands_are_neutral_and_search_accepts_literal_q() {
+fn quit_commands_return_to_global_lifecycle_and_search_accepts_literal_q() {
     let mut state = pending();
-    assert_eq!(state.command("quit"), None);
-    assert!(matches!(
-        state.confirmation,
-        Some(Confirmation::Navigate(Action::Quit))
-    ));
+    state.deferred = Some(Action::SelectForm(4));
+    state.ready = Some(Action::SelectForm(5));
+    assert_eq!(state.command("quit"), Some(Action::Quit));
+    assert!(state.confirmation.is_none());
     assert!(!state.affirmative);
-    state.command("quit");
-    state.key(key(KeyCode::Enter));
-    assert!(state.ready.is_none() && state.deferred.is_none());
+    assert!(state.deferred.is_none() && state.ready.is_none());
     state.searching = true;
     state.key(key(KeyCode::Char('q')));
     assert_eq!(state.search, "q");
     assert_eq!(
         state.key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL)),
-        None
+        Some(Action::Quit)
     );
-    assert!(state.confirmation.is_some());
 }
 
 #[test]
-fn explicit_stay_revokes_an_already_deferred_exit() {
+fn explicit_stay_revokes_an_already_deferred_navigation() {
     let mut state = pending();
-    state.deferred = Some(Action::Quit);
-    state.confirmation = Some(Confirmation::Navigate(Action::Quit));
+    state.deferred = Some(Action::SelectForm(4));
+    state.confirmation = Some(Confirmation::Navigate(Action::SelectForm(4)));
     state.key(key(KeyCode::Enter));
     assert!(state.deferred.is_none() && state.ready.is_none());
     assert!(state.prepared.is_some());
 }
 
 #[test]
-fn unknown_outcome_requires_an_informed_quit_even_after_journal_ack() {
+fn unknown_outcome_does_not_trap_explicit_quit_or_erase_uncertainty() {
     let mut state = State {
         final_unknown: true,
         ..State::default()
     };
-    assert_eq!(state.request_navigation(Action::Quit), None);
-    assert!(matches!(
-        state.confirmation,
-        Some(Confirmation::UnknownExit(Action::Quit))
-    ));
-    state.key(key(KeyCode::Enter));
-    assert!(state.ready.is_none());
-    state.request_navigation(Action::Quit);
-    state.key(key(KeyCode::Right));
-    assert_eq!(state.key(key(KeyCode::Enter)), None);
+    assert_eq!(state.request_navigation(Action::Quit), Some(Action::Quit));
+    assert!(state.confirmation.is_none());
     assert!(state.final_unknown && state.ready.is_none());
-    state.request_navigation(Action::Quit);
-    state.confirmation_visible = true;
-    state.key(key(KeyCode::Right));
-    assert_eq!(state.key(key(KeyCode::Enter)), Some(Action::Quit));
+    assert_eq!(state.request_navigation(Action::SelectForm(4)), None);
+    assert!(state.error.is_some());
+    assert!(state.final_unknown && state.ready.is_none());
 }
 
 #[test]

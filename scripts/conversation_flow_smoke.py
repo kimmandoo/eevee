@@ -68,8 +68,7 @@ def native_case(binary, output, size, ):
                     expected = history + [('user', text)]
                     assert actual == expected, (label, actual, expected)
                     wait_for(session, answer)
-                    until(session, lambda: not journey.snapshot()['claims']
-                          and journey.surface['complete'] in session.display(),
+                    until(session, lambda: not journey.snapshot()['claims'],
                           label + ': completed response and owned settlement')
                     session.pump(.3)
                     assert len(peer.snapshot('POST')) == before + 1, label + ': hidden replay'
@@ -253,7 +252,7 @@ def native_case(binary, output, size, ):
 
                 peer.assert_clean()
                 session.command('quit')
-                confirm_exit(session, owned_work=True)
+                confirm_exit(session)
                 assert session.wait_exit() == 0
                 result['status'] = 'passed'
             except Exception as error:

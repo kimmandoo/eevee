@@ -39,8 +39,6 @@ pub enum Confirmation {
     Cancel,
     Purge(String),
     Navigate(Action),
-    UnknownExit(Action),
-    UnsavedJournalExit(Action),
 }
 #[derive(Clone, Debug)]
 pub struct LayerError {
@@ -345,6 +343,9 @@ impl State {
     pub fn storage_pending(&self) -> bool {
         !self.queue.is_empty() || self.inflight.is_some() || self.failed.is_some()
     }
+    pub(super) fn exit_persistence_pending(&self) -> bool {
+        !self.queue.is_empty() || self.inflight.is_some() || self.journal_failed()
+    }
     pub fn outcome_unknown(&self) -> bool {
         self.final_unknown
             || self
@@ -528,6 +529,22 @@ impl State {
             || self.failed.as_ref().is_some_and(StoreJob::critical)
             || self.queue.iter().any(StoreJob::critical)
     }
+    /// Work that can still dispatch or owns a live process, not failed persistence.
+    pub(super) fn cancellable_work_pending(&self) -> bool {
+        self.pending_spec.is_some()
+            || self.prepared.is_some()
+            || self.reserving
+            || self.dispatching
+            || self.permit.is_some()
+            || self.active.as_ref().is_some_and(|run| {
+                matches!(
+                    run.state,
+                    runner::RunState::Running
+                        | runner::RunState::Cancelling
+                        | runner::RunState::AwaitingDispatch
+                )
+            })
+    }
     /// Pending command consent is bound to its original task, partner, request and run.
     pub fn approval_identity(&self) -> Option<(i64, i64, &str, &str)> {
         let prepared = self.approvable()?;
@@ -657,8 +674,15 @@ impl State {
         self.shown = false;
         true
     }
-    /// Called only after an explicit all-work cancellation review has been accepted.
+    /// Retire navigation without changing command evidence or process ownership.
+    pub(super) fn cancel_navigation(&mut self) {
+        self.deferred = None;
+        self.ready = None;
+    }
+
+    /// Withdraw pending consent or cancel only this state's owned process tree.
     pub fn request_cancel(&mut self) {
+        self.cancel_navigation();
         self.confirmation = None;
         self.approval_review = None;
         self.confirmation_visible = false;
@@ -1408,41 +1432,31 @@ impl State {
         }
     }
     pub fn request_navigation(&mut self, action: Action) -> Option<Action> {
+        if action == Action::Quit {
+            self.cancel_navigation();
+            self.confirmation = None;
+            self.approval_review = None;
+            self.invalidate_review_exposure();
+            return Some(action);
+        }
         self.confirmation_visible = false;
-        if self.confirmation.as_ref().is_some_and(|c| {
-            matches!(
-                c,
-                Confirmation::Navigate(_)
-                    | Confirmation::UnknownExit(_)
-                    | Confirmation::UnsavedJournalExit(_)
-            )
-        }) {
+        if self.final_unknown {
+            self.confirmation = None;
+            self.affirmative = false;
+            self.fail("Ownership", "External effects remain unknown; task switching cannot establish cancellation.", "Inspect retained evidence, or use /quit to save drafts and exit without replay or rollback.");
+            return None;
+        }
+        if self
+            .confirmation
+            .as_ref()
+            .is_some_and(|confirmation| matches!(confirmation, Confirmation::Navigate(_)))
+        {
             return None;
         }
         if !self.busy() {
-            if !self.final_unknown {
-                return Some(action);
-            }
-            self.confirmation = Some(Confirmation::UnknownExit(action));
-            self.affirmative = false;
-            self.shown = true;
-            return None;
+            return Some(action);
         }
-        let finished = self.active.as_ref().is_some_and(|r| {
-            !matches!(
-                r.state,
-                runner::RunState::Running
-                    | runner::RunState::Cancelling
-                    | runner::RunState::AwaitingDispatch
-            )
-        });
-        self.confirmation = Some(
-            if finished && self.failed.is_some() && action == Action::Quit {
-                Confirmation::UnsavedJournalExit(action)
-            } else {
-                Confirmation::Navigate(action)
-            },
-        );
+        self.confirmation = Some(Confirmation::Navigate(action));
         self.affirmative = false;
         self.shown = true;
         None
@@ -1451,10 +1465,8 @@ impl State {
         if self.deferred.is_some() && !self.busy() {
             let action = self.deferred.take().expect("deferred navigation");
             if self.final_unknown {
-                self.confirmation = Some(Confirmation::UnknownExit(action));
-                self.confirmation_visible = false;
-                self.affirmative = false;
-                self.shown = true;
+                self.ready = None;
+                self.fail("Ownership", "External effects remain unknown; navigation was not completed.", "Inspect retained evidence, or use /quit to save drafts and exit without replay or rollback.");
             } else {
                 self.ready = Some(action);
             }
@@ -1833,14 +1845,7 @@ impl State {
                     if self.defer_approval() {
                         return None;
                     }
-                    if matches!(
-                        self.confirmation,
-                        Some(
-                            Confirmation::Navigate(_)
-                                | Confirmation::UnknownExit(_)
-                                | Confirmation::UnsavedJournalExit(_)
-                        )
-                    ) {
+                    if matches!(self.confirmation, Some(Confirmation::Navigate(_))) {
                         self.deferred = None;
                         self.ready = None;
                     }
@@ -1859,12 +1864,7 @@ impl State {
                     let confirmation = self.confirmation.take().expect("open confirmation");
                     if self.affirmative {
                         self.confirm(confirmation);
-                    } else if matches!(
-                        confirmation,
-                        Confirmation::Navigate(_)
-                            | Confirmation::UnknownExit(_)
-                            | Confirmation::UnsavedJournalExit(_)
-                    ) {
+                    } else if matches!(confirmation, Confirmation::Navigate(_)) {
                         self.deferred = None;
                         self.ready = None;
                     }
@@ -2012,18 +2012,6 @@ impl State {
                 self.deferred = Some(action);
                 self.cancel_or_deny();
                 self.maybe_navigate();
-            }
-            Confirmation::UnknownExit(action) => {
-                if action == Action::Quit {
-                    self.ready = Some(action);
-                } else {
-                    self.fail("Ownership", "External effects remain unknown; task switching cannot establish cancellation.", "Stay to inspect the journal, or request Quit and explicitly acknowledge the unknown outcome.");
-                }
-            }
-            Confirmation::UnsavedJournalExit(action) => {
-                if action == Action::Quit {
-                    self.ready = Some(action);
-                }
             }
         }
     }

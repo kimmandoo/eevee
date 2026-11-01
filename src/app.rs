@@ -248,6 +248,8 @@ pub struct App {
     pub revision: u64,
     pub saved_revision: u64,
     pub save_requested: bool,
+    /// Caret/view state rides the next content save or the explicit exit flush.
+    pub(super) view_dirty: bool,
     autosave: Option<autosave::Window>,
     save_inflight: Option<u64>,
     pub retry_storage: bool,
@@ -412,6 +414,7 @@ impl App {
             revision: 0,
             saved_revision: 0,
             save_requested: false,
+            view_dirty: false,
             autosave: None,
             save_inflight: None,
             retry_storage: false,

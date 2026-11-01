@@ -21,6 +21,8 @@ pub struct ResponseRow<'a> {
     pub text: &'a str,
     pub kind: ItemKind,
     pub header: bool,
+    /// Typed terminal summary; ordinary prose never determines failure styling.
+    pub outcome: Option<crate::providers::Outcome>,
     /// Physical edges belong to the typed file projection, not source bytes.
     pub file_top: bool,
     pub file_bottom: bool,
@@ -46,6 +48,9 @@ struct Segment {
     valid: bool,
     header: String,
     header_valid: bool,
+    /// Compact settlement is appended after content, not before every segment.
+    summary_start: usize,
+    terminal: bool,
     kind: ItemKind,
     rows: Vec<Row>,
     start: usize,
@@ -149,6 +154,18 @@ fn wrap(
     }
 }
 
+/// Guidance follows terminal evidence, never guesses a cause from provider prose.
+fn outcome_action(outcome: Option<crate::providers::Outcome>) -> Option<&'static str> {
+    use crate::providers::Outcome;
+    match outcome? {
+        Outcome::Completed => None,
+        Outcome::Incomplete => Some("Continue with a follow-up, or change the request."),
+        Outcome::Cancelled => Some("Send a follow-up when ready; no automatic resume."),
+        Outcome::Failed => Some("Inspect completed effects; change input or retry explicitly."),
+        Outcome::Unknown => Some("Inspect provider/local effects before retrying; no replay."),
+    }
+}
+
 impl Layout {
     pub(super) fn invalidate(&mut self) {
         for segment in &mut self.segments {
@@ -230,6 +247,8 @@ impl Layout {
                     valid: false,
                     header: String::new(),
                     header_valid: false,
+                    summary_start: 0,
+                    terminal: false,
                     kind: item.kind,
                     rows: Vec::new(),
                     start: 0,
@@ -307,7 +326,11 @@ impl Layout {
                 let settled = item
                     .status
                     .as_ref()
-                    .is_some_and(|status| status.outcome.is_some());
+                    .is_some_and(|status| status.outcome.is_some())
+                    && (verbose
+                        || !items[index + 1..]
+                            .iter()
+                            .any(|next| super::todo::same_request(item, next)));
                 let tool_shown = !verbose && segment.tool.is_some();
                 // A docked tool is listed in the side panel; a request outcome
                 // attached to it always stays in the transcript.
@@ -315,12 +338,14 @@ impl Layout {
                 if segment.suppressed != suppressed
                     || segment.todo_updates != updates
                     || segment.tool_shown != tool_shown
+                    || segment.terminal != settled
                 {
                     segment.valid = false;
                     segment.header_valid = false;
                     segment.suppressed = suppressed;
                     segment.todo_updates = updates;
                     segment.tool_shown = tool_shown;
+                    segment.terminal = settled;
                     segment.display = if updates > 0 {
                         segment
                             .todo
@@ -340,7 +365,11 @@ impl Layout {
             // and status rows above the transcript.
             let continued = !verbose
                 && previous.is_none_or(|before| {
-                    items[before].owner == item.owner && items[before].request == item.request
+                    super::todo::same_request(&items[before], item)
+                        || items[before].status.is_none()
+                            && item.status.is_none()
+                            && items[before].owner == item.owner
+                            && items[before].request == item.request
                 });
             // One blank row separates attributed blocks and a change between
             // tool rows and prose, so segments do not run together.
@@ -368,13 +397,11 @@ impl Layout {
                     || segment.kind != item.kind
                     || self.verbose != verbose
                     || self.attributed != attributed
+                    || self.width != width
                 {
                     segment.header.clear();
-                    let settled = item
-                        .status
-                        .as_ref()
-                        .is_some_and(|status| status.outcome.is_some());
-                    if segment.display.is_some() && !(segment.tool_shown && settled) {
+                    let settled = segment.terminal;
+                    if segment.display.is_some() {
                         // The structured summary already names source and owner;
                         // a readable tool row belongs to the surrounding response.
                     } else if let ItemKind::File(phase) = item.kind {
@@ -385,12 +412,7 @@ impl Layout {
                             Message::ProvidersPlanningFileLabel.text(),
                             super::file_phase_message(phase).text(),
                         );
-                    } else if attributed && !segment.continued
-                        || item
-                            .status
-                            .as_ref()
-                            .is_some_and(|status| status.outcome.is_some())
-                    {
+                    } else if verbose || attributed && !segment.continued {
                         let kind = if item.text.is_empty()
                             && item
                                 .status
@@ -437,7 +459,8 @@ impl Layout {
                             ])
                             .expect("validated transcript template");
                     }
-                    if (segment.display.is_none() || segment.tool_shown)
+                    segment.summary_start = segment.header.len();
+                    if verbose
                         && let Some(status) = &item.status
                         && let Some(outcome) = status.outcome_label()
                     {
@@ -453,32 +476,19 @@ impl Layout {
                             "\nRequest outcome: {outcome}\nReason: {}\n{context}\n",
                             status.reason,
                         );
-                        // Worker/transport identities help debugging, not reading
-                        // the answer; /verbose shows them. The original model
-                        // stays visible so an old answer is never relabelled.
-                        if !verbose {
-                            let _ = writeln!(
-                                segment.header,
-                                "Model: {}",
-                                status
-                                    .model
-                                    .as_deref()
-                                    .unwrap_or("provider default / unknown"),
-                            );
-                        } else {
-                            let _ = writeln!(
-                                segment.header,
-                                "Origin: {} {:?} / task {} / worker generation {} / model {}",
-                                status.agent.label(),
-                                status.operation,
-                                status.task_id,
-                                status.generation,
-                                status
-                                    .model
-                                    .as_deref()
-                                    .unwrap_or("provider default / unknown"),
-                            );
-                        }
+                        // Worker and transport identities remain inspectable.
+                        let _ = writeln!(
+                            segment.header,
+                            "Origin: {} {:?} / task {} / worker generation {} / model {}",
+                            status.agent.label(),
+                            status.operation,
+                            status.task_id,
+                            status.generation,
+                            status
+                                .model
+                                .as_deref()
+                                .unwrap_or("provider default / unknown"),
+                        );
                         if let Some(wire) = status.transport.filter(|_| verbose) {
                             let wire = match wire {
                                 crate::providers::NativeWire::Http => "HTTP",
@@ -501,6 +511,49 @@ impl Layout {
                             item.turn_id,
                             item.item_id
                         );
+                    }
+                    if !verbose
+                        && settled
+                        && let Some(status) = &item.status
+                    {
+                        if !segment.header.is_empty() {
+                            segment.header.push('\n');
+                            segment.summary_start = segment.header.len();
+                        }
+                        let label = status.outcome_label().unwrap_or("");
+                        let _ = write!(segment.header, "{label}: ");
+                        // Compact output keeps the error's beginning and an
+                        // action visible even in a short terminal. The exact
+                        // retained reason remains in /verbose, never replaced.
+                        let budget = usize::from(width)
+                            .saturating_mul(3)
+                            .saturating_div(2)
+                            .saturating_sub(label.len() + 2 + " [...] /verbose".len());
+                        let mut used = 0;
+                        let mut end = 0;
+                        for (offset, grapheme) in status.reason.grapheme_indices(true) {
+                            let source_len = grapheme.len();
+                            let grapheme = if matches!(grapheme, "\n" | "\r" | "\r\n" | "\t") {
+                                " "
+                            } else {
+                                grapheme
+                            };
+                            used += Span::raw(grapheme).width();
+                            if used > budget {
+                                break;
+                            }
+                            segment.header.push_str(grapheme);
+                            end = offset + source_len;
+                        }
+                        if end < status.reason.len() {
+                            segment.header.push_str(" [...] /verbose");
+                        }
+                        segment.header.push('\n');
+                        if let Some(action) = outcome_action(status.outcome) {
+                            let _ = writeln!(segment.header, "{action}");
+                        }
+                    } else {
+                        segment.summary_start = segment.header.len();
                     }
                     segment.kind = item.kind;
                     segment.header_valid = true;
@@ -531,10 +584,10 @@ impl Layout {
                 } else {
                     width.max(1)
                 };
-                if !segment.header.is_empty() {
+                if segment.summary_start > 0 {
                     wrap(
                         &mut segment.rows,
-                        &segment.header,
+                        &segment.header[..segment.summary_start],
                         usize::from(content_width),
                         true,
                         false,
@@ -543,7 +596,7 @@ impl Layout {
                 }
                 if comfortable
                     && matches!(item.kind, ItemKind::Message | ItemKind::Plan)
-                    && !segment.header.is_empty()
+                    && segment.summary_start > 0
                     && !content.is_empty()
                     && segment.display.is_none()
                 {
@@ -568,6 +621,23 @@ impl Layout {
                         && matches!(item.kind, ItemKind::Message | ItemKind::Plan),
                     source_start,
                 );
+                if segment.summary_start < segment.header.len() {
+                    if !content.is_empty() && !file {
+                        segment.rows.push(Row {
+                            range: 0..0,
+                            header: false,
+                            spacer: true,
+                        });
+                    }
+                    wrap(
+                        &mut segment.rows,
+                        &segment.header[segment.summary_start..],
+                        usize::from(content_width),
+                        true,
+                        false,
+                        segment.summary_start,
+                    );
+                }
                 if file && close_files {
                     segment.rows.push(Row {
                         range: content.len()..content.len(),
@@ -898,7 +968,6 @@ impl State {
         if self.request.is_some()
             || self.preview.is_some()
             || self.picker.is_some()
-            || self.quit_review
             || self.journal_mode
             || self.switch_to.is_some()
             || self.paths_editor.is_some()
@@ -927,7 +996,6 @@ impl State {
         self.preview.is_none()
             && self.request.is_none()
             && !self.awaiting_preview
-            && !self.quit_review
             && !self.journal_mode
             && self.switch_to.is_none()
             && self.paths_editor.is_none()
@@ -1109,15 +1177,23 @@ impl State {
                         text: &text[row.range.clone()],
                         kind: segment.kind,
                         header: row.header,
+                        outcome: (row.header && row.range.start >= segment.summary_start)
+                            .then(|| {
+                                items[index]
+                                    .status
+                                    .as_ref()
+                                    .and_then(|status| status.outcome)
+                            })
+                            .flatten(),
                         file_top: matches!(segment.kind, ItemKind::File(_))
                             && row.header
                             && row.range.start == 0,
                         file_bottom: matches!(segment.kind, ItemKind::File(_)) && row.spacer,
-                        todo: segment.display.is_some() && !segment.tool_shown,
+                        todo: !row.header && segment.display.is_some() && !segment.tool_shown,
                         tool: segment
                             .tool
                             .as_ref()
-                            .filter(|_| segment.tool_shown)
+                            .filter(|_| !row.header && segment.tool_shown)
                             .map(|tool| tool.status),
                         writing_edge: segment.kind
                             == ItemKind::File(crate::providers::FilePhase::Generating)
@@ -1136,5 +1212,72 @@ impl State {
             })
             .skip(skip)
             .take(usize::from(height))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        app::planning::RequestStatus,
+        providers::{Agent, Operation, Outcome},
+    };
+
+    #[test]
+    fn repeated_literal_requests_keep_distinct_single_settlement_summaries() {
+        let status = Arc::new(RequestStatus {
+            generation: 7,
+            task_id: 1,
+            agent: Agent::Compatible,
+            operation: Operation::Implement,
+            model: None,
+            transport: None,
+            outcome: Some(Outcome::Incomplete),
+            reason: "Unfinished obligation".into(),
+            public_context: Some(false),
+        });
+        let first: Arc<str> = "Same instruction".into();
+        let second: Arc<str> = "Same instruction".into();
+        let item = |id: &str, request: &Arc<str>| Item {
+            thread_id: "thread".into(),
+            turn_id: id.into(),
+            item_id: id.into(),
+            kind: ItemKind::Message,
+            text: format!("Actual answer {id}"),
+            complete: true,
+            request: Arc::clone(request),
+            owner: None,
+            status: Some(Arc::clone(&status)),
+        };
+        let mut items = vec![item("first", &first), item("second", &second)];
+        let mut layout = Layout::default();
+        layout.update((60, 18), &items, "test", false, false, false);
+        assert_eq!(
+            layout
+                .segments
+                .iter()
+                .filter(|segment| segment.terminal)
+                .count(),
+            2
+        );
+        // Another native turn belongs to the first immutable logical request,
+        // even when a distinct equal-text request appeared between its items.
+        items.push(item("continued", &first));
+        layout.update((60, 18), &items, "test", false, false, false);
+        assert!(!layout.segments[0].terminal);
+        assert!(layout.segments[1].terminal && layout.segments[2].terminal);
+        assert_eq!(
+            layout
+                .segments
+                .iter()
+                .map(|segment| segment.header.matches(&status.reason).count())
+                .sum::<usize>(),
+            2,
+        );
+        assert_eq!(
+            items.len(),
+            3,
+            "projection must retain every actual observation"
+        );
     }
 }

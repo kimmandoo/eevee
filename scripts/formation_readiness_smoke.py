@@ -162,10 +162,10 @@ class Journey:
         assert state['move_dispatches'] == self.authorized_dispatches, 'formation/inspection added a dispatch receipt'
         assert not state['excerpts'] and not json.loads(self.task()['approved_memories']), 'formation/inspection implicitly selected context'
 
-    def finish(self, *, owned_work=False):
+    def finish(self):
         self.workspace()
         self.session.command('quit')
-        confirm_exit(self.session, owned_work=owned_work)
+        confirm_exit(self.session)
         assert self.session.wait_exit() == 0
         self.session.close()
 
@@ -534,7 +534,7 @@ class Journey:
         assert all(set(role) == {'role', 'form', 'request'} for role in exported['roles'])
         self.no_dispatch()
         cases.append('portable-export-has-only-existing-semantic-fields-no-local-readiness-identities-or-authority')
-        self.finish(owned_work=True)
+        self.finish()
         return {'status': 'passed', 'size': list(self.size), 'cases': cases}
 
     def close(self):

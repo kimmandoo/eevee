@@ -1,10 +1,21 @@
 # Eevee Implementation Plan
 
-Updated 2026-11-01. Active0.1.44 request: fix immediate PowerShell startup exit and improve bounded agent continuation/completion before publishing another fully qualified release. Preserve the original portrait/UI and every owner, cancellation and approval boundary. Completed0.1.43 evidence remains below; device-specific antivirus/font facts are separate.
+Updated2026-11-01. Active0.1.44 delivery: reliable low-friction exit, quiet draft persistence, less unnecessary agent blocking, clear incomplete/error outcomes and working Windows script/runtime support, then a fully qualified release. Preserve the original Eevee image; never copy external source/identifiers or weaken exact dangerous-effect consent.
 
 Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPATIBILITY.md). Live-provider conformance remains distinct from implemented transports and deterministic runtime proof.
 
-## Active delivery — PowerShell startup and unfinished-agent work (0.1.44)
+## Active delivery — Interaction and Windows reliability (0.1.44)
+
+1. Compare actual reference input/persistence/agent/result behavior and trace the reported paths. Treat observed user failures as real; distinguish storage/cancellation bookkeeping from running work and received responses from completed local verification.
+2. Make interrupt, exit and saving separate: direct active stop, explicit lifecycle quit before model dispatch, one durable flush and bounded owned teardown. Remove duplicate obsolete reviews; retain one deliberate unsaved-data loss choice on genuine failure and restore drafts/queued text without silent truncation.
+3. Coalesce incidental draft writes after1.5 seconds idle with a10-second continuous-edit cap; cursor/view-only changes do not revise or autosave whole tasks. Explicit Send/Ctrl+S/task transitions/quit flush required state immediately, preserving snapshot ownership and stale-ack safety.
+4. Distinguish Incomplete from actual Failed/Unknown; valid responses with remaining work remain visible and usable for explicit follow-up. Keep bounded authorized continuation, real failures and all effect/permission fences. Show one compact typed reason/action summary per logical request with full details inspectable, preserving source boxes and Eevee.
+5. Fix actual Windows invocation semantics: a called installer ScriptBlock must not terminate its PowerShell caller on error or overwrite caller state. Prove baseline failure and corrected PS5.1/PS7 -File/ScriptBlock paths, failed-update preservation, installed interactive startup/quit and classic/ConPTY restoration without policy/antivirus bypass.
+6. Exercise changed paths through the actual application at both sizes, migrate behavior contracts/tests, update docs/version and require complete exact-source native qualification including protected Windows scans. Publish a new immutable release only after all requested fixes pass; verify exact public bytes and actual downloaded/installed behavior. No placeholders or narrower unannounced platform removal.
+
+## Prior delivery — PowerShell startup and unfinished-agent work (superseded)
+
+The active interaction/Windows delivery above supersedes this earlier device-diagnostic hold. The installer caller-host cause was subsequently reproduced and fixed on both supported PowerShell engines; retain the prior qualification facts below as historical evidence, not a current publication blocker.
 
 1. Accept the reported immediate PowerShell exit as the incident. Diagnose unchanged public0.1.43 executable/ZIP with genuine classic-console PowerShell handles, ordinary inherited color environment, default pinned sprites versus images off, small/normal viewports and normal scrollback. Retain first-screen/error/NTSTATUS evidence; do not substitute `--version`, ConPTY-only success, a pause or a protection waiver for fixing startup.
 2. Fix only evidence-backed startup causes, retain exact terminal restoration and add the missing actual PowerShell scenario to qualification. Keep existing user stores/profile settings untouched and distinguish returned errors from process aborts.

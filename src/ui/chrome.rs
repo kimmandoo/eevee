@@ -197,7 +197,9 @@ pub(super) fn header(frame: &mut Frame, area: Rect, app: &App, config: &Config, 
     if let Some(todo) = compact_todo(app, frame.area().width) {
         status = format!("{status} · {todo}");
     }
-    if app.has_queued_send() {
+    if app.has_recoverable_followup() {
+        status = format!("{status} · Unsent follow-up retained | /queue-cancel");
+    } else if app.has_queued_send() {
         status = format!("{status} · Next Send queued | /queue-cancel");
     }
     if app.mcp.effects_unknown() {
@@ -516,6 +518,10 @@ pub(super) fn confirmation(
         delete_confirmation(frame, area, app, config, paint);
         return;
     }
+    if confirm.kind == ConfirmationKind::Quit {
+        exit_failure_confirmation(frame, area, app, config, paint);
+        return;
+    }
     let area = if area.width < 30 || area.height < 10 {
         area
     } else {
@@ -527,7 +533,7 @@ pub(super) fn confirmation(
             ConfirmationKind::Complete => " Confirm task completion ",
             ConfirmationKind::Reopen(_) => " Reopen completed task ",
             ConfirmationKind::DiscardDraft => " Review draft discard ",
-            ConfirmationKind::Quit => " Confirm exit ",
+            ConfirmationKind::Quit => unreachable!("separate exit loss review"),
             ConfirmationKind::ResetTask => " Reset local task ",
             ConfirmationKind::ReplaceWithInit => " Prepare /init request ",
             ConfirmationKind::ReturnToEevee => " Return to Eevee ",
@@ -559,26 +565,7 @@ pub(super) fn confirmation(
             "Stay",
             "Reopen and edit",
         ),
-        ConfirmationKind::Quit if matches!(app.storage, crate::app::StorageState::Failed(_)) => (
-            "Storage failed. Unsaved edits may be lost; accepted saves may finish. Stay, then r retries.",
-            "Stay",
-            "Exit despite save failure",
-        ),
-        ConfirmationKind::Quit if app.sources.store_failed => (
-            "Context storage failed. The retained operation is not saved. Stay, fix storage, then v and s retry.",
-            "Stay",
-            "Exit despite unsaved context",
-        ),
-        ConfirmationKind::Quit if app.moves.learning.is_some() => (
-            "Exit and discard the unsaved move name/learning choice? Task drafts are saved; only committed moves survive.",
-            "Keep editing",
-            "Discard move draft and quit",
-        ),
-        ConfirmationKind::Quit => (
-            "Exit? Save the applied task and retained drafts before closing.",
-            "Stay",
-            "Save task/drafts and quit",
-        ),
+        ConfirmationKind::Quit => unreachable!("separate exit loss review"),
         ConfirmationKind::ResetTask => (
             "Fresh local task? Save old task + draft in /tasks. No files, history or credentials erased. Active work must finish/cancel first.",
             "Stay",
@@ -629,6 +616,67 @@ pub(super) fn confirmation(
             .wrap(Wrap { trim: false })
             .line_count(content.width.max(1))
             <= 3;
+}
+
+fn exit_failure_confirmation(
+    frame: &mut Frame,
+    area: Rect,
+    app: &mut App,
+    config: &Config,
+    paint: &Paint,
+) {
+    let area = sheet(area, 78, 15);
+    frame.render_widget(Clear, area);
+    let block = panel(" Exit: unsaved local state ", config, paint, true);
+    let content = block.inner(area);
+    frame.render_widget(block, area);
+    let message = app.quit_failure_message().unwrap_or(
+        "Exit loss review is unavailable. Esc stays; no unsaved state has been discarded.",
+    );
+    let rows = content.height.saturating_sub(5);
+    text(frame, row(content, 0, rows), message, paint.surface);
+    let affirmative = app.confirmation.is_some_and(|choice| choice.destructive);
+    text(
+        frame,
+        row(content, rows, 1),
+        "[n / Esc] Stay and keep unsaved state",
+        if affirmative {
+            paint.surface
+        } else {
+            paint.selected
+        },
+    );
+    text(
+        frame,
+        row(content, rows + 1, 1),
+        "[r] Retry storage, then exit",
+        paint.surface,
+    );
+    text(
+        frame,
+        row(content, rows + 2, 1),
+        "[y] Exit without saving",
+        if affirmative {
+            paint.selected
+        } else {
+            paint.surface
+        },
+    );
+    text(
+        frame,
+        row(content, rows + 4, 1),
+        "Enter uses selected choice; no action is replayed.",
+        paint.muted,
+    );
+    app.confirmation_reviewed = app.quit_failure_message().is_some()
+        && app.width >= 60
+        && app.height >= 18
+        && content.width >= 44
+        && rows > 0
+        && Paragraph::new(message)
+            .wrap(Wrap { trim: false })
+            .line_count(content.width.max(1))
+            <= usize::from(rows);
 }
 
 pub(super) fn delete_confirmation(

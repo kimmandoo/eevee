@@ -659,7 +659,6 @@ impl App {
             || self.quit_after_save
             || self.reset_after_save
             || self.transitioning
-            || self.cooperation.cancel_review.is_some()
             || self.cancelling_owned_work()
         {
             return changed;

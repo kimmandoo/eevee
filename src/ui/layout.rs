@@ -218,7 +218,6 @@ pub(super) fn evolution_popup_area(area: Rect, app: &App) -> Option<Rect> {
 pub(super) fn occluded(area: Rect, app: &App, target: Rect) -> bool {
     if app.nickname_editor.is_some()
         || app.cooperation_ui.release.is_some()
-        || app.cooperation.cancel_review.is_some()
         || app.cooperation.journal_discard.is_some()
     {
         return true;

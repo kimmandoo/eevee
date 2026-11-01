@@ -755,7 +755,7 @@ fn linear_toggle_and_semantic_actions_remain_available() {
     app.command("layout");
     assert!(!app.linear);
     assert_eq!(app.goal, "linear goal");
-    app.store_event(store::Event::Saved(committed(&app)));
+    save_request(&mut app);
     app.command("quit");
     assert!(
         app.confirmation.is_none(),
@@ -784,7 +784,7 @@ fn imported_decision_preserves_exact_reviewed_bytes_and_refuses_overflow() {
 }
 
 #[test]
-fn provider_exit_acknowledgement_cannot_bypass_local_work_confirmation() {
+fn provider_exit_intent_cancels_local_preparation_without_another_review() {
     let mut app = app();
     assert!(
         app.execution
@@ -792,14 +792,8 @@ fn provider_exit_acknowledgement_cannot_bypass_local_work_confirmation() {
     );
     app.planning.quit_ready = true;
     assert!(app.settle_planning());
-    assert!(!app.quit);
-    assert!(app.execution.busy());
-    let review = app
-        .cooperation
-        .cancel_review
-        .as_ref()
-        .expect("every quit route reaches the all-owner review");
-    assert!(!review.affirmative);
+    assert!(!app.execution.cancellable_work_pending());
+    assert!(app.confirmation.is_none());
     assert!(!app.authentication_ready());
 }
 
@@ -873,7 +867,7 @@ fn repeat_enter_cannot_approve_or_apply_a_draft() {
 }
 
 #[test]
-fn quit_protects_goal_and_dirty_draft_even_below_minimum_size() {
+fn quit_flushes_goal_and_dirty_draft_once_even_below_minimum_size() {
     for editing in [false, true] {
         let mut app = app();
         app.goal = "session data".into();
@@ -885,42 +879,156 @@ fn quit_protects_goal_and_dirty_draft_even_below_minimum_size() {
         let input = app.input.clone();
         let cursor = app.cursor;
         app.update(Event::Resize(1, 1));
-        if editing {
-            modified_key(&mut app, KeyCode::Char('c'), KeyModifiers::CONTROL);
-        } else {
-            app.command("quit");
-        }
+        app.request_quit();
         assert!(!app.quit);
-        assert_eq!(
-            app.confirmation,
-            Some(Confirmation {
-                kind: ConfirmationKind::Quit,
-                destructive: false
-            })
-        );
-        key(&mut app, KeyCode::Enter);
-        assert!(!app.quit);
-        assert_eq!(app.input, input);
-        assert_eq!(app.cursor, cursor);
-        modified_key(&mut app, KeyCode::Char('c'), KeyModifiers::CONTROL);
-        key(&mut app, KeyCode::Esc);
-        assert_eq!(app.input, input);
-        app.update(Event::Resize(120, 36));
-        assert_eq!(app.editing, editing);
-        modified_key(&mut app, KeyCode::Char('c'), KeyModifiers::CONTROL);
-        key(&mut app, KeyCode::Right);
-        key(&mut app, KeyCode::Enter);
         assert!(app.quit_after_save);
-        assert!(!app.quit);
+        assert!(app.confirmation.is_none());
+        let revision = app.revision;
+        app.request_quit();
+        assert_eq!(app.revision, revision, "the same exit intent flushes once");
+        assert_eq!((app.input.as_str(), app.cursor), (input.as_str(), cursor));
+        key(&mut app, KeyCode::Esc);
+        assert!(!app.quit_after_save);
+        assert_eq!(app.input, input);
+        app.request_quit();
         app.store_event(store::Event::Saved(committed(&app)));
         assert!(app.quit);
+        assert_eq!(app.editing, editing);
     }
-    let mut app = app();
-    app.command("goal");
-    app.update(Event::Paste("first unsaved goal".into()));
+}
+
+#[test]
+fn control_d_deletes_forward_in_a_draft_and_exits_an_empty_composer() {
+    let mut app = request_app();
+    app.update(Event::Paste("A한글B".into()));
+    app.cursor = 1;
+    modified_key(&mut app, KeyCode::Char('d'), KeyModifiers::CONTROL);
+    assert_eq!(app.input, "A글B");
+    assert_eq!(app.cursor, 1);
+    assert!(!app.quit && !app.quit_after_save);
+    let mut empty = request_app();
+    modified_key(&mut empty, KeyCode::Char('d'), KeyModifiers::CONTROL);
+    assert!(empty.quit);
+}
+
+#[test]
+fn caret_only_navigation_preserves_revision_and_is_flushed_on_quit() {
+    let mut app = request_app();
+    app.update(Event::Paste("retained draft".into()));
+    save_request(&mut app);
+    let revision = app.revision;
+    key(&mut app, KeyCode::Left);
+    assert_eq!(app.revision, revision);
+    assert!(!app.save_requested && app.view_dirty);
+    let caret = app.cursor;
+    app.request_quit();
+    assert!(app.quit_after_save && !app.quit);
+    assert!(app.save_requested);
+    let snapshot = save_request(&mut app);
+    assert!(app.quit);
+    let mut restored = request_app();
+    restored.load_task(snapshot);
+    assert_eq!(restored.cursor, caret);
+    assert_eq!(restored.input, "retained draft");
+}
+
+#[test]
+fn committed_quit_does_not_wait_for_read_only_memory_hydration() {
+    let mut app = request_app();
+    app.update(Event::Paste("committed request".into()));
+    save_request(&mut app);
+    assert!(app.memory_loading);
+    assert!(
+        app.memory_request
+            .as_ref()
+            .is_some_and(|request| request.mutation.is_none())
+    );
+    app.request_quit();
+    assert!(app.quit);
+    assert!(app.confirmation.is_none());
+    assert!(
+        app.memory_request
+            .as_ref()
+            .is_some_and(|request| request.mutation.is_none()),
+        "exit does not fake a memory-read acknowledgement"
+    );
+}
+
+#[test]
+fn preference_storage_failure_has_one_explicit_exit_choice_without_discarding_in_memory_state() {
+    for (width, height) in [(120, 36), (60, 18)] {
+        let mut app = request_app();
+        app.update(Event::Resize(width, height));
+        app.planning.preference_event(Ok(None));
+        assert!(app.planning.select_model_id("retained-local-model"));
+        assert!(app.planning.select_effort_value("default"));
+        assert!(app.planning.preferences_pending());
+        let request = app.planning.preference_request().take().unwrap();
+        assert!(matches!(request, store::PreferenceRequest::Save(_)));
+        app.planning.preference_started();
+        app.store_event(store::Event::Preferences(Err("disk full".into())));
+        app.request_quit();
+        assert!(app.confirmation.is_some());
+        assert!(app.quit_failure_message().unwrap().contains("preferences"));
+        let scope = app.quit_failure_message().unwrap().to_owned();
+        app.settle_exit();
+        assert_eq!(app.quit_failure_message(), Some(scope.as_str()));
+        assert!(!app.quit);
+        key(&mut app, KeyCode::Right);
+        key(&mut app, KeyCode::Enter);
+        assert!(app.quit);
+        assert!(app.planning.preferences_pending());
+        assert_eq!(
+            app.planning.selection.model.as_deref(),
+            Some("retained-local-model")
+        );
+        assert!(app.exit_warning().is_some());
+    }
+}
+
+#[test]
+fn preference_restore_failure_without_unsaved_choices_does_not_trap_idle_exit() {
+    let mut app = request_app();
+    app.planning
+        .preference_event(Err("cannot read preferences".into()));
+    assert!(!app.planning.preferences_pending());
+    app.request_quit();
+    assert!(app.quit);
+    assert!(app.confirmation.is_none());
+}
+
+#[test]
+fn control_c_stops_owned_preview_and_a_second_press_requests_exit_without_reapproval() {
+    let mut app = request_app();
+    app.update(Event::Paste("keep the submitted request".into()));
+    request_preview(&mut app);
     modified_key(&mut app, KeyCode::Char('c'), KeyModifiers::CONTROL);
-    assert_eq!(app.confirmation.unwrap().kind, ConfirmationKind::Quit);
-    assert!(!app.quit);
+    assert!(app.planning.cancelling);
+    assert!(matches!(
+        app.planning.pending,
+        Some(crate::providers::Request::Cancel { generation: 12 })
+    ));
+    assert!(!app.quit && !app.quit_after_save);
+    app.update(Event::Key(KeyEvent::new_with_kind(
+        KeyCode::Char('c'),
+        KeyModifiers::CONTROL,
+        KeyEventKind::Repeat,
+    )));
+    assert!(!app.quit && !app.quit_after_save);
+    modified_key(&mut app, KeyCode::Char('c'), KeyModifiers::CONTROL);
+    assert!(app.quit_after_save);
+    app.provider_event(
+        app.lead.id,
+        crate::providers::Event::Finished {
+            generation: 12,
+            task_id: app.task_id,
+            outcome: crate::providers::Outcome::Unknown,
+            message: "provider completion not established".into(),
+        },
+    );
+    assert!(app.planning.outcome_unknown());
+    assert!(app.confirmation.is_none());
+    assert!(app.quit_after_save || app.quit);
 }
 
 #[test]
@@ -933,7 +1041,7 @@ fn popup_quit_stay_restores_exact_nested_selection() {
     modified_key(&mut app, KeyCode::Char('k'), KeyModifiers::CONTROL);
     key(&mut app, KeyCode::End);
     app.command("quit");
-    assert_eq!(app.confirmation.unwrap().kind, ConfirmationKind::Quit);
+    assert!(app.confirmation.is_none() && app.quit_after_save);
     key(&mut app, KeyCode::Esc);
     assert_eq!(app.overlay, Some(Overlay::Forms));
     assert_eq!(app.selected, 5);
@@ -2671,10 +2779,7 @@ fn terminal_native_unknown_allows_explicit_followup_and_task_switch_but_cli_unkn
         assert!(!app.planning.unknown_effects() && !app.partner_busy(1));
         assert!(app.work_rows().is_empty());
         assert!(app.work_capacity_reason(1).is_none());
-        assert!(
-            app.cancel_all_summary()
-                .contains("provider outcome unknown")
-        );
+        assert!(app.exit_warning().is_some());
         app.update(Event::Paste("Explicit follow-up only".into()));
         key(&mut app, KeyCode::Enter);
         save_request(&mut app);
@@ -2739,7 +2844,6 @@ fn idle_quit_waits_for_preferences_without_an_empty_cancel_all_review() {
     assert!(app.planning.preferences_pending());
     assert!(!app.planning.owns_work() && !app.execution.busy());
     app.request_quit();
-    assert!(app.cooperation.cancel_review.is_none());
     assert!(app.quit_after_save && !app.quit);
     app.settle_exit();
     assert!(
@@ -3054,7 +3158,7 @@ fn explicit_run_returns_home_with_empty_followup_and_preserves_task_facts_and_ou
 }
 
 #[test]
-fn cancel_review_and_restart_restore_request_not_previous_prompt_or_task_goal() {
+fn cancelled_preparation_and_restart_restore_request_not_previous_prompt_or_task_goal() {
     let mut app = request_app();
     app.goal = "Saved task identity".into();
     app.update(Event::Paste("Keep my question".into()));
@@ -3340,8 +3444,8 @@ fn reset_does_not_transfer_or_cancel_another_partners_command() {
     );
     assert!(retained.prepared.is_none() && retained.active.is_none());
     assert!(
-        app.cooperation.cancel_review.is_none(),
-        "Reset does not implicitly become Cancel all"
+        !app.cancelling_owned_work(),
+        "Reset does not cancel other owners"
     );
     assert!(!app.reset_after_save);
 }

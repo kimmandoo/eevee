@@ -1461,7 +1461,7 @@ pub fn classify_step(step: &crate::workspace::progress::Step) -> Option<Selectio
 }
 
 impl App {
-    /// The notification never covers consent or live generated-file code.
+    /// The notification yields to consent, live code and current non-success results.
     pub fn evolution_popup_ready(&self) -> bool {
         self.evolution
             .transition
@@ -1472,14 +1472,18 @@ impl App {
             && self.planning.request.is_none()
             && !self.planning.items.iter().any(|item| {
                 std::sync::Arc::ptr_eq(&item.request, &self.planning.submitted_request)
-                    && matches!(
+                    && (matches!(
                         item.kind,
                         crate::providers::ItemKind::File(
                             crate::providers::FilePhase::Generating
                                 | crate::providers::FilePhase::Received
                                 | crate::providers::FilePhase::AwaitingReview
                         )
-                    )
+                    ) || item.status.as_ref().is_some_and(|status| {
+                        status
+                            .outcome
+                            .is_some_and(|outcome| outcome != crate::providers::Outcome::Completed)
+                    }))
             })
     }
 

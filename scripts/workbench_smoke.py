@@ -635,7 +635,7 @@ def main():
                     assert not list(native_project.iterdir()), "native provider created project files"
                     assert not any(path.is_file() for path in native_home.rglob("*")), "native provider wrote credentials or config"
                     native.command("quit")
-                    confirm_exit(native, owned_work=True)
+                    confirm_exit(native)
                     assert native.wait_exit() == 0
                     native.close()
                     assert len(fixture.snapshot("POST")) == 3

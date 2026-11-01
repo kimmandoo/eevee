@@ -1,6 +1,6 @@
 desks-moves-moves-need-x-draft-retained-resize-to = Moves: need 60 x 18
     Draft retained. Resize to review or change moves.
-    Esc Back / Ctrl+C quit
+    Esc Back / Ctrl+C Stop or idle exit
 
 desks-moves-loading-saving-local-move-facts-no-action = Loading/saving local move facts. No action is approved.
 
@@ -130,7 +130,7 @@ desks-moves-rename-label = Rename label
 desks-memory-approved-memories-terminal-too-small-need-columns = Approved memories / terminal too small
     Need 60 columns x 18 rows.
     Draft and selection retained.
-    Esc Back / Ctrl+C safe quit.
+    Esc Back / Ctrl+C Stop or idle exit.
     No approval or deletion at this size.
 
 desks-memory-saving-awaiting-committed-acknowledgement = SAVING / awaiting committed acknowledgement
@@ -260,14 +260,6 @@ desks-cooperation-resize-to-x-to-review-esc-stay = Resize to 60x18 to review. Es
 
 desks-cooperation-y-request-left-stay-right-release-enter = y Request / Left Stay / Right Release / Enter / Esc Stay
 
-desks-cooperation-cancel-all-and-wait-then-exit = { " " }Cancel ALL and wait, then exit{ " " }
-
-desks-cooperation-cancel-all-and-wait = { " " }Cancel ALL and wait{ " " }
-
-desks-cooperation-y-confirm-left-stay-right-action-enter = y Confirm / Left Stay / Right action / Enter / Esc Stay
-
-desks-cooperation-resize-to-inspect-all-owners-esc-stay = Resize to inspect ALL owners. Esc Stay; none answered.
-
 desks-cooperation-discard-exact-failed-journal-writes-d-ids = { " " }Discard exact failed journal writes / d IDs and error{ " " }
 
 desks-cooperation-discard-failed-writes = { " " }Discard failed writes{ " " }
@@ -323,7 +315,7 @@ desks-sources-y-remove-selected-basket-reference = y / Remove selected basket re
 
 desks-workflows-specialist-desk-need-x-draft-retained-resize = Specialist desk: need 60 x 18
     Draft retained. Resize to edit or apply.
-    Esc Back / Ctrl+C quit or cancel review
+    Esc Back / Ctrl+C Stop or idle exit
 
 desks-workflows-local-notes-real-evidence-no-automatic-command = Local notes, real evidence. No automatic command or model request.
 
@@ -520,10 +512,6 @@ desks-handoff-panel = { " " }Portable task handoff / local-only{ " " }
 desks-cooperation-board-panel = { " " }Party board / working and waiting only{ " " }
 
 desks-cooperation-release-panel = { " " }Release partner / local roster only{ " " }
-
-desks-cooperation-quit-panel = { " " }Quit / ALL owned work{ " " }
-
-desks-cooperation-cancel-panel = { " " }Cancel ALL owned work{ " " }
 
 desks-sources-panel = { " " }Sources / task-owned context{ " " }
 

@@ -312,7 +312,6 @@ pub fn portrait_targets(app: &App, area: Rect, targets: &mut Vec<(usize, Rect)>)
         || app.confirmation.is_some()
         || app.nickname_editor.is_some()
         || app.cooperation_ui.release.is_some()
-        || app.cooperation.cancel_review.is_some()
         || app.cooperation.journal_discard.is_some()
     {
         return;
@@ -383,7 +382,6 @@ fn render_content(
         || app.confirmation.is_some()
         || app.composer_menu.is_some()
         || app.cooperation_ui.release.is_some()
-        || app.cooperation.cancel_review.is_some()
         || app.cooperation.journal_discard.is_some();
     if app.overlay != Some(Overlay::Execution) || consent_obscured {
         app.execution.invalidate_review_exposure();
@@ -392,9 +390,6 @@ fn render_content(
         app.sources.invalidate_screenshot_exposure();
     }
     if let Some(review) = &mut app.cooperation_ui.release {
-        review.reviewed = false;
-    }
-    if let Some(review) = &mut app.cooperation.cancel_review {
         review.reviewed = false;
     }
     if let Some(review) = &mut app.cooperation.journal_discard {
@@ -441,9 +436,6 @@ fn render_content(
         if app.cooperation_ui.release.is_some() {
             cooperation::release(frame, area, app, config, &paint);
         }
-        if app.cooperation.cancel_review.is_some() {
-            cooperation::cancellation(frame, area, app, config, &paint);
-        }
         if app.cooperation.journal_discard.is_some() {
             cooperation::journal_discard(frame, area, app, config, &paint);
         }
@@ -460,10 +452,6 @@ fn render_content(
     header(frame, shell.header, app, config, &paint);
     if app.cooperation.journal_discard.is_some() {
         cooperation::journal_discard(frame, area, app, config, &paint);
-        return;
-    }
-    if app.cooperation.cancel_review.is_some() {
-        cooperation::cancellation(frame, area, app, config, &paint);
         return;
     }
     if app.cooperation_ui.release.is_some() {

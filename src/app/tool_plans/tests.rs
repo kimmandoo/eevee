@@ -121,16 +121,14 @@ fn bounded_history_preserves_completed_plans_and_refuses_unresolved_windows() {
 }
 
 #[test]
-fn quitting_an_active_read_plan_requires_cancel_review_instead_of_save_deadlock() {
+fn quitting_an_active_read_plan_cancels_once_and_flushes_without_review() {
     let mut app = staged();
     review(&mut app);
     app.start_tool_plan();
     assert!(app.tool_plans.active);
     app.request_quit();
-    assert!(app.cooperation.cancel_review.is_some());
-    assert!(!app.quit_after_save);
+    assert!(app.quit_after_save);
     assert!(!app.quit);
-    app.cancel_tool_plan();
     assert!(!app.tool_plans.active);
 }
 

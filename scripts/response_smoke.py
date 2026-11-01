@@ -36,9 +36,8 @@ SECOND_ANSWER = "SECOND_RESPONSE_MARKER"
 
 # Only critical visible controls are named here; provider payloads and drafts
 # remain literal. These are navigation selectors, not catalog snapshot tests.
-SURFACE = {"response": "Response", "previous": "Previous Response",
-           "following": "Following", "paused": "Paused", "unread": "+new",
-           "complete": "complete", "help": "KEYS",
+SURFACE = {
+           "following": "Following", "unread": "+new", "help": "KEYS",
            "fields": ("API key", "Endpoint", "Default model", "Protocol",
                       "Authentication", "Storage", "Save & choose model"),
            "matches": "1 matches", "loading": "Loading metadata", "search": "Search: ",
@@ -188,15 +187,15 @@ class StreamingPeer(Peer):
 def response_view(session):
     rows = session.display().splitlines()
     surface = session.surface
-    header_pattern = (
-        rf"(?:{re.escape(surface['previous'])}|{re.escape(surface['response'])}"
-        rf"|(?:Previous )?Request outcome|(?:Previous )?Plan|(?:Previous )?Tool output)(?: \d+/\d+)? · "
-    )
-    header = next((index for index, row in enumerate(rows)
-                   if re.search(header_pattern, row)), None)
-    assert header is not None, "response header missing\n" + session.display()
-    status_pattern = (rf"(?:{re.escape(surface['following'])}|{re.escape(surface['paused'])})"
-                      rf"(?: {re.escape(surface['unread'])})? (?P<start>\d+)-(?P<end>\d+)/(?P<total>\d+)")
+    # The immutable request caption is structural. Phase prose (including
+    # Completed/Incomplete) is not a selector for the viewport below it.
+    caption = next((index for index, row in enumerate(rows)
+                    if re.match(r"^\s*(?:Previous\s+)?Request:", row, re.IGNORECASE)), None)
+    assert caption is not None, "request caption missing\n" + session.display()
+    header = caption + 1
+    if header + 1 < len(rows) and "[FILE]" in rows[header + 1]:
+        header += 1
+    status_pattern = r"(?P<start>\d+)-(?P<end>\d+)/(?P<total>\d+).*Alt\+End"
     status = next((index for index in range(header + 1, len(rows))
                    if re.search(status_pattern, rows[index])), None)
     assert status is not None and status > header + 1, "response body not visible\n" + session.display()
@@ -204,7 +203,7 @@ def response_view(session):
     # navigation footer starts at the actual body edge; a label inside the
     # metadata line does not (and would clip source/request/reason prefixes).
     position = re.search(status_pattern, rows[status])
-    column = position.start()
+    column = len(rows[status]) - len(rows[status].lstrip())
     first, last, total = (int(position[name]) for name in ('start', 'end', 'total'))
     # The status range counts actual transcript rows. The mutable notice
     # between body and navigation is chrome, not retained request evidence.
@@ -228,7 +227,8 @@ def response_view(session):
 
     return {"body": [cells(y) for y in range(header + 1, header + 1 + visible)],
             "point": (column + 1, header + 1), "status": cells(status),
-            "range": (first, last, total)}
+            "range": (first, last, total),
+            "following": rows[status].lstrip().startswith(surface["following"])}
 
 
 def wheel(session, direction, point, count=1):
@@ -270,7 +270,7 @@ def run(binary, output, root, size, ascii_mode, ):
             caret = (session.screen.cursor.x, session.screen.cursor.y)
             wheel(session, "up", view["point"], 8)
             paused = response_view(session)
-            assert surface["paused"] in paused["status"] and paused["body"] != view["body"]
+            assert not paused["following"] and paused["body"] != view["body"]
             assert not session.screen.cursor.hidden
             assert (session.screen.cursor.x, session.screen.cursor.y) == caret
             session.capture("wheel-paused-draft-caret-kept")
@@ -289,7 +289,7 @@ def run(binary, output, root, size, ascii_mode, ):
 
             session.send(PAGE_UP)
             page = response_view(session)
-            assert page["body"] != paused["body"] and surface["paused"] in page["status"]
+            assert page["body"] != paused["body"] and not page["following"]
             session.send(PAGE_DOWN)
             assert response_view(session)["body"] == paused["body"]
             cases.append("viewport-sized page up/down returned to the same reading location while editing")
@@ -326,7 +326,7 @@ def run(binary, output, root, size, ascii_mode, ):
             cases.append("response command fronted inline output without an extra drawer or Escape; Alt+End resumed latest")
 
             peer.release_finish.set()
-            until(session, lambda: not journey.snapshot()["claims"] and surface["complete"] in session.display(),
+            until(session, lambda: not journey.snapshot()["claims"],
                   "completed stream and ownership settlement")
             session.send("!")
             expected_draft = DRAFT[:-3] + "!" + DRAFT[-3:]
@@ -343,7 +343,7 @@ def run(binary, output, root, size, ascii_mode, ):
             until(session, lambda: len(peer.snapshot("POST")) == 2 and not journey.snapshot()["claims"],
                   "one deliberately submitted follow-up")
             previous = response_view(session)
-            assert surface["previous"] in session.display() and surface["paused"] in previous["status"]
+            assert not previous["following"]
             session.capture("new-turn-kept-previous-reading-location")
             assert re.findall(r"R\d{3}w\d{2}", previous["body"][0]) == re.findall(
                 r"R\d{3}w\d{2}", old["body"][0]
@@ -364,7 +364,7 @@ def run(binary, output, root, size, ascii_mode, ):
                     break
             else:
                 raise AssertionError("page movement could not reach the preceding response\n" + session.display())
-            assert surface["paused"] in crossed["status"]
+            assert not crossed["following"]
             assert SECOND_ANSWER not in "\n".join(crossed["body"])
             boundary_anchor = re.search(r"R\d{3}w\d{2}", "\n".join(crossed["body"])).group()
             session.resize(other_size)
@@ -379,7 +379,7 @@ def run(binary, output, root, size, ascii_mode, ):
                     break
             else:
                 raise AssertionError("page movement could not return across the response boundary\n" + session.display())
-            assert surface["paused"] in response_view(session)["status"], "manual bottom resumed follow"
+            assert not response_view(session)["following"], "manual bottom resumed follow"
             # Wheel navigation traverses the same boundary, not a separate item page.
             for _ in range(32):
                 wheel(session, "up", response_view(session)["point"])

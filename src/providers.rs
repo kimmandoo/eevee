@@ -924,6 +924,9 @@ pub enum ItemKind {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Outcome {
     Completed,
+    /// The provider returned a valid answer, but known work remains or needs input.
+    /// This is neither a tool/transport failure nor verification of completion.
+    Incomplete,
     Failed,
     Cancelled,
     Unknown,

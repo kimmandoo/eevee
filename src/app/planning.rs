@@ -91,9 +91,10 @@ impl RequestStatus {
     pub fn outcome_label(&self) -> Option<&'static str> {
         self.outcome.map(|outcome| match outcome {
             Outcome::Completed => "Completed",
-            Outcome::Cancelled => "Cancelled",
+            Outcome::Incomplete => "Incomplete",
+            Outcome::Cancelled => "Stopped",
             Outcome::Failed => "Failed",
-            Outcome::Unknown => "Unknown",
+            Outcome::Unknown => "Completion unknown",
         })
     }
 }
@@ -202,7 +203,6 @@ pub struct State {
     pub answers: Vec<Answer>,
     pub editing: bool,
     pub submit_review: bool,
-    pub quit_review: bool,
     pub quit_ready: bool,
     revision: u64,
     pub cancelling: bool,
@@ -214,7 +214,6 @@ pub struct State {
     /// An old-account transport may finish, but none of its sessions may resume.
     authentication_invalidated: bool,
     cancel_when_ready: bool,
-    quit_after_cancel: bool,
     unknown: bool,
     // Local/tool uncertainty retains ownership independently of native remote
     // model uncertainty, including after the local transport has terminated.
@@ -350,10 +349,10 @@ impl State {
             response_scroll: 0, response_max: 0,
             response_height: 0, response_body: ratatui::layout::Rect::default(), tools_docked: false,
             question: 0, option: 0, answers: Vec::new(), editing: false, submit_review: false,
-            quit_review: false, quit_ready: false, cancelling: false, omitted: 0,
+            quit_ready: false, cancelling: false, omitted: 0,
             task: 0, revision: 0, generation: None, awaiting_preview: false, active: false,
             authentication_invalidated: false,
-            cancel_when_ready: false, quit_after_cancel: false, unknown: false, saved_scroll: 0,
+            cancel_when_ready: false, unknown: false, saved_scroll: 0,
             unknown_effects: false,
             agent: Agent::Codex, operation: Operation::Plan, operation_explicit: false, edit_paths: Vec::new(),
             paths_editor: None, switch_to: None, handoff: None, sessions: HashMap::new(),
@@ -415,7 +414,6 @@ impl State {
         key.kind == KeyEventKind::Press
             && !self.inspect_models
             && !self.editing
-            && !self.quit_review
             && !self.journal_mode
             && self.paths_editor.is_none()
             && self.custom_model.is_none()
@@ -456,7 +454,6 @@ impl State {
             || self.awaiting_preview
             || self.preview.is_some()
             || self.pending.is_some()
-            || self.quit_review
             || self.switch_to.is_some()
             || self.selection_change.is_some()
             || self.paths_editor.is_some()
@@ -1329,7 +1326,7 @@ impl State {
                 {
                     if let Some((outcome, reason)) = self.completion_obligation(generation, task_id)
                     {
-                        (outcome, format!("{message} {reason}"))
+                        (outcome, format!("{reason} Details: {message}"))
                     } else {
                         (outcome, message)
                     }
@@ -1346,10 +1343,11 @@ impl State {
                     } else {
                         FilePhase::Interrupted
                     },
-                    matches!(outcome, Outcome::Completed),
+                    matches!(outcome, Outcome::Completed | Outcome::Incomplete),
                 );
                 let public_admitted = self.finish_native(
-                    matches!(outcome, Outcome::Completed) && !self.unknown_effects(),
+                    matches!(outcome, Outcome::Completed | Outcome::Incomplete)
+                        && !self.unknown_effects(),
                 );
                 self.failed_request = self.connection_recovery != Some(generation)
                     && self.active
@@ -1413,8 +1411,7 @@ impl State {
                     } else if self.auto_run {
                         self.notice = "Models loaded.".into();
                     }
-                    if !self.quit_after_cancel
-                        && !self.catalogue_dismissed
+                    if !self.catalogue_dismissed
                         && (!self.auto_run || self.auto_picker)
                         && self.picker.is_none()
                     {
@@ -1426,15 +1423,6 @@ impl State {
                 self.cancel_when_ready = false;
                 self.unknown |= matches!(outcome, Outcome::Unknown);
                 self.unknown_effects |= unknown_effects;
-                if self.quit_after_cancel {
-                    self.quit_after_cancel = false;
-                    if self.unknown {
-                        self.quit_review = true;
-                        self.invalidate_review();
-                    } else {
-                        self.quit_ready = true;
-                    }
-                }
                 self.finish_authentication_invalidation();
                 if self.connection_invalidated {
                     self.connection_invalidated = false;
@@ -1460,8 +1448,7 @@ impl State {
                     self.notice
                         .push_str(" Retry with /model or review /models-refresh.");
                     if !self.active {
-                        if !self.quit_after_cancel
-                            && !self.catalogue_dismissed
+                        if !self.catalogue_dismissed
                             && (!self.auto_run || self.auto_picker)
                             && self.picker.is_none()
                         {
@@ -1475,10 +1462,6 @@ impl State {
                 if !self.active {
                     self.generation = None;
                     self.cancel_when_ready = false;
-                    if self.quit_after_cancel {
-                        self.quit_after_cancel = false;
-                        self.quit_ready = true;
-                    }
                     self.finish_authentication_invalidation();
                 }
             }
@@ -1549,6 +1532,9 @@ impl State {
                 "Cancelling after local preview preparation; no launch consent given.".into();
             return true;
         }
+        if !self.transport_pending() {
+            return false;
+        }
         let Some(generation) = self.generation else {
             return false;
         };
@@ -1570,7 +1556,6 @@ impl State {
         if self.editing
             || self.paths_editor.is_some()
             || self.custom_model.is_some()
-            || self.quit_review
             || self.switch_to.is_some()
             || self.selection_change.is_some()
         {

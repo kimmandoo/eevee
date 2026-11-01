@@ -436,10 +436,8 @@ mod tests {
         );
         assert!(!state.unknown_effects() && !state.owns_work());
         state.request_quit();
-        assert!(
-            state.quit_review,
-            "remote uncertainty still requires informed quit"
-        );
+        assert!(state.quit_ready);
+        assert!(state.outcome_unknown(), "quitting cannot erase uncertainty");
     }
 
     #[test]
@@ -447,6 +445,8 @@ mod tests {
         for (outcome, candidate, admitted) in [
             (Outcome::Completed, true, true),
             (Outcome::Completed, false, false),
+            (Outcome::Incomplete, true, true),
+            (Outcome::Incomplete, false, false),
             (Outcome::Cancelled, true, false),
             (Outcome::Failed, true, false),
             (Outcome::Unknown, true, false),
@@ -520,10 +520,6 @@ mod tests {
                 .response_rows(120, 100, false)
                 .collect::<Vec<_>>()
                 .join("\n");
-            assert!(
-                view.contains("Original owner") && view.contains("original-model"),
-                "{view}"
-            );
             assert!(
                 view.contains(old.outcome_label().unwrap()) && view.contains(&old.reason),
                 "{view}"

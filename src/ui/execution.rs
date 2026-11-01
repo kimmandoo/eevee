@@ -250,35 +250,9 @@ fn confirmation(
         ),
         Confirmation::Navigate(action) => (
             paint.hint(Message::ProvidersExecutionStayWithOwnedWorkOrCancelAnd),
-            if *action == execution::Action::Quit {
-                paint.hint(Message::ProvidersExecutionCancelAndExitAfterSaving)
-            } else {
-                paint.hint(Message::ProvidersExecutionCancelAndWaitThenNavigate)
-            },
+            paint.hint(Message::ProvidersExecutionCancelAndWaitThenNavigate),
             paint.format(
                 Template::ProvidersExecutionRequestedActionStayKeepsThisTaskAnd,
-                &[
-                    ("action", &format!("{action:?}")),
-                    ("details", &(state.details())),
-                ],
-            ),
-        ),
-        Confirmation::UnknownExit(action) => (
-            paint.hint(Message::ProvidersExecutionOutcomeUnknownExplicitInformedExitRequired),
-            paint.hint(Message::ProvidersExecutionExitKnowingEffectsAreUnknown),
-            paint.format(
-                Template::ProvidersExecutionRequestedActionOwnedTreeOutputClosureCould,
-                &[
-                    ("action", &format!("{action:?}")),
-                    ("details", &(state.details())),
-                ],
-            ),
-        ),
-        Confirmation::UnsavedJournalExit(action) => (
-            paint.hint(Message::ProvidersExecutionProcessEndedButJournalPersistenceFailed),
-            paint.hint(Message::ProvidersExecutionExitWithoutSavedFinalJournal),
-            paint.format(
-                Template::ProvidersExecutionRequestedActionTheFinalExecutionRecordIs,
                 &[
                     ("action", &format!("{action:?}")),
                     ("details", &(state.details())),
@@ -385,34 +359,6 @@ fn confirmation(
                 .into(),
             paint
                 .hint(Message::ProvidersExecutionNotSecureErasureRepositoryProviderDataUnchanged)
-                .into(),
-        ],
-        Confirmation::UnknownExit(_) => vec![
-            paint
-                .hint(Message::ProvidersExecutionUnknownProcessTreeOutputClosureNotEstablished)
-                .into(),
-            paint
-                .hint(Message::ProvidersExecutionEffectsMayRemainCancellationWasNotRollback)
-                .into(),
-            paint
-                .hint(Message::ProvidersExecutionQuitAcknowledgesUnknownEffectsNotSuccess)
-                .into(),
-            paint
-                .hint(Message::ProvidersExecutionTaskSwitchingCannotEstablishTermination)
-                .into(),
-        ],
-        Confirmation::UnsavedJournalExit(_) => vec![
-            paint
-                .hint(Message::ProvidersExecutionFinalExecutionJournalIsOnlyInMemory)
-                .into(),
-            paint
-                .hint(Message::ProvidersExecutionExitLosesUnsavedFinalMetadataDraftsStay)
-                .into(),
-            paint
-                .hint(Message::ProvidersExecutionRestartSeesInterruptionNoCommandIsReplayed)
-                .into(),
-            paint
-                .hint(Message::ProvidersExecutionStayAndJournalRetryRetriesStorageOnly)
                 .into(),
         ],
     };

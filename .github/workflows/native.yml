@@ -152,6 +152,19 @@ jobs:
         run: python -m unittest discover -s scripts -p test_windows_conpty.py
       - name: Isolate current-run terminal evidence from compiler caches
         run: printf 'NATIVE_SMOKE_OUTPUT=%s/ev-native-workflows/%s-%s\n' "$RUNNER_TEMP" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" >> "$GITHUB_ENV"
+      - name: Exercise PowerShell installer caller-host lifecycle
+        shell: python
+        run: |
+          import os, pathlib, subprocess, sys
+          if os.name == "nt":
+              subprocess.run([
+                  sys.executable, "scripts/windows_installer_smoke.py",
+                  "--archive", "target/packages/ev-windows-x86_64.zip",
+                  "--checksums", "target/packages/SHA256SUMS",
+                  "--output", str(pathlib.Path(os.environ["NATIVE_SMOKE_OUTPUT"]) / "windows-installer"),
+              ], check=True, timeout=600)
+          else:
+              print("PowerShell installer lifecycle applies to the native Windows package.")
       - name: Exercise native core smoke
         run: |
           python scripts/native_workflows_smoke.py \
@@ -162,6 +175,11 @@ jobs:
           python scripts/session_smoke.py \
             --binary target/release/ev${{ runner.os == 'Windows' && '.exe' || '' }} \
             --output "$NATIVE_SMOKE_OUTPUT/sessions"
+      - name: Exercise direct exit quiet persistence and clear outcomes
+        run: |
+          python scripts/interaction_smoke.py \
+            --binary target/release/ev${{ runner.os == 'Windows' && '.exe' || '' }} \
+            --output "$NATIVE_SMOKE_OUTPUT/interaction"
       - name: Exercise owned unfinished-work continuation
         run: |
           python scripts/completion_smoke.py \

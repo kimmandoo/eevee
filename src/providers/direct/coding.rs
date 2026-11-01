@@ -142,8 +142,8 @@ async fn inference_rounds(
     let mut completion_checkpoint = None;
     let mut useful_results = HashSet::new();
     let mut completion_continuations = 0usize;
-    let mut tool_obstacle = false;
-    let mut permission_obstacle = false;
+    let mut tool_obstacle: Option<(Outcome, String)> = None;
+    let mut permission_obstacle: Option<String> = None;
     let child = run.input.delegation.is_some();
     let round_limit = if child {
         delegation::CHILD_ROUNDS
@@ -329,34 +329,39 @@ async fn inference_rounds(
                             | crate::workspace::progress::Status::Active
                     )
                 });
-                if !actionable || tool_obstacle {
-                    return Err((Outcome::Failed,
-                        "Native turn ended with unfinished todo work and a reported blocker or refused/failed tool result; request is incomplete. No automatic continuation or permission retry; earlier observed results remain.".into()));
-                }
-                if completion_checkpoint
-                    .as_ref()
-                    .is_some_and(|(steps, results)| {
-                        steps == &progress.steps && *results == useful_results.len()
-                    })
-                {
-                    return Err((Outcome::Failed,
-                        "Native completion continuation made no progress on unfinished todo work; request is incomplete. No further continuation; earlier observed results remain.".into()));
-                }
-                if round == round_limit {
-                    return Err((
-                        Outcome::Failed,
-                        format!(
-                            "Native model round limit of {round_limit} reached with unfinished todo work; request is incomplete and no continuation sent. Earlier completed file effects remain; no rollback."
-                        ),
-                    ));
-                }
-                if completion_continuations == COMPLETION_CONTINUATION_LIMIT {
-                    return Err((
-                        Outcome::Failed,
-                        format!(
-                            "Native completion continuation limit of {COMPLETION_CONTINUATION_LIMIT} reached with unfinished todo work; request is incomplete. No further continuation; earlier observed results remain."
-                        ),
-                    ));
+                let stop = tool_obstacle.take().or_else(|| {
+                    permission_obstacle.take().map(|reason| (Outcome::Incomplete, reason))
+                }).or_else(|| {
+                    if !actionable {
+                        let label = progress.steps.iter()
+                            .find(|step| step.status == crate::workspace::progress::Status::Blocked)
+                            .map_or("a prerequisite", |step| step.label.as_str());
+                        Some((Outcome::Incomplete, format!(
+                            "Waiting for {label}. Remaining work is kept; provide the prerequisite or send a follow-up."
+                        )))
+                    } else if completion_checkpoint.as_ref()
+                        .is_some_and(|(steps, results)| steps == &progress.steps && *results == useful_results.len()) {
+                        Some((Outcome::Incomplete,
+                            "Paused: no progress after the continuation. Remaining work is kept; send a follow-up to continue.".into()))
+                    } else if round == round_limit {
+                        Some((Outcome::Incomplete, format!(
+                            "Paused at the model round limit of {round_limit}. Send a follow-up to continue; approved changes are kept."
+                        )))
+                    } else if completion_continuations == COMPLETION_CONTINUATION_LIMIT {
+                        Some((Outcome::Incomplete, format!(
+                            "Paused at the completion continuation limit of {COMPLETION_CONTINUATION_LIMIT}. Send a follow-up to continue; approved changes are kept."
+                        )))
+                    } else {
+                        None
+                    }
+                });
+                if let Some((outcome, reason)) = stop {
+                    if outcome == Outcome::Incomplete {
+                        stream
+                            .publish_final(events, run, &connection.conversation_scope())
+                            .map_err(|error| (Outcome::Failed, error))?;
+                    }
+                    return Err((outcome, reason));
                 }
                 completion_continuations += 1;
                 completion_checkpoint = Some((progress.steps.clone(), useful_results.len()));
@@ -419,9 +424,9 @@ async fn inference_rounds(
             .map_err(|error| (Outcome::Failed, error))?;
         if round == round_limit {
             return Err((
-                Outcome::Failed,
+                Outcome::Incomplete,
                 format!(
-                    "Native model round limit of {round_limit} reached; terminal call set not executed and no continuation sent. Earlier completed file effects remain; no rollback."
+                    "Paused at the model round limit of {round_limit}; the last tool calls were not executed. Send a follow-up to continue; earlier approved effects are kept."
                 ),
             ));
         }
@@ -664,15 +669,28 @@ async fn inference_rounds(
                 }
             }
         }
-        permission_obstacle |= artifact_calls
-            .iter()
-            .zip(&results)
-            .any(|((_, tool, _), result)| {
-                result["status"] == "denied"
-                    || (*tool == crate::providers::commands::NAME && result["status"] == "refused")
-            });
-        tool_obstacle =
-            permission_obstacle || results.iter().any(|result| result["status"] != "success");
+        tool_obstacle = None;
+        for ((_, tool, _), result) in artifact_calls.iter().zip(&results) {
+            let status = result["status"].as_str().unwrap_or("unknown");
+            if status == "success" {
+                continue;
+            }
+            let denied = status == "denied"
+                || (*tool == crate::providers::commands::NAME && status == "refused");
+            if denied {
+                permission_obstacle.get_or_insert_with(|| tool_stop_reason(tool, result));
+            } else if tool_obstacle
+                .as_ref()
+                .is_none_or(|(outcome, _)| *outcome != Outcome::Failed)
+            {
+                let outcome = if matches!(status, "error" | "failed") {
+                    Outcome::Failed
+                } else {
+                    Outcome::Incomplete
+                };
+                tool_obstacle = Some((outcome, tool_stop_reason(tool, result)));
+            }
+        }
         for ((call_id, tool, input), result) in artifact_calls.into_iter().zip(&mut results) {
             if let Some(input) = input
                 && result["status"] == "success"
@@ -819,7 +837,23 @@ async fn inference_rounds(
         }
         retain_public(&mut stream, &mut public)?;
     }
-    Err((Outcome::Failed, "Native model round limit reached".into()))
+    Err((Outcome::Incomplete, "Paused at the model round limit. Send a follow-up to continue; earlier approved effects are kept.".into()))
+}
+
+fn tool_stop_reason(tool: &str, result: &Value) -> String {
+    let status = result["status"].as_str().unwrap_or("unknown");
+    let message = result
+        .get("error")
+        .and_then(Value::as_str)
+        .or_else(|| result.pointer("/error/message").and_then(Value::as_str))
+        .or_else(|| result.get("message").and_then(Value::as_str))
+        .unwrap_or("The tool did not complete; inspect its result for details.");
+    let clean = safe(message, true);
+    let end = clean
+        .char_indices()
+        .nth(320)
+        .map_or(clean.len(), |(index, _)| index);
+    format!("{tool}: {status}: {}", &clean[..end])
 }
 
 fn retain_public(stream: &mut Stream, public: &mut String) -> Result<(), Failure> {

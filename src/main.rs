@@ -154,6 +154,7 @@ fn run(config: Config) -> io::Result<()> {
     let (project, cwd) = project_identity(&std::env::current_dir()?)?;
     let mut artwork = artwork::Artwork::load(&config);
     let mut restart = None;
+    let mut exit_warning = None;
     terminal::run(native::cleanup, |terminal, modes| {
         let store =
             store::Worker::start(config.data_dir.clone(), cwd.clone(), config.storage_policy)?;
@@ -369,12 +370,13 @@ fn run(config: Config) -> io::Result<()> {
             dirty |= app.drive_executions(&mut execution, &project);
             // A deferred cancel-and-exit can become ready here, before input
             // polling. Do not wait for another key after ownership is settled.
-            if app.records_allow_quit(app.quit) && app.preferences_allow_quit(true) {
+            app.settle_exit();
+            if app.quit
+                && !planning.values().any(providers::Worker::busy)
+                && !execution.values().any(runner::Worker::is_active)
+            {
+                exit_warning = app.exit_warning();
                 return Ok(());
-            }
-            if app.quit {
-                app.quit = false;
-                dirty = true;
             }
             dirty |= activity != app.execution.activity_label();
             if context_task != Some(app.task_id) {
@@ -731,15 +733,18 @@ fn run(config: Config) -> io::Result<()> {
             {
                 dirty |= resized;
             }
-            if app.records_allow_quit(app.quit) && app.preferences_allow_quit(true) {
+            if app.quit
+                && !planning.values().any(providers::Worker::busy)
+                && !execution.values().any(runner::Worker::is_active)
+            {
+                exit_warning = app.exit_warning();
                 return Ok(());
-            }
-            if app.quit {
-                app.quit = false;
-                dirty = true;
             }
         }
     })?;
+    if let Some(warning) = exit_warning {
+        eprintln!("\n{warning}");
+    }
     if let Some(executable) = restart {
         restart_installation(&executable)?;
     }

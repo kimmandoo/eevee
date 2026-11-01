@@ -469,7 +469,7 @@ class DelegationJourney(files.CreationJourney):
     def finish(self):
         self.workspace()
         self.session.command('quit')
-        confirm_exit(self.session, owned_work=True)
+        confirm_exit(self.session)
         assert self.session.wait_exit() == 0, 'binary did not restore a clean terminal exit'
 
 

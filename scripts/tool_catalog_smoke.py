@@ -168,7 +168,7 @@ class Journey(files.CreationJourney):
     def finish(self):
         self.workspace()
         self.session.command('quit')
-        confirm_exit(self.session, owned_work=True)
+        confirm_exit(self.session)
         assert self.session.wait_exit() == 0
         self.session.close()
 

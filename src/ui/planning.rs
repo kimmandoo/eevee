@@ -79,46 +79,10 @@ pub(super) fn render_workspace(frame: &mut Frame, area: Rect, app: &mut App, pai
 
 pub(super) fn render_small(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
     state.set_response_body(Rect::default());
-    if !state.quit_review {
-        state.invalidate_review();
-    }
+    state.invalidate_review();
     frame.render_widget(Clear, area);
-    let value = if state.quit_review {
-        paint.format(
-            Template::ProvidersPlanningExitPlanningTabChooseEnterEscStay,
-            &[
-                (
-                    "status",
-                    (if state.outcome_unknown() {
-                        paint.hint(Message::ProvidersPlanningUnknownOutcomeWorkMayHaveRunEffects)
-                    } else if state.cancelling {
-                        paint.hint(Message::ProvidersPlanningWaitingForCancellation)
-                    } else {
-                        paint.hint(Message::ProvidersPlanningCancelOwnedWorkBeforeExit)
-                    }),
-                ),
-                (
-                    "choices",
-                    (if state.outcome_unknown() {
-                        if state.affirmative {
-                            paint.hint(Message::ProvidersPlanningStayExitWithUnknownOutcome)
-                        } else {
-                            paint.hint(Message::ProvidersPlanningStayExitWithUnknownOutcome2)
-                        }
-                    } else if state.affirmative {
-                        paint.hint(Message::ProvidersPlanningStayCancelAndExit)
-                    } else {
-                        paint.hint(Message::ProvidersPlanningStayCancelAndExit2)
-                    }),
-                ),
-            ],
-        )
-    } else {
-        paint
-            .hint(Message::ProvidersPlanningPlanningTerminalTooSmallNeed60Columns)
-            .into()
-    };
-    super::choices(frame, area, &value, paint.accent, paint);
+    let value = paint.hint(Message::ProvidersPlanningPlanningTerminalTooSmallNeed60Columns);
+    super::choices(frame, area, value, paint.accent, paint);
 }
 
 pub(super) fn file_prompt_area(area: Rect, app: &App) -> Option<Rect> {
@@ -127,7 +91,6 @@ pub(super) fn file_prompt_area(area: Rect, app: &App) -> Option<Rect> {
         || area.width < 60
         || area.height < 18
         || state.review_details
-        || state.quit_review
         || state.journal_mode
         || state.preview.is_some()
         || state.picker.is_some()
@@ -217,7 +180,6 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             !matches!(request.kind, PromptKind::Questions(_)) || state.submit_review
         });
     let compact = !state.review_details
-        && !state.quit_review
         && !state.journal_mode
         && state.paths_editor.is_none()
         && state.custom_model.is_none()
@@ -231,7 +193,6 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         && state.paths_editor.is_none()
         && state.switch_to.is_none()
         && !state.editing
-        && !state.quit_review
         && !state.journal_mode;
     let compact_picker = local_picker && !state.review_details;
     let height = if compact_picker {
@@ -306,10 +267,6 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
     let block = panel(&title, config, paint, true);
     let content = block.inner(area);
     frame.render_widget(block, area);
-    if state.quit_review {
-        quit(frame, content, state, paint);
-        return;
-    }
     if state.switch_to.is_some() {
         switch(frame, content, state, paint);
         return;
@@ -1267,89 +1224,67 @@ fn response(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
             None
         }
     });
+    let status = state
+        .items
+        .get(state.selected)
+        .and_then(|item| item.status.as_ref());
+    let outcome = status.and_then(|status| status.outcome);
     let metadata = if let Some(item) = state.items.get(state.selected) {
-        let outcome = item
-            .status
-            .as_ref()
-            .and_then(|status| status.outcome_label());
+        let label = if !previous && let Some(request) = &state.request {
+            match request.kind {
+                PromptKind::Questions(_) => "Waiting for your answer",
+                PromptKind::Permission { .. } | PromptKind::Approval { .. } => {
+                    "Waiting for permission"
+                }
+            }
+        } else if !previous && state.cancelling {
+            "Stopping · remote completion not yet known"
+        } else if let Some(label) = status.and_then(|status| status.outcome_label()) {
+            label
+        } else if !previous && active {
+            "Response · streaming"
+        } else if item.complete {
+            "Response received · unverified"
+        } else {
+            "Partial response · unverified"
+        };
         let mut metadata = if let ItemKind::File(phase) = item.kind {
-            // A live count of actually received lines makes generation visible.
             let lines = item.text.lines().count().saturating_sub(1);
+            let outcome = status.and_then(|status| status.outcome_label());
             format!(
-                "{}{}{} {} · {lines} line{}",
+                "{}{}{} {} · {lines} lines",
                 outcome.unwrap_or(""),
                 if outcome.is_some() { " · " } else { "" },
                 paint.hint(Message::ProvidersPlanningFileLabel),
                 paint.hint(file_phase_message(phase)),
-                if lines == 1 { "" } else { "s" },
             )
         } else {
-            format!(
-                "{}{}{}{}{} · {}{}",
-                outcome.unwrap_or(""),
-                if outcome.is_some() { " · " } else { "" },
-                if previous {
-                    paint.hint(Message::ProvidersPlanningPrevious)
-                } else {
-                    ""
-                },
-                if item.text.is_empty() && outcome.is_some() {
-                    "Request outcome"
-                } else {
-                    match item.kind {
-                        ItemKind::Message => paint.hint(Message::ProvidersPlanningResponse),
-                        ItemKind::Plan => paint.hint(Message::ProvidersPlanningPlan),
-                        ItemKind::Tool => paint.hint(Message::ProvidersPlanningToolOutput),
-                        ItemKind::File(_) => paint.hint(Message::ProvidersPlanningFilePreview),
-                    }
-                },
-                if super::VERBOSE.get() {
-                    format!(" {}/{}", state.selected + 1, state.items.len())
-                } else {
-                    String::new()
-                },
-                if let ItemKind::File(phase) = item.kind {
-                    paint.hint(file_phase_message(phase))
-                } else if item.text.is_empty() && outcome.is_some() {
-                    "no provider output"
-                } else if !previous && state.request.is_some() {
-                    paint.hint(Message::ProvidersPlanningWaitingForReview)
-                } else if item.complete {
-                    paint.hint(Message::ProvidersPlanningComplete)
-                } else if active && !previous && !state.cancelling {
-                    paint.hint(Message::ProvidersPlanningStreaming)
-                } else {
-                    paint.hint(Message::ProvidersPlanningPartial)
-                },
-                if matches!(item.kind, ItemKind::File(_)) {
-                    ""
-                } else {
-                    " · unverified"
-                },
-            )
+            label.to_owned()
         };
-        let model = item
-            .status
-            .as_ref()
-            .and_then(|status| status.model.as_deref())
-            .or_else(|| {
-                (!previous)
-                    .then_some(state.observed_model.as_deref())
-                    .flatten()
-            });
-        if let Some(model) = model {
+        if previous {
+            let _ = write!(metadata, " · previous request");
+        }
+        if let Some(model) = status.and_then(|status| status.model.as_deref()) {
             let _ = write!(metadata, " · {model}");
         }
-        let _ = write!(
-            metadata,
-            " · {}",
-            crate::store::Attribution::label(item.owner.as_ref())
-        );
+        if super::VERBOSE.get() {
+            let _ = write!(
+                metadata,
+                " · {}/{} · {}",
+                state.selected + 1,
+                state.items.len(),
+                crate::store::Attribution::label(item.owner.as_ref()),
+            );
+        }
         metadata
+    } else if state.request.is_some() {
+        "Waiting for your input".into()
+    } else if state.cancelling {
+        "Stopping · remote completion not yet known".into()
     } else if state.outcome_unknown() {
-        paint
-            .hint(Message::ProvidersPlanningNoResponseOutcomeUnknown)
-            .into()
+        "Completion unknown · inspect effects before retrying".into()
+    } else if active {
+        "Response · waiting for output".into()
     } else {
         paint
             .hint(Message::ProvidersPlanningResponseNoOutputYet)
@@ -1370,20 +1305,17 @@ fn response(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
         frame,
         row(area, header_rows - 1, 1),
         &clipped(&metadata, area.width as usize),
-        state
-            .items
-            .get(state.selected)
-            .and_then(|item| match item.kind {
-                ItemKind::File(phase) => Some(file_style(phase, paint)),
-                _ => None,
-            })
+        outcome
+            .map(|outcome| outcome_style(outcome, paint))
             .unwrap_or(paint.accent),
     );
-    let show_notice = !active && state.request.is_none() && !state.notice.is_empty();
+    let show_notice = !active
+        && state.request.is_none()
+        && !state.notice.is_empty()
+        && status.is_none_or(|status| status.outcome.is_none() || state.notice != status.reason);
     let show_follow = !state.items.is_empty();
     let show_evidence = show_follow && (super::VERBOSE.get() || state.omitted > 0);
-    let footer_rows =
-        u16::from(show_notice) + 2 * u16::from(show_follow) + u16::from(show_evidence);
+    let footer_rows = u16::from(show_notice) + u16::from(show_follow) + u16::from(show_evidence);
     let body = row(
         area,
         header_rows,
@@ -1411,6 +1343,9 @@ fn response(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
         {
             let target = super::row(body, index as u16, 1);
             let line = match row.kind {
+                _ if row.outcome.is_some() => {
+                    Line::styled(row.text, outcome_style(row.outcome.unwrap(), paint))
+                }
                 _ if row.todo => {
                     let style = if row.text.starts_with("Todo progress") {
                         paint.accent.add_modifier(Modifier::BOLD)
@@ -1537,47 +1472,22 @@ fn response(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
     }
     if show_follow {
         let (start, end, total) = state.response_position();
-        let navigation = paint.format(
-            Template::ProvidersPlanningStartEndTotalAltEndLatest,
-            &[
-                (
-                    "status",
-                    (if !state.following {
-                        paint.hint(Message::ProvidersPlanningPaused)
-                    } else if state.new_output {
-                        paint.hint(Message::ProvidersPlanningNewOutput)
-                    } else {
-                        paint.hint(Message::ProvidersPlanningFollowing)
-                    }),
-                ),
-                (
-                    "new",
-                    (if state.new_output && !state.following {
-                        paint.hint(Message::ProvidersPlanningNew2)
-                    } else {
-                        ""
-                    }),
-                ),
-                ("start", &(start).to_string()),
-                ("end", &(end).to_string()),
-                ("total", &(total).to_string()),
-            ],
-        );
+        let following = if !state.following {
+            if state.new_output {
+                "Scroll paused +new"
+            } else {
+                "Scroll paused"
+            }
+        } else {
+            "Following"
+        };
+        let navigation =
+            format!("{following} {start}-{end}/{total} · PgUp/Dn · Alt+End · /verbose");
         text(
             frame,
             row(area, footer_y, 1),
             &clipped(&navigation, area.width as usize),
             paint.accent,
-        );
-        footer_y += 1;
-        text(
-            frame,
-            row(area, footer_y, 1),
-            &clipped(
-                paint.hint(Message::ProvidersPlanningWheelPgupDnAltUpDownItem),
-                area.width as usize,
-            ),
-            paint.muted,
         );
         footer_y += 1;
     }
@@ -1598,6 +1508,17 @@ fn response(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
             &clipped(&evidence, area.width as usize),
             paint.muted,
         );
+    }
+}
+
+/// A stop or unfinished response is not a provider/tool failure.
+fn outcome_style(outcome: crate::providers::Outcome, paint: &Paint) -> Style {
+    use crate::providers::Outcome;
+    match outcome {
+        Outcome::Failed => tool_style(ToolStatus::Failed, paint),
+        Outcome::Unknown => paint.accent.add_modifier(Modifier::BOLD),
+        Outcome::Incomplete | Outcome::Cancelled => paint.accent,
+        Outcome::Completed => paint.muted,
     }
 }
 
@@ -1625,10 +1546,8 @@ fn file_style(phase: FilePhase, paint: &Paint) -> Style {
         FilePhase::Generating | FilePhase::Received => Color::Cyan,
         FilePhase::AwaitingReview => Color::Yellow,
         FilePhase::Applied => Color::Green,
-        FilePhase::Denied
-        | FilePhase::Refused
-        | FilePhase::Interrupted
-        | FilePhase::ReportedFailed => Color::Red,
+        FilePhase::Refused | FilePhase::ReportedFailed => Color::Red,
+        FilePhase::Denied | FilePhase::Interrupted => Color::Yellow,
         FilePhase::Reported | FilePhase::Unknown => Color::Magenta,
     })
 }
@@ -1868,7 +1787,7 @@ fn picker(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
         text(
             frame,
             row(area, area.height.saturating_sub(1), 1),
-            paint.hint(Message::ProvidersPlanningPgupDnScrollCtrlDEscBack),
+            paint.hint(Message::ProvidersPlanningPgupDnScrollAltDEscBack),
             paint.accent,
         );
         return;
@@ -1933,15 +1852,15 @@ fn picker(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
         );
     }
     let status = if state.catalogue_loading() {
-        paint.hint(Message::ProvidersPlanningLoadingMetadataCtrlDDetails)
+        paint.hint(Message::ProvidersPlanningLoadingMetadataAltDDetails)
     } else if state.catalogue_error().is_some() {
         if state.catalogues.contains_key(&state.agent) {
-            paint.hint(Message::ProvidersPlanningRefreshFailedCachedRowsUsableCtrlD)
+            paint.hint(Message::ProvidersPlanningRefreshFailedCachedRowsUsableAltD)
         } else {
-            paint.hint(Message::ProvidersPlanningFetchFailedRefreshToRetryCtrlD)
+            paint.hint(Message::ProvidersPlanningFetchFailedRefreshToRetryAltD)
         }
     } else {
-        paint.hint(Message::ProvidersPlanningFocusCurrentCtrlDDetails)
+        paint.hint(Message::ProvidersPlanningFocusCurrentAltDDetails)
     };
     text(
         frame,
@@ -2190,64 +2109,6 @@ fn paths_editor(frame: &mut Frame, area: Rect, state: &State, paint: &Paint) {
         row(area, area.height.saturating_sub(2), 2),
         &super::brief(&state.notice),
         paint.muted,
-    );
-}
-
-fn quit(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
-    state.reviewed = render_summary(
-        frame,
-        row(area, 0, area.height.saturating_sub(5)),
-        &[
-            if state.outcome_unknown() {
-                paint
-                    .hint(Message::ProvidersPlanningUnknownOutcomeWorkMayHaveRun)
-                    .into()
-            } else {
-                paint
-                    .hint(Message::ProvidersPlanningCancelOwnedWorkAndExitPlanning)
-                    .into()
-            },
-            paint
-                .hint(Message::ProvidersPlanningEffectsAreNotUndoneProviderHistoryIs)
-                .into(),
-            paint
-                .hint(Message::ProvidersPlanningWaitsForAcknowledgementOrBoundedTeardown)
-                .into(),
-            paint
-                .hint(Message::ProvidersPlanningUnknownOutcomeNeedsASecondExplicitExit)
-                .into(),
-        ],
-        paint,
-    );
-    text(
-        frame,
-        row(area, area.height.saturating_sub(5), 2),
-        &super::brief(&state.notice),
-        paint.muted,
-    );
-    let choice = if state.outcome_unknown() {
-        if state.affirmative {
-            paint.hint(Message::ProvidersPlanningStayExitWithUnknownOutcome)
-        } else {
-            paint.hint(Message::ProvidersPlanningStayExitWithUnknownOutcome2)
-        }
-    } else if state.affirmative {
-        paint.hint(Message::ProvidersPlanningStayCancelRemainingWorkAndExit)
-    } else {
-        paint.hint(Message::ProvidersPlanningStayCancelRemainingWorkAndExit2)
-    };
-    super::choices(
-        frame,
-        row(area, area.height.saturating_sub(3), 1),
-        choice,
-        paint.accent,
-        paint,
-    );
-    text(
-        frame,
-        row(area, area.height.saturating_sub(2), 2),
-        paint.hint(Message::ProvidersPlanningYConfirmExitNStayTabChoose),
-        paint.accent,
     );
 }
 
@@ -2741,6 +2602,142 @@ mod tests {
     }
 
     #[test]
+    fn terminal_request_summary_keeps_content_cause_and_semantic_status_visible() {
+        use crate::{
+            app::planning::{Item, RequestStatus},
+            providers::Outcome,
+        };
+        use std::sync::Arc;
+
+        super::super::VERBOSE.set(false);
+        for (width, height) in [(60, 18), (120, 36)] {
+            for color in [ColorMode::TrueColor, ColorMode::Mono] {
+                let mut config = config();
+                config.color = color;
+                let paint = Paint::new(&config, &crate::domain::FORMS[0], 0);
+                for outcome in [
+                    Outcome::Incomplete,
+                    Outcome::Cancelled,
+                    Outcome::Failed,
+                    Outcome::Unknown,
+                ] {
+                    let mut state = State::default();
+                    let request: Arc<str> = "Inspect the result".into();
+                    let status = Arc::new(RequestStatus {
+                        generation: 7,
+                        task_id: 1,
+                        agent: crate::providers::Agent::Compatible,
+                        operation: Operation::Implement,
+                        model: Some("actual-model".into()),
+                        transport: None,
+                        outcome: Some(outcome),
+                        reason: "Exact retained cause".into(),
+                        public_context: Some(false),
+                    });
+                    for index in 0..4 {
+                        state.items.push(Item {
+                            thread_id: "native-7".into(),
+                            turn_id: format!("round-{index}"),
+                            item_id: format!("message-{index}"),
+                            kind: ItemKind::Message,
+                            text: format!("Useful result {index}"),
+                            complete: true,
+                            request: Arc::clone(&request),
+                            owner: None,
+                            status: Some(Arc::clone(&status)),
+                        });
+                    }
+                    let buffer = draw_response(&mut state, width, height, &paint);
+                    let visible = screen(&buffer);
+                    for index in 0..4 {
+                        assert!(
+                            visible.contains(&format!("Useful result {index}")),
+                            "{visible}"
+                        );
+                    }
+                    assert_eq!(visible.matches(&status.reason).count(), 1, "{visible}");
+                    assert!(
+                        visible.contains(status.outcome_label().unwrap()),
+                        "{visible}"
+                    );
+                    assert!(visible.contains("/verbose"), "{visible}");
+                    let rows = state
+                        .response_display_rows(width, height, false)
+                        .collect::<Vec<_>>();
+                    assert!(rows.iter().any(|row| row.outcome == Some(outcome)));
+                    assert!(
+                        !visible.contains("Public context:")
+                            && !visible.contains("Request outcome:"),
+                        "{visible}"
+                    );
+                    if matches!(color, ColorMode::TrueColor) {
+                        assert_eq!(
+                            outcome_style(outcome, &paint).fg == Some(Color::Red),
+                            outcome == Outcome::Failed,
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn compact_long_cause_reflows_without_losing_exact_verbose_diagnostics() {
+        use crate::{
+            app::planning::{Item, RequestStatus},
+            providers::Outcome,
+        };
+        use std::sync::Arc;
+
+        super::super::VERBOSE.set(false);
+        let paint = Paint::new(&config(), &crate::domain::FORMS[0], 0);
+        let mut state = State::default();
+        let reason = format!(
+            "Provider rejected this input: {} exact-tail",
+            "detail ".repeat(80)
+        );
+        let status = Arc::new(RequestStatus {
+            generation: 7,
+            task_id: 1,
+            agent: crate::providers::Agent::Compatible,
+            operation: Operation::Implement,
+            model: None,
+            transport: None,
+            outcome: Some(Outcome::Failed),
+            reason: reason.clone(),
+            public_context: Some(false),
+        });
+        state.items.push(Item {
+            thread_id: "native-7".into(),
+            turn_id: "round".into(),
+            item_id: "answer".into(),
+            kind: ItemKind::Message,
+            text: "Useful partial result".into(),
+            complete: false,
+            request: "Inspect result".into(),
+            owner: None,
+            status: Some(status),
+        });
+        for (width, height) in [(60, 18), (120, 36), (60, 18)] {
+            let visible = screen(&draw_response(&mut state, width, height, &paint));
+            assert!(visible.contains("Useful partial result"), "{visible}");
+            assert!(
+                visible.contains("Provider rejected this input:"),
+                "{visible}"
+            );
+            assert!(visible.contains("[...] /verbose"), "{visible}");
+            assert!(visible.contains("retry explicitly"), "{visible}");
+        }
+        let verbose = state
+            .response_rows(120, 100, true)
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(verbose.contains("exact-tail"), "{verbose}");
+        assert_eq!(state.items[0].status.as_ref().unwrap().reason, reason);
+        assert!(state.pending.is_none() && state.decision.is_none());
+    }
+
+    #[test]
     fn code_token_boundaries_preserve_combining_clusters() {
         let config = config();
         let paint = Paint::new(&config, &crate::domain::FORMS[0], 0);
@@ -2877,9 +2874,14 @@ mod tests {
                     });
                     let buffer = draw_response(&mut state, width, height, &paint);
                     let file = screen(&buffer);
+                    let header = state
+                        .response_display_rows(width, height, false)
+                        .filter(|row| row.header)
+                        .map(|row| row.text)
+                        .collect::<String>();
                     assert!(
                         file.contains(paint.hint(Message::ProvidersPlanningFileLabel))
-                            && file.contains(paint.hint(file_phase_message(phase)))
+                            && header.contains(paint.hint(file_phase_message(phase)))
                             && file.contains("e\u{301}"),
                         "{file}"
                     );
@@ -3018,7 +3020,12 @@ mod tests {
                     "{visible}"
                 );
                 assert!(
-                    visible.contains("Awaiting review") && !visible.contains("+ [FILE]"),
+                    visible.contains("界 e\u{301}")
+                        && visible
+                            .lines()
+                            .filter(|line| line.contains("held_"))
+                            .all(|line| line.starts_with("| "))
+                        && !visible.contains("+ [FILE]"),
                     "{visible}"
                 );
                 assert!(!app.planning.following && app.planning.new_output);
@@ -3047,7 +3054,7 @@ mod tests {
         });
         let screen = draw_home(&mut app);
         assert!(screen.contains("Earlier interrupted answer"), "{screen}");
-        assert!(screen.contains("partial"), "{screen}");
+        assert_eq!(app.planning.response_request(), ("Earlier request", true));
         assert!(!screen.contains("streaming"), "{screen}");
         assert!(!screen.contains("current-model-only"), "{screen}");
     }
@@ -3078,12 +3085,12 @@ mod tests {
             "metadata is not scrollable"
         );
         assert!(
-            !app.planning.response_wheel(2, 8, -1),
-            "status is not scrollable"
+            app.planning.response_wheel(2, 8, -1),
+            "the last content row remains scrollable after compacting chrome"
         );
         assert!(
             !app.planning.response_wheel(2, 9, -1),
-            "hints are not scrollable"
+            "navigation is not scrollable"
         );
         assert!(app.planning.response_wheel(2, 3, -1));
         draw(&mut app);

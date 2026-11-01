@@ -32,26 +32,29 @@ $keepStage = $false
 $installLock = $null
 $archiveStream = $null
 $zip = $null
-# Functions share these fields in both -File and embedded ScriptBlock execution.
-$script:animation = $false
-$script:animationClock = [Diagnostics.Stopwatch]::new()
-$script:animationFrame = 0
-$script:animationTop = 0
-$script:oldCursorVisible = $true
+# Invocation-local mutable state: ScriptBlock execution must not write into the
+# caller's script/global scope. Functions share this object, not $script: fields.
+$installerState = @{
+    animation = $false
+    animationClock = [Diagnostics.Stopwatch]::new()
+    animationFrame = 0
+    animationTop = 0
+    oldCursorVisible = $true
+    ownerProcess = $null
+    ownerStartTicks = 0L
+}
 $oldSecurityProtocol = [Net.ServicePointManager]::SecurityProtocol
-$script:ownerProcess = $null
-$script:ownerStartTicks = 0L
 $deferCleanup = $false
 
 function Assert-RunningOwner([string]$Binary) {
     if ($OwnerProcessId -lt 0) { throw 'OwnerProcessId must be a positive process ID.' }
-    if ($OwnerProcessId -ne 0 -and $null -eq $script:ownerProcess) {
-        $script:ownerProcess = [Diagnostics.Process]::GetProcessById($OwnerProcessId)
-        $script:ownerStartTicks = $script:ownerProcess.StartTime.ToUniversalTime().Ticks
+    if ($OwnerProcessId -ne 0 -and $null -eq $installerState.ownerProcess) {
+        $installerState.ownerProcess = [Diagnostics.Process]::GetProcessById($OwnerProcessId)
+        $installerState.ownerStartTicks = $installerState.ownerProcess.StartTime.ToUniversalTime().Ticks
     }
-    if ($null -ne $script:ownerProcess) {
-        if ($script:ownerProcess.HasExited -or
-            -not [string]::Equals($script:ownerProcess.MainModule.FileName, $Binary, [StringComparison]::OrdinalIgnoreCase)) {
+    if ($null -ne $installerState.ownerProcess) {
+        if ($installerState.ownerProcess.HasExited -or
+            -not [string]::Equals($installerState.ownerProcess.MainModule.FileName, $Binary, [StringComparison]::OrdinalIgnoreCase)) {
             throw 'OwnerProcessId must identify the running owned ev.exe being changed.'
         }
     }
@@ -82,7 +85,7 @@ try {
     catch [ArgumentException] { }
     if (`$null -ne `$owner) {
         try {
-            if (`$owner.StartTime.ToUniversalTime().Ticks -eq $ownerStartTicks -and -not `$owner.WaitForExit(120000)) {
+            if (`$owner.StartTime.ToUniversalTime().Ticks -eq $($installerState.ownerStartTicks) -and -not `$owner.WaitForExit(120000)) {
                 throw 'Original updater did not exit within 120 seconds.'
             }
         } finally { `$owner.Dispose() }
@@ -107,7 +110,7 @@ try {
 
 # Original 16x16 Poke Ball pixel art: K outline/band, R/D/H red shades, W/g white
 # shades, F the lit button. Code points keep this file ASCII for Windows PowerShell.
-$script:ballArt = @(
+$installerState.ballArt = @(
     '.....KKKKKK.....',
     '...KKRRRRRRKK...',
     '..KRRRRRRRRRRK..',
@@ -125,7 +128,7 @@ $script:ballArt = @(
     '...KKWWWWggKK...',
     '.....KKKKKK.....'
 )
-$script:ballFlashArt = @(
+$installerState.ballFlashArt = @(
     '.....KKKKKK.....',
     '...KKRRRRRRKK...',
     '..KRRRRRRRRRRK..',
@@ -143,21 +146,21 @@ $script:ballFlashArt = @(
     '...KKWWWWggKK...',
     '.....KKKKKK.....'
 )
-$script:ballColors = @{ K = [ConsoleColor]::DarkGray; R = [ConsoleColor]::Red; D = [ConsoleColor]::DarkRed; H = [ConsoleColor]::White;
+$installerState.ballColors = @{ K = [ConsoleColor]::DarkGray; R = [ConsoleColor]::Red; D = [ConsoleColor]::DarkRed; H = [ConsoleColor]::White;
     W = [ConsoleColor]::White; g = [ConsoleColor]::Gray; F = [ConsoleColor]::Red }
-$script:ballUpper = [string][char]0x2580
-$script:ballLower = [string][char]0x2584
-$script:ballFull = [string][char]0x2588
-$script:ballLight = [string][char]0x2591
-$script:ballMedium = [string][char]0x2592
-$script:ballAscii = @('     ______', "   .'      '.", '  /          \', ' |=====(o)====|', ' |            |', '  \          /', "   '.______.'", '')
+$installerState.ballUpper = [string][char]0x2580
+$installerState.ballLower = [string][char]0x2584
+$installerState.ballFull = [string][char]0x2588
+$installerState.ballLight = [string][char]0x2591
+$installerState.ballMedium = [string][char]0x2592
+$installerState.ballAscii = @('     ______', "   .'      '.", '  /          \', ' |=====(o)====|', ' |            |', '  \          /', "   '.______.'", '')
 
 function Test-BlockGlyphs {
     # Windows PowerShell writes through the console code page; fall back to
     # ASCII art when that page cannot carry the half-block characters.
     try {
         $encoding = [Console]::OutputEncoding
-        $sample = $script:ballUpper + $script:ballLower + $script:ballFull + $script:ballLight + $script:ballMedium
+        $sample = $installerState.ballUpper + $installerState.ballLower + $installerState.ballFull + $installerState.ballLight + $installerState.ballMedium
         return $encoding.GetString($encoding.GetBytes($sample)) -ceq $sample
     } catch { return $false }
 }
@@ -174,31 +177,31 @@ function Start-InstallAnimation([string]$Phase) {
         $width = [Console]::WindowWidth
         [Console]::Error.WriteLine($Phase.Substring(0, [Math]::Min($Phase.Length, [Math]::Max(1, $width - 1))))
         if ($width -lt 20 -or [Console]::WindowHeight -lt 12) { return }
-        $script:oldCursorVisible = [Console]::CursorVisible
-        $script:animation = $true
+        $installerState.oldCursorVisible = [Console]::CursorVisible
+        $installerState.animation = $true
         [Console]::CursorVisible = $false
         [Console]::Error.Write("`n`n`n`n`n`n`n")
-        $script:animationTop = [Console]::CursorTop - 7
-        $script:animationFrame = 0
-        $script:animationClock.Restart()
+        $installerState.animationTop = [Console]::CursorTop - 7
+        $installerState.animationFrame = 0
+        $installerState.animationClock.Restart()
         Update-InstallAnimation -Force
     } catch { Stop-InstallAnimation }
 }
 
 function Update-InstallAnimation([switch]$Force) {
-    if (-not $script:animation -or (-not $Force -and $script:animationClock.ElapsedMilliseconds -lt 160)) { return }
+    if (-not $installerState.animation -or (-not $Force -and $installerState.animationClock.ElapsedMilliseconds -lt 160)) { return }
     try {
         $width = [Math]::Min([Console]::WindowWidth, [Console]::BufferWidth)
         # The phase is ordinary text above a small redraw area, so reflow of
         # long phase text never becomes part of a moving animation frame.
-        $script:animationTop = [Math]::Max(0, [Console]::CursorTop - 7)
+        $installerState.animationTop = [Math]::Max(0, [Console]::CursorTop - 7)
         # Shake like a caught ball: left, centre, right, then rest while the
         # button lights up once. Pixels pair into half-block cells.
-        $step = $script:animationFrame % 8
+        $step = $installerState.animationFrame % 8
         $indent = 1
         if ($step -eq 1) { $indent = 0 } elseif ($step -eq 3) { $indent = 2 }
-        $art = $script:ballArt
-        if ($step -eq 5) { $art = $script:ballFlashArt }
+        $art = $installerState.ballArt
+        if ($step -eq 5) { $art = $installerState.ballFlashArt }
         $colored = $null -eq [Environment]::GetEnvironmentVariable('NO_COLOR')
         $oldColor = [Console]::ForegroundColor
         $oldBack = [Console]::BackgroundColor
@@ -206,12 +209,12 @@ function Update-InstallAnimation([switch]$Force) {
         $blocks = Test-BlockGlyphs
         try {
             for ($row = 0; $row -lt 8; $row++) {
-                [Console]::SetCursorPosition(0, $script:animationTop + $row)
+                [Console]::SetCursorPosition(0, $installerState.animationTop + $row)
                 [Console]::Error.Write(' ' * [Math]::Max(0, [Math]::Min(18, $width - 1)))
                 if (-not $fits) { continue }
-                [Console]::SetCursorPosition($indent, $script:animationTop + $row)
+                [Console]::SetCursorPosition($indent, $installerState.animationTop + $row)
                 if (-not $blocks) {
-                    $line = $script:ballAscii[$row]
+                    $line = $installerState.ballAscii[$row]
                     if ($row -eq 3 -and $step -eq 5) { $line = ' |=====(O)====|' }
                     if ($colored) {
                         if ($row -lt 3) { [Console]::ForegroundColor = [ConsoleColor]::Red }
@@ -226,18 +229,18 @@ function Update-InstallAnimation([switch]$Force) {
                     $bottom = $art[2 * $row + 1][$x]
                     if ($colored) {
                         if ($top -eq '.' -and $bottom -eq '.') { $glyph = ' '; $fore = $oldColor; $back = $oldBack }
-                        elseif ($top -eq $bottom) { $glyph = $script:ballFull; $fore = $script:ballColors[[string]$top]; $back = $oldBack }
-                        elseif ($top -eq '.') { $glyph = $script:ballLower; $fore = $script:ballColors[[string]$bottom]; $back = $oldBack }
-                        elseif ($bottom -eq '.') { $glyph = $script:ballUpper; $fore = $script:ballColors[[string]$top]; $back = $oldBack }
-                        else { $glyph = $script:ballUpper; $fore = $script:ballColors[[string]$top]; $back = $script:ballColors[[string]$bottom] }
+                        elseif ($top -eq $bottom) { $glyph = $installerState.ballFull; $fore = $installerState.ballColors[[string]$top]; $back = $oldBack }
+                        elseif ($top -eq '.') { $glyph = $installerState.ballLower; $fore = $installerState.ballColors[[string]$bottom]; $back = $oldBack }
+                        elseif ($bottom -eq '.') { $glyph = $installerState.ballUpper; $fore = $installerState.ballColors[[string]$top]; $back = $oldBack }
+                        else { $glyph = $installerState.ballUpper; $fore = $installerState.ballColors[[string]$top]; $back = $installerState.ballColors[[string]$bottom] }
                         [Console]::ForegroundColor = $fore
                         [Console]::BackgroundColor = $back
                     } else {
-                        if (($top -eq 'K' -and 'KF'.Contains([string]$bottom)) -or ($bottom -eq 'K' -and $top -eq 'F')) { $glyph = $script:ballFull }
-                        elseif ($top -eq 'K') { $glyph = $script:ballUpper }
-                        elseif ($bottom -eq 'K') { $glyph = $script:ballLower }
-                        elseif ('RDH'.Contains([string]$top) -or 'RDH'.Contains([string]$bottom)) { $glyph = $script:ballLight }
-                        elseif ($top -eq 'F' -or $bottom -eq 'F') { $glyph = $script:ballMedium }
+                        if (($top -eq 'K' -and 'KF'.Contains([string]$bottom)) -or ($bottom -eq 'K' -and $top -eq 'F')) { $glyph = $installerState.ballFull }
+                        elseif ($top -eq 'K') { $glyph = $installerState.ballUpper }
+                        elseif ($bottom -eq 'K') { $glyph = $installerState.ballLower }
+                        elseif ('RDH'.Contains([string]$top) -or 'RDH'.Contains([string]$bottom)) { $glyph = $installerState.ballLight }
+                        elseif ($top -eq 'F' -or $bottom -eq 'F') { $glyph = $installerState.ballMedium }
                         else { $glyph = ' ' }
                     }
                     [Console]::Error.Write($glyph)
@@ -247,15 +250,15 @@ function Update-InstallAnimation([switch]$Force) {
             [Console]::ForegroundColor = $oldColor
             [Console]::BackgroundColor = $oldBack
         }
-        [Console]::SetCursorPosition(0, $script:animationTop + 7)
-        $script:animationFrame++
-        $script:animationClock.Restart()
+        [Console]::SetCursorPosition(0, $installerState.animationTop + 7)
+        $installerState.animationFrame++
+        $installerState.animationClock.Restart()
     } catch { Stop-InstallAnimation }
 }
 
 function Stop-InstallAnimation {
-    if (-not $script:animation) { return }
-    $script:animation = $false
+    if (-not $installerState.animation) { return }
+    $installerState.animation = $false
     try {
         $width = [Math]::Min([Console]::WindowWidth, [Console]::BufferWidth)
         $top = [Math]::Max(0, [Console]::CursorTop - 7)
@@ -265,7 +268,7 @@ function Stop-InstallAnimation {
         }
         [Console]::SetCursorPosition(0, $top)
     } catch { }
-    try { [Console]::CursorVisible = $script:oldCursorVisible } catch { }
+    try { [Console]::CursorVisible = $installerState.oldCursorVisible } catch { }
 }
 
 function Get-ReleaseResponse([uri]$Uri, [Diagnostics.Stopwatch]$Clock, [string]$Method) {
@@ -678,7 +681,7 @@ try {
             throw "Could not uninstall ev; previous installation was preserved. Close running ev and retry. Details: $uninstallError"
         }
         $keepStage = $false
-        $deferCleanup = $null -ne $ownerProcess
+        $deferCleanup = $null -ne $installerState.ownerProcess
         Write-Output "Uninstalled ev from $binary. Task, cache, and provider data were retained."
         return
     }
@@ -822,7 +825,7 @@ try {
         }
         [IO.Directory]::Move($stageMetadata, $metadata)
         $metadataPublished = $true
-        if ($hadInstall -and $null -ne $ownerProcess) {
+        if ($hadInstall -and $null -ne $installerState.ownerProcess) {
             # A running image can be renamed, but not deleted. Only this verified
             # updater's image may take this path; other running ev instances were rejected.
             [IO.File]::Move($binary, $backupBinary)
@@ -842,7 +845,7 @@ try {
         try {
             if ($hadInstall -and [IO.File]::Exists($backupBinary)) {
                 if ([IO.File]::Exists($binary)) {
-                    if ($null -ne $ownerProcess) {
+                    if ($null -ne $installerState.ownerProcess) {
                         [IO.File]::Move($binary, $stageBinary)
                         [IO.File]::Move($backupBinary, $binary)
                     } else { [IO.File]::Replace($backupBinary, $binary, $stageBinary, $false) }
@@ -861,7 +864,7 @@ try {
         throw "Could not publish ev; previous installation was preserved. Close any running ev and retry. The installer never stops installed ev processes. Details: $publicationError"
     }
     $keepStage = $false
-    $deferCleanup = $hadInstall -and $null -ne $ownerProcess
+    $deferCleanup = $hadInstall -and $null -ne $installerState.ownerProcess
     Stop-InstallAnimation
     Write-Output "Installed $version at $binary"
     $onPath = $false
@@ -881,8 +884,9 @@ try {
     }
 } catch {
     Stop-InstallAnimation
-    [Console]::Error.WriteLine('ev installer: ' + $_.Exception.Message)
-    exit 1
+    # A terminating error gives -File its nonzero exit status without `exit`
+    # terminating the user's host when the documented ScriptBlock is called.
+    throw
 } finally {
     Stop-InstallAnimation
     [Net.ServicePointManager]::SecurityProtocol = $oldSecurityProtocol
@@ -897,5 +901,5 @@ try {
         [Console]::Error.WriteLine("Installation transaction was interrupted or could not roll back; recovery files retained at $stage.")
     }
     if ($null -ne $installLock) { $installLock.Dispose() }
-    if ($null -ne $ownerProcess) { $ownerProcess.Dispose() }
+    if ($null -ne $installerState.ownerProcess) { $installerState.ownerProcess.Dispose() }
 }

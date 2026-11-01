@@ -183,7 +183,7 @@ impl State {
     }
 
     pub fn request_quit(&mut self) {
-        self.quit_review = true;
+        self.quit_ready = true;
         self.auto_permission_review = false;
         self.invalidate_review();
         self.editing = false;
@@ -561,7 +561,7 @@ impl State {
             answer.cursor += inserted.len();
             return !inserted.is_empty();
         }
-        if !self.editing || self.quit_review || self.cancelling {
+        if !self.editing || self.cancelling {
             return false;
         }
         let Some(answer) = self.answers.get_mut(self.question) else {
@@ -776,7 +776,7 @@ impl State {
         if self.task != task.id && !self.busy() && !self.journal_failed() {
             self.reset(task.id);
         }
-        if !large_enough && !self.quit_review {
+        if !large_enough {
             self.invalidate_review();
         }
         // Repeated navigation may scroll, but cannot authorize or terminate a request.
@@ -792,40 +792,6 @@ impl State {
             )
         {
             return false;
-        }
-        if self.quit_review {
-            if key.kind == KeyEventKind::Press
-                && key.modifiers.is_empty()
-                && self.reviewed
-                && large_enough
-                && matches!(key.code, KeyCode::Char('y' | 'n'))
-            {
-                self.affirmative = key.code == KeyCode::Char('y');
-                key.code = KeyCode::Enter;
-            }
-            match key.code {
-                KeyCode::Esc => {
-                    self.quit_review = false;
-                    self.affirmative = false;
-                }
-                KeyCode::Tab | KeyCode::BackTab | KeyCode::Left | KeyCode::Right => {
-                    self.affirmative = !self.affirmative
-                }
-                KeyCode::Enter if key.kind == KeyEventKind::Press => {
-                    self.quit_review = false;
-                    if self.affirmative {
-                        self.quit_after_cancel = true;
-                        self.cancel();
-                        if !self.active && !self.awaiting_preview && !self.cancelling {
-                            self.quit_after_cancel = false;
-                            self.quit_ready = true;
-                        }
-                    }
-                    self.affirmative = false;
-                }
-                _ => return false,
-            }
-            return true;
         }
         if self.custom_model.is_some() {
             return if large_enough || key.code == KeyCode::Esc {
@@ -876,7 +842,7 @@ impl State {
         if self.picker.is_some()
             && self.selection_change.is_none()
             && large_enough
-            && key.modifiers == KeyModifiers::CONTROL
+            && key.modifiers == KeyModifiers::ALT
             && key.code == KeyCode::Char('d')
         {
             self.review_details = !self.review_details;

@@ -1003,6 +1003,9 @@ impl App {
     }
 
     pub(crate) fn command_disabled_reason(&self, name: &str) -> Option<String> {
+        if name == "quit" {
+            return None;
+        }
         if self.transitioning
             || self.quit_after_save
             || self.reset_after_save
@@ -1613,6 +1616,10 @@ impl App {
     }
 
     pub fn command(&mut self, name: &str) -> bool {
+        if name == "quit" {
+            self.request_quit();
+            return true;
+        }
         if (self.formation_inspector_active() || self.held_inspection_active())
             && !matches!(name, "cancel" | "cancel-all" | "quit")
         {
@@ -1643,7 +1650,7 @@ impl App {
         if self.context_tool_command(name) {
             return true;
         }
-        if matches!(name, "cancel" | "cancel-all" | "quit") {
+        if matches!(name, "cancel" | "cancel-all") {
             self.workflow.authoring.invalidate();
         }
         if name == "recipe-save" {
@@ -1704,10 +1711,6 @@ impl App {
         match name {
             "journal-discard" => {
                 self.request_journal_discard();
-                return true;
-            }
-            "quit" => {
-                self.request_quit();
                 return true;
             }
             "approvals" => {
@@ -2501,7 +2504,7 @@ mod tests {
     fn busy_request_rechecks_global_prefix_commands_without_dispatch() {
         let mut app = App::new("/workspace".into(), 120, 36);
         app.editing = false;
-        app.planning.quit_review = true;
+        app.planning.paths_editor = Some(Default::default());
         assert!(app.planning.busy());
         for name in [
             "provider-codex",
@@ -2514,8 +2517,26 @@ mod tests {
             app.command(name);
             assert!(app.planning.pending.is_none());
             assert_eq!(app.task_id, 0);
-            assert!(app.notice.contains("active provider"));
         }
+    }
+
+    #[test]
+    fn explicit_quit_retires_local_confirmation_without_discarding_the_draft() {
+        let mut app = App::new("/workspace".into(), 120, 36);
+        app.storage = StorageState::Saved;
+        app.update(Event::Paste("retained unsaved request".into()));
+        key(&mut app, KeyCode::Esc);
+        assert!(app.confirmation.is_some());
+        assert!(app.command_disabled_reason("quit").is_none());
+        app.command("quit");
+        assert!(app.confirmation.is_none());
+        assert!(app.quit_after_save && !app.quit);
+        assert_eq!(app.input, "retained unsaved request");
+        assert!(app.planning.pending.is_none());
+        let revision = app.revision;
+        app.command("quit");
+        assert_eq!(app.revision, revision);
+        assert!(app.quit_after_save);
     }
 
     #[test]
@@ -2615,7 +2636,7 @@ mod tests {
     }
 
     #[test]
-    fn slash_layout_selection_requests_persistence_without_changing_task_facts() {
+    fn slash_layout_selection_defers_view_write_until_explicit_save() {
         let mut app = App::new("/workspace".into(), 120, 36);
         let mut task = crate::store::Snapshot::empty("/workspace".into());
         task.id = 7;
@@ -2630,8 +2651,18 @@ mod tests {
         key(&mut app, KeyCode::Char('/'));
         query(&mut app, "layout");
         key(&mut app, KeyCode::Enter);
-        assert!(app.linear && app.save_requested && app.revision > revision);
-        assert_eq!(app.goal, "Saved task");
+        assert!(app.linear);
+        assert_eq!(app.revision, revision);
+        let now = std::time::Instant::now();
+        assert!(!app.save_due(now + std::time::Duration::from_secs(60)));
+        app.update(Event::Key(KeyEvent::new(
+            KeyCode::Char('s'),
+            KeyModifiers::CONTROL,
+        )));
+        assert!(app.save_due(now));
+        let snapshot = app.snapshot("/workspace");
+        assert!(snapshot.navigation.linear);
+        assert_eq!(snapshot.goal, "Saved task");
         assert!(app.planning.pending.is_none());
     }
     #[test]
@@ -3135,14 +3166,17 @@ mod tests {
             if changed_owner {
                 app.lead.id += 1;
             } else {
-                app.planning.quit_review = true;
+                app.planning.switch_to = Some(crate::providers::Agent::Claude);
                 app.open_overlay(Overlay::Planning);
             }
             app.finish_edit();
             assert!(!app.composer_is_request());
             if !changed_owner {
                 assert_eq!(app.overlay, Some(Overlay::Planning));
-                assert!(app.planning.quit_review);
+                assert_eq!(
+                    app.planning.switch_to,
+                    Some(crate::providers::Agent::Claude)
+                );
             }
         }
     }

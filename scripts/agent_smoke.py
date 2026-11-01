@@ -88,7 +88,7 @@ def main():
             session.send('\r')
             wait_for(session, 'Storage: saved')
             session.command('quit')
-            confirm_exit(session, '\t\r')
+            confirm_exit(session)
             assert session.wait_exit() == 0
             session.close()
             passed('missing-agent profiles preserve local goal editing and terminal restoration')

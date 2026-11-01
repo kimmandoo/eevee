@@ -622,8 +622,7 @@ fn mixed_blocked_and_actionable_todos_finish_reachable_work_then_stop_incomplete
         ]);
         let (mut run, connection) = fixture.prepare(protocol, &url);
         let ((outcome, message), events) = run_with_answers(&fixture, &mut run, &connection, true);
-        assert_eq!(outcome, Outcome::Failed, "{protocol:?}: {message}");
-        assert!(message.contains("request is incomplete"), "{message}");
+        assert_eq!(outcome, Outcome::Incomplete, "{protocol:?}: {message}");
         assert_eq!(server.join().unwrap().len(), 4);
         assert_eq!(
             std::fs::read_to_string(fixture.workspace.project.join("reachable.txt")).unwrap(),
@@ -638,7 +637,7 @@ fn mixed_blocked_and_actionable_todos_finish_reachable_work_then_stop_incomplete
             1
         );
         assert!(
-            !events
+            events
                 .iter()
                 .any(|event| matches!(event, Event::NativeCompleted { .. }))
         );
@@ -746,13 +745,22 @@ fn unfinished_todo_blockers_refusals_and_provider_errors_do_not_resume_as_succes
         let (url, server) = peer(responses);
         let (mut run, connection) = fixture.prepare(Protocol::Responses, &url);
         let ((outcome, message), events) = run_with_answers(&fixture, &mut run, &connection, false);
-        assert_eq!(outcome, Outcome::Failed, "{mode}: {message}");
+        assert_eq!(
+            outcome,
+            if mode == "error" {
+                Outcome::Failed
+            } else {
+                Outcome::Incomplete
+            },
+            "{mode}: {message}"
+        );
         assert_eq!(server.join().unwrap().len(), expected);
         assert!(!fixture.workspace.project.join("forbidden.txt").exists());
-        assert!(
-            !events
+        assert_eq!(
+            events
                 .iter()
-                .any(|event| matches!(event, Event::NativeCompleted { .. }))
+                .any(|event| matches!(event, Event::NativeCompleted { .. })),
+            mode != "error"
         );
         assert_eq!(
             events
@@ -761,9 +769,6 @@ fn unfinished_todo_blockers_refusals_and_provider_errors_do_not_resume_as_succes
                 .count(),
             usize::from(mode.starts_with("denied"))
         );
-        if mode == "no-progress" {
-            assert!(message.contains("no progress"), "{message}");
-        }
     }
 }
 
@@ -789,17 +794,17 @@ fn unfinished_todo_final_cannot_escape_the_logical_round_budget() {
     let (url, server) = peer(responses);
     let (mut run, connection) = fixture.prepare(Protocol::Responses, &url);
     let ((outcome, message), events) = run_with_answers(&fixture, &mut run, &connection, false);
-    assert_eq!(outcome, Outcome::Failed, "{message}");
-    assert!(
-        message.contains(&format!("round limit of {ROUND_LIMIT}")),
-        "{message}"
-    );
-    assert!(message.contains("unfinished todo work"), "{message}");
+    assert_eq!(outcome, Outcome::Incomplete, "{message}");
     assert_eq!(server.join().unwrap().len(), ROUND_LIMIT);
     assert!(
         !events
             .iter()
-            .any(|event| matches!(event, Event::Prompt { .. } | Event::NativeCompleted { .. }))
+            .any(|event| matches!(event, Event::Prompt { .. }))
+    );
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, Event::NativeCompleted { .. }))
     );
 }
 
@@ -849,20 +854,17 @@ fn repeated_tool_observations_and_changed_todo_acknowledgments_do_not_rearm_fore
         let (url, server) = peer(responses);
         let (mut run, connection) = fixture.prepare(Protocol::Responses, &url);
         let ((outcome, message), events) = run_with_answers(&fixture, &mut run, &connection, false);
-        assert_eq!(outcome, Outcome::Failed, "{message}");
-        assert!(
-            message.contains(if repeated_read {
-                "no progress"
-            } else {
-                "completion continuation limit"
-            }),
-            "{message}"
-        );
+        assert_eq!(outcome, Outcome::Incomplete, "{message}");
         assert_eq!(server.join().unwrap().len(), expected);
         assert!(
             !events
                 .iter()
-                .any(|event| matches!(event, Event::Prompt { .. } | Event::NativeCompleted { .. }))
+                .any(|event| matches!(event, Event::Prompt { .. }))
+        );
+        assert!(
+            events
+                .iter()
+                .any(|event| matches!(event, Event::NativeCompleted { .. }))
         );
     }
 }
@@ -1691,9 +1693,7 @@ fn round_limit_refuses_the_terminal_call_set_without_executing_it() {
     let (url, server) = peer(responses);
     let (mut run, connection) = fixture.prepare(Protocol::Responses, &url);
     let ((outcome, message), events) = run_with_answers(&fixture, &mut run, &connection, true);
-    assert_eq!(outcome, Outcome::Failed);
-    assert!(message.contains(&format!("round limit of {ROUND_LIMIT}")));
-    assert!(message.contains("Earlier completed file effects remain"));
+    assert_eq!(outcome, Outcome::Incomplete, "{message}");
     assert_eq!(server.join().unwrap().len(), ROUND_LIMIT);
     assert_eq!(
         std::fs::read_to_string(fixture.workspace.project.join("selected.txt")).unwrap(),

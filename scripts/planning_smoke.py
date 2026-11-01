@@ -309,24 +309,12 @@ def main():
             wait_for(exiting, 'QUESTION 1/', timeout=150)
             exiting.resize((39, 10))
             exiting.send('\x03')
-            wait_for(exiting, 'Exit planning?')
-            exiting.send('\r')
-            assert exiting.alive(), 'neutral exit terminated the active provider turn'
+            assert exiting.alive(), 'first interrupt exited instead of stopping owned work'
             exiting.send('\x03')
-            wait_for(exiting, 'Exit planning?')
-            exiting.send('\t\r')
-            exiting.resize((120, 36))
-            deadline = time.monotonic() + 30
-            while exiting.alive() and 'UNKNOWN OUTCOME' not in exiting.display() and 'Confirm exit' not in exiting.display():
-                assert time.monotonic() < deadline, 'owned provider cancellation did not finish'
-                exiting.pump(0.1)
-            if exiting.alive() and 'UNKNOWN OUTCOME' in exiting.display():
-                exiting.capture('informed-unknown-exit')
-                exiting.send('\t\r')
             confirm_exit(exiting)
             assert exiting.wait_exit() == 0
             exiting.close()
-            passed('neutral undersize safe exit cancels provider before storage-aware quit and restoration')
+            passed('direct undersize stop and explicit quit cancelled owned work before storage settlement and terminal restoration')
         result['status'] = 'passed'
     finally:
         for session in sessions:
