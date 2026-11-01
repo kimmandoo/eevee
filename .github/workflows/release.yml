@@ -83,11 +83,14 @@ jobs:
           QUALIFIED_ATTEMPT: ${{ needs.qualify.outputs.run-attempt }}
         run: |
           python - <<'PY'
-          import os
+          import os, re
           from pathlib import Path
           tag = os.environ["RELEASE_TAG"]
           changes = Path("CHANGELOG.md").read_text(encoding="utf-8")
-          notes = changes.split(f"## {tag[1:]}\n", 1)[1].split("\n## ", 1)[0].strip()
+          heading = re.search(rf"(?m)^### {re.escape(tag[1:])}\n", changes)
+          if heading is None:
+              raise ValueError("The release must have version notes nested under its change date")
+          notes = re.split(r"(?m)^#{1,3} ", changes[heading.end():], maxsplit=1)[0].strip()
           if not notes:
               raise ValueError("The release must have version-specific changelog notes")
           summary = (

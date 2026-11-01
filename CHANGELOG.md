@@ -2,6 +2,9 @@
 
 ## 2026-11-01
 
+### 0.1.44
+
+- fix(release): extracted explicit version notes from dated changelog sections and stopped at the next heading instead of failing publication or including earlier release history.
 - fix(windows): prevented installer errors from terminating a calling PowerShell host, isolated invocation state from caller script variables and preserved catchable failures, caller settings and atomic installation ownership.
 - fix(runtime): replaced repeated quit/cancellation reviews with direct stop and idempotent safe exit, waited only for actual work and required writes, prevented read-only memory hydration and stale terminal generations from trapping exit, and blocked authentication handoff during shutdown.
 - fix(storage): coalesced draft writes after 1.5 seconds idle with a 10-second continuous-edit cap, deferred caret/view-only persistence and retained exact latest metadata on explicit Send/save/quit without weakening stale-ack protection.
@@ -22,6 +25,9 @@
 - ci(windows): added ordinary PowerShell-parent ConPTY and private classic-console startup, pinned-sprite, native-input, explicit-exit and full restoration qualification alongside the existing protected package scans.
 - test(agent): reproduced published0.1.43 stopping before a second approved file and added actual terminal/filesystem continuation and stopping-boundary acceptance.
 - test(agent): synchronized the fast no-progress ownership sample with its actual in-flight round and used semantic socket cancellation instead of waiting for a live spinner to become idle.
+
+### Prior verification and publication
+
 - docs(verification): passed exact-source native41225157352 at0380686 across all five targets, all50 completion journeys and twelve PowerShell cases with protected current-intelligence Windows scans; completed16 local progress journeys through preserved14+2 composition and held publication pending the affected-device startup diagnosis.
 - docs(windows): retained the affected-device startup incident as unresolved after unchanged public bytes passed controlled PowerShell checks and documented executable/version/error/exit diagnostics without protection bypasses.
 - docs(release): published v0.1.43 from `1d94a2f` after native41210647678 attempt1 and release41212749583, verified all eight public asset digests/seven checksum rows/five exact qualified native archives and preserved every older tag and release.

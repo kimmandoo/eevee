@@ -1,5 +1,12 @@
 # Troubleshooting
 
+### [2026-11-01] Dated changelog failed release-note extraction
+
+- **Context / Symptom:** Before creating v0.1.44, executing the publication workflow's actual note-extraction code against the dated changelog failed with `IndexError: list index out of range`.
+- **Root Cause:** The workflow expected a legacy flat `## <version>` heading, while current entries were grouped under their required change date without a version subsection.
+- **Solution:** Added an explicit `### 0.1.44` subsection and a boundary before earlier verification/publication entries. Updated publication to locate the exact nested version heading, reject missing/empty notes and stop at the next same-or-higher-level heading.
+- **Prevention / Reference:** The actual extraction changed from exit1 to exit0 and excluded prior held-publication history; actionlint passed. This was caught before creating or moving any release tag. Fresh exact-source native qualification remains required after this metadata fix.
+
 ### [2026-11-01] A late evolution receipt covered the actual request failure
 
 - **Context / Symptom:** The real60×18 HTTP429 journey first displayed its cause, then a late Eevee→Vaporeon receipt covered the typed Failed/reason/action rows. Retained sourceb981ce42/target/ux044-interaction-final captured the visible Evolution box while the actual cause survived only in a truncated footer.
