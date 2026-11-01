@@ -606,6 +606,7 @@ impl App {
             && !self.transitioning
             && self.management.is_none()
             && self.switch_task.is_none()
+            && self.task_switch_after_save.is_none()
             && (!self.editing || self.composer_is_request())
     }
 
@@ -676,6 +677,7 @@ impl App {
             || self.transitioning
             || self.management.is_some()
             || self.switch_task.is_some()
+            || self.task_switch_after_save.is_some()
             || self.work_capacity_reason(self.lead.id).is_some()
         {
             return false;
@@ -1018,6 +1020,13 @@ impl App {
                 self.use_selected_provider();
             }
             return changed || connection_changed;
+        }
+        if self.task_switch_after_save.is_some() {
+            if key.code == KeyCode::Esc && key.kind == KeyEventKind::Press {
+                self.task_switch_after_save = None;
+                self.notice = "Task switch cancelled; current task and drafts retained.".into();
+            }
+            return true;
         }
         if self.transitioning {
             if self.deletion_preview_pending && key.code == KeyCode::Esc {
@@ -1498,6 +1507,8 @@ impl App {
         self.sources.cancel_memory_adoption();
         self.workflow.authoring.invalidate();
         self.reset_after_save = false;
+        self.switch_task = None;
+        self.task_switch_after_save = None;
         self.return_after_cancel = None;
         self.pending_provider_picker = None;
         self.pending_openai_selection = None;

@@ -774,10 +774,6 @@ def exercise_ui(session, size, cwd):
     session.send(ESC)
     session.capture("below-minimum-discard-neutral")
     session.send(ESC)  # Keep the draft; cancel remains available below minimum.
-    session.send("\x03")
-    session.capture("below-minimum-quit-neutral")
-    session.send("\r")  # Neutral Stay must preserve the dirty editor.
-    assert session.alive(), "below-minimum neutral confirmation exited"
     session.resize(size)
     # A compact composer follows the caret; earlier lines can be above its
     # viewport. Check the editing tail here and the complete saved goal below.

@@ -47,7 +47,7 @@ def expose_review(session, capture):
 LABELS = {"import": "Import TM: literal", "target": "Import TM / choose", "name": "Move name",
            "review": "Confirm local change", "export": "Export TM: NEW", "export_review": "Create-only TM export",
            "menu": "i Import TM", "replace": "Give up learning", "run": "Review one-shot execution permission",
-           "request": "Run once", "apply": "Apply template", "api": "API key", "exit": "Confirm exit",
+           "request": "Run once", "apply": "Apply template", "api": "API key",
            "source": "Review local capture"}
 TABLES = ("tasks", "partners", "selections", "moves", "excerpts", "executions", "provider_journal",
           "move_usages", "move_sources", "move_dispatches", "move_candidates", "ribbons", "active_work")

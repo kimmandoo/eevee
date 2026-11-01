@@ -331,6 +331,11 @@ pub(super) fn release(
     paint: &Paint,
 ) {
     let storage = app.storage_label().to_owned();
+    let preflight_refusal = app
+        .cooperation_ui
+        .release
+        .as_ref()
+        .and_then(|review| app.partner_release_refusal(review.owner.partner));
     let Some(review) = &mut app.cooperation_ui.release else {
         return;
     };
@@ -366,7 +371,7 @@ pub(super) fn release(
     frame.render_widget(paragraph, row(content, 0, content.height.saturating_sub(4)));
     let message = if review.pending {
         paint.hint(crate::messages::Message::DesksCooperationWaitingForCommittedRosterAcknowledgementNoSuccess).to_owned()
-    } else if let Some(refusal) = &review.refusal {
+    } else if let Some(refusal) = review.refusal.as_deref().or(preflight_refusal) {
         format!("Refused: {refusal}")
     } else {
         paint.hint(crate::messages::Message::DesksCooperationOnlyExplicitConfirmationRequestsRemovalEscKeeps).to_owned()

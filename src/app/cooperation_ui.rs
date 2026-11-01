@@ -20,6 +20,7 @@ pub struct ReleaseReview {
     pub reviewed: bool,
     pub affirmative: bool,
     pub pending: bool,
+    /// Actual roster-write error only; current preflight readiness is projected live.
     pub refusal: Option<String>,
 }
 
@@ -144,7 +145,7 @@ impl App {
             self.notice = "That partner is no longer in the party.".into();
             return;
         };
-        let refusal = self.partner_release_refusal(id);
+        self.flush_save();
         self.cooperation_ui.release = Some(ReleaseReview {
             owner: store::Attribution {
                 partner: partner.id,
@@ -154,11 +155,11 @@ impl App {
             reviewed: false,
             affirmative: false,
             pending: false,
-            refusal,
+            refusal: None,
         });
     }
 
-    fn partner_release_refusal(&self, partner: i64) -> Option<String> {
+    pub(crate) fn partner_release_refusal(&self, partner: i64) -> Option<&'static str> {
         let pending_records = self.records.local.iter().any(|intent| {
             use crate::workspace::records::LocalIntent;
             match intent {
@@ -168,21 +169,25 @@ impl App {
             matches!(&request.operation, store::records::Operation::SetPairing { partner: owner, .. } if *owner == partner)
         });
         if self.partners().len() <= 1 {
-            Some("Cannot release the last partner. Keep at least one partner in the party.".into())
+            Some("Cannot release the last partner. Keep at least one partner in the party.")
         } else if self.partner_busy(partner) {
-            Some("Cannot release the selected partner while it owns work or an execution, on any task. Finish or explicitly cancel its work first.".into())
+            Some(
+                "Cannot release the selected partner while it owns work or an execution, on any task. Finish or explicitly cancel its work first.",
+            )
         } else if self.party_inflight
             || self.party_request.is_some()
             || self.transitioning
             || pending_records
         {
-            Some("Wait for the current local storage operation to finish.".into())
+            Some("Wait for the current local storage operation to finish.")
         } else if self.storage != StorageState::Saved
             || self.revision != self.saved_revision
             || self.save_requested
             || self.sources.persistence_pending()
         {
-            Some("Save or retry task, partner drafts and sources before release. Nothing was removed.".into())
+            Some(
+                "Save or retry task, partner drafts and sources before release. Nothing was removed.",
+            )
         } else {
             None
         }
@@ -207,8 +212,7 @@ impl App {
         if !review.reviewed || review.pending {
             return;
         }
-        if let Some(refusal) = refusal {
-            review.refusal = Some(refusal);
+        if refusal.is_some() {
             review.affirmative = false;
             return;
         }
@@ -741,6 +745,64 @@ mod tests {
                 .parked
                 .values()
                 .all(|state| !state.cancelling)
+        );
+    }
+
+    #[test]
+    fn release_review_updates_after_save_without_reopening_or_auto_approving() {
+        let mut task = store::Snapshot::empty("/workspace".into());
+        task.id = 7;
+        let mut app = App::new("/workspace".into(), 120, 36);
+        app.store_event(store::Event::Loaded(store::Project {
+            tasks: vec![task],
+            partners: vec![
+                store::Partner::default(),
+                store::Partner {
+                    id: 2,
+                    ..Default::default()
+                },
+            ],
+            active_id: Some(7),
+            usage_bytes: 0,
+        }));
+        app.update(Event::Paste("exact retained 한글".into()));
+        app.flush_save();
+        let snapshot = app.snapshot("/workspace");
+        app.save_submitted();
+        app.release_partner_command("#2");
+        let blocked_reason = app
+            .partner_release_refusal(2)
+            .unwrap()
+            .split(',')
+            .next()
+            .unwrap()
+            .to_owned();
+        let config = config();
+        let mut artwork = crate::ui::artwork::Artwork::load(&config);
+        let mut terminal = Terminal::new(TestBackend::new(120, 36)).unwrap();
+        terminal
+            .draw(|frame| crate::ui::render(frame, &mut app, &config, &mut artwork, "off"))
+            .unwrap();
+        assert!(screen(&terminal).contains(&blocked_reason));
+        key(&mut app, KeyCode::Char('y'));
+        assert!(app.party_request.is_none());
+        app.store_event(store::Event::Saved(snapshot));
+        terminal
+            .draw(|frame| crate::ui::render(frame, &mut app, &config, &mut artwork, "off"))
+            .unwrap();
+        assert!(
+            !screen(&terminal).contains(&blocked_reason),
+            "acknowledged storage must not leave a stale refusal on screen"
+        );
+        assert!(
+            app.party_request.is_none(),
+            "save completion is not release consent"
+        );
+        assert_eq!(app.input, "exact retained 한글");
+        key(&mut app, KeyCode::Char('y'));
+        assert_eq!(
+            app.party_request,
+            Some(store::PartyRequest::Release { partner: 2 })
         );
     }
 }

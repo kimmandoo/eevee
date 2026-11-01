@@ -807,6 +807,7 @@ impl App {
             || self.pending_command.is_some()
             || self.cooperation.command_saves.contains_key(&self.lead.id)
             || self.switch_task.is_some()
+            || self.task_switch_after_save.is_some()
             || self.management.is_some()
             || self.planning.cancelling
             || self.planning.pending.is_some()
@@ -885,6 +886,7 @@ impl App {
         self.overlay.is_none()
             && !self.transitioning
             && !self.reset_after_save
+            && self.task_switch_after_save.is_none()
             && !self.quit_after_save
             && self.confirmation.is_none()
             && self.command_popup.is_none()

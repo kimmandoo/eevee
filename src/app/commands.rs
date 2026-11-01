@@ -1009,6 +1009,7 @@ impl App {
         if self.transitioning
             || self.quit_after_save
             || self.reset_after_save
+            || self.task_switch_after_save.is_some()
             || self.confirmation.is_some()
         {
             return Some("Finish the current confirmation or storage operation first.".into());

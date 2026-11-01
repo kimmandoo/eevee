@@ -708,6 +708,7 @@ impl App {
         }
         self.refresh_approvals();
         self.settle_cooperation();
+        self.settle_task_switch();
         self.settle_exit();
         self.settle_reset();
         changed

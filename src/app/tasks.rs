@@ -268,7 +268,19 @@ impl App {
             || self.sources.persistence_pending()
             || self.sources.store_failed
         {
-            self.notice = "Finish or retry the current save before creating another task.".into();
+            if matches!(
+                self.storage,
+                StorageState::Failed(_) | StorageState::Loading
+            ) || self.sources.store_failed
+            {
+                self.notice =
+                    "Finish or retry the current save before creating another task.".into();
+            } else {
+                self.reset_after_save = true;
+                self.notice =
+                    "Saving the current task and draft before creating another task / Esc Stay"
+                        .into();
+            }
             return;
         }
         let mut task = store::Snapshot::empty(self.cwd.clone());
@@ -485,19 +497,53 @@ impl App {
             }
             execution::Action::SwitchTask(id) => {
                 self.flush_save();
-                if !matches!(self.storage, StorageState::Saved)
-                    || self.save_requested
-                    || self.sources.persistence_pending()
-                    || self.sources.store_failed
+                if matches!(
+                    self.storage,
+                    StorageState::Failed(_) | StorageState::Loading
+                ) || self.sources.store_failed
                 {
                     self.notice = "Finish or retry task/context saves before switching; the current task was retained.".into();
-                } else {
+                } else if self.storage == StorageState::Saved
+                    && self.saved_revision == self.revision
+                    && !self.save_requested
+                    && self.save_inflight.is_none()
+                    && !self.sources.persistence_pending()
+                {
                     self.switch_task = Some(id);
                     self.clear_carry_over();
                     self.transitioning = true;
                     self.storage = StorageState::Loading;
+                } else {
+                    self.task_switch_after_save = Some(id);
+                    self.notice =
+                        "Saving the current task and draft before switching / Esc Stay".into();
                 }
             }
+        }
+    }
+
+    pub(super) fn settle_task_switch(&mut self) {
+        if self.task_switch_after_save.is_none() || self.transitioning {
+            return;
+        }
+        if matches!(
+            self.storage,
+            StorageState::Failed(_) | StorageState::Loading
+        ) || self.sources.store_failed
+        {
+            self.task_switch_after_save = None;
+            self.notice = "Task switch stopped: retry storage, then select the task again. Current task and drafts retained.".into();
+        } else if self.storage == StorageState::Saved
+            && self.saved_revision == self.revision
+            && !self.save_requested
+            && self.save_inflight.is_none()
+            && !self.sources.persistence_pending()
+        {
+            let id = self
+                .task_switch_after_save
+                .take()
+                .expect("pending task switch");
+            self.request_navigation(execution::Action::SwitchTask(id));
         }
     }
 

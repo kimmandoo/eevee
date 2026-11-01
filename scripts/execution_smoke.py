@@ -482,18 +482,13 @@ def main():
             switch(resumed, 0, task_a)
             resumed.command("jolteon")
             owned, quit_command = start_tree(resumed, "quit tree", 5)
+            resumed.capture("owned-tree-before-direct-exit")
             resumed.command("quit")
-            wait_for(resumed, "ALL owned work")
-            resumed.send("\r")
-            assert resumed.alive() and all(process.alive() for process in owned)
-            resumed.command("quit")
-            wait_for(resumed, "ALL owned work")
-            resumed.capture("neutral-cancel-and-exit")
-            resumed.send(RIGHT + "\r")
-            final_run(resumed, 5, "Cancelled", idle=False)
-            exited(resumed, owned)
             confirm_exit(resumed)
             assert resumed.wait_exit() == 0
+            cancelled = final_run(resumed, 5, "Cancelled", idle=False)
+            assert cancelled["record"]["cancelled"]
+            exited(resumed, owned)
             resumed.close()
             last = launch("restart-retained-drafts")
             assert rows()["active"] == task_a and task(task_a)["command"] == quit_command
@@ -506,7 +501,7 @@ def main():
             assert task(task_a)["goal"] == "execution task A" and not task(task_a)["complete"]
             assert any(entry["text"] == retained_goal for entry in lead_drafts(task(task_a)))
             quit_idle(last)
-            passed("quit-neutral-stay-cancel-and-wait-clean-exit-and-draft-restart")
+            passed("direct-quit-cancels-owned-tree-commits-clean-exit-and-retains-drafts-on-restart")
             assert source.read_text(encoding="utf-8") == "stable source identity\n"
             assert not denied.exists() and not shell_marker.exists()
             assert literal_marker.read_bytes() == marker_before

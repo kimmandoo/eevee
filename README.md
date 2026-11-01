@@ -174,7 +174,7 @@ ev --resume 12      # exact project-local task/session number
 
 Inside Eevee, `/new` opens fresh local work and `/resume` opens the same saved-work picker. These are navigation commands, not Send aliases. Saved facts, drafts and carets remain available; opaque provider threads, process-local chat history and approvals never resume after a restart. Account/model choices and your party remain available across sessions. An unavailable, archived or foreign-project ID never silently selects a different task.
 
-`/new` first finishes the exact old draft save through the existing local save barrier; it does not require you to race autosave or send the draft. A failed save keeps recoverable input instead of opening a falsely saved session. Active work, unsettled effects and failed journals still require ordinary resolution before switching.
+`/new` and selecting saved work first finish the exact old draft/caret save through the existing local barrier, then continue automatically—you do not need to race autosave, repeat the command or send the draft. **Esc** cancels a pending navigation choice; quitting retires it. A failed save keeps recoverable input instead of opening a falsely saved session. Active work, unsettled effects and failed journals still require ordinary resolution before switching.
 
 ### Review without losing your draft
 

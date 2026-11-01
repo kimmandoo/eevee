@@ -5,6 +5,10 @@
 ### 0.1.44
 
 - fix(release): extracted explicit version notes from dated changelog sections and stopped at the next heading instead of failing publication or including earlier release history.
+- fix(storage): continued one selected-task or new-task action after the old draft/caret save was acknowledged, retained current data on failure and retired queued navigation on quit instead of requiring repeated commands.
+- fix(ui): refreshed partner-release readiness from live committed state without reopening the review, retained actual roster-write errors and required explicit release consent after storage settled.
+- fix(ci): created the fresh native evidence root before Windows installer child evidence, preserving strict stale-directory refusal and every required native step.
+- test(runtime): removed retired normal-exit review interactions from installed terminal, execution and cooperation journeys while preserving real discard, loss, permission, effect, journal and restart checks.
 - fix(windows): prevented installer errors from terminating a calling PowerShell host, isolated invocation state from caller script variables and preserved catchable failures, caller settings and atomic installation ownership.
 - fix(runtime): replaced repeated quit/cancellation reviews with direct stop and idempotent safe exit, waited only for actual work and required writes, prevented read-only memory hydration and stale terminal generations from trapping exit, and blocked authentication handoff during shutdown.
 - fix(storage): coalesced draft writes after 1.5 seconds idle with a 10-second continuous-edit cap, deferred caret/view-only persistence and retained exact latest metadata on explicit Send/save/quit without weakening stale-ack protection.

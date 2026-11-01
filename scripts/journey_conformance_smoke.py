@@ -249,7 +249,8 @@ class Journey:
             elif name == 'Resume / new session':
                 groups = [('Request',), ('Continue explaining',), ('Enter Send',)]
             elif name == 'Cancel':
-                groups = [('Cancel ALL owned work', 'Nothing to cancel'), ('Stay', 'Request'), ('Esc',)]
+                # No transport was dispatched; prove ownership below, not a retired cancel review.
+                groups = []
             else:
                 raise AssertionError('unsupported state exception: ' + name)
         def ready():
@@ -428,10 +429,8 @@ def row(binary, node, sidecar, output, route, protocol, model, size, account_wir
                 app.workspace()
                 if route == 'chatgpt':
                     app.state('Explicit send'); session.send('\r')
-                    until(session, lambda: any(marker in session.display() for marker in (
-                        'OpenAI account connection needs setup', 'No native account source selected',
-                        'Choose a connection method; no task is sent.')),
-                        'actual account preflight setup refusal missing', timeout=40)
+                    until(session, lambda: 'Connections' in session.display() and not app.claims(),
+                        'account preflight did not return to connection setup without dispatch', timeout=40)
                     app.account_preflight = session.display()
                     save(output / 'account-preflight.json', dict(cells=app.account_preflight,
                         submitted=submitted(), claims=app.claims(), fixed_endpoint_override=False))

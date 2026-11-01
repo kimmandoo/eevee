@@ -152,6 +152,11 @@ jobs:
         run: python -m unittest discover -s scripts -p test_windows_conpty.py
       - name: Isolate current-run terminal evidence from compiler caches
         run: printf 'NATIVE_SMOKE_OUTPUT=%s/ev-native-workflows/%s-%s\n' "$RUNNER_TEMP" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" >> "$GITHUB_ENV"
+      - name: Exercise native core smoke
+        run: |
+          python scripts/native_workflows_smoke.py \
+            --binary target/release/ev${{ runner.os == 'Windows' && '.exe' || '' }} \
+            --output "$NATIVE_SMOKE_OUTPUT" --profile architecture --jobs 2
       - name: Exercise PowerShell installer caller-host lifecycle
         shell: python
         run: |
@@ -165,11 +170,6 @@ jobs:
               ], check=True, timeout=600)
           else:
               print("PowerShell installer lifecycle applies to the native Windows package.")
-      - name: Exercise native core smoke
-        run: |
-          python scripts/native_workflows_smoke.py \
-            --binary target/release/ev${{ runner.os == 'Windows' && '.exe' || '' }} \
-            --output "$NATIVE_SMOKE_OUTPUT" --profile architecture --jobs 2
       - name: Exercise fresh and explicit saved sessions
         run: |
           python scripts/session_smoke.py \

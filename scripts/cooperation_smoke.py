@@ -236,6 +236,9 @@ class Journey:
         if not approve:
             return
         wait_for(self.session, "Stay")
+        self.until(lambda: "Refused:" not in self.session.display(),
+                   "release review did not become ready after required saves")
+        assert partner in {row["id"] for row in self.snapshot()[1]}, "save completion released without consent"
         self.session.capture("release-preview-" + str(partner))
         self.session.send("y")
         self.until(lambda: partner not in {row["id"] for row in self.snapshot()[1]}, "idle partner release did not commit")
@@ -344,31 +347,24 @@ def main():
             assert j.draft(1) == saved, "cancellation overwrote the sender's later follow-up draft"
             assert j.claims() == {2, 3} and not j.peers("finished", "COOP_B") and not j.peers("finished", "COOP_C")
             j.session.command("cancel-all")
-            wait_for(j.session, "Stay")
-            j.session.capture("neutral-cancel-all")
-            j.session.send("\r")
-            assert j.claims() == {2, 3}
-            j.session.command("quit")
-            wait_for(j.session, "Stay")
-            for label in ("Bolt", "Mind"):
-                assert label in j.session.display(), "quit omitted " + label
-            j.session.capture("quit-lists-every-owner")
-            j.session.send(ESC)
-            j.session.command("cancel-all")
-            j.session.send("y")
+            j.session.capture("direct-cancel-all")
             j.until(lambda: not j.claims(), "cancel-all did not wait for every owner")
             assert all(j.peers("finished", marker) for marker in ("COOP_A", "COOP_B", "COOP_C"))
+            assert j.draft(1) == saved, "all-owner cancellation overwrote the later follow-up draft"
+            assert j.draft(2)["text"] == "future draft 保持" and j.draft(6)["text"] == rejected
             journals_before_first_release = j.snapshot()[4]
             j.release(1)
             assert {row["id"] for row in j.snapshot()[1]} == {2, 3, 5, 6}
             assert j.snapshot()[0]["lead_partner"] != 1 and "1" not in j.snapshot()[0]["partner_drafts"]
             assert j.snapshot()[4] == journals_before_first_release
+            drafts_before_quit = j.snapshot()[0]["partner_drafts"]
             j.quit()
-            passed(f"{size}: lead-only stop, neutral all-stop/quit, complete independent settlement")
+            passed(f"{size}: lead-only stop, direct all-owner stop and safe quit, complete independent settlement")
             j.session = j.launch("first-partner-release-restart")
             j.sessions.append(j.session)
             assert {row["id"] for row in j.snapshot()[1]} == {2, 3, 5, 6}
             assert j.snapshot()[4] == journals_before_first_release and not j.claims()
+            assert j.snapshot()[0]["partner_drafts"] == drafts_before_quit
             assert len(j.peers("started")) == 3
             j.quit()
             passed(f"{size}: idle first partner released with repaired lead, retained evidence and no restart replay")
@@ -389,25 +385,21 @@ def main():
             for name in ("Bolt", "Mind", "Ember"):
                 assert name in j.session.display(), "first-partner release lost live owner " + name
             j.session.capture("first-partner-released-during-three-owned-turns")
-            j.workspace()
-            j.session.command("quit")
-            wait_for(j.session, "Stay")
-            j.session.send("\r")
-            assert j.session.alive() and j.claims() == {2, 3, 4}
-            j.session.command("quit")
-            wait_for(j.session, "Stay")
-            j.session.send("y")
-            confirm_exit(j.session)
-            assert j.session.wait_exit() == 0
-            j.session.close()
+            lead_before_quit = j.snapshot()[0]["lead_partner"]
+            drafts_before_quit = j.snapshot()[0]["partner_drafts"]
+            j.quit()
             assert not j.claims() and j.snapshot()[4] == historical
+            assert j.snapshot()[0]["lead_partner"] == lead_before_quit
+            assert j.snapshot()[0]["partner_drafts"] == drafts_before_quit
             assert all(j.peers("finished", f"COOP_IDLE_FIRST_{partner}") for partner in (2, 3, 4))
             j.session = j.launch("restart"); j.sessions.append(j.session)
             assert {row["id"] for row in j.snapshot()[1]} == {2, 3, 4}
             assert not j.claims() and j.snapshot()[4] == historical and len(j.peers("started")) == 3
+            assert j.snapshot()[0]["lead_partner"] == lead_before_quit
+            assert j.snapshot()[0]["partner_drafts"] == drafts_before_quit
             assert {record["partner"]["name"] for record in historical} == {"Bolt", "Mind", "Ember"}
             j.quit()
-            passed(f"{size}: idle first/current lead release during three other owned turns; neutral quit commits journals and ownership before exit, restart never replays")
+            passed(f"{size}: idle first/current lead release during three other owned turns; direct quit settles owners with exact journals, lead and drafts retained, restart never replays")
             j.close(); active = None
 
             active = j = Journey(binary, output, size, "lease")
@@ -517,10 +509,9 @@ def main():
             j.until(lambda: 2 not in j.claims(), "one local owner could not cancel independently")
             assert j.claims() == {1, 3}
             j.session.command("cancel-all")
-            wait_for(j.session, "Stay")
-            j.session.send("y")
             j.until(lambda: not j.claims(), "all local workers did not settle")
             assert len(j.snapshot()[3]) == 3 and all(r["state"] == "Cancelled" for r in j.snapshot()[3])
+            assert j.snapshot()[0]["partner_drafts"]["4"]["drafts"] == fourth_drafts
             assert not j.peers("started"), "local command work dispatched a provider"
             j.quit()
             passed(f"{size}: three actual local command workers, fourth refusal and isolated/all-owner cancellation")

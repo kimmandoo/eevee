@@ -289,29 +289,86 @@ mod tests {
     }
 
     #[test]
-    fn task_transition_flushes_but_keeps_ownership_until_acknowledged() {
+    fn task_switch_waits_for_latest_caret_then_proceeds_without_another_action() {
         let now = Instant::now();
-        for action in [execution::Action::SwitchTask(8), execution::Action::NewTask] {
-            let mut app = editor();
-            app.update_at(Event::Paste("retain me".into()), now);
-            key(&mut app, KeyCode::Left, now);
-            app.apply_execution_action(action);
-            assert!(app.save_due(now));
-            assert!(!app.transitioning);
-            assert!(app.switch_task.is_none());
-            assert_eq!(app.input, "retain me");
-            let snapshot = submit(&mut app, now);
-            let cursor = app.cursor;
-            app.store_event(store::Event::Saved(snapshot));
-            app.apply_execution_action(execution::Action::SwitchTask(8));
-            assert_eq!(app.switch_task, Some(8));
-            assert!(app.transitioning);
-            let saved = app.tasks.iter().find(|task| task.id == 7).unwrap();
-            assert_eq!(
-                saved.partner_drafts[&app.lead().id].drafts[0].cursor,
-                cursor
-            );
-        }
+        let mut app = editor();
+        app.update_at(Event::Paste("retain 한글".into()), now);
+        let snapshot = submit(&mut app, now + QUIET);
+        app.store_event(store::Event::Saved(snapshot));
+        key(&mut app, KeyCode::Left, now + QUIET);
+        let cursor = app.cursor;
+        assert_eq!(app.storage, StorageState::Saved);
+        app.apply_execution_action(execution::Action::SwitchTask(8));
+        assert!(app.save_due(now + QUIET));
+        assert!(!app.transitioning);
+        assert_eq!(app.input, "retain 한글");
+        let snapshot = submit(&mut app, now + QUIET);
+        app.store_event(store::Event::Saved(snapshot));
+        assert!(
+            app.transitioning,
+            "one selection must proceed after its save acknowledgement"
+        );
+        assert_eq!(app.switch_task, Some(8));
+        let saved = app.tasks.iter().find(|task| task.id == 7).unwrap();
+        assert_eq!(
+            saved.partner_drafts[&app.lead().id].drafts[0].cursor,
+            cursor
+        );
+    }
+
+    #[test]
+    fn failed_switch_save_retains_current_task_and_exact_draft_without_retrying() {
+        let now = Instant::now();
+        let mut app = editor();
+        app.update_at(Event::Paste("retained 한글".into()), now);
+        app.apply_execution_action(execution::Action::SwitchTask(8));
+        let snapshot = submit(&mut app, now);
+        app.store_event(store::Event::Failed {
+            revision: Some(snapshot.revision),
+            message: "disk full".into(),
+        });
+        assert!(!app.transitioning);
+        assert!(app.switch_task.is_none());
+        assert_eq!(app.input, "retained 한글");
+        assert!(matches!(app.storage, StorageState::Failed(_)));
+        assert!(!app.save_due(now + MAX_PENDING));
+    }
+
+    #[test]
+    fn new_task_keeps_the_old_draft_until_ack_then_opens_once() {
+        let now = Instant::now();
+        let mut app = editor();
+        app.update_at(Event::Paste("old exact 한글".into()), now);
+        app.apply_execution_action(execution::Action::NewTask);
+        assert_eq!(app.input, "old exact 한글");
+        let snapshot = submit(&mut app, now);
+        app.store_event(store::Event::Saved(snapshot));
+        assert!(
+            app.input.is_empty(),
+            "one new-task action must finish after saving"
+        );
+        assert_eq!(app.task_id, 0);
+        assert_eq!(app.tasks.len(), 1);
+        assert_eq!(
+            app.tasks[0].partner_drafts[&app.lead().id].drafts[0].text,
+            "old exact 한글"
+        );
+    }
+
+    #[test]
+    fn quit_retires_a_queued_switch_and_saves_the_original_draft() {
+        let now = Instant::now();
+        let mut app = editor();
+        app.update_at(Event::Paste("original exact 한글".into()), now);
+        app.apply_execution_action(execution::Action::SwitchTask(8));
+        let snapshot = submit(&mut app, now);
+        app.request_quit();
+        app.store_event(store::Event::Saved(snapshot));
+        assert!(app.quit);
+        assert!(!app.transitioning);
+        assert!(app.switch_task.is_none());
+        assert_eq!(app.input, "original exact 한글");
+        assert_eq!(app.task_id, 7);
     }
 
     #[test]

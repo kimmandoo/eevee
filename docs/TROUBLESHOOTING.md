@@ -1,5 +1,18 @@
 # Troubleshooting
 
+### [2026-11-01] Full installed acceptance exposed stale reviews and deferred-navigation brakes
+
+- **Context / Symptom:** The installed terminal journey still expected a retired quit confirmation (`below-minimum neutral confirmation exited`). After removing that obsolete interaction, actual execution task selection stayed on the current task with `Finish or retry task/context saves before switching`, and cooperation showed a partner-release storage refusal even after its header became saved.
+- **Root Cause:** Explicit navigation flushed deferred caret/view metadata but discarded the requested transition while awaiting its save. New-task creation had the same second-command requirement. Partner release cached its initial preflight refusal instead of projecting readiness after acknowledgments. Some expanded journeys still drove the removed all-owner normal-exit reviews.
+- **Solution:** Retained selected-task/new-task intent until the old snapshot was acknowledged, separated pending navigation from ready store selection, revalidated ordinary ownership gates, and retired pending selection on quit or Escape. Kept real failures recoverable without automatic retry. Rendered release readiness live using borrowed static reasons, cached only actual roster-write errors, and retained explicit consent. Migrated obsolete journey interactions without weakening real grants, cancellation, effects, drafts, journals or restart checks.
+- **Prevention / Reference:** Actual task-switch/new-task and stale-release regressions failed before the fixes. The prior b0f41761 installed binary passed one complete24-group lifecycle/all34 installed terminal scenarios after removing the obsolete review interaction. Final integrated-source runtime/native/public qualification remains separate and required.
+
+### [2026-11-01] Windows installer evidence pre-created the native smoke root
+
+- **Context / Symptom:** Native41284710705/source507f126 passed Windows source/build/protected scans/offline install and both PS5.1/PS7 installer protocols, then native core failed with `FileExistsError: [WinError 183]` for its current-run evidence root. Later acceptance/package steps did not run; that attempt did not qualify publication.
+- **Root Cause:** The new Windows installer journey created a child under the shared root before native_workflows_smoke established its required fresh root with `exist_ok=False`. Other platforms did not create that child.
+- **Solution:** Moved native core before the installer journey while retaining both steps and the strict fresh-directory check. Actionlint passed. Require a fresh complete same-source/all-five-target attempt; do not reuse partial success or weaken directory ownership.
+
 ### [2026-11-01] Dated changelog failed release-note extraction
 
 - **Context / Symptom:** Before creating v0.1.44, executing the publication workflow's actual note-extraction code against the dated changelog failed with `IndexError: list index out of range`.

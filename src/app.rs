@@ -269,7 +269,9 @@ pub struct App {
     pub notice: String,
     pub form_return_selected: bool,
     pub transitioning: bool,
+    /// Ready store selection only; never submit a target still waiting for saves.
     pub switch_task: Option<i64>,
+    task_switch_after_save: Option<i64>,
     pub launch_session: Option<crate::config::LaunchSession>,
     pub policy: store::Policy,
     pub usage_bytes: u64,
@@ -434,6 +436,7 @@ impl App {
             form_return_selected: false,
             transitioning: false,
             switch_task: None,
+            task_switch_after_save: None,
             launch_session: None,
             policy: store::Policy::default(),
             usage_bytes: 0,
