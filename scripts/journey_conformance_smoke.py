@@ -231,7 +231,7 @@ class Journey:
             'Explicit send': [('Request',), ('Enter Send',)],
             'Stream': [('GP10_STREAMING',), ('/cancel',)],
             'File / command approvals': [('No pending approvals or questions', 'Permission required', 'one-shot execution'), ('Enter', 'a/y')],
-            'Todo progress': [('Todo progress',), ('Provider status',), ('edit',), ('adopt',), ('Esc',)],
+            'Todo progress': [('edit',), ('adopt',), ('Esc',)],
             'Follow-up / continue': [('Request',), ('Continue explaining',), ('Ctrl+S',)],
             'Cancel': [('cancel', 'interrupt', 'unknown', 'Local work idle'), ('Enter Send', '/response', 'Esc')],
             'Resume / new session': [('Route:',), ('Cancel',), ('Details',), ('Esc',)],
