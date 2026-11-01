@@ -4,6 +4,7 @@
 
 ### 0.1.44
 
+- docs(release): published v0.1.44 from f9ecae4 using native41288800890 attempt1 and publication41292028764; verified all eight public assets/seven checksums/five native layouts, protected Windows execution, exact-package24/34 installation/terminal acceptance and actual publicly installed interaction without replacing earlier releases.
 - fix(release): extracted explicit version notes from dated changelog sections and stopped at the next heading instead of failing publication or including earlier release history.
 - fix(storage): continued one selected-task or new-task action after the old draft/caret save was acknowledged, retained current data on failure and retired queued navigation on quit instead of requiring repeated commands.
 - fix(ui): refreshed partner-release readiness from live committed state without reopening the review, retained actual roster-write errors and required explicit release consent after storage settled.

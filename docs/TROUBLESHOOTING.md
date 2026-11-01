@@ -12,6 +12,7 @@
 - **Context / Symptom:** Native41284710705/source507f126 passed Windows source/build/protected scans/offline install and both PS5.1/PS7 installer protocols, then native core failed with `FileExistsError: [WinError 183]` for its current-run evidence root. Later acceptance/package steps did not run; that attempt did not qualify publication.
 - **Root Cause:** The new Windows installer journey created a child under the shared root before native_workflows_smoke established its required fresh root with `exist_ok=False`. Other platforms did not create that child.
 - **Solution:** Moved native core before the installer journey while retaining both steps and the strict fresh-directory check. Actionlint passed. Require a fresh complete same-source/all-five-target attempt; do not reuse partial success or weaken directory ownership.
+- **Prevention / Reference:** Final sourcef9ecae4/native41288800890 attempt1 passed Check/all five native jobs/every step with the fresh-root order intact. Publication41292028764 and all public package hashes passed; no partial/superseded attempt was promoted. Retained failed507f126 evidence was not removed or relabelled successful.
 
 ### [2026-11-01] Dated changelog failed release-note extraction
 

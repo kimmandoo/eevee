@@ -1,10 +1,10 @@
 # Eevee Implementation Plan
 
-Updated2026-11-01. Active0.1.44 delivery: reliable low-friction exit, quiet draft persistence, less unnecessary agent blocking, clear incomplete/error outcomes and working Windows script/runtime support, then a fully qualified release. Preserve the original Eevee image; never copy external source/identifiers or weaken exact dangerous-effect consent.
+Updated2026-11-01. Completed0.1.44 delivery: reliable low-friction exit, quiet draft persistence, fewer unnecessary agent brakes, clear incomplete/error outcomes and working Windows script/runtime support. Exact-source native qualification and immutable publication passed; the original Eevee image and exact dangerous-effect consent remained intact. Remaining product/live-provider work is separate.
 
 Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPATIBILITY.md). Live-provider conformance remains distinct from implemented transports and deterministic runtime proof.
 
-## Active delivery — Interaction and Windows reliability (0.1.44)
+## Completed delivery — Interaction and Windows reliability (0.1.44)
 
 1. Compare actual reference input/persistence/agent/result behavior and trace the reported paths. Treat observed user failures as real; distinguish storage/cancellation bookkeeping from running work and received responses from completed local verification.
 2. Make interrupt, exit and saving separate: direct active stop, explicit lifecycle quit before model dispatch, one durable flush and bounded owned teardown. Remove duplicate obsolete reviews; retain one deliberate unsaved-data loss choice on genuine failure and restore drafts/queued text without silent truncation.
@@ -13,9 +13,11 @@ Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPAT
 5. Fix actual Windows invocation semantics: a called installer ScriptBlock must not terminate its PowerShell caller on error or overwrite caller state. Prove baseline failure and corrected PS5.1/PS7 -File/ScriptBlock paths, failed-update preservation, installed interactive startup/quit and classic/ConPTY restoration without policy/antivirus bypass.
 6. Exercise changed paths through the actual application at both sizes, migrate behavior contracts/tests, update docs/version and require complete exact-source native qualification including protected Windows scans. Publish a new immutable release only after all requested fixes pass; verify exact public bytes and actual downloaded/installed behavior. No placeholders or narrower unannounced platform removal.
 
+**Completion evidence:** Source/tag `f9ecae4d3eefcdb9a76b57b0994c0eddd27fc437` passed native41288800890 attempt1 (Check/all five targets/every step), including all50 interaction/all50 continuation journeys, both real PowerShell installer engines, twelve Windows startup/restoration cases and protected exact-byte scans. Publication41292028764 promoted only its immutable IDs. All eight public assets/seven checksum rows/five native layouts matched; the exact host package passed one complete24-group installation/all34 terminal scenarios, bilingual evolution, continuous responses and original-pixel resize acceptance. Actual public installation and all ten interaction journeys passed with the same hash. Authenticated/physical-device/font/antivirus-clearance limits remain separate; see WORK_CHECKPOINT.md.
+
 ## Prior delivery — PowerShell startup and unfinished-agent work (superseded)
 
-The active interaction/Windows delivery above supersedes this earlier device-diagnostic hold. The installer caller-host cause was subsequently reproduced and fixed on both supported PowerShell engines; retain the prior qualification facts below as historical evidence, not a current publication blocker.
+The completed interaction/Windows delivery above superseded this earlier device-diagnostic hold. The installer caller-host cause was reproduced and fixed on both supported PowerShell engines, and the exact-source release passed publication/public-package acceptance. Retain the earlier qualification facts below as history, not an active publication blocker.
 
 1. Accept the reported immediate PowerShell exit as the incident. Diagnose unchanged public0.1.43 executable/ZIP with genuine classic-console PowerShell handles, ordinary inherited color environment, default pinned sprites versus images off, small/normal viewports and normal scrollback. Retain first-screen/error/NTSTATUS evidence; do not substitute `--version`, ConPTY-only success, a pause or a protection waiver for fixing startup.
 2. Fix only evidence-backed startup causes, retain exact terminal restoration and add the missing actual PowerShell scenario to qualification. Keep existing user stores/profile settings untouched and distinguish returned errors from process aborts.
