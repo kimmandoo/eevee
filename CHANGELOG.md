@@ -8,6 +8,7 @@
 - fix(ui): bounded successful completion metadata to one compact row so a received answer stayed visible beside pinned-form and learning notices, while preserving wider failure causes, recovery actions and full verbose details.
 - test(moves): selected exact quick slots or full-library records, observed live editor closure for idle learning and exposed complete candidate scope before explicit confirmation without weakening editor, storage or effect-review guards.
 - chore(release): advanced the package version to 0.1.45 without changing SQL20, SDK bridge11, TM2 or formation2.
+- fix(ci): bounded Defender protection-readiness synchronization after configuration and intelligence update, retained all required protections and single-attempt update/scans, and recorded initial/final state instead of conflating startup with a payload detection.
 - fix(auth): retained typed native sign-in stage/status/remedy above scrolling diagnostics, preserved HTTP errors without consuming private bodies, cleared stale issuer details on newer failures and rejected foreign or mismatched login continuations.
 - fix(ui): grouped identical connection policies without losing actions or distinct evidence/restrictions, and removed unsupported workspace-policy assumptions from generic account recovery.
 - fix(auth): showed local save/idle waiting before login, revoked unavailable review consent and restored only neutral controls when ready instead of leaving an apparently armed but blocked Connect action.

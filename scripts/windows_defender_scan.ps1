@@ -54,19 +54,39 @@ try {
     if ($report.signatureUpdateExitCode -ne 0) {
         throw "Defender intelligence update failed (exit $($report.signatureUpdateExitCode)); see signature-update.txt"
     }
-    $status = Get-MpComputerStatus
-    if (-not $status.AMServiceEnabled -or -not $status.AntivirusEnabled -or
-        $status.AMRunningMode -ne 'Normal' -or -not $status.RealTimeProtectionEnabled -or
-        -not $status.BehaviorMonitorEnabled -or -not $status.IoavProtectionEnabled) {
-        throw 'Microsoft Defender antivirus, real-time, behavior and downloaded-file protections must be active; no scan waiver is allowed.'
-    }
+    # Settings and a platform reload can precede the live protection state.
+    # Wait only for readiness; never retry an update/scan or accept weaker flags.
+    $readiness = [Diagnostics.Stopwatch]::StartNew()
+    do {
+        $status = Get-MpComputerStatus
+        $preferences = Get-MpPreference
+        $protection = [ordered]@{
+            service = $status.AMServiceEnabled
+            antivirus = $status.AntivirusEnabled
+            mode = [string]$status.AMRunningMode
+            realtime = $status.RealTimeProtectionEnabled
+            behavior = $status.BehaviorMonitorEnabled
+            ioav = $status.IoavProtectionEnabled
+            pua = [int]$preferences.PUAProtection
+            archives = -not $preferences.DisableArchiveScanning
+            cloud = [int]$preferences.MAPSReporting
+            blockAtFirstSeen = -not $preferences.DisableBlockAtFirstSeen
+        }
+        if (-not $report.Contains('protectionInitial')) { $report.protectionInitial = $protection }
+        $report.protectionFinal = $protection
+        $report.protectionWaitSeconds = [Math]::Round($readiness.Elapsed.TotalSeconds, 3)
+        $ready = $protection.service -and $protection.antivirus -and $protection.mode -eq 'Normal' -and
+            $protection.realtime -and $protection.behavior -and $protection.ioav -and
+            $protection.pua -eq 1 -and $protection.archives -and $protection.cloud -ne 0 -and
+            $protection.blockAtFirstSeen
+        if ($ready) { break }
+        if ($readiness.Elapsed.TotalSeconds -ge 60) {
+            throw 'Defender protections did not become active within 60 seconds; see protectionFinal. No scan waiver is allowed.'
+        }
+        Start-Sleep -Milliseconds 500
+    } while ($true)
     $report.engine = $status.AMEngineVersion
     $report.platform = $status.AMProductVersion
-    $preferences = Get-MpPreference
-    if ($preferences.PUAProtection -ne 1 -or $preferences.DisableArchiveScanning -or
-        $preferences.MAPSReporting -eq 0 -or $preferences.DisableBlockAtFirstSeen) {
-        throw 'Defender PUA, archive and cloud protections must be enabled.'
-    }
     $report.puaProtection = [int]$preferences.PUAProtection
     $report.cloudProtection = [int]$preferences.MAPSReporting
     $report.realtimeProtection = $status.RealTimeProtectionEnabled

@@ -1,5 +1,12 @@
 # Troubleshooting
 
+### [2026-11-02] Windows qualification stopped before scanning because live protections were not ready
+
+- **Context / Symptom:** Native41412881908/sourceaf0f0d1 passed Check/four native targets and Windows tests/build/package, but the Windows protection guard failed about4.9 seconds after start: `Microsoft Defender antivirus, real-time, behavior and downloaded-file protections must be active; no scan waiver is allowed.` Intelligence updater returned0; both file scan codes were null and no package was published. This was not an observed payload detection.
+- **Root Cause:** The guard sampled live protection once immediately after accepted configuration and a native updater/platform transition, without readiness synchronization. Its old report omitted the failing live flags, so transient startup and permanently unavailable protection were indistinguishable.
+- **Solution:** Added a bounded60-second state-convergence wait that preserves every existing required flag and records initial/final protection state plus elapsed time. Failed updates/scans are still single-attempt failures, and an unready deadline refuses before either scan. This script remains restricted to disposable GitHub Actions runners; no user's Defender settings were changed.
+- **Prevention / Reference:** Retained the failed digest-verified diagnostic ZIP and native job metadata in `target/release045-proof/`. Anonymous direct log/artifact downloads required authentication; nightly.link's documented authorized public redirect supplied the ZIP, whose SHA256 matched GitHub metadata before inspection. A prior native0.1.45 package was also hash-verified as a diagnostic control, but its EXE41185759/archivebb52e696 differed from the failed run's94eec76b/18155fb2; never label it the exact failed bytes. Require genuine protected Windows diagnostic proof and a fresh complete exact-source native run before publication.
+
 ### [2026-11-02] A descriptive verb hid a later imperative in automatic evolution
 
 - **Context / Symptom:** Frozen pre-fix executable613c1a76 predicted Vaporeon/Plan for “Explain how to build the project and then build the project.” in the actual120×36 and60×18 preview, suppressing the later build request. Similar repeated English fix and Korean 수정 compounds shared the source defect.
