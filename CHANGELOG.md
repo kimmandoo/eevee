@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-11-02
+
+- fix(windows): repaired a missing owned executable from fully verified surviving installation metadata, separated metadata and executable publication/rollback, and retained create-only repair plus strict reviewed-operation and uninstall refusal.
+- test(windows): covered missing-executable checksum/metadata/owner refusals and exact repair, verified native PS5.1/PS7 caller continuation and installed interactive quit, and exercised public online .41–.44 upgrades without changing security settings or published bytes.
+
 ## 2026-11-01
 
 ### 0.1.44

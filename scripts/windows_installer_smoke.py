@@ -4,8 +4,9 @@
 No builds, network requests, accounts, execution-policy changes or mocks. Runs
 both -File and the README's called ScriptBlock semantics, with offline archive
 arguments replacing only the network transport. The latter installs, updates,
-rejects a bad checksum, launches the installed TUI and explicitly quits, then
-uninstalls in the SAME PowerShell host. Retains continuation/error markers and
+rejects a bad checksum, repairs an absent executable, launches the installed TUI
+and explicitly quits, then uninstalls in the SAME PowerShell host. Retains caller
+continuation/error markers and
 ConPTY transcripts; does not certify another device or physical terminal.
 
   python scripts/windows_installer_smoke.py \
@@ -125,6 +126,14 @@ def scriptblock_source(installer, archive, checksums, bad_checksums, case):
         '    }',
         '    [IO.File]::WriteAllText(' + quote(case / 'installed-sha256.txt') + ', $beforeHash)',
         '    [IO.File]::WriteAllText(' + quote(case / 'continued-after-failure') + ", 'caught; continued')",
+        '    [IO.File]::Delete(' + quote(binary) + ')',
+        '    & ([scriptblock]::Create($installerText))' + arguments,
+        '    Assert-CallerState',
+        '    if ((Read-ProbeHash ' + quote(binary) + ') -cne $beforeHash -or',
+        '        (Read-ProbeHash ' + quote(destination / '.ev-install/.native-install') + ') -cne $beforeOwnerHash) {',
+        "        throw 'Repair did not restore the exact verified installation.'",
+        '    }',
+        '    [IO.File]::WriteAllText(' + quote(case / 'continued-after-repair') + ", 'continued')",
         '    & ' + quote(binary) + ' --images off',
         '    $nativeExit = $LASTEXITCODE',
         '    [IO.File]::WriteAllText(' + quote(case / 'native-exit.txt') + ', [string]$nativeExit)',
@@ -153,12 +162,36 @@ def run_file_case(shell, installer, archive, checksums, bad_checksums, case, env
         ('install', ['-Archive', archive, '-Checksums', checksums], 0),
         ('update', ['-Archive', archive, '-Checksums', checksums], 0),
         ('failure', ['-Archive', archive, '-Checksums', bad_checksums], 1),
+        ('modified-binary', ['-Archive', archive, '-Checksums', checksums], 1),
+        ('missing-binary-bad-checksum', ['-Archive', archive, '-Checksums', bad_checksums], 1),
+        ('missing-binary-invalid-metadata', ['-Archive', archive, '-Checksums', checksums], 1),
+        ('missing-binary-invalid-marker', ['-Archive', archive, '-Checksums', checksums], 1),
+        ('missing-binary-invalid-notices', ['-Archive', archive, '-Checksums', checksums], 1),
+        ('missing-binary-extra-metadata', ['-Archive', archive, '-Checksums', checksums], 1),
+        ('missing-binary-reviewed', ['-Archive', archive, '-Checksums', checksums,
+                                     '-ExpectedOwner', '0' * 64], 1),
+        ('missing-binary-running-owner', ['-Archive', archive, '-Checksums', checksums,
+                                          '-OwnerProcessId', '1'], 1),
+        ('missing-binary-uninstall', ['-Uninstall'], 1),
+        ('repair', ['-Archive', archive, '-Checksums', checksums], 0),
         ('uninstall', ['-Uninstall'], 0),
     ]:
         binary, marker = destination / 'ev.exe', destination / '.ev-install/.native-install'
-        before = None
-        if name == 'failure':
-            before = (binary.read_bytes(), marker.read_bytes())
+        mutation = {
+            'modified-binary': binary,
+            'missing-binary-invalid-metadata': marker.parent / 'LICENSE',
+            'missing-binary-invalid-marker': marker,
+            'missing-binary-invalid-notices': marker.parent / 'THIRD_PARTY_NOTICES',
+            'missing-binary-extra-metadata': marker.parent / 'foreign.txt',
+        }.get(name)
+        if name == 'missing-binary-bad-checksum':
+            installed_hash = hashlib.sha256(binary.read_bytes()).hexdigest()
+            binary.unlink()
+        if mutation is not None:
+            original = mutation.read_bytes() if mutation.exists() else None
+            mutation.write_bytes((original or b'') + b'\nmodified')
+        before = {str(path.relative_to(destination)): hashlib.sha256(path.read_bytes()).hexdigest()
+                  for path in destination.rglob('*') if path.is_file()} if expected else None
         command = [shell, '-NoLogo', '-NoProfile', '-NonInteractive', '-File',
                    str(installer), *map(str, arguments), '-InstallDir', str(destination), '-NoAnimation']
         completed = subprocess.run(command, env=env, cwd=case / 'project',
@@ -170,8 +203,18 @@ def run_file_case(shell, installer, archive, checksums, bad_checksums, case, env
         save(case / 'file-results.json', rows)
         if completed.returncode != expected:
             raise RuntimeError(f'-File {name} returned {completed.returncode}, expected {expected}')
-        if before is not None and before != (binary.read_bytes(), marker.read_bytes()):
-            raise RuntimeError('-File failed update changed installed bytes or ownership')
+        if before is not None:
+            after = {str(path.relative_to(destination)): hashlib.sha256(path.read_bytes()).hexdigest()
+                     for path in destination.rglob('*') if path.is_file()}
+            if before != after:
+                raise RuntimeError('-File rejected operation changed retained installation: ' + name)
+        if mutation is not None:
+            if original is None:
+                mutation.unlink()
+            else:
+                mutation.write_bytes(original)
+        if name == 'repair' and hashlib.sha256(binary.read_bytes()).hexdigest() != installed_hash:
+            raise RuntimeError('-File repair did not restore the exact verified executable')
         if name == 'uninstall' and (binary.exists() or marker.parent.exists()):
             raise RuntimeError('-File uninstall left installed files')
     return rows
@@ -193,7 +236,8 @@ def run_scriptblock_case(shell, source, case, env):
             if time.monotonic() >= deadline:
                 raise RuntimeError('Installed TUI startup deadline exceeded')
             session.pump(.05)
-        for marker in ('continued-after-install', 'continued-after-update', 'continued-after-failure'):
+        for marker in ('continued-after-install', 'continued-after-update', 'continued-after-failure',
+                       'continued-after-repair'):
             if not (case / marker).exists():
                 raise RuntimeError('Missing caller continuation marker: ' + marker)
         if not any(marker in session.text for marker in ('▀', '▄', '|=====(o)====|', '|=====(O)====|')):
@@ -216,6 +260,7 @@ def run_scriptblock_case(shell, source, case, env):
         return {'continuation_after_install': True, 'continuation_after_update': True,
                 'default_interactive_animation_observed': True,
                 'caught_failure_and_continued': True, 'caller_state_preserved': True,
+                'missing_binary_repaired': True,
                 'installed_tui_explicit_quit_exit': 0, 'continuation_after_uninstall': True,
                 'installed_sha256': (case / 'installed-sha256.txt').read_text(encoding='utf-8-sig')}
     except Exception:

@@ -98,6 +98,14 @@ Installers verify SHA-256 checksums and never edit your shell profile or persist
 
 The installer returns to this PowerShell session on success or error; it does not require administrator rights, change execution policy or close the host. Run `ev` after installation. If an old installer already closed its host, reopen PowerShell and use the latest command above rather than rerunning a cached old script.
 
+If `ev.exe` is missing but `.ev-install` remains, **do not delete the metadata or your task data**. The current source installer can repair that state after validating the complete ownership marker, license/notices and downloaded package. Modified or unowned files still refuse; an active antivirus block must remain in place. This repair is not yet included in the published 0.1.44 installer.
+
+From an updated checkout, run its installer in the current PowerShell session without changing execution policy:
+
+```powershell
+& ([scriptblock]::Create([IO.File]::ReadAllText((Join-Path $PWD 'install.ps1'))))
+```
+
 > [!WARNING]
 > If Windows says `ev.exe` contains a virus or potentially unwanted software, leave the block in place. This is an antivirus detection, not a PowerShell execution-policy error or just an unknown-publisher warning; `Unblock-File` and execution-policy changes do not resolve it. Do not disable Defender or add an exclusion. Check **Windows Security → Virus & threat protection → Protection history** and report the exact threat name, affected `ev.exe` path, release version and Defender security-intelligence version. A matching SHA-256 proves release-byte identity, not that a file is safe. Windows packages are currently unsigned; a CI scan cannot guarantee every device's cloud/reputation decision.
 

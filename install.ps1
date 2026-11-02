@@ -484,7 +484,10 @@ function Assert-OwnedInstall([string]$Binary, [string]$Metadata) {
         if (-not [string]::IsNullOrEmpty($ExpectedOwner)) { throw 'Reviewed installation disappeared; no replacement performed.' }
         return $false
     }
-    if (-not $hasBinary -or -not $hasMetadata) {
+    # A removed/quarantined executable can be repaired by an explicit install,
+    # but never by a reviewed/running-owner operation or an uninstall.
+    if (-not $hasMetadata -or (-not $hasBinary -and
+        ($Uninstall -or $OwnerProcessId -ne 0 -or -not [string]::IsNullOrEmpty($ExpectedOwner)))) {
         throw 'Refusing an unowned or incomplete existing ev installation.'
     }
     $expectedFiles = @('LICENSE', 'THIRD_PARTY_NOTICES', '.native-install')
@@ -504,7 +507,7 @@ function Assert-OwnedInstall([string]$Binary, [string]$Metadata) {
     $ownedHash = $Matches[1]
     $licenseHash = $Matches[2]
     $noticesHash = $Matches[3]
-    if ((Get-BinarySha256 $Binary) -cne $ownedHash) {
+    if ($hasBinary -and (Get-BinarySha256 $Binary) -cne $ownedHash) {
         throw 'Existing ev.exe does not match its ownership marker; refusing to replace it.'
     }
     if ((Get-BinarySha256 ([IO.Path]::Combine($Metadata, 'LICENSE'))) -cne $licenseHash -or
@@ -650,6 +653,7 @@ try {
     $installLock = [IO.FileStream]::new($lockPath, [IO.FileMode]::CreateNew,
         [IO.FileAccess]::ReadWrite, [IO.FileShare]::None, 4096, [IO.FileOptions]::DeleteOnClose)
     $hadInstall = Assert-OwnedInstall $binary $metadata
+    $hadBinary = $null -ne (Get-PathAttributes $binary)
     if (($Uninstall -or $OwnerProcessId -ne 0) -and -not $hadInstall) {
         throw 'No owned ev installation exists at this destination.'
     }
@@ -809,6 +813,7 @@ try {
     [IO.File]::WriteAllText([IO.Path]::Combine($stageMetadata, '.native-install'), $marker, [Text.UTF8Encoding]::new($false))
     Assert-SafeAncestry $destination
     if ((Assert-OwnedInstall $binary $metadata) -ne $hadInstall) { throw 'Installation changed during staging.' }
+    if (($null -ne (Get-PathAttributes $binary)) -ne $hadBinary) { throw 'Executable presence changed during staging.' }
     Assert-RunningOwner $binary
     $backupBinary = [IO.Path]::Combine($stage, 'previous-ev.exe')
     $backupMetadata = [IO.Path]::Combine($stage, 'previous-metadata')
@@ -825,12 +830,12 @@ try {
         }
         [IO.Directory]::Move($stageMetadata, $metadata)
         $metadataPublished = $true
-        if ($hadInstall -and $null -ne $installerState.ownerProcess) {
+        if ($hadBinary -and $null -ne $installerState.ownerProcess) {
             # A running image can be renamed, but not deleted. Only this verified
             # updater's image may take this path; other running ev instances were rejected.
             [IO.File]::Move($binary, $backupBinary)
             [IO.File]::Move($stageBinary, $binary)
-        } elseif ($hadInstall) {
+        } elseif ($hadBinary) {
             # ReplaceFile may move the old executable before reporting a failure.
             [IO.File]::Replace($stageBinary, $binary, $backupBinary, $false)
         } else { [IO.File]::Move($stageBinary, $binary) }
@@ -843,7 +848,7 @@ try {
             if ($metadataBackedUp) { [IO.Directory]::Move($backupMetadata, $metadata) }
         } catch { $rollbackErrors.Add('metadata: ' + $_.Exception.Message) }
         try {
-            if ($hadInstall -and [IO.File]::Exists($backupBinary)) {
+            if ($hadBinary -and [IO.File]::Exists($backupBinary)) {
                 if ([IO.File]::Exists($binary)) {
                     if ($null -ne $installerState.ownerProcess) {
                         [IO.File]::Move($binary, $stageBinary)
@@ -852,7 +857,7 @@ try {
                 } else {
                     [IO.File]::Move($backupBinary, $binary)
                 }
-            } elseif ($binaryPublished -and -not $hadInstall) {
+            } elseif ($binaryPublished -and -not $hadBinary) {
                 [IO.File]::Move($binary, $stageBinary)
             }
         } catch { $rollbackErrors.Add('executable: ' + $_.Exception.Message) }

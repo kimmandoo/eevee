@@ -4,6 +4,13 @@ Updated2026-11-01. Completed0.1.44 delivery: reliable low-friction exit, quiet d
 
 Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPATIBILITY.md). Live-provider conformance remains distinct from implemented transports and deterministic runtime proof.
 
+## Current delivery — Windows installation after 0.1.41 (2026-11-02)
+
+1. Completed source/tag/asset comparison: .41–.43 installers were identical; no .42 packaging/CRT/dependency/HTTP/cache-default change explained a general installation failure. Actual public bootstrap, fresh online .44, sequential .41→.42→.43→.44 and original .41 self-update succeeded on isolated Windows11; do not substitute this for the affected-device report.
+2. Reproduced and repaired a preexisting recovery defect: valid complete metadata with an absent executable could not be reinstalled. Ordinary repair now validates metadata fully, separates metadata/binary commit state and preserves create-only publication and strict reviewed/owner/uninstall refusals.
+3. Passed native PS7 File14, both PS5.1/PS7 ScriptBlock repair/interactive startup/quit/caller-state paths, both real online repair paths and actual online sprite-failure preservation. PS5.1 File remains policy-blocked before execution; no policy/protection change was made. Python24 passed/four Windows-only skips. Exact evidence is in `target/windows-install-regression/`.
+4. **Unresolved initial device trigger:** Need the actual failing installation command and complete last error; for a security verdict, also need its Protection history threat name/intelligence version. Do not claim the recovery defect caused the first post-.41 failure or mutate executable bytes/signing/security settings without that evidence. Source repair is committed separately; published0.1.44 remains immutable and unchanged.
+
 ## Completed delivery — Interaction and Windows reliability (0.1.44)
 
 1. Compare actual reference input/persistence/agent/result behavior and trace the reported paths. Treat observed user failures as real; distinguish storage/cancellation bookkeeping from running work and received responses from completed local verification.
