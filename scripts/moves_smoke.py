@@ -955,6 +955,7 @@ class Journey:
         self.replace_editor("x" * 64, "Learned exact candidate")
         self.session.send("\r")
         wait_for(self.session, "Confirm local change")
+        self.review_local()
         self.session.send("y")
         self.until(lambda: len(self.moves()) == 1, "explicit candidate learning")
         self.move_ready()
