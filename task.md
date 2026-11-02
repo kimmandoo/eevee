@@ -4,6 +4,7 @@ Only unfinished work belongs here. Completed specifications and stable dependenc
 
 ## Current state
 
+- **Active delivery (2026-11-02):** User authorized0.1.45 publication plus minor bug/UX fixes and existing tool/Move learning/evolution verification. Preserve completed Windows/auth changes; narrowly repair repeated descriptive/imperative verb classification, run actual both-size learning/tool/evolution journeys, then require exact-source Check/all five native jobs before immutable publication and public install/runtime acceptance. No new learning architecture or unrelated roadmap task starts.
 - **Released:** [v0.1.44](https://github.com/kimmandoo/eevee/releases/tag/v0.1.44), source `f9ecae4`, native41288800890 attempt1 and publication41292028764. Direct exit, quieter saves, acknowledged task navigation, live release readiness, clear incomplete/error outcomes, bounded continuation and PS5.1/PS7 caller preservation shipped with the original Eevee surfaces retained. All eight public assets matched qualified bytes; the exact package passed one complete24-group installation/all34 terminal scenarios, evolution/response/graphics acceptance and all ten publicly installed interaction journeys. Exact package IDs/hashes and native Windows evidence are in the checkpoint.
 - **Completed in source (2026-11-02):** Native auth now keeps typed stage/status/remedy above grouped diagnostics, rejects stale/foreign continuations and reflects save/idle readiness without restoring approval. Eevee-owned callbacks have private, static light/dark landing pages with distinct received/denied/invalid guidance. Rust2049/two ignored, strict Clippy and exact-hash native TUI/callback/browser proof passed; this is not a newly published release or live-account qualification.
 - **Current Windows investigation (2026-11-02):** Source installer repairs an absent executable only with fully verified surviving metadata; native PS5.1/PS7 online/ScriptBlock repair and installed TUI quit passed, plus PS7 File14 refusal/repair cases. Public0.1.44 assets are unchanged and do not contain this fix. The initial post-.41 affected-device failure still needs its exact installation command/error; do not label the preexisting recovery defect as that initial cause.
@@ -34,7 +35,7 @@ A/B/C/D/E/G/I/J/K/L/U/X are implemented; F/H/R and14 V tasks retain their explic
 
 ### Next order
 
-1. The0.1.44 interaction/Windows delivery is complete and published. Do not repeat its implementation or move the tag; choose another ready task only within the next user's requested scope. Preserve exact effect consent, user data, published bytes and separate device-specific font/antivirus limits.
+1. Complete the active0.1.45 minor-fix/learning/evolution/release plan in [IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md). Public0.1.44 remains immutable; do not infer publication or user-device clearance from local source acceptance.
 2. Local Q01/Q02/P03 evidence remains separate from full Wave8/live acceptance. Remaining F/H/R/V work is not implied complete by the X-track release.
 
 ## Execution rules

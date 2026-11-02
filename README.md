@@ -26,7 +26,7 @@
 <p align="center">
   <img src="docs/assets/screenshot.png" width="900" alt="The real ev terminal app in Ghostty, with an open response canvas, colored Rust and diagnostics, and the original Eevee native pixel portrait">
   <br>
-  <sub>Actual 0.1.43 macOS/Ghostty capture of the retained open-response/code/portrait layout; 0.1.44 adds quieter result summaries and direct exit. Eevee is native terminal pixels, not pasted into the screenshot. Response text comes from a deterministic loopback fixture, not a live model. No account or paid provider was used. <a href="docs/ASSET_LICENSES.md">Artwork attribution and rights limits.</a></sub>
+  <sub>Actual 0.1.43 macOS/Ghostty capture of the retained open-response/code/portrait layout; 0.1.45 keeps the original native terminal portrait. Response text comes from a deterministic loopback fixture, not a live model. No account or paid provider was used. <a href="docs/ASSET_LICENSES.md">Artwork attribution and rights limits.</a></sub>
 </p>
 
 `ev` is a single native binary that turns any folder into an agent workspace. Type a request; the model you connected reads your project, writes files, runs builds and tests, reads the real errors and fixes them — the same loop you know from Codex or Claude Code, with any provider and with every effect shown to you first.
@@ -43,7 +43,18 @@ It also comes with a companion: a party of Eevee forms that evolve with the kind
 - **Local-first.** Tasks, drafts, transcripts and run history live in local SQLite. No account, server or Node runtime needed.
 - **Built for the terminal.** Rust + ratatui, 60×18 and up, mouse and keyboard, Kitty/Sixel sprites with text fallback, ASCII/mono modes. macOS, Linux, WSL and Windows, all built and tested in CI.
 
-## What's new in 0.1.44
+## What's new in 0.1.45
+
+| | What changed |
+| --- | --- |
+| **Safer Windows repair** | Reinstall repairs a missing `ev.exe` only when complete, unmodified ownership metadata and the downloaded package validate. Unowned or modified files still refuse; no antivirus or execution-policy bypass. |
+| **Actionable account failures** | Native sign-in keeps the failed stage, safe reason and next action visible. Repeated policy paragraphs are grouped without losing distinct restrictions. A review waiting for saved input cannot look ready to Connect. |
+| **Visible compact answers** | Successful completion details fit one row instead of pushing the received answer off a small screen beside pinned-form or learning notices. Failure reasons/actions stay inline; full details remain in `/verbose`. |
+| **Eevee callback pages** | Responsive light/dark callback pages use original inline geometry, no remote resources and no reflected credentials. A received redirect asks you to return to the terminal; it does not claim authentication succeeded. |
+| **Compound-request evolution** | A repeated descriptive verb no longer hides a later explicit build/fix instruction. Quoted text, negation, manual form choices and effect review retain their boundaries. Existing Moves/TM teaching remains local and does not grant tool authority. |
+
+<details>
+<summary>Highlights retained from 0.1.44</summary>
 
 | | What changed |
 | --- | --- |
@@ -55,6 +66,8 @@ It also comes with a companion: a party of Eevee forms that evolve with the kind
 | **More usable response space** | Ordinary answers stay borderless; useful output precedes compact result metadata. Actual growing source stays in filename/status boxes with numbered highlighted code; PgUp/PgDn reads earlier code and Alt+End follows. |
 | **The original Eevee stays** | The native pixel portrait and resize recovery remain intact. Intent-matched evolution, color/mono code diagnostics, draft-preserving effect reviews and exact consent remain; model-picker details moved to Alt+D. |
 | **Protected Windows qualification** | Exact executable/archive scans require current Defender intelligence and real-time/PUA/cloud protection. Packages remain unsigned; a clean CI scan is not device-specific antivirus clearance. |
+
+</details>
 
 <details>
 <summary>Capabilities carried over from 0.1.38–0.1.42</summary>
@@ -98,7 +111,7 @@ Installers verify SHA-256 checksums and never edit your shell profile or persist
 
 The installer returns to this PowerShell session on success or error; it does not require administrator rights, change execution policy or close the host. Run `ev` after installation. If an old installer already closed its host, reopen PowerShell and use the latest command above rather than rerunning a cached old script.
 
-If `ev.exe` is missing but `.ev-install` remains, **do not delete the metadata or your task data**. The current source installer can repair that state after validating the complete ownership marker, license/notices and downloaded package. Modified or unowned files still refuse; an active antivirus block must remain in place. This repair is not yet included in the published 0.1.44 installer.
+If `ev.exe` is missing but `.ev-install` remains, **do not delete the metadata or your task data**. Installers from 0.1.45 can repair that state after validating the complete ownership marker, license/notices and downloaded package. Modified or unowned files still refuse; an active antivirus block must remain in place.
 
 From an updated checkout, run its installer in the current PowerShell session without changing execution policy:
 
@@ -136,11 +149,11 @@ Pin a version:
 
 ```sh
 curl -fsSLo install-ev.sh https://github.com/kimmandoo/eevee/releases/latest/download/install.sh
-sh ./install-ev.sh --version v0.1.44
+sh ./install-ev.sh --version v0.1.45
 ```
 
 ```powershell
-& ([scriptblock]::Create((irm https://github.com/kimmandoo/eevee/releases/latest/download/install.ps1))) -Version v0.1.44
+& ([scriptblock]::Create((irm https://github.com/kimmandoo/eevee/releases/latest/download/install.ps1))) -Version v0.1.45
 ```
 
 Offline: download the matching archive, `SHA256SUMS` and installer from one release, then:
@@ -255,6 +268,8 @@ Eevee picks a form from what you ask (`[Auto]`), or you pin one with `/forms`. F
 - **Party and cooperation** — up to three partners can work on one task with separate drafts and approvals; only one edits at a time. The lead can also send up to three read-only helpers.
 - **Moves and TMs** — save reusable steps (with typed parameters) per form, keep up to 32 in the library, export/import them as portable TOML.
 - **Held context, formations, ribbons and records** — remember files and notes, save party setups and browse source-linked history.
+
+Learning saves **steps, not permissions or model training**. `/teach-move` reviews a local definition; `/move` shows four quick slots and `/move-library` the full library. Three matching eligible approved commands or dispatched pin sets can propose a move, never learn or run it automatically. Finish/save the Request and press **Esc** to leave its editor before expecting an idle learning offer—even an empty active editor is protected. Learn still requires confirmation; Not now postpones, Never persists. Tool-catalog selections and grants are not inherited by a learned Request.
 
 Sprites render via Kitty/Sixel when supported; installers fetch artwork separately and source builds can run `ev --download-artwork`.
 

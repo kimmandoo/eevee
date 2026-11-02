@@ -525,9 +525,16 @@ impl Layout {
                         // Compact output keeps the error's beginning and an
                         // action visible even in a short terminal. The exact
                         // retained reason remains in /verbose, never replaced.
-                        let budget = usize::from(width)
-                            .saturating_mul(3)
-                            .saturating_div(2)
+                        // Successful metadata must leave the answer visible
+                        // beside compact form/learning notices. Failures retain
+                        // their wider reason and separate recovery action.
+                        let columns = usize::from(width);
+                        let budget =
+                            if status.outcome == Some(crate::providers::Outcome::Completed) {
+                                columns
+                            } else {
+                                columns.saturating_mul(3).saturating_div(2)
+                            }
                             .saturating_sub(label.len() + 2 + " [...] /verbose".len());
                         let mut used = 0;
                         let mut end = 0;

@@ -752,10 +752,17 @@ fn planning_artifact(clause: &str, action: &str) -> bool {
 
 // Describing a future command is not asking the host to execute it. A separate
 // imperative clause ("plan ...; then build ...") still requests that capability.
+// Every occurrence must be descriptive: a later repeated verb can be imperative.
 fn execution_description(clause: &str, action: &str) -> bool {
-    let Some(at) = clause.find(action) else {
+    let mut occurrences = clause.match_indices(action);
+    let Some((at, _)) = occurrences.next() else {
         return false;
     };
+    execution_description_at(clause, action, at)
+        && occurrences.all(|(at, _)| execution_description_at(clause, action, at))
+}
+
+fn execution_description_at(clause: &str, action: &str, at: usize) -> bool {
     let prefix = clause[..at]
         .rsplit(" and ")
         .next()
@@ -1837,6 +1844,9 @@ mod tests {
             "오류 수정 방법을 분석해줘.",
             "Diagnose the error and fix it if needed.",
             "Review the patch; then repair it.",
+            "Explain how to build the project and then build the project.",
+            "Explain how to fix the error and then fix it.",
+            "오류 수정 방법을 분석하고 수정해줘.",
             "오류를 분석하고 수정해줘.",
             "Review the patch; do not fix it.",
             "Review the patch: \"fix src/main.rs\".",
@@ -2587,6 +2597,41 @@ mod tests {
         }
         let selected = classify("분석만 하고 수정하지 마").unwrap();
         assert_eq!((selected.form, selected.operation), (1, Operation::Plan));
+    }
+
+    #[test]
+    fn repeated_descriptive_verbs_keep_later_imperative_capability() {
+        for (text, form) in [
+            (
+                "Explain how to build the project and then build the project.",
+                2,
+            ),
+            ("Explain how to fix the error and then fix it.", 3),
+            ("오류 수정 방법을 분석하고 수정해줘.", 5),
+        ] {
+            let selected = classify(text).unwrap();
+            assert_eq!(
+                (selected.form, selected.operation),
+                (form, Operation::Implement),
+                "{text}"
+            );
+        }
+        for text in [
+            "Explain how to build the project and describe how to build it.",
+            "Explain how to fix the error and describe how to fix it.",
+            "오류 수정 방법을 분석하고 수정 방법을 설명해줘.",
+            "Explain how to build the project; do not build it.",
+            "Explain how to fix the error; do not fix it.",
+            "오류 수정 방법을 분석하고, 수정하지 마.",
+            "Explain how to build the project and quote \"build the project\".",
+            "Explain how to fix the error and quote \"fix the error\".",
+            "오류 수정 방법을 분석하고 \"수정해줘\" 문구를 설명해줘.",
+        ] {
+            assert!(
+                classify(text).is_none_or(|selection| selection.operation == Operation::Plan),
+                "{text}"
+            );
+        }
     }
 
     #[test]

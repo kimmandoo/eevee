@@ -233,6 +233,11 @@ class Journey:
             view = self.session.display()
             footer = view.rstrip().splitlines()[-1].strip()
             if footer.startswith(("Type Request |", "Enter Send |", "Draft only |")):
+                if allow_offer and footer.startswith(("Enter Send |", "Draft only |")):
+                    # View-only navigation need not rewrite SQLite; observe the
+                    # live editor footer, not its last persisted editing flag.
+                    self.session.send(ESC)
+                    continue
                 return footer
             if allow_offer and "wants to learn a move!" in view:
                 return "Learn prompt"
@@ -281,10 +286,18 @@ class Journey:
                 and bool(r["forgotten"]) == forgotten]
 
     def menu(self, index=0, details=False):
-        self.session.command("move")
-        wait_for(self.session, "Moves / local reusable actions")
-        self.move_ready()
-        self.session.send("\t" * index)
+        records = self.moves()
+        slot = records[index]["proposal"].get("quick_slot") if records else 0
+        if isinstance(slot, int) and 0 <= slot < 4:
+            self.session.command("move")
+            wait_for(self.session, "Moves / local reusable actions")
+            self.move_ready()
+            self.session.send("\t" * slot)
+        else:
+            self.session.command("move-library")
+            wait_for(self.session, "Library /32")
+            self.move_ready()
+            self.session.send(DOWN * index)
         if details:
             self.session.send("d")
             wait_for(self.session, "Use (normal review)")
@@ -905,7 +918,7 @@ class Journey:
             self.run("repeat")
             self.until(lambda: self.candidate("repeat")[0]["record"]["uses"] == count, "next actual run candidate observation")
             if count < 6:
-                self.workspace()
+                self.workspace(allow_offer=True)
                 self.quiet_assert(lambda: "wants to learn a move!" not in self.session.display(), "Not now returned before exact +3")
         self.workspace(allow_offer=True)
         wait_for(self.session, "wants to learn a move!")
@@ -914,7 +927,7 @@ class Journey:
         self.workspace()
         self.restart()
         self.run("repeat")
-        self.workspace()
+        self.workspace(allow_offer=True)
         self.quiet_assert(lambda: "wants to learn a move!" not in self.session.display(), "Never resurfaced after restart")
         for number in range(3):
             self.run("learn-candidate")
@@ -1085,6 +1098,7 @@ class Journey:
         assert set(candidate["record"]["sources"]) <= dispatch_ids
         self.workspace()
         self.write_request("")
+        self.workspace(allow_offer=True)
         wait_for(self.session, "wants to learn a move!", timeout=35)
         self.pages("three-real-pin-dispatch-sources")
         self.session.send(ESC)

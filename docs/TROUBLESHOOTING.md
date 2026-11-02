@@ -1,5 +1,26 @@
 # Troubleshooting
 
+### [2026-11-02] A descriptive verb hid a later imperative in automatic evolution
+
+- **Context / Symptom:** Frozen pre-fix executable613c1a76 predicted Vaporeon/Plan for “Explain how to build the project and then build the project.” in the actual120×36 and60×18 preview, suppressing the later build request. Similar repeated English fix and Korean 수정 compounds shared the source defect.
+- **Root Cause:** `execution_description` checked only the first occurrence of the action, so an earlier explanation made every later occurrence descriptive.
+- **Solution:** Applied the unchanged occurrence-local guard to every match and required all occurrences to be descriptive before suppressing the action. Kept quotation, negation, explicit Plan/Review, manual appearance and exact effect consent unchanged.
+- **Prevention / Reference:** Added imperative and descriptive/negated/quoted regressions plus the three actual EN/KO native preview→Send fixtures. Preserved `target/release045-proof/evolution-red/`; the full corrected classifier backtest on a75cb050 passed both sizes, all eight specialists and47 controlled HTTP POSTs per size. Final-candidate reports have their own exact hashes, not relabelled baseline evidence.
+
+### [2026-11-02] Compact completion details displaced a successfully received answer
+
+- **Context / Symptom:** Actual similar-Move and Request-teaching journeys at60×18 received and settled their HTTP response, but the viewport showed only a blank line and two lines of completion metadata beneath retained pinned-form/advisory notices. `Following 2-4/4` placed the one-line answer offscreen.
+- **Root Cause:** The compact settlement reason reserved1.5 terminal widths even for success. The older whole-screen regression had no typed `RequestStatus`, so it never exercised the actual appended settlement rows.
+- **Solution:** Bounded only successful metadata to one terminal width, leaving a row for the answer. Retained the existing wider non-success reason, separate recovery action and exact `/verbose` details. Strengthened the existing visible-answer/draft/caret regression with a real typed long completion status and removed incidental prose pins.
+- **Prevention / Reference:** The strengthened test failed before the change at60×18, then the final Rust1.90 gate passed2050 tests/two ignored, strict Clippy and build. Actual candidate failures remain under `candidate-similar-moves`/`candidate-moves`; final executable9fbeaff0 has separate runtime records.
+
+### [2026-11-02] Move acceptance confused an active Request editor and the full library with idle quick slots
+
+- **Context / Symptom:** Full Move acceptance persisted eligible three-source candidates but waited for an idle offer while SQLite still recorded `navigation.editing=true`, including an empty Request. Its long-command scenario also selected a previous naming command instead of the new library record.
+- **Root Cause:** `workspace()` accepted the active `Enter Send` editor as idle; Ctrl+S does not close it. A first correction also waited on persisted editing metadata after the live editor had closed, but view-only navigation intentionally need not rewrite SQLite. The driver also sent a full-library index through Tab in a menu containing only four quick slots, cycling to another record.
+- **Solution:** For explicit idle-offer checks only, left the known clean Request editor with Esc and observed its live footer or actual modal, not stale persisted editing metadata. Not-now and Never checks now reach genuine idle eligibility. Selected a record's actual quick slot or used the full library rather than cycling the quick menu. Preserved all ordinary reviews and production editor/busy/storage guards.
+- **Prevention / Reference:** `idle_learning_never_takes_an_active_empty_request_editor` remains binding. Three sources/threshold3/offered0 was correct deferral, not broken automatic learning. Keep initial failed screenshots/SQLite separately from final both-size Move acceptance; do not “fix” the app by stealing an active editor or granting execution.
+
 ### [2026-11-02] Native sign-in failures were hidden behind generic diagnostics and repeated policies
 
 - **Context / Symptom:** The reported connection sheet showed `Login/status failed; private output was not retained.` followed by repeated Native HTTP boundary/evidence/restriction blocks. A frozen local0.1.41 executable reproduced the generic native Device-login error through a loopback HTTPS proxy that refused CONNECT, with no public identity request or credential; its diagnostics also repeated the same policy for Plan, Review, Implement and Models metadata.

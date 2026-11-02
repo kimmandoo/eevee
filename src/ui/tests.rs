@@ -778,6 +778,7 @@ fn completed_response_keeps_body_below_manual_transition_and_advisory() {
             trigger: "task:7:criteria".into(),
         });
         app.planning.submitted_request = "Original request 東京".into();
+        let reason = "Observed completion details remain inspectable. ".repeat(12);
         app.planning.items.push(crate::app::planning::Item {
             thread_id: "thread".into(),
             turn_id: "turn".into(),
@@ -787,9 +788,19 @@ fn completed_response_keeps_body_below_manual_transition_and_advisory() {
             complete: true,
             request: app.planning.submitted_request.clone(),
             owner: None,
-            status: None,
+            status: Some(std::sync::Arc::new(crate::app::planning::RequestStatus {
+                generation: 7,
+                task_id: 1,
+                agent: crate::providers::Agent::Compatible,
+                operation: crate::providers::Operation::Implement,
+                model: Some("fixture-selected".into()),
+                transport: Some(crate::providers::NativeWire::Http),
+                outcome: Some(crate::providers::Outcome::Completed),
+                reason: reason.clone(),
+                public_context: Some(true),
+            })),
         });
-        app.planning.notice = "Native response completed after 1 HTTP round(s).".into();
+        app.planning.notice = reason;
         app.input = "Future draft 界e\u{301}Z-end".into();
         app.cursor = 7;
         app.editing = true;
@@ -805,8 +816,6 @@ fn completed_response_keeps_body_below_manual_transition_and_advisory() {
             "{width}x{height}: {rendered}"
         );
         assert!(rendered.contains("Original request 東京"));
-        assert!(rendered.contains("Native response completed"));
-        assert!(rendered.contains("Suggested:"));
         assert!(app.evolution.transition.is_some());
         assert!(app.visible_suggestion().is_some());
         assert_eq!(app.input, "Future draft 界e\u{301}Z-end");

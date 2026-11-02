@@ -100,8 +100,8 @@ jobs:
               f"(attempt {os.environ['QUALIFIED_ATTEMPT']}): "
               f"https://github.com/{os.environ['GH_REPO']}/actions/runs/{os.environ['QUALIFIED_RUN']}. "
               "Optional provider runtimes and accounts are separate; authenticated provider interoperability is not implied. "
-              "Online installers download hash-verified sprites to the user cache; packages do not bundle franchise image bytes "
-              "and offline installation stays offline. Packages are unsigned and macOS builds are not notarized. "
+              "Online installers download hash-verified sprites to the user cache; packages do not bundle upstream sprite files. "
+              "Original inline callback artwork is documented in docs/ASSET_LICENSES.md; offline installation stays offline. Packages are unsigned and macOS builds are not notarized. "
               "See README for checksum-verified installation and support limits."
           )
           Path("target/release-notes.md").write_text(notes + "\n\n" + summary + "\n", encoding="utf-8")

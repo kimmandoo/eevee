@@ -1,8 +1,16 @@
 # Eevee Implementation Plan
 
-Updated2026-11-02. Current source completed clear native-auth failure recovery and Eevee-themed browser callback pages with local source/TUI/browser proof. Public0.1.44 remains the last immutable release; no publication is implied. Its original Eevee TUI and exact dangerous-effect consent remain intact. Separate Windows affected-device and remaining product/live-provider work retain their own evidence limits.
+Updated2026-11-02. The user requested publication plus minor bug/UX fixes and verification of existing tool/Move learning and form evolution. Candidate0.1.45 includes the completed Windows repair and native-auth/callback fixes; public0.1.44 remains immutable until qualification/publication completes. No new learning architecture, unrelated roadmap work or live-provider quality claim is authorized.
 
 Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPATIBILITY.md). Live-provider conformance remains distinct from implemented transports and deterministic runtime proof.
+
+## Current delivery — Minor fixes, learning/evolution acceptance and0.1.45 release (2026-11-02)
+
+1. Preserve the completed Windows/auth changes and inspect existing Moves/TM teaching, use/history and explicit tool-catalog authority. Exercise actual native journeys for teaching, import/export, restart, replacement, usage and reviewed tool effects; distinguish this from model training or inherited tool grants.
+2. Reproduce the narrow repeated-verb evolution error on frozen pre-fix bytes, retain negation/quotation/manual/readonly controls, correct only the occurrence guard and run the bilingual, both-size evolution backtest plus similar-Move acceptance.
+3. Advance Cargo/lock and version notes, run final Rust1.90 fmt/tests/strict Clippy/build and actual candidate learning/tool/auth journeys. Record demonstrated defects and evidence limits; do not manufacture incidental UX changes.
+4. Commit/push the source-gated candidate and run independent native qualification while any final driver-only acceptance finishes. Both complete local acceptance and the newest exact-source main native run's Check/all five targets/every step in one attempt must pass before tagging. Existing publication workflow must download only qualified immutable artifact IDs, validate packages and source-identical installers, and publish a new tag without rebuilding or altering old releases.
+5. Verify public version/tag, all eight asset digests/seven checksum rows/five native layouts, and actual downloaded-host installation/update/uninstall plus changed runtime behavior. Record publication IDs and final evidence, close only this delivery and commit the handoff.
 
 ## Completed delivery — Native auth diagnostics and callback landing (2026-11-02)
 
