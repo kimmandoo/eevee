@@ -4,6 +4,7 @@
 
 ### 0.1.45
 
+- docs(release): published v0.1.45 from b27cbd9 using native41421707024 attempt1 and publication41425630610; verified eight public assets, complete24/34 Linux installation, both-size changed runtime and actual Windows public repair without replacing older bytes or weakening protection.
 - fix(evolution): kept a later imperative build/fix instruction when an earlier occurrence of the same verb only described a method, while retaining quoted-source, negation and explicit readonly/manual boundaries.
 - fix(ui): bounded successful completion metadata to one compact row so a received answer stayed visible beside pinned-form and learning notices, while preserving wider failure causes, recovery actions and full verbose details.
 - test(moves): selected exact quick slots or full-library records, observed live editor closure for idle learning and exposed complete candidate scope before explicit confirmation without weakening editor, storage or effect-review guards.

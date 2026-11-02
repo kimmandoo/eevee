@@ -1,11 +1,18 @@
 # Troubleshooting
 
+### [2026-11-02] Public verification rejected Windows LICENSE line endings
+
+- **Context / Symptom:** The disposable public verifier failed its LICENSE byte-equality assertion after all eight downloaded asset digests had passed.
+- **Root Cause:** Windows checkout packaged201 CRLF lines; Unix source had LF. The legal text was identical, and the public archive was byte-identical to its qualified CI archive.
+- **Solution:** Verified every public asset against both GitHub digests and exact assembled qualified bytes, then compared license text with only CRLF-to-LF normalization. No published archive, checksum or license was replaced.
+- **Prevention / Reference:** `public-integrity.json` retains per-platform byte/line-ending observations. Do not mistake an incidental cross-platform text encoding pin for package corruption.
+
 ### [2026-11-02] Windows qualification stopped before scanning because live protections were not ready
 
 - **Context / Symptom:** Native41412881908/sourceaf0f0d1 passed Check/four native targets and Windows tests/build/package, but the Windows protection guard failed about4.9 seconds after start: `Microsoft Defender antivirus, real-time, behavior and downloaded-file protections must be active; no scan waiver is allowed.` Intelligence updater returned0; both file scan codes were null and no package was published. This was not an observed payload detection.
 - **Root Cause:** The guard sampled live protection once immediately after accepted configuration and a native updater/platform transition, without readiness synchronization. Its old report omitted the failing live flags, so transient startup and permanently unavailable protection were indistinguishable.
 - **Solution:** Added a bounded60-second state-convergence wait that preserves every existing required flag and records initial/final protection state plus elapsed time. Failed updates/scans are still single-attempt failures, and an unready deadline refuses before either scan. This script remains restricted to disposable GitHub Actions runners; no user's Defender settings were changed.
-- **Prevention / Reference:** Retained the failed digest-verified diagnostic ZIP and native job metadata in `target/release045-proof/`. Anonymous direct log/artifact downloads required authentication; nightly.link's documented authorized public redirect supplied the ZIP, whose SHA256 matched GitHub metadata before inspection. A prior native0.1.45 package was also hash-verified as a diagnostic control, but its EXE41185759/archivebb52e696 differed from the failed run's94eec76b/18155fb2; never label it the exact failed bytes. Require genuine protected Windows diagnostic proof and a fresh complete exact-source native run before publication.
+- **Prevention / Reference:** Retained the failed GitHub-digest-verified ZIP and metadata. Authorized public nightly.link redirects required no new app/token grant; ZIP digests were checked before inspection. The diagnostic control EXE41185759/archivebb52e696 differs from failed-run94eec76b/18155fb2 and was not relabelled. Genuine Windows41419755266 and41421423839 passed fresh/already-protected scans with every required flag active and unchanged bytes. A clearly controlled observation-only case waited from unready to ready in0.875s; another refused after60.094s with both scan codes null. Real protection was never disabled, and the controlled observation is not a claimed physical startup transition. Retained `defender-{probe,boundary}.zip`; a fresh full exact-source native run still gates publication.
 
 ### [2026-11-02] A descriptive verb hid a later imperative in automatic evolution
 
