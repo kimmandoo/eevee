@@ -273,6 +273,11 @@ The method you choose decides the transport — `ev` never silently falls back t
 
 For OpenAI account setup, remote/WSL launches suggest **Device login**; Browser remains an explicit choice. If a callback cannot return to this terminal, use Device or paste the complete browser redirect into the hidden native prompt, then Enter. **Ctrl+U** clears a mistaken paste; **Esc/Ctrl+C** cancels. Error recovery names the failing stage and HTTP status without displaying response bodies, codes or tokens. Saved account access grants still expire and require explicit reconnect; saving is not automatic renewal or proof of model entitlement.
 
+In the current source, the connection sheet keeps the observed sign-in stage/status and its specific recovery step above scrolling details; repeated action policies share one disclosure without hiding distinct restrictions. A newer connection/save error replaces stale login guidance. HTTP refusal does not by itself prove a workspace-policy or signed-out cause.
+Login review shows a waiting/save-failed state while required local work is not ready. Connect becomes available only after committed-input/idle checks pass, and readiness never restores an earlier approval or starts login by itself.
+
+Eevee-owned browser callbacks use a self-contained light/dark landing page. **Response received is not connected**: return to the terminal for credential validation and the final result. Denied and mismatched callbacks have separate guidance; the page shows no codes, tokens or account data and loads no remote assets.
+
 Details, limits and per-route enforcement: [Agent compatibility](docs/AGENT_COMPATIBILITY.md).
 
 ## Safety model

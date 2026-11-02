@@ -1,4 +1,5 @@
 use super::*;
+use std::io::Write;
 use std::sync::{Arc, Mutex};
 
 struct Reply {
@@ -268,10 +269,7 @@ fn native_hidden_manual_input_can_be_cleared_cancelled_and_bounded() {
 #[test]
 fn native_identity_failures_keep_actionable_stage_status_but_not_private_body() {
     let private = "PRIVATE_RESPONSE_CODE_TOKEN_ACCOUNT_MUST_NOT_SURVIVE";
-    for (status, expected_stage) in [
-        (403, "Device authorization setup"),
-        (503, "Device authorization setup"),
-    ] {
+    for status in [403, 503] {
         let fixture = Fixture::new(vec![Reply {
             status,
             body: private.into(),
@@ -285,10 +283,11 @@ fn native_identity_failures_keep_actionable_stage_status_but_not_private_body() 
             Outcome::Failed,
             "access/service refusal does not prove the account is signed out"
         );
+        let failure = endpoint.failure.get().unwrap();
+        assert_eq!(failure.status, Some(status));
+        assert!(failure.summary().contains(&format!("HTTP {status}")));
         let message = endpoint.failure.get().unwrap().message();
-        assert!(message.contains(expected_stage));
         assert!(message.contains(&format!("HTTP {status}")));
-        assert!(message.contains("Settings > Security"));
         assert!(!message.contains(private));
         assert_eq!(fixture.finish().len(), 1);
     }
@@ -305,10 +304,69 @@ fn native_identity_failures_keep_actionable_stage_status_but_not_private_body() 
     ));
     assert_eq!(result.unwrap_err(), Outcome::NotAuthenticated);
     let message = endpoint.failure.get().unwrap().message();
-    assert!(message.contains("Token exchange (HTTP 400)"));
-    assert!(message.contains("fresh login"));
+    assert_eq!(endpoint.failure.get().unwrap().status, Some(400));
     assert!(!message.contains(private));
     assert!(!message.contains("private-code"));
+    assert_eq!(fixture.finish().len(), 1);
+}
+
+#[test]
+fn native_http_refusal_survives_oversized_private_error_bodies() {
+    for status in [401, 403, 429, 503] {
+        let private = "PRIVATE_TOKEN_CODE_ACCOUNT_ERROR";
+        let fixture = Fixture::new(vec![Reply {
+            status,
+            body: private.repeat(BODY_LIMIT / private.len() + 1),
+            headers: String::new(),
+            delay: Duration::ZERO,
+        }]);
+        let endpoint = Endpoint::fixture(fixture.origin.clone());
+        let outcome = runtime()
+            .block_on(endpoint.device(&mut || Ok(()), |_| {
+                panic!("HTTP refusal must not display a device code")
+            }))
+            .unwrap_err();
+        assert_eq!(
+            outcome,
+            if status == 401 {
+                Outcome::NotAuthenticated
+            } else {
+                Outcome::Failed
+            }
+        );
+        let failure = endpoint.failure.get().unwrap();
+        assert_eq!(failure.status, Some(status));
+        assert_eq!(failure.outcome, outcome);
+        assert!(failure.message().contains(&format!("HTTP {status}")));
+        for text in [
+            failure.summary(),
+            failure.message(),
+            failure.remedy().to_owned(),
+        ] {
+            assert!(!text.contains(private));
+        }
+        assert_eq!(fixture.finish().len(), 1, "no automatic retry or fallback");
+    }
+}
+
+#[test]
+fn native_invalid_device_metadata_keeps_observed_http_status_and_private_data_out() {
+    let fixture = Fixture::new(vec![Reply::json(
+        200,
+        serde_json::json!({"device_auth_id":"PRIVATE_DEVICE_ID", "user_code":"INVALID CODE"}),
+    )]);
+    let endpoint = Endpoint::fixture(fixture.origin.clone());
+    let outcome = runtime()
+        .block_on(endpoint.device(&mut || Ok(()), |_| {
+            panic!("invalid login metadata must not be displayed")
+        }))
+        .unwrap_err();
+    assert_eq!(outcome, Outcome::Failed);
+    let failure = endpoint.failure.get().unwrap();
+    assert_eq!(failure.outcome, Outcome::Failed);
+    assert_eq!(failure.status, Some(200));
+    assert!(failure.summary().contains("200"));
+    assert!(!failure.message().contains("PRIVATE_DEVICE_ID"));
     assert_eq!(fixture.finish().len(), 1);
 }
 
@@ -360,6 +418,89 @@ fn native_browser_state_pkce_exact_return_and_single_use() {
         Err(Outcome::NotAuthenticated)
     );
     assert!(denied.consumed);
+}
+
+fn callback_http(
+    grant: &mut BrowserGrant,
+    target: String,
+    fail_page_write: bool,
+) -> (Result<Option<String>, Outcome>, String) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let client = std::thread::spawn(move || {
+        let mut stream = TcpStream::connect(address).unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(3)))
+            .unwrap();
+        write!(stream, "GET {target} HTTP/1.1\r\nHost: {address}\r\n\r\n").unwrap();
+        let mut response = String::new();
+        stream.read_to_string(&mut response).unwrap();
+        response
+    });
+    let stream = listener.accept().unwrap().0;
+    if fail_page_write {
+        stream.shutdown(std::net::Shutdown::Write).unwrap();
+    }
+    let result = serve(stream, grant, &mut || Ok(()));
+    (result, client.join().unwrap())
+}
+
+#[test]
+fn native_callback_http_keeps_invalid_attempt_open_and_never_reflects_private_input() {
+    let mut grant = BrowserGrant::new(1455).unwrap();
+    for target in [
+        "/auth/callback?code=private-code&state=wrong-state".to_owned(),
+        "/auth/callback?error=private-error&error_description=private-detail&state=wrong-state"
+            .to_owned(),
+        format!("/auth/callback?state={}", grant.state),
+        format!("/other?code=private-code&state={}", grant.state),
+        format!(
+            "/auth/callback?code=private-code&state={}&state=duplicate",
+            grant.state
+        ),
+    ] {
+        let (result, response) = callback_http(&mut grant, target, false);
+        assert_eq!(result, Ok(None));
+        assert!(!grant.consumed);
+        assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
+        assert!(!response.contains("private-"));
+        assert!(!response.contains(&grant.state));
+    }
+    let target = format!("/auth/callback?code=private-code&state={}", grant.state);
+    let (result, response) = callback_http(&mut grant, target.clone(), false);
+    assert_eq!(result, Ok(Some("private-code".into())));
+    assert!(grant.consumed);
+    assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
+    assert!(!response.contains("private-code"));
+    assert!(!response.contains(&grant.state));
+    let (result, response) = callback_http(&mut grant, target, false);
+    assert_eq!(result, Ok(None));
+    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
+}
+
+#[test]
+fn native_callback_http_denial_has_a_distinct_page_and_consumes_only_matching_state() {
+    let mut grant = BrowserGrant::new(1455).unwrap();
+    let target = format!(
+        "/auth/callback?error=private-error&error_description=private-detail&state={}",
+        grant.state,
+    );
+    let (result, response) = callback_http(&mut grant, target, false);
+    assert_eq!(result, Err(Outcome::NotAuthenticated));
+    assert!(grant.consumed);
+    assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
+    assert!(!response.contains("private-"));
+    assert!(!response.contains(&grant.state));
+}
+
+#[test]
+fn native_callback_http_page_write_failure_does_not_discard_the_code() {
+    let mut grant = BrowserGrant::new(1455).unwrap();
+    let target = format!("/auth/callback?code=private-code&state={}", grant.state);
+    let (result, response) = callback_http(&mut grant, target, true);
+    assert_eq!(result, Ok(Some("private-code".into())));
+    assert!(grant.consumed);
+    assert!(response.is_empty());
 }
 
 #[test]

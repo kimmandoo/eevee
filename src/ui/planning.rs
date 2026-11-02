@@ -3717,6 +3717,7 @@ mod tests {
         for (width, height) in [(60, 18), (120, 36)] {
             for auth in [false, true] {
                 let mut app = App::new("/workspace".into(), width, height);
+                app.storage = crate::app::StorageState::Saved;
                 app.agents.pending.take();
                 app.agents
                     .event(crate::providers::agent::Event::Discovered(vec![Profile {

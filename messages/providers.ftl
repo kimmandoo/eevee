@@ -699,6 +699,10 @@ providers-agents-forget-app-connection-2 = { " Forget app connection " }
 
 providers-agents-review-connection = { " Review connection " }
 
+providers-agents-auth-waiting = { "Waiting for saved input / idle work; no login." }
+
+providers-agents-auth-save-failed = { "Save failed. Esc back; retry storage before login." }
+
 providers-agents-review-version-check = { " Review version check " }
 
 providers-agents-connections = { " Connections " }

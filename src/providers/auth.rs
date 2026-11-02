@@ -8,6 +8,7 @@ use std::time::{Duration, Instant};
 use crate::platform::native_process::{INTERRUPTED, NativeChild, NativeSignals};
 use crate::{providers::agent, workspace::runner};
 
+mod callback;
 mod openai;
 #[cfg(test)]
 pub(crate) use openai::test_credential as test_openai_credential;
@@ -1047,22 +1048,17 @@ mod devin_web {
         let target = match (request.next(), request.next()) {
             (Some("GET"), Some(target)) => target,
             _ => {
-                let _ = stream
-                    .write_all(b"HTTP/1.1 405 Method Not Allowed\r\nContent-Length: 0\r\n\r\n");
+                let _ =
+                    super::callback::respond(&mut stream, super::callback::State::MethodNotAllowed);
                 return None;
             }
         };
         let (path, query) = target.split_once('?').unwrap_or((target, ""));
-        let respond = |stream: &mut std::net::TcpStream, status: &str, body: &str| {
-            let _ = stream.write_all(
-                format!("HTTP/1.1 {status}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes(),
-            );
-        };
         match path {
             "/launch" => {
                 let _ = stream.write_all(
                     format!(
-                        "HTTP/1.1 302 Found\r\nLocation: {launch}\r\nContent-Length: 0\r\n\r\n"
+                        "HTTP/1.1 302 Found\r\nLocation: {launch}\r\nCache-Control: no-store\r\nReferrer-Policy: no-referrer\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
                     )
                     .as_bytes(),
                 );
@@ -1075,60 +1071,36 @@ mod devin_web {
                 let got_state = query_param(query, "state").unwrap_or_default();
                 if let Some(detail) = description {
                     if got_state == state {
-                        respond(
-                            &mut stream,
-                            "200 OK",
-                            "<html><body>Sign-in finished; return to Eevee.</body></html>",
-                        );
+                        let _ =
+                            super::callback::respond(&mut stream, super::callback::State::Denied);
                         return Some(Callback {
                             code: None,
                             denied: Some(detail),
                         });
                     }
-                    respond(
-                        &mut stream,
-                        "400 Bad Request",
-                        "<html><body>Not recognized; return to Eevee and retry.</body></html>",
-                    );
+                    let _ = super::callback::respond(&mut stream, super::callback::State::Invalid);
                     return None;
                 }
                 let Some(code) = code.filter(|code| !code.is_empty()) else {
-                    respond(
-                        &mut stream,
-                        "400 Bad Request",
-                        "<html><body>Missing authorization code.</body></html>",
-                    );
+                    let _ = super::callback::respond(&mut stream, super::callback::State::Invalid);
                     return None;
                 };
                 if got_state != state {
-                    respond(
-                        &mut stream,
-                        "400 Bad Request",
-                        "<html><body>State mismatch; return to Eevee and retry.</body></html>",
-                    );
+                    let _ = super::callback::respond(&mut stream, super::callback::State::Invalid);
                     return None;
                 }
-                respond(
-                    &mut stream,
-                    "200 OK",
-                    "<html><body>Sign-in finished; return to Eevee.</body></html>",
-                );
+                let _ = super::callback::respond(&mut stream, super::callback::State::Received);
                 Some(Callback {
                     code: Some(code),
                     denied: None,
                 })
             }
             _ => {
-                respond(
-                    &mut stream,
-                    "404 Not Found",
-                    "<html><body>Not found.</body></html>",
-                );
+                let _ = super::callback::respond(&mut stream, super::callback::State::NotFound);
                 None
             }
         }
     }
-
     pub(super) fn open_browser(url: &str) {
         #[cfg(windows)]
         let failed = {
@@ -1377,6 +1349,77 @@ mod devin_web {
                 Ok(_) => {}
                 Err(_) => return Completion::bare(Outcome::Failed),
             }
+        }
+    }
+
+    #[cfg(test)]
+    mod callback_tests {
+        use super::*;
+        use std::net::{TcpListener, TcpStream};
+
+        fn request(target: &str, fail_page_write: bool) -> (Option<Callback>, String) {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let address = listener.local_addr().unwrap();
+            let request = format!("GET {target} HTTP/1.1\r\nHost: {address}\r\n\r\n");
+            let client = std::thread::spawn(move || {
+                let mut stream = TcpStream::connect(address).unwrap();
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(3)))
+                    .unwrap();
+                stream.write_all(request.as_bytes()).unwrap();
+                let mut response = String::new();
+                stream.read_to_string(&mut response).unwrap();
+                response
+            });
+            let stream = listener.accept().unwrap().0;
+            if fail_page_write {
+                stream.shutdown(std::net::Shutdown::Write).unwrap();
+            }
+            let result = serve(stream, "private-state", "https://example.invalid/authorize");
+            (result, client.join().unwrap())
+        }
+
+        #[test]
+        fn callback_http_routes_fixed_pages_without_echoing_private_values() {
+            for (target, status) in [
+                ("/callback?code=private-code&state=wrong-state", "400"),
+                ("/callback?state=private-state", "400"),
+                (
+                    "/callback?error=private-error&error_description=private-detail&state=wrong-state",
+                    "400",
+                ),
+                ("/other?code=private-code&state=private-state", "404"),
+            ] {
+                let (result, response) = request(target, false);
+                assert!(result.is_none());
+                assert!(response.starts_with(&format!("HTTP/1.1 {status} ")));
+                assert!(!response.contains("private-"));
+            }
+            let (result, response) =
+                request("/callback?code=private-code&state=private-state", false);
+            let accepted = result.unwrap();
+            assert_eq!(accepted.code.as_deref(), Some("private-code"));
+            assert!(accepted.denied.is_none());
+            assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
+            assert!(!response.contains("private-"));
+
+            let (result, response) = request(
+                "/callback?error=private-error&error_description=private-detail&state=private-state",
+                false,
+            );
+            let denied = result.unwrap();
+            assert!(denied.code.is_none());
+            assert_eq!(denied.denied.as_deref(), Some("private-detail"));
+            assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
+            assert!(!response.contains("private-"));
+        }
+
+        #[test]
+        fn callback_http_page_write_failure_does_not_discard_the_code() {
+            let (result, response) =
+                request("/callback?code=private-code&state=private-state", true);
+            assert_eq!(result.unwrap().code.as_deref(), Some("private-code"));
+            assert!(response.is_empty());
         }
     }
 }

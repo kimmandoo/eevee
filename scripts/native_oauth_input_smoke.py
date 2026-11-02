@@ -67,7 +67,7 @@ def run(binary, output, size):
             wait_for(session, 'Review connection')
             wait_for(session, 'Browser login')
             assert 'Device login' not in session.display(), 'Refusing to authorize a live Device request in a Browser-only fixture'
-            assert '[Back]' in session.display(), 'login review was not neutral'
+            wait_for(session, '[Back]')  # Scope and committed-input readiness must be visible.
             session.send('\t')
             session.send('\r')
             wait_for(session, 'OpenAI account sign-in')
@@ -80,7 +80,14 @@ def run(binary, output, size):
             assert values['state'] and values['code_challenge_method'] == ['S256']
             with socket.create_connection((callback.hostname, callback.port), timeout=2) as peer:
                 peer.sendall(b'GET /auth/callback?code=fixture-invalid&state=wrong-state HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n')
-                assert b'400 Bad Request' in peer.recv(1024), 'wrong-state callback was admitted'
+                peer.settimeout(2)
+                response = b''
+                while b'\r\n\r\n' not in response and len(response) < 16384:
+                    chunk = peer.recv(1024)
+                    assert chunk, 'callback closed before complete HTTP headers'
+                    response += chunk
+                assert b'\r\n\r\n' in response, 'callback HTTP headers were incomplete or excessive'
+                assert response.split(b'\r\n', 1)[0] == b'HTTP/1.1 400 Bad Request', 'wrong-state callback was admitted'
             assert session.alive(), 'unrelated callback terminated native login'
             result['cases'].append('real native loopback callback refuses wrong state without exchange or ending login')
             # Auth handoff disables bracketed paste: reproduce ordinary pasted Key

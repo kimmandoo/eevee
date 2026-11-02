@@ -2,6 +2,11 @@
 
 ## 2026-11-02
 
+- fix(auth): retained typed native sign-in stage/status/remedy above scrolling diagnostics, preserved HTTP errors without consuming private bodies, cleared stale issuer details on newer failures and rejected foreign or mismatched login continuations.
+- fix(ui): grouped identical connection policies without losing actions or distinct evidence/restrictions, and removed unsupported workspace-policy assumptions from generic account recovery.
+- fix(auth): showed local save/idle waiting before login, revoked unavailable review consent and restored only neutral controls when ready instead of leaving an apparently armed but blocked Connect action.
+- test(auth): covered native HTTP/privacy/owner-generation precedence and minimum-size readiness, and read complete bounded callback headers instead of assuming atomic TCP delivery or a platform-specific default login method.
+- feat(auth): styled Eevee-owned OAuth callbacks with self-contained light/dark workbench pages and original geometric artwork, separated received/denied/invalid guidance and retained strict privacy headers without claiming premature connection success.
 - fix(windows): repaired a missing owned executable from fully verified surviving installation metadata, separated metadata and executable publication/rollback, and retained create-only repair plus strict reviewed-operation and uninstall refusal.
 - test(windows): covered missing-executable checksum/metadata/owner refusals and exact repair, verified native PS5.1/PS7 caller continuation and installed interactive quit, and exercised public online .41–.44 upgrades without changing security settings or published bytes.
 

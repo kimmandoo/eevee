@@ -2,7 +2,7 @@
 use super::{Completion, INTERRUPTED, Method, Outcome, Plan, RawInput};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use std::io::{Read, Write};
+use std::io::Read;
 use std::net::{TcpListener, TcpStream};
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -19,10 +19,37 @@ const EXPIRY_SKEW: u64 = 60;
 #[derive(Clone, Copy, Debug)]
 pub struct OpenAiFailure {
     stage: &'static str,
+    title: &'static str,
     reason: &'static str,
     status: Option<u16>,
+    remedy: &'static str,
+    outcome: Outcome,
 }
 impl OpenAiFailure {
+    /// Compact, content-free context for the primary diagnostics header.
+    pub fn summary(self) -> String {
+        self.status.map_or_else(
+            || format!("{}: {}", self.stage, self.title),
+            |status| format!("{}: {} (HTTP {status})", self.stage, self.title),
+        )
+    }
+
+    pub fn remedy(self) -> &'static str {
+        self.remedy
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_http_failure(status: u16) -> Self {
+        Self {
+            stage: "Device authorization setup",
+            title: http_title(status),
+            reason: "Device authorization was refused; no private issuer response was retained.",
+            status: Some(status),
+            remedy: http_remedy(status, true),
+            outcome: Outcome::Failed,
+        }
+    }
+
     pub fn message(self) -> String {
         let status = self
             .status
@@ -31,6 +58,32 @@ impl OpenAiFailure {
             "{}{}: {} No connection settings changed; no task sent.",
             self.stage, status, self.reason
         )
+    }
+}
+
+fn http_title(status: u16) -> &'static str {
+    match status {
+        400 => "request rejected",
+        401 => "authorization rejected",
+        403 => "access refused",
+        404 => "endpoint unavailable",
+        429 => "rate limited",
+        500..=599 => "service error",
+        _ => "unexpected HTTP status",
+    }
+}
+
+fn http_remedy(status: u16, device: bool) -> &'static str {
+    match status {
+        429 => "Wait for the service limit to clear, then explicitly start a fresh login.",
+        500..=599 => "The identity service failed; explicitly start a fresh login later.",
+        403 if device => {
+            "Check device authorization availability in ChatGPT Security; Browser is an explicit alternative."
+        }
+        400 | 401 => "Start a fresh login; old authorization codes cannot be reused.",
+        _ => {
+            "Inspect the HTTP status and network/device availability, then explicitly start a fresh login."
+        }
     }
 }
 
@@ -269,14 +322,19 @@ impl Endpoint {
     fn failed(
         &self,
         stage: &'static str,
+        title: &'static str,
         reason: &'static str,
         status: Option<u16>,
+        remedy: &'static str,
         outcome: Outcome,
     ) -> Outcome {
         self.failure.set(Some(OpenAiFailure {
             stage,
+            title,
             reason,
             status,
+            remedy,
+            outcome,
         }));
         outcome
     }
@@ -288,42 +346,49 @@ impl Endpoint {
     ) -> Result<(u16, Value), Outcome> {
         self.failure.set(Some(OpenAiFailure {
             stage,
+            title: "invalid login data",
             reason: "The identity service returned incomplete or invalid login data. Start a fresh login; no credential was accepted.",
             status: None,
+            remedy: "Start a fresh login; the identity service returned invalid data.",
+            outcome: Outcome::Failed,
         }));
         let mut response = guarded(request.send(), control)
             .await?
-            .map_err(|error| self.failed(stage, if error.is_timeout() {
+            .map_err(|error| self.failed(stage, if error.is_timeout() { "timed out" } else { "unreachable" }, if error.is_timeout() {
                 "The identity service timed out. Check your network/proxy and start a fresh login deliberately."
             } else {
                 "Could not reach the identity service. Check your network, proxy and TLS trust settings, then start a fresh login."
-            }, None, Outcome::Failed))?;
+            }, None, "Check network/proxy/TLS, then explicitly start a fresh login.", Outcome::Failed))?;
         let status = response.status().as_u16();
         if (300..400).contains(&status) {
-            return Err(self.failed(stage, "The identity service redirected this private request; redirects are refused. Check your proxy/network and start a fresh login.", Some(status), Outcome::Refused));
+            return Err(self.failed(stage, "redirect refused", "The identity service redirected this private request; redirects are refused. Check your proxy/network and start a fresh login.", Some(status), "Check network/proxy; private-request redirects are refused.", Outcome::Refused));
+        }
+        // HTTP errors are classified from their status, never from private bodies.
+        // Do not let a large, unreadable or interrupted error body erase that status.
+        if !(200..300).contains(&status) {
+            return Ok((status, Value::Null));
+        }
+        if let Some(mut failure) = self.failure.get() {
+            failure.status = Some(status);
+            self.failure.set(Some(failure));
         }
         if response
             .content_length()
             .is_some_and(|len| len > BODY_LIMIT as u64)
         {
-            return Err(self.failed(stage, "The identity service response exceeded the safe size limit. Start a fresh login; do not paste tokens into the Request.", None, Outcome::Failed));
+            return Err(self.failed(stage, "response too large", "The identity service response exceeded the safe size limit. Start a fresh login; do not paste tokens into the Request.", Some(status), "Start a fresh login; the response exceeded the safe limit.", Outcome::Failed));
         }
         let mut bytes = Vec::new();
         while let Some(chunk) = guarded(response.chunk(), control)
             .await?
-            .map_err(|_| self.failed(stage, "The identity service response was interrupted. Start a fresh login; this exchange was not resent.", None, Outcome::Failed))?
+            .map_err(|_| self.failed(stage, "response interrupted", "The identity service response was interrupted. Start a fresh login; this exchange was not resent.", Some(status), "Check network/proxy, then explicitly start a fresh login.", Outcome::Failed))?
         {
             if bytes.len() + chunk.len() > BODY_LIMIT {
-                return Err(self.failed(stage, "The identity service response exceeded the safe size limit. Start a fresh login; do not paste tokens into the Request.", None, Outcome::Failed));
+                return Err(self.failed(stage, "response too large", "The identity service response exceeded the safe size limit. Start a fresh login; do not paste tokens into the Request.", Some(status), "Start a fresh login; the response exceeded the safe limit.", Outcome::Failed));
             }
             bytes.extend_from_slice(&chunk);
         }
-        // Error bodies are neither printed nor required to be JSON.
-        let body = if (200..300).contains(&status) {
-            serde_json::from_slice(&bytes).map_err(|_| self.failed(stage, "The identity service returned an unreadable response. Check your proxy/network and start a fresh login.", None, Outcome::Failed))?
-        } else {
-            Value::Null
-        };
+        let body = serde_json::from_slice(&bytes).map_err(|_| self.failed(stage, "unreadable response", "The identity service returned an unreadable response. Check your proxy/network and start a fresh login.", Some(status), "Check network/proxy, then explicitly start a fresh login.", Outcome::Failed))?;
         Ok((status, body))
     }
     async fn exchange(
@@ -349,9 +414,9 @@ impl Endpoint {
             ]);
         let (status, value) = self.send("Token exchange", request, control).await?;
         if status != 200 {
-            return Err(self.failed("Token exchange", "The identity service refused the authorization code. Check network/workspace policy and start a fresh login; old redirects/codes cannot be reused.", Some(status), if matches!(status, 400 | 401) { Outcome::NotAuthenticated } else { Outcome::Failed }));
+            return Err(self.failed("Token exchange", http_title(status), "Token exchange did not complete. Address the observed HTTP error, then start a fresh login deliberately; old redirects/codes cannot be reused. HTTP status alone does not establish an account or workspace-policy cause.", Some(status), http_remedy(status, false), if matches!(status, 400 | 401) { Outcome::NotAuthenticated } else { Outcome::Failed }));
         }
-        let credential = credential(value, now()?).map_err(|outcome| self.failed("Credential validation", "The returned access grant is expired or has invalid identity/lifetime metadata. Start a fresh login; no credential was accepted.", None, outcome))?;
+        let credential = credential(value, now()?).map_err(|outcome| self.failed("Credential validation", "invalid access grant", "The returned access grant is expired or has invalid identity/lifetime metadata. Start a fresh login; no credential was accepted.", None, "Start a fresh login; no valid access grant was accepted.", outcome))?;
         control()?;
         Ok(credential)
     }
@@ -370,7 +435,7 @@ impl Endpoint {
             )
             .await?;
         if status != 200 {
-            return Err(self.failed("Device authorization setup", "Device login was refused or is unavailable. Check network access and ChatGPT Settings > Security/workspace policy, or explicitly choose Browser login.", Some(status), if status == 401 { Outcome::NotAuthenticated } else { Outcome::Failed }));
+            return Err(self.failed("Device authorization setup", http_title(status), "Device login was refused or is unavailable. HTTP status alone does not establish an account or workspace-policy cause. Check network access and device authorization availability in ChatGPT Settings > Security; Browser login remains an explicit alternative.", Some(status), http_remedy(status, true), if status == 401 { Outcome::NotAuthenticated } else { Outcome::Failed }));
         }
         let device_id = value
             .get("device_auth_id")
@@ -416,7 +481,7 @@ impl Endpoint {
                 continue;
             }
             if status != 200 {
-                return Err(self.failed("Device authorization polling", "The identity service refused device authorization. Check network access and ChatGPT Settings > Security/workspace policy, then start a fresh login.", Some(status), if status == 401 { Outcome::NotAuthenticated } else { Outcome::Failed }));
+                return Err(self.failed("Device authorization polling", http_title(status), "Device authorization did not complete. HTTP status alone does not establish an account or workspace-policy cause. Address the observed HTTP error; check network access and device authorization availability in ChatGPT Settings > Security before starting a fresh login.", Some(status), http_remedy(status, true), if status == 401 { Outcome::NotAuthenticated } else { Outcome::Failed }));
             }
             if started.elapsed() >= DEVICE_TIMEOUT {
                 return Err(Outcome::Expired);
@@ -729,22 +794,12 @@ fn serve(
     } else {
         Ok(None)
     };
-    let accepted = !matches!(&result, Ok(None));
-    let body = if accepted {
-        "Sign-in response received. Return to Eevee."
-    } else {
-        "Unrecognized sign-in response. Return to Eevee."
+    let state = match &result {
+        Ok(Some(_)) => super::callback::State::Received,
+        Ok(None) => super::callback::State::Invalid,
+        Err(_) => super::callback::State::Denied,
     };
-    let status = if accepted {
-        "200 OK"
-    } else {
-        "400 Bad Request"
-    };
-    let _ = write!(
-        stream,
-        "HTTP/1.1 {status}\r\nContent-Type: text/plain\r\nCache-Control: no-store\r\nReferrer-Policy: no-referrer\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{body}",
-        body.len()
-    );
+    let _ = super::callback::respond(&mut stream, state);
     result
 }
 async fn browser(
@@ -776,8 +831,11 @@ async fn browser(
     }
     endpoint.failure.set(Some(OpenAiFailure {
         stage: "Browser authorization",
-        reason: "Browser consent or private callback/input did not complete. Check account/workspace policy; start a fresh Browser login, or explicitly choose Device login when localhost is unavailable.",
+        title: "not completed",
+        reason: "Browser consent or private callback/input did not complete. Start a fresh Browser login, or explicitly choose Device login when localhost is unavailable. No account/workspace-policy cause was established.",
         status: None,
+        remedy: "Complete this Browser login, or explicitly choose Device if localhost is unavailable.",
+        outcome: Outcome::NotAuthenticated,
     }));
     super::devin_web::open_browser(&url);
     loop {
@@ -861,18 +919,27 @@ pub(super) fn login(method: Method) -> Completion {
             let detail = match outcome {
                 Outcome::Cancelled => OpenAiFailure {
                     stage: "Sign-in cancelled",
+                    title: "cancelled by user",
                     reason: "Start a new Browser/Device login when ready; do not reuse the old redirect or code. Provider-issued grants are not revoked by cancellation.",
                     status: None,
+                    remedy: "Start a new login only when ready; cancellation is not an authentication failure.",
+                    outcome,
                 },
-                Outcome::Expired => failure.filter(|failure| failure.stage == "Credential validation").unwrap_or(OpenAiFailure {
+                Outcome::Expired => failure.filter(|failure| failure.outcome == Outcome::Expired).unwrap_or(OpenAiFailure {
                     stage: "Sign-in expired",
+                    title: "deadline reached",
                     reason: "Start a new login and complete it before its deadline; old redirects/codes cannot be reused.",
                     status: None,
+                    remedy: "Start a new login and complete it before its deadline.",
+                    outcome,
                 }),
                 _ => failure.unwrap_or(OpenAiFailure {
                     stage: "Local sign-in setup",
+                    title: "private input unavailable",
                     reason: "Could not prepare or continue private terminal/callback input. Reopen login in an interactive terminal, or choose Device login if localhost is unavailable.",
                     status: None,
+                    remedy: "Use an interactive terminal; explicitly choose Device if localhost is unavailable.",
+                    outcome,
                 }),
             };
             let mut completion = Completion::bare(outcome);

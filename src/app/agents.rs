@@ -92,6 +92,51 @@ struct OpenAiIntent {
     owner: Option<(i64, i64, Agent)>,
 }
 
+#[derive(Clone, Copy)]
+enum NativeLoginIssue {
+    Issuer(crate::providers::auth::OpenAiFailure),
+    Outcome(crate::providers::auth::Outcome),
+    Admission,
+    MissingCredential,
+    Save,
+}
+
+impl NativeLoginIssue {
+    fn summary(self) -> String {
+        match self {
+            Self::Issuer(failure) => failure.summary(),
+            Self::Outcome(outcome) => outcome.label().to_owned(),
+            Self::Admission => "Login continuation expired".into(),
+            Self::MissingCredential => "Login returned no usable credential".into(),
+            Self::Save => "Connection settings were not confirmed".into(),
+        }
+    }
+
+    fn remedy(self) -> &'static str {
+        match self {
+            Self::Issuer(failure) => failure.remedy(),
+            Self::Outcome(crate::providers::auth::Outcome::Cancelled) => {
+                "Start a new login only when ready; cancellation is not an authentication failure."
+            }
+            Self::Outcome(crate::providers::auth::Outcome::Expired) => {
+                "Start a fresh login and complete it before its deadline."
+            }
+            Self::Outcome(_) => {
+                "Inspect Diagnostics, then explicitly start a fresh Browser or Device login."
+            }
+            Self::Admission => {
+                "Reopen Account and review a fresh login for the current task and provider."
+            }
+            Self::MissingCredential => {
+                "Start a fresh Browser or Device login; no credential was accepted."
+            }
+            Self::Save => {
+                "Inspect Account > Advanced settings before reconnecting or changing storage."
+            }
+        }
+    }
+}
+
 pub fn openai_family(index: usize) -> bool {
     matches!(
         Agent::from_index(index),
@@ -143,6 +188,8 @@ pub struct State {
     pub connection_owner: Option<(i64, i64, Agent)>,
     openai_intent: Option<OpenAiIntent>,
     native_login_detail: Option<String>,
+    native_login_issue: Option<NativeLoginIssue>,
+    native_login_summary: Option<String>,
     deferred_family: bool,
 }
 
@@ -193,6 +240,8 @@ impl State {
             connection_owner: None,
             openai_intent: None,
             native_login_detail: None,
+            native_login_issue: None,
+            native_login_summary: None,
             deferred_family: false,
         }
     }
@@ -362,15 +411,22 @@ impl State {
         if generation != Some(intent.generation)
             || plan.profile != Agent::ChatGPT.index()
             || plan.method != intent.method
+            || !intent.approved
+            || intent.owner.as_ref() != Some(owner)
         {
             return;
         }
         let intent = self.openai_intent.take().expect("correlated intent");
         self.native_login_detail = None;
-        if !admitted || !intent.approved || intent.owner.as_ref() != Some(owner) {
-            self.page = Page::Account;
-            self.notice = "Login continuation expired; no connection settings changed.".into();
-            self.native_login_detail = Some(self.notice.clone());
+        self.native_login_issue = None;
+        self.native_login_summary = None;
+        if !admitted || self.connection_owner != intent.owner {
+            self.native_login_failed(
+                crate::providers::auth::Outcome::Refused,
+                "Login continuation expired; no connection settings changed and no task was sent."
+                    .into(),
+                NativeLoginIssue::Admission,
+            );
             return;
         }
         self.page = Page::Account;
@@ -381,11 +437,12 @@ impl State {
             self.native_login_failed(
                 outcome,
                 failure.map_or_else(|| outcome.label().to_owned(), |failure| failure.message()),
+                failure.map_or(NativeLoginIssue::Outcome(outcome), NativeLoginIssue::Issuer),
             );
             return;
         }
         let Some(credential) = credential else {
-            self.native_login_failed(crate::providers::auth::Outcome::Failed, "Sign-in returned no usable credential. Start a fresh Browser/Device login; no connection settings changed and no task was sent.".into());
+            self.native_login_failed(crate::providers::auth::Outcome::Failed, "Sign-in returned no usable credential. Start a fresh Browser/Device login; no connection settings changed and no task was sent.".into(), NativeLoginIssue::MissingCredential);
             return;
         };
         match crate::providers::direct::config::apply_openai_login(credential, intent.persist) {
@@ -406,19 +463,50 @@ impl State {
                     self.pick = Some("model");
                     self.notice = "Login saved; choose model metadata only. No task sent.".into();
                 } else {
-                    self.native_login_failed(crate::providers::auth::Outcome::Failed, "Settings changed but disk durability is unconfirmed. Inspect Account > Advanced settings before continuing; restart restoration is not confirmed. No task was sent.".into());
+                    self.native_login_failed(crate::providers::auth::Outcome::Failed, "Settings changed but disk durability is unconfirmed. Inspect Account > Advanced settings before continuing; restart restoration is not confirmed. No task was sent.".into(), NativeLoginIssue::Save);
                 }
             }
-            Err(reason) => {
-                self.native_login_failed(crate::providers::auth::Outcome::Failed, reason)
-            }
+            Err(reason) => self.native_login_failed(
+                crate::providers::auth::Outcome::Failed,
+                reason,
+                NativeLoginIssue::Save,
+            ),
         }
     }
 
-    fn native_login_failed(&mut self, outcome: crate::providers::auth::Outcome, detail: String) {
+    fn invalidate_openai_login(&mut self) {
+        if self.openai_intent.take().is_some() {
+            self.auth_preparing = None;
+            self.auth_preview = None;
+            self.pending_auth = None;
+            if matches!(self.pending, Some(Request::PrepareAuth { .. })) {
+                self.pending = None;
+            }
+            self.affirmative = false;
+            self.reviewed = false;
+        }
+    }
+
+    fn remember_native_login_failure(
+        &mut self,
+        outcome: crate::providers::auth::Outcome,
+        detail: String,
+        issue: NativeLoginIssue,
+    ) {
         self.auth_returned(Agent::ChatGPT.index(), outcome);
         self.notice = detail.clone();
         self.native_login_detail = Some(detail);
+        self.native_login_issue = Some(issue);
+        self.native_login_summary = Some(issue.summary());
+    }
+
+    fn native_login_failed(
+        &mut self,
+        outcome: crate::providers::auth::Outcome,
+        detail: String,
+        issue: NativeLoginIssue,
+    ) {
+        self.remember_native_login_failure(outcome, detail, issue);
         self.page = Page::Diagnostics;
         self.scroll = 0;
     }
@@ -427,6 +515,19 @@ impl State {
         (index == Agent::ChatGPT.index())
             .then_some(self.native_login_detail.as_deref())
             .flatten()
+    }
+
+    pub fn login_summary(&self, index: usize) -> Option<&str> {
+        (index == Agent::ChatGPT.index())
+            .then_some(self.native_login_summary.as_deref())
+            .flatten()
+    }
+
+    pub fn login_remedy(&self, index: usize) -> Option<&'static str> {
+        (index == Agent::ChatGPT.index())
+            .then_some(self.native_login_issue)
+            .flatten()
+            .map(NativeLoginIssue::remedy)
     }
 
     pub fn action_label(&self, action: Action) -> &'static str {
@@ -738,11 +839,23 @@ impl State {
                 if let Some(profile) = self.profiles.get_mut(self.selected) {
                     *profile = crate::providers::direct::config::profile(agent);
                 }
+                if agent == Agent::ChatGPT && !applied.durable {
+                    self.remember_native_login_failure(
+                        crate::providers::auth::Outcome::Failed,
+                        self.notice.clone(),
+                        NativeLoginIssue::Save,
+                    );
+                }
                 if choose_model && applied.durable {
                     self.use_for_task = Some(self.selected);
                     self.pick = Some("model");
                 }
             }
+            Err(reason) if agent == Agent::ChatGPT => self.remember_native_login_failure(
+                crate::providers::auth::Outcome::Failed,
+                reason,
+                NativeLoginIssue::Save,
+            ),
             Err(reason) => self.notice = reason,
         }
     }
@@ -1095,6 +1208,13 @@ impl State {
         agent: Agent,
         failure: crate::providers::diagnostics::Failure,
     ) {
+        // A newer admission/transport/auth observation supersedes older OAuth detail.
+        if agent == Agent::ChatGPT {
+            self.native_login_detail = None;
+            self.native_login_issue = None;
+            self.native_login_summary = None;
+            self.invalidate_openai_login();
+        }
         self.failures[agent.index()] = Some(failure);
         self.failure_attention[agent.index()] = true;
         self.preparation_details[agent.index()] = None;
@@ -1118,6 +1238,9 @@ impl State {
         self.preparation_details[agent.index()] = None;
         if agent == Agent::ChatGPT {
             self.native_login_detail = None;
+            self.native_login_issue = None;
+            self.native_login_summary = None;
+            self.invalidate_openai_login();
         }
     }
 
@@ -1150,6 +1273,12 @@ impl State {
         // A deliberate next step acknowledges this observation, not authentication.
         // Keep its content-free details; a later explicit send still requalifies.
         self.failure_attention[self.selected] = false;
+        if self.selected == Agent::ChatGPT.index() && self.native_login_issue.is_some() {
+            // Reopen the account chooser, preserving the explicitly reviewed method.
+            self.page = Page::Account;
+            self.scroll = 0;
+            return;
+        }
         if self.missing_executable(self.selected)
             || self.failure(self.selected).is_some_and(|failure| {
                 matches!(
@@ -1409,6 +1538,8 @@ impl State {
                         if self.openai_intent.as_ref().is_some_and(|intent| {
                             intent.generation != generation
                                 || intent.method != plan.method
+                                || plan.profile != profile
+                                || intent.owner != self.connection_owner
                                 || profile != Agent::ChatGPT.index()
                         }) {
                             self.openai_intent = None;
@@ -1433,6 +1564,7 @@ impl State {
                         self.review_choice = 0;
                     }
                     Err(reason) => {
+                        self.openai_intent = None;
                         if let Some(agent) = Agent::from_index(profile) {
                             self.connection_failed(
                                 agent,
@@ -2096,7 +2228,13 @@ mod tests {
         assert_eq!(state.page, Page::Account);
         assert_eq!(state.selected, Agent::ChatGPT.index());
         assert!(state.pending.is_none() && state.use_for_task.is_none());
-        press(&mut state, KeyCode::Down);
+        // Explicitly choose Device; WSL/SSH may already recommend that row.
+        for _ in 0..4 {
+            if state.family_choice == 1 {
+                break;
+            }
+            press(&mut state, KeyCode::Down);
+        }
         press(&mut state, KeyCode::Enter);
         assert!(
             matches!(state.pending, Some(Request::PrepareAuth { profile, method: crate::providers::auth::Method::OpenAiDevice, .. }) if profile == Agent::ChatGPT.index())
@@ -2879,6 +3017,185 @@ mod tests {
     }
 
     #[test]
+    fn native_issuer_detail_survives_terminal_return_until_a_newer_failure() {
+        use crate::providers::{
+            auth::{OpenAiFailure, Outcome},
+            diagnostics::Failure,
+        };
+        let (mut state, plan, generation) = approved_native_login(false);
+        let failure = OpenAiFailure::test_http_failure(403);
+        state.finish_openai_login(
+            &plan,
+            Some(generation),
+            None,
+            (Outcome::Failed, Some(failure)),
+            &(11, 22, Agent::Codex),
+            true,
+        );
+        let index = Agent::ChatGPT.index();
+        assert!(state.login_summary(index).unwrap().contains("403"));
+        assert!(state.login_detail(index).unwrap().contains("403"));
+        assert!(matches!(
+            state.native_login_issue,
+            Some(NativeLoginIssue::Issuer(_))
+        ));
+        assert_eq!(state.auth_outcome(index), Some(Outcome::Failed));
+        assert!(state.login_summary(Agent::Codex.index()).is_none());
+        state.remediate();
+        assert_eq!(state.page, Page::Account);
+        assert_eq!(state.family_choice, 1, "keep the explicit Device method");
+        assert!(state.pending.is_none() && state.pending_auth.is_none());
+
+        state.connection_failed(Agent::ChatGPT, Failure::Http(429));
+        assert_eq!(state.failure(index), Some(Failure::Http(429)));
+        assert!(state.login_detail(index).is_none());
+        assert!(state.login_summary(index).is_none());
+        assert!(state.login_remedy(index).is_none());
+        let notice = state.notice.clone();
+        state.finish_openai_login(
+            &plan,
+            Some(generation),
+            None,
+            (Outcome::Failed, Some(failure)),
+            &(11, 22, Agent::Codex),
+            true,
+        );
+        assert_eq!(
+            state.notice, notice,
+            "a consumed terminal result stays consumed"
+        );
+        assert_eq!(state.failure(index), Some(Failure::Http(429)));
+    }
+
+    #[test]
+    fn native_admission_failure_supersedes_issuer_evidence_without_saving() {
+        use crate::providers::{
+            auth::{OpenAiFailure, Outcome},
+            diagnostics::Failure,
+        };
+        let (mut state, plan, generation) = approved_native_login(false);
+        let old = OpenAiFailure::test_http_failure(403);
+        state.native_login_detail = Some(old.message());
+        state.native_login_issue = Some(NativeLoginIssue::Issuer(old));
+        state.native_login_summary = Some(old.summary());
+        state.finish_openai_login(
+            &plan,
+            Some(generation),
+            None,
+            (Outcome::Failed, Some(old)),
+            &(11, 22, Agent::Codex),
+            false,
+        );
+        let index = Agent::ChatGPT.index();
+        assert!(matches!(
+            state.native_login_issue,
+            Some(NativeLoginIssue::Admission)
+        ));
+        assert!(!state.login_summary(index).unwrap().contains("403"));
+        assert_eq!(state.failure(index), Some(Failure::LoginRefused));
+        assert!(!state.login_detail(index).unwrap().contains("HTTP 403"));
+        assert!(state.openai_auth_generation().is_none());
+        assert!(state.take_connection_change().is_none());
+        assert!(state.use_for_task.is_none() && state.pick.is_none());
+    }
+
+    #[test]
+    fn native_cancellation_and_foreign_return_do_not_reclassify_or_consume_current_login() {
+        use crate::providers::{auth::Outcome, diagnostics::Failure};
+        let (mut state, plan, generation) = approved_native_login(false);
+        let notice = state.notice.clone();
+        state.finish_openai_login(
+            &plan,
+            Some(generation),
+            None,
+            (Outcome::Failed, None),
+            &(99, 22, Agent::Codex),
+            true,
+        );
+        assert_eq!(state.openai_auth_generation(), Some(generation));
+        assert_eq!(state.notice, notice);
+        assert!(state.login_summary(Agent::ChatGPT.index()).is_none());
+        state.finish_openai_login(
+            &plan,
+            Some(generation),
+            None,
+            (Outcome::Cancelled, None),
+            &(11, 22, Agent::Codex),
+            true,
+        );
+        assert_eq!(
+            state.failure(Agent::ChatGPT.index()),
+            Some(Failure::LoginCancelled)
+        );
+        assert!(matches!(
+            state.native_login_issue,
+            Some(NativeLoginIssue::Outcome(Outcome::Cancelled))
+        ));
+        assert_eq!(
+            state.auth_outcome(Agent::ChatGPT.index()),
+            Some(Outcome::Cancelled)
+        );
+        assert!(state.pending.is_none() && state.pending_auth.is_none());
+    }
+
+    #[test]
+    fn native_preparation_cannot_reopen_for_a_foreign_profile_or_task_owner() {
+        for foreign_profile in [true, false] {
+            let (mut state, mut plan, generation) = approved_native_login(false);
+            state.auth_preparing = Some((Agent::ChatGPT.index(), generation));
+            state.openai_intent.as_mut().unwrap().approved = false;
+            if foreign_profile {
+                plan.profile = Agent::Codex.index();
+            } else {
+                state.connection_owner = Some((33, 22, Agent::Codex));
+            }
+            state.event(Event::AuthPrepared {
+                profile: Agent::ChatGPT.index(),
+                generation,
+                result: Ok(Box::new(plan)),
+            });
+            assert!(state.auth_preview.is_none() && state.pending_auth.is_none());
+            assert!(state.openai_intent.is_none());
+            assert!(state.pending.is_none() && state.use_for_task.is_none());
+        }
+    }
+
+    #[test]
+    fn newer_connection_observation_invalidates_pending_native_preparation() {
+        use crate::providers::diagnostics::Failure;
+        for succeeded in [false, true] {
+            let (mut state, plan, generation) = approved_native_login(false);
+            state.auth_preparing = Some((Agent::ChatGPT.index(), generation));
+            state.pending = Some(Request::PrepareAuth {
+                profile: Agent::ChatGPT.index(),
+                generation,
+                method: plan.method,
+            });
+            if succeeded {
+                state.connection_succeeded(Agent::ChatGPT);
+            } else {
+                state.connection_failed(Agent::ChatGPT, Failure::Http(429));
+            }
+            let notice = state.notice.clone();
+            state.event(Event::AuthPrepared {
+                profile: Agent::ChatGPT.index(),
+                generation,
+                result: Ok(Box::new(plan)),
+            });
+            assert!(state.auth_preview.is_none() && state.pending_auth.is_none());
+            assert!(state.auth_preparing.is_none() && state.openai_intent.is_none());
+            assert!(state.pending.is_none() && state.use_for_task.is_none());
+            assert_eq!(state.notice, notice);
+            if !succeeded {
+                assert_eq!(
+                    state.failure(Agent::ChatGPT.index()),
+                    Some(Failure::Http(429))
+                );
+            }
+        }
+    }
+
+    #[test]
     fn native_completion_is_bound_to_generation_owner_method_and_storage() {
         let (mut state, plan, generation) = approved_native_login(true);
         state.login_persist = false;
@@ -2927,7 +3244,7 @@ mod tests {
             &other_owner,
             true,
         );
-        assert_eq!(state.openai_auth_generation(), None);
+        assert_eq!(state.openai_auth_generation(), Some(generation));
         assert!(state.take_connection_change().is_none());
         assert!(state.use_for_task.is_none() && state.pick.is_none());
         assert!(!state.notice.contains("private-native-sentinel"));
@@ -2994,6 +3311,10 @@ mod tests {
     #[test]
     fn rejected_login_credential_keeps_exact_reason_ahead_of_an_older_success() {
         let (mut state, plan, generation) = approved_native_login(true);
+        let old = crate::providers::auth::OpenAiFailure::test_http_failure(403);
+        state.native_login_detail = Some(old.message());
+        state.native_login_issue = Some(NativeLoginIssue::Issuer(old));
+        state.native_login_summary = Some(old.summary());
         state.outcomes[Agent::ChatGPT.index()] =
             Some(crate::providers::auth::Outcome::Authenticated);
         let expired = crate::providers::auth::test_openai_credential(
@@ -3011,9 +3332,18 @@ mod tests {
         );
         assert_eq!(state.page, Page::Diagnostics);
         let detail = state.login_detail(Agent::ChatGPT.index()).unwrap();
-        assert!(detail.contains("expired"));
-        assert!(detail.contains("Reconnect"));
+        assert!(matches!(
+            state.native_login_issue,
+            Some(NativeLoginIssue::Save)
+        ));
         assert!(!detail.contains("expired-fixture-secret"));
+        assert!(
+            !state
+                .login_summary(Agent::ChatGPT.index())
+                .unwrap()
+                .contains("403")
+        );
+        assert!(!detail.contains("HTTP 403"));
         assert_eq!(
             state.auth_outcome(Agent::ChatGPT.index()),
             Some(crate::providers::auth::Outcome::Failed)

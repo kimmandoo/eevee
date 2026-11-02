@@ -17,7 +17,7 @@ diagnostics-unknown = Installation/configuration is not authentication or eligib
 
 diagnostics-next-install = n: Setup instructions; install/update, then Refresh.
 diagnostics-next-login = n: Review login/setup again; no request is replayed.
-diagnostics-next-account = n: Review account login; check provider workspace policy.
+diagnostics-next-account = n: Choose a fresh account sign-in; no request is replayed.
 diagnostics-next-api = n: Review this route's key/endpoint; no billing switch.
 diagnostics-next-settings = n: Review model settings and provider access/quota.
 diagnostics-next-setup = n: Inspect local setup/connectivity; retry only explicitly.

@@ -1,3 +1,5 @@
+use std::fmt::Write;
+
 use ratatui::{
     Frame,
     layout::Rect,
@@ -92,16 +94,106 @@ fn diagnostic_summary(
     state: &crate::app::agents::State,
     paint: &Paint,
 ) -> u16 {
-    let summary = Paragraph::new(format!(
-        "{}\n{}",
-        diagnostic_reason(state, paint),
-        diagnostic_next(state, paint)
-    ))
-    .style(paint.accent)
-    .wrap(Wrap { trim: false });
-    let height = (summary.line_count(area.width.max(1)) as u16).min(area.height);
-    frame.render_widget(summary, row(area, 0, height));
-    height
+    let reason = state
+        .login_summary(state.selected)
+        .unwrap_or_else(|| diagnostic_reason(state, paint));
+    let next = state
+        .login_remedy(state.selected)
+        .unwrap_or_else(|| diagnostic_next(state, paint));
+    let reason = Paragraph::new(reason)
+        .style(paint.accent)
+        .wrap(Wrap { trim: false });
+    let reason_height = reason
+        .line_count(area.width.max(1))
+        .min(area.height as usize) as u16;
+    frame.render_widget(reason, row(area, 0, reason_height));
+    let next = Paragraph::new(next)
+        .style(paint.surface)
+        .wrap(Wrap { trim: false });
+    let next_height = next
+        .line_count(area.width.max(1))
+        .min(area.height.saturating_sub(reason_height) as usize) as u16;
+    frame.render_widget(next, row(area, reason_height, next_height));
+    reason_height + next_height
+}
+
+fn diagnostic_details(
+    profile: &crate::providers::agent::Profile,
+    state: &crate::app::agents::State,
+    paint: &Paint,
+) -> String {
+    let mut value = String::new();
+    if let Some(detail) = state.login_detail(state.selected) {
+        let _ = writeln!(value, "{detail}\n");
+    } else if let Some(failure) = state.failure(state.selected) {
+        let detail = match failure {
+            crate::providers::diagnostics::Failure::Http(status) => paint.format(
+                Template::DiagnosticsDetailHttp,
+                &[("status", &status.to_string())],
+            ),
+            _ => paint.format(
+                Template::DiagnosticsDetailLocal,
+                &[("category", diagnostic_reason(state, paint))],
+            ),
+        };
+        let _ = writeln!(value, "{detail}\n");
+    }
+    if let Some(detail) = state.preparation_detail(state.selected) {
+        let _ = writeln!(
+            value,
+            "{}\n",
+            paint.format(
+                Template::DiagnosticsDetailPreparation,
+                &[("detail", detail)],
+            )
+        );
+    }
+    let _ = writeln!(
+        value,
+        "{}\n{}\n\n{}\nInstalled: {}\nExecutable: {:?}\nArguments: {:?}\nVersion: {}\nAuthentication: {}\nBilling: {}\nAdapter: {}\nAdapter revision: {}\nProfile action: {}\n",
+        profile.name,
+        setup_hint(state.selected, paint),
+        profile.configuration,
+        profile.installed,
+        profile.executable,
+        profile.argv,
+        profile.version,
+        profile.authentication,
+        profile.billing,
+        profile.adapter,
+        profile.revision,
+        profile.action
+    );
+    for blocker in &profile.blockers {
+        let _ = writeln!(value, "\nBlocker / remedy: {blocker}");
+    }
+    for (index, capability) in profile.capabilities.iter().enumerate() {
+        let same_policy = |other: &crate::providers::agent::Capability| {
+            other.boundary == capability.boundary
+                && other.evidence == capability.evidence
+                && other.blocker == capability.blocker
+        };
+        if profile.capabilities[..index].iter().any(same_policy) {
+            continue;
+        }
+        value.push('\n');
+        let mut separator = "";
+        for action in profile.capabilities[index..]
+            .iter()
+            .filter(|other| same_policy(other))
+        {
+            value.push_str(separator);
+            value.push_str(&action.action);
+            separator = " / ";
+        }
+        let _ = writeln!(
+            value,
+            ":\n{}\nEvidence: {}\nRestriction: {}\n",
+            capability.boundary, capability.evidence, capability.blocker
+        );
+    }
+    value.push_str(paint.hint(Message::DiagnosticsDetailBoundary));
+    value
 }
 
 fn notice<'a>(state: &'a crate::app::agents::State, paint: &Paint) -> &'a str {
@@ -280,9 +372,11 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
     let area = sheet(area, 104, height);
     frame.render_widget(Clear, area);
     let auth_room = app.width >= 60 && app.height >= 18;
+    let auth_ready = app.agents.auth_preview.is_none() || app.authentication_ready();
+    let auth_save_failed = matches!(app.storage, crate::app::StorageState::Failed(_));
     let state = &mut app.agents;
     state.active = app.planning.agent.index();
-    if state.auth_preview.is_some() && !auth_room {
+    if state.auth_preview.is_some() && (!auth_room || !auth_ready) {
         state.reviewed = false;
         state.affirmative = false;
         state.review_choice = 0;
@@ -534,7 +628,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                 );
                 let summary_height = diagnostic_summary(
                     frame,
-                    row(body, 1, body.height.saturating_sub(1)),
+                    row(body, 1, body.height.saturating_sub(2)),
                     state,
                     paint,
                 );
@@ -565,64 +659,13 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                 }
             }
             Page::Diagnostics => {
-                let summary_height = diagnostic_summary(frame, body, state, paint);
-                let profile_details = format!(
-                    "{}\n{}\n\n{}\nInstalled: {}\nExecutable: {:?}\nArguments: {:?}\nVersion: {}\nAuthentication: {}\nBilling: {}\nAdapter: {}\nAdapter revision: {}\nProfile action: {}\n",
-                    profile.name,
-                    setup_hint(state.selected, paint),
-                    profile.configuration,
-                    profile.installed,
-                    profile.executable,
-                    profile.argv,
-                    profile.version,
-                    profile.authentication,
-                    profile.billing,
-                    profile.adapter,
-                    profile.revision,
-                    profile.action
+                let summary_height = diagnostic_summary(
+                    frame,
+                    row(body, 0, body.height.saturating_sub(1)),
+                    state,
+                    paint,
                 );
-                let mut value = String::new();
-                // Current login failure comes first: the long policy/profile
-                // inventory must not hide the actionable reason after return.
-                if let Some(detail) = state.login_detail(state.selected) {
-                    value.push_str(detail);
-                    value.push_str("\n\n");
-                }
-                value.push_str(paint.hint(Message::DiagnosticsDetailBoundary));
-                if let Some(failure) = state.failure(state.selected) {
-                    value.push('\n');
-                    value.push_str(&match failure {
-                        crate::providers::diagnostics::Failure::Http(status) => paint.format(
-                            Template::DiagnosticsDetailHttp,
-                            &[("status", &status.to_string())],
-                        ),
-                        _ => paint.format(
-                            Template::DiagnosticsDetailLocal,
-                            &[("category", diagnostic_reason(state, paint))],
-                        ),
-                    });
-                }
-                if let Some(detail) = state.preparation_detail(state.selected) {
-                    value.push('\n');
-                    value.push_str(&paint.format(
-                        Template::DiagnosticsDetailPreparation,
-                        &[("detail", detail)],
-                    ));
-                }
-                value.push('\n');
-                value.push_str(&profile_details);
-                for blocker in &profile.blockers {
-                    value.push_str(&format!("\nBlocker / remedy: {blocker}"));
-                }
-                for capability in &profile.capabilities {
-                    value.push_str(&format!(
-                        "\n{}: {}\nEvidence: {}\nRestriction: {}\n",
-                        capability.action,
-                        capability.boundary,
-                        capability.evidence,
-                        capability.blocker
-                    ));
-                }
+                let value = diagnostic_details(profile, state, paint);
                 state.scroll_max = selection_details(
                     frame,
                     row(
@@ -739,12 +782,21 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
             ];
             &version_summary
         };
+        let summary_visible = super::planning::render_summary(frame, details, summary, paint);
         state.reviewed =
-            auth_room && super::planning::render_summary(frame, details, summary, paint);
+            auth_room && summary_visible && (state.auth_preview.is_none() || auth_ready);
         state.scroll = 0;
         state.scroll_max = 0;
     }
-    let footer = if !auth_room || !state.reviewed && !state.auth_details {
+    let footer = if state.auth_preview.is_some() && auth_room && !auth_ready {
+        paint
+            .hint(if auth_save_failed {
+                Message::ProvidersAgentsAuthSaveFailed
+            } else {
+                Message::ProvidersAgentsAuthWaiting
+            })
+            .into()
+    } else if !auth_room || !state.reviewed && !state.auth_details {
         paint
             .hint(Message::ProvidersAgentsScopeNotFullyVisibleDDetailsEsc)
             .into()
@@ -1117,6 +1169,30 @@ mod tests {
     use super::*;
     use ratatui::{Terminal, backend::TestBackend, style::Style};
 
+    fn profile(
+        capabilities: Vec<crate::providers::agent::Capability>,
+    ) -> crate::providers::agent::Profile {
+        crate::providers::agent::Profile {
+            revision: 1,
+            name: "Fixture".into(),
+            executable: None,
+            argv: vec![],
+            installed: String::new(),
+            version: String::new(),
+            authentication: String::new(),
+            configuration: String::new(),
+            os: String::new(),
+            architecture: String::new(),
+            adapter: String::new(),
+            action: String::new(),
+            billing: String::new(),
+            probe_allowed: false,
+            trust_preview: vec![],
+            blockers: vec![],
+            capabilities,
+        }
+    }
+
     #[test]
     fn current_connection_notice_is_not_hidden_by_a_prior_auth_outcome() {
         use crate::providers::{Agent, auth::Outcome};
@@ -1232,8 +1308,137 @@ mod tests {
     }
 
     #[test]
-    fn full_connection_sheet_displays_every_disclosure_cell() {
-        let config = Config {
+    fn diagnostics_group_only_identical_policies_without_losing_actions_or_evidence() {
+        use crate::providers::agent::Capability;
+        let style = Style::default();
+        let paint = Paint {
+            color: crate::config::ColorMode::Mono,
+            ascii: true,
+            base: style,
+            surface: style,
+            muted: style,
+            border: style,
+            accent: style,
+            selected: style,
+        };
+        let capability = |action: &str, evidence: &str, blocker: &str| Capability {
+            action: action.into(),
+            boundary: "shared-policy-sentinel".into(),
+            evidence: evidence.into(),
+            blocker: blocker.into(),
+        };
+        let profile = profile(vec![
+            capability("plan-action", "native-evidence", "scope-one"),
+            capability("review-action", "native-evidence", "scope-one"),
+            capability("metadata-action", "observed-evidence", "scope-one"),
+            capability("write-action", "native-evidence", "scope-two"),
+        ]);
+        let state = crate::app::agents::State::new();
+        let details = diagnostic_details(&profile, &state, &paint);
+        assert_eq!(details.matches("shared-policy-sentinel").count(), 3);
+        for action in [
+            "plan-action",
+            "review-action",
+            "metadata-action",
+            "write-action",
+        ] {
+            assert_eq!(details.matches(action).count(), 1);
+        }
+        assert_eq!(details.matches("native-evidence").count(), 2);
+        assert_eq!(details.matches("observed-evidence").count(), 1);
+        assert_eq!(details.matches("scope-one").count(), 2);
+        assert_eq!(details.matches("scope-two").count(), 1);
+    }
+
+    #[test]
+    fn native_auth_http_status_stays_visible_above_scrolled_details_at_minimum_width() {
+        use crate::providers::{
+            Agent,
+            agent::{Event, Request},
+            auth::{OpenAiFailure, Outcome, Plan},
+        };
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+        let mut state = crate::app::agents::State::new();
+        state.pending.take();
+        state.event(Event::Discovered(vec![profile(vec![]); Agent::ALL.len()]));
+        state.connection_owner = Some((11, 22, Agent::Codex));
+        state.begin_connection(Agent::ChatGPT);
+        state.family_choice = 1;
+        state.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE), true);
+        let Some(Request::PrepareAuth {
+            profile,
+            generation,
+            method,
+        }) = state.pending.take()
+        else {
+            panic!("native preparation request missing");
+        };
+        let plan = Plan::prepare(profile, method, std::path::Path::new("/unused")).unwrap();
+        state.event(Event::AuthPrepared {
+            profile,
+            generation,
+            result: Ok(Box::new(plan)),
+        });
+        state.reviewed = true;
+        state.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE), true);
+        state.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE), true);
+        let plan = state.pending_auth.take().unwrap();
+        state.finish_openai_login(
+            &plan,
+            Some(generation),
+            None,
+            (Outcome::Failed, Some(OpenAiFailure::test_http_failure(403))),
+            &(11, 22, Agent::Codex),
+            true,
+        );
+        let style = Style::default();
+        let paint = Paint {
+            color: crate::config::ColorMode::Mono,
+            ascii: true,
+            base: style,
+            surface: style,
+            muted: style,
+            border: style,
+            accent: style,
+            selected: style,
+        };
+        for width in [54, 114] {
+            state.scroll = u16::MAX;
+            let mut terminal = Terminal::new(TestBackend::new(width, 8)).unwrap();
+            terminal
+                .draw(|frame| {
+                    let height = diagnostic_summary(frame, frame.area(), &state, &paint);
+                    assert!(
+                        height <= 6,
+                        "the failure must leave room for the next action"
+                    );
+                })
+                .unwrap();
+            let visible: String = terminal
+                .backend()
+                .buffer()
+                .content
+                .iter()
+                .flat_map(|cell| cell.symbol().chars())
+                .filter(|ch| !ch.is_whitespace())
+                .collect();
+            assert!(
+                visible.contains("HTTP403"),
+                "the observed refusal status was hidden: {visible}"
+            );
+            assert!(
+                !visible.contains("HTTP401"),
+                "an access refusal must not become signed-out evidence"
+            );
+        }
+        state.key(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE), true);
+        assert_eq!(state.page, Page::Account);
+        assert_eq!(state.family_choice, 1);
+        assert!(state.pending.is_none() && state.pending_auth.is_none());
+    }
+
+    fn config() -> Config {
+        Config {
             native_transport: crate::providers::NativeTransport::Auto,
             launch_session: Default::default(),
             retry: Default::default(),
@@ -1250,7 +1455,80 @@ mod tests {
             storage_policy: crate::store::Policy::default(),
             context_exclusions: vec![],
             capture_capacity: 1024,
+        }
+    }
+
+    #[test]
+    fn auth_review_revokes_consent_until_input_is_committed_then_returns_neutral() {
+        use crate::{
+            app::StorageState,
+            providers::{
+                Agent,
+                auth::{Method, Plan},
+            },
         };
+        let config = config();
+        let style = Style::default();
+        let paint = Paint {
+            color: crate::config::ColorMode::Mono,
+            ascii: true,
+            base: style,
+            surface: style,
+            muted: style,
+            border: style,
+            accent: style,
+            selected: style,
+        };
+        for (width, height) in [(60, 18), (120, 36)] {
+            let mut app = App::new("/unused".into(), width, height);
+            app.agents.pending.take();
+            app.agents
+                .event(crate::providers::agent::Event::Discovered(vec![
+                    profile(
+                        vec![]
+                    );
+                    Agent::ALL
+                        .len()
+                ]));
+            app.agents.selected = Agent::ChatGPT.index();
+            app.agents.auth_preview = Some(
+                Plan::prepare(
+                    Agent::ChatGPT.index(),
+                    Method::OpenAiDevice,
+                    std::path::Path::new("/unused"),
+                )
+                .unwrap(),
+            );
+            let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+            for storage in [
+                StorageState::Pending,
+                StorageState::Saving,
+                StorageState::Failed("fixture write failure".into()),
+            ] {
+                app.storage = storage;
+                app.agents.reviewed = true;
+                app.agents.affirmative = true;
+                app.agents.review_choice = 1;
+                terminal
+                    .draw(|frame| render(frame, frame.area(), &mut app, &config, &paint))
+                    .unwrap();
+                assert!(!app.agents.reviewed && !app.agents.affirmative);
+                assert_eq!(app.agents.review_choice, 0);
+                assert!(app.agents.pending_auth.is_none());
+            }
+            app.storage = StorageState::Saved;
+            assert!(app.authentication_ready());
+            terminal
+                .draw(|frame| render(frame, frame.area(), &mut app, &config, &paint))
+                .unwrap();
+            assert!(app.agents.reviewed);
+            assert!(!app.agents.affirmative && app.agents.pending_auth.is_none());
+        }
+    }
+
+    #[test]
+    fn private_connection_fields_stay_masked_and_require_a_usable_view() {
+        let config = config();
         let style = Style::default();
         let paint = Paint {
             color: crate::config::ColorMode::Mono,
@@ -1307,31 +1585,6 @@ mod tests {
                     let display: String = buffer.content.iter().map(|cell| cell.symbol()).collect();
                     assert!(!display.contains("private-credential-sentinel"));
                     assert!(!display.contains("private-account-sentinel"));
-                    let outer = sheet(Rect::new(0, 0, width, height), 104, height - 2);
-                    // Use the panel's content bounds, including horizontal padding.
-                    let content = panel(
-                        paint.hint(Message::ProvidersAgentsConnections),
-                        &config,
-                        &paint,
-                        true,
-                    )
-                    .inner(outer);
-                    let disclosure =
-                        paint.hint(Message::ProvidersAgentsSaveModelSelectRouteMetadataNeverSend);
-                    for (line, value) in disclosure.lines().enumerate() {
-                        let mut x = content.x;
-                        let y = content.y + content.height - 5 + line as u16;
-                        for character in value.chars() {
-                            let glyph = character.to_string();
-                            assert_eq!(
-                                buffer[(x, y)].symbol(),
-                                glyph,
-                                "{width}x{height} {agent:?}, save_selected={save_selected}, disclosure cell ({x}, {y})"
-                            );
-                            x += ratatui::text::Span::raw(glyph).width() as u16;
-                        }
-                        assert!(x <= content.right());
-                    }
                 }
                 terminal = Terminal::new(TestBackend::new(52, 16)).unwrap();
                 app.width = 52;

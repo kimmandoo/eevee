@@ -1,8 +1,16 @@
 # Eevee Implementation Plan
 
-Updated2026-11-01. Completed0.1.44 delivery: reliable low-friction exit, quiet draft persistence, fewer unnecessary agent brakes, clear incomplete/error outcomes and working Windows script/runtime support. Exact-source native qualification and immutable publication passed; the original Eevee image and exact dangerous-effect consent remained intact. Remaining product/live-provider work is separate.
+Updated2026-11-02. Current source completed clear native-auth failure recovery and Eevee-themed browser callback pages with local source/TUI/browser proof. Public0.1.44 remains the last immutable release; no publication is implied. Its original Eevee TUI and exact dangerous-effect consent remain intact. Separate Windows affected-device and remaining product/live-provider work retain their own evidence limits.
 
 Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPATIBILITY.md). Live-provider conformance remains distinct from implemented transports and deterministic runtime proof.
+
+## Completed delivery — Native auth diagnostics and callback landing (2026-11-02)
+
+1. Reproduced the generic native failure and repeated policy screen on a frozen local0.1.41 binary; traced fixed-header information loss, stale native issue precedence, continuation ownership/profile checks and private-error-body status loss.
+2. Retained typed safe native stage/status/remedy at the fixed header, grouped only identical policies with every action retained, and exposed local save/idle waiting with revoked consent until a fresh neutral ready review. No automatic retry/fallback/login or provider-policy inference.
+3. Shared self-contained OpenAI/Devin callback HTML with original geometric Eevee-inspired styling, light/dark/narrow layout, truthful received/denied/invalid states and strict response privacy. Recorded original markup provenance and separate character/mark rights limits.
+4. Passed Rust1.90 formatting,2049 tests/two ignored, strict all-target/all-feature Clippy and locked build. Exact executable613c1a76 passed both-size actual native transport failure/recovery, callback/input/cancel and grouped-diagnostics/resize journeys. Actual Chromium1280px light/320px dark and served HTTP boundaries passed; source/helper copies and disposable servers were not substituted for native app interaction.
+5. Updated docs/checkpoint and committed source only. Evidence: `target/auth-ux-proof/results.json` and `ready-final-*`; earlier failed/intermediate reports remain distinct. No live account/model call, native-Windows qualification, release or unrelated roadmap closure was claimed.
 
 ## Current delivery — Windows installation after 0.1.41 (2026-11-02)
 

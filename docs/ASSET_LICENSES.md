@@ -9,12 +9,13 @@ This document distinguishes the project's own material from third-party characte
 | Original Rust/TypeScript/Python code and documentation prose | [Apache-2.0](../LICENSE), except separately identified third-party material |
 | Original geometric wordmark: `docs/assets/wordmark.svg`, `wordmark-light.png`, `wordmark-dark.png` | Apache-2.0 for the original vector design and exports. The glyph geometry is drawn in the SVG; no third-party font or character image is embedded. This does **not** grant rights to the Eevee name or related marks. |
 | Original installer text animation | The shell/PowerShell implementation and punctuation-based rolling-ball frames are original project code under Apache-2.0. No franchise image file or third-party font is embedded; the Poké Ball reference does not grant rights in related character designs or marks. |
+| Original callback landing page: `src/providers/auth/callback.rs` | Locally authored HTML/CSS and geometric vector paths, with no downloaded/copied sprite, external image or font. Apache-2.0 covers the original implementation/geometry only, not the referenced Eevee character design, name or marks; no character/commercial-use clearance is claimed. The markup is embedded in the executable. |
 | Eevee sprite displayed in the README | Third-party Pokémon pixel art with a transparent background, referenced remotely from a pinned upstream revision. It is **not** covered by this project's Apache-2.0 license. An independent image-use or commercial-use permission has not been established. |
 | Documentation screenshot: `docs/assets/screenshot.png` | Actual terminal capture containing rendered third-party Eevee artwork. The character pixels are excluded from Apache-2.0; no independent redistribution/commercial-use permission is established. Capture provenance and rights limits are recorded below. |
 | Runtime Pokémon sprites | Third-party sprites downloaded during online installation or explicit image setup, or supplied by the user. Standalone original sprite files are not bundled in native packages or checked into source; the separately attributed documentation capture shows rendered artwork. Offline archive installation does not download images. |
 | Rust dependencies and optional agent SDK/providers | Their own licenses and service terms. Native verification packages include generated dependency license texts and notices; the optional SDK/provider installations are not relicensed by Eevee. |
 
-The [project NOTICE](../NOTICE) accompanies source. Native-package `THIRD_PARTY_NOTICES` incorporates that notice alongside the dependency notices; no artwork is added to packages.
+The [project NOTICE](../NOTICE) accompanies source. Native-package `THIRD_PARTY_NOTICES` incorporates that notice alongside the dependency notices. No upstream sprite/image files are added to packages; the callback's locally authored inline vector markup is the separate scoped exception described above.
 
 ## README sprite
 
@@ -49,7 +50,7 @@ This is a documentation-only distribution-scope amendment, not an independent gr
 
 The installer and explicit downloader use the same pinned repository revision, under `sprites/pokemon/`, for IDs `133`, `134`, `135`, `136`, `196`, `197`, `470`, `471`, and `700`. These are the original 96 × 96 front sprites, not the larger `other/official-artwork` illustrations. The README references the same Eevee sprite remotely. `src/ui/artwork.rs` records the exact source hashes; the downloader establishes a `sources.json` manifest with revision, URL, attribution and SHA-256 before downloading images, so interrupted installs can resume safely. User-supplied images retain their respective owners' terms; unmanifested local images are labelled source-unverified.
 
-Online installation downloads and verifies the full set in the current user's platform cache (`eevee/sprites`) before publishing the executable. Existing matching files are reused, conflicting files are preserved, and failed downloads stop publication with a retry instruction. Offline archive installs do not download images. Startup and form selection read local assets only; no character image is packaged in `ev`. Native and cell renderers trim empty borders and use nearest-neighbor pixels, with integer enlargement and proportional reduction only where space requires it. Downloads and source availability are not evidence of permission to redistribute the downloaded images.
+Online installation downloads and verifies the full set in the current user's platform cache (`eevee/sprites`) before publishing the executable. Existing matching files are reused, conflicting files are preserved, and failed downloads stop publication with a retry instruction. Offline archive installs do not download images. Startup and form selection read local assets only; no upstream character-image bytes are packaged in `ev`. The callback's locally authored inline geometry is separate from those sprite assets. Native and cell renderers trim empty borders and use nearest-neighbor pixels, with integer enlargement and proportional reduction only where space requires it. Downloads and source availability are not evidence of permission to redistribute the downloaded images.
 
 ### Item sprites (0.1.37)
 
@@ -62,6 +63,11 @@ Eevee and other Pokémon names and character-related marks remain with their res
 Making the source repository public does not resolve artwork, naming, trademark, commercial-use, or provider-service eligibility. Version 0.1.0 distributes original code and dependency notices without franchise image bytes; that software release is not artwork/trademark clearance or a grant of provider access. Before a use requiring additional permission, obtain the relevant authorization or replace/remove the affected artwork and branding; this notice is not a substitute for that authorization.
 
 When adding or replacing an asset, record its actual source, fixed version, owner/notice, applicable permission, modifications and package scope. Do not copy character artwork into the source tree or release archive under the project's software license.
+
+### 2026-11-02 — Browser callback design review
+
+The user requested an Eevee-styled OAuth landing page. Its warm workbench layout and inline geometric creature illustration were authored locally in `src/providers/auth/callback.rs`; no upstream image, logo, sprite, font or external page source was copied or fetched for the design. The same fixed markup serves received/denied/invalid responses without private callback data. This intentionally adds original inline vector markup to the software executable, not a standalone third-party image file. Original implementation authorship does not establish permission in the referenced character design/name/marks, affiliation, commercial-use rights or completion of Q01's separate review.
+
 
 ### 2026-10-21 — Wave 6 and multilingual interface distribution review
 
