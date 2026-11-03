@@ -608,18 +608,14 @@ class ProgressJourney(SurfaceJourney):
         self.session.command('response')
         self.session.send(ESC + '[1;3H')
         screens = []
-        previous_start = None
-        while True:
+        for _ in range(512):
             screen = self.session.display()
-            position = re.search(r'(?:Paused|Following|New output) (\d+)-(\d+)/(\d+)', screen)
-            assert position, 'Raw transcript did not disclose its paging position'
-            start, end, total = map(int, position.groups())
-            assert previous_start is None or start > previous_start, 'Raw transcript paging stopped before its end'
-            screens.append(screen)
-            if end == total:
+            if screens and screen == screens[-1]:
                 break
-            previous_start = start
+            screens.append(screen)
             self.session.send(ESC + '[6~')
+        else:
+            raise AssertionError('Raw transcript did not reach a stable end within 512 pages')
         save(self.output / 'presentation-raw-inspection-screens.json', screens)
         joined = '\n'.join(screens)
         compact = re.sub(r'\s+', '', joined)

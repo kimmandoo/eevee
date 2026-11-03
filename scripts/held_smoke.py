@@ -18,7 +18,7 @@ import traceback
 import evolution_smoke
 import file_creation_smoke as files
 from native_connection_smoke import decoded_payload
-from response_smoke import ALT_END, SurfaceSession
+from response_smoke import ALT_END, SurfaceSession, saved_request
 from terminal_smoke import confirm_exit
 from workbench_smoke import wait_for
 
@@ -60,10 +60,17 @@ class Journey(evolution_smoke.Journey):
                      if row['partner'] == partner and row['form'] == form
                      and Path(row['project']).resolve() == self.project.resolve()), None)
 
+    def file_chooser(self):
+        def opened():
+            if 'eligible files /' in self.session.display():
+                return True
+            self.session.command('held-file')
+            return 'eligible files /' in self.session.display()
+        files.until(self.session, opened, 'idle held file chooser did not open', timeout=35)
+
     def reject_file(self, path):
         before = self.held_rows()
-        self.session.command('held-file')
-        wait_for(self.session, 'eligible files /', timeout=35)
+        self.file_chooser()
         self.session.command('search')
         self.session.send(UP * 64 + HOME + DELETE * 4096)
         self.session.paste(path)
@@ -77,9 +84,7 @@ class Journey(evolution_smoke.Journey):
         self.workspace()
 
     def choose_file(self, path):
-        self.session.command('held-file')
-        files.until(self.session, lambda: any(value in self.session.display() for value in ('eligible files /', )),
-                    'held file selector did not use actual source inventory', timeout=35)
+        self.file_chooser()
         self.session.command('search')
         self.session.send(UP * 64 + HOME + DELETE * 4096)
         self.session.paste(path)
@@ -176,6 +181,9 @@ def run(binary, output, root, size, ascii_mode, ):
             future = 'Unsent held draft 한글界e\u0301Z-end'
             journey.write_request(future)
             journey.session.send('\x1b[D' * 3 + '\x13')
+            files.until(journey.session, lambda: saved_request(journey, future, len(future.encode()) - 3)
+                        and 'Storage: saved' in journey.session.display(),
+                        'exact retained draft/caret did not commit before held selection')
             posts = len(peer.snapshot('POST'))
             for forbidden in ('.env.local', 'blocked/hidden.py'):
                 journey.reject_file(forbidden)
