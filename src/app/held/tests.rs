@@ -558,16 +558,18 @@ fn automatic_submit_proposes_new_form_slot_without_retroactive_inclusion() {
     }];
     app.reconcile_held();
     assert!(app.held.target.is_none());
-    let text = "Create a new Python code file.";
+    // A continuation of an adopted implement step evolves at Send.
+    crate::app::evolution::tests_support::role_focus(&mut app, "implement");
+    let text = "continue";
     app.input = text.into();
-    app.cursor = 8;
+    app.cursor = 4;
     app.submit_request();
     assert_eq!(app.form(), 3);
     assert_eq!(app.held.target, Some(memory_target()));
     assert_eq!(app.held_status(), Status::Proposed);
     assert!(app.memory.selected_ids.is_empty());
     assert!(app.sources.basket.is_empty());
-    assert_eq!((app.input.as_str(), app.cursor), (text, 8));
+    assert_eq!((app.input.as_str(), app.cursor), (text, 4));
     assert!(app.pending_request.is_some());
     assert!(app.save_requested);
     assert!(app.planning.pending.is_none());

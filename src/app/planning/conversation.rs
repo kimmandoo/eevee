@@ -798,20 +798,22 @@ mod tests {
     fn automatic_specialty_change_keeps_same_policy_conversation() {
         let mut app = crate::app::App::new("/workspace".into(), 120, 36);
         app.planning = native();
-        app.input = "Create a source code file.".into();
+        crate::app::evolution::tests_support::role_focus(&mut app, "implement");
+        app.input = "continue".into();
         assert!(app.evolve_request());
         assert_eq!(app.form(), 3);
-        let first = start(&mut app.planning, &task("Create a source code file."), 1);
+        let first = start(&mut app.planning, &task("continue"), 1);
         app.planning.event(Event::NativeCompleted {
             generation: 1,
             task_id: 7,
             conversation: conversation(&first, "Created with exact consent."),
         });
         finish(&mut app.planning, 1, Outcome::Completed);
-        app.input = "Refactor the source code.".into();
+        crate::app::evolution::tests_support::role_focus(&mut app, "refactor");
+        app.input = "continue".into();
         assert!(app.evolve_request());
         assert_eq!(app.form(), 6);
-        let next = start(&mut app.planning, &task("Refactor the source code."), 2);
+        let next = start(&mut app.planning, &task("continue"), 2);
         let history = next
             .conversation
             .expect("a cosmetic transition lost context");

@@ -1,3 +1,12 @@
+## 2026-11-03 — Plan-driven evolution on every route, mid-run evolution, no form-based read-only (completed in source)
+
+- **Request:** User required the same experience on every agent: evolution from the model's todo (not hard-coded words), including the first request and CLI/ACP/SDK routes, evolving during execution; asked why some forms were read-only.
+- **Implemented:** `progress::ROLE_POLICY` + `Input::progress_policy()` added to Codex, Claude SDK and ACP payloads (omitted with `/todo-eager off`); `Role::split_tag`/`Step::untag` normalize `[role]` prefixes for all sources and native `apply_tool` (targets too). `classify_step` reads roles only. `request_evolution` never classifies text: continuation → focus role form; otherwise current form; operation Implement unless explicit Plan/Review or literal READONLY wording. `follow_todo_role` runs from `provider_progress` for the lead in auto mode (not under explicit Review). Removed `STEP_ROLES`, `step_role`, `proceed_with_plan`, `plan_conversation`.
+- **Contract:** DESIGN_RULES EV20 supersedes EV18/EV19 send-time routing; form-based read-only removed (forms section, boundaries, signature interactions updated).
+- **Verification:** `cargo fmt --check`, `cargo test --quiet` (2055 passed, 2 ignored), `cargo clippy --all-targets --all-features -- -D warnings` passed. Obsolete word-routing tests were deleted or rewritten to the new contract. Not verified live: whether Codex/Claude/ACP models follow the `[role]` tag instruction is unmeasured; without tags the form does not change.
+- **Known trade-off:** read-only applies per request; a later unrestricted request switches operation and retires opaque provider history (completed read-only plans are carried as public context).
+- **Next action:** Optional live run on each route to observe role tags and mid-run evolution.
+
 ## 2026-11-03 — Structured todo step roles drive automatic evolution (completed in source)
 
 - **Request:** User pointed out that hard-coded strings limit evolution and asked for todo-driven decisions; approved changing the EV18 contract ("model picks the role, local code keeps authority"). "jev" was to be ignored.

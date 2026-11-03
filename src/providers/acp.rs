@@ -423,6 +423,7 @@ fn payload(
         "request":input.instruction(),
         "behavior_profile":input.behavior_profile,
         "behavior_profile_policy":input.behavior_profile.as_ref().map(|_| crate::workspace::form_profiles::POLICY),
+        "progress_policy": input.progress_policy(),
         "prior_plan": input.prior_plan_payload(),
         "approved_memories":input.task.approved_memories,
         "selected_sources":serde_json::from_str::<Value>(&sources.text).map_err(|_| "Invalid selected source JSON")?,

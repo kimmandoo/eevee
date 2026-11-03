@@ -31,7 +31,7 @@ impl App {
         }
         self.lead.auto_form = true;
         self.changed_task();
-        self.notice = "Auto on: Eevee picks the form at the next Send; appearance kept.".into();
+        self.notice = "Auto on: the form follows the running plan's step roles; appearance kept.".into();
     }
 
     pub(super) fn picker_return_to_eevee(&mut self) {

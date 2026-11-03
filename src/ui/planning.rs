@@ -2316,7 +2316,7 @@ mod tests {
                     "fixture",
                     vec![Step {
                         label: "Fix".into(),
-                        phase: None,
+                        phase: Some("implement".into()),
                         status: Status::Active,
                     }],
                 )
@@ -2324,7 +2324,7 @@ mod tests {
             progress.adopt().unwrap();
             app.workflows.progress = Some(progress);
             let screen = draw_home(&mut app);
-            // "Fix" now predicts Flareon; the destination leads so clipping
+            // An implement role predicts Flareon; the destination leads so clipping
             // keeps it visible.
             assert!(
                 screen.contains("→ Flareon · T"),
@@ -2361,7 +2361,7 @@ mod tests {
                             },
                             Step {
                                 label: "코드 수정".into(),
-                                phase: None,
+                                phase: Some("implement".into()),
                                 status: Status::Pending,
                             },
                         ],

@@ -4426,19 +4426,23 @@ fn automatic_todo_follows_provider_progress_and_steers_the_next_send() {
         return;
     }
     let steps = |active: usize| {
-        ["오류 조사", "코드 수정", "테스트 실행"]
-            .iter()
-            .enumerate()
-            .map(|(index, label)| Step {
-                label: (*label).into(),
-                phase: None,
-                status: match index.cmp(&active) {
-                    std::cmp::Ordering::Less => Status::Done,
-                    std::cmp::Ordering::Equal => Status::Active,
-                    std::cmp::Ordering::Greater => Status::Pending,
-                },
-            })
-            .collect::<Vec<_>>()
+        [
+            ("오류 조사", "diagnose"),
+            ("코드 수정", "implement"),
+            ("테스트 실행", "verify"),
+        ]
+        .iter()
+        .enumerate()
+        .map(|(index, (label, phase))| Step {
+            label: (*label).into(),
+            phase: Some((*phase).into()),
+            status: match index.cmp(&active) {
+                std::cmp::Ordering::Less => Status::Done,
+                std::cmp::Ordering::Equal => Status::Active,
+                std::cmp::Ordering::Greater => Status::Pending,
+            },
+        })
+        .collect::<Vec<_>>()
     };
     for automatic in [true, false] {
         let mut app = request_app();
@@ -4509,13 +4513,17 @@ fn automatic_todo_follows_provider_progress_and_steers_the_next_send() {
                     "manual mode still adopts explicitly"
                 );
             }
-            assert_eq!(app.form(), form, "progress never evolves mid-run");
+            if automatic {
+                // The running request evolves with its plan's role.
+                assert_eq!(app.form(), [5, 3][active], "follows the running plan");
+            } else {
+                assert_eq!(app.form(), form, "a pinned form stays");
+            }
             assert!(app.planning.pending.is_none(), "progress never sends");
         }
         if automatic {
-            // An ambiguous follow-up continues the focused step, and an
-            // unclassified request keeps full tools with the step's appearance.
-            for input in ["계속", "Please handle what's left"] {
+            // An ambiguous follow-up continues the focused step with full tools.
+            for input in ["계속", "continue"] {
                 app.input = input.into();
                 let selection = app.request_evolution().unwrap();
                 assert_eq!(
@@ -4525,9 +4533,9 @@ fn automatic_todo_follows_provider_progress_and_steers_the_next_send() {
                 );
                 assert!(app.follows_todo(), "{input}");
             }
-            // Explicit request intent still wins over the todo step.
+            // A fresh request is not a continuation and its text picks no form.
             app.input = "Review the code".into();
-            assert_eq!(app.request_evolution().unwrap().form, 7);
+            assert_eq!(app.request_evolution().unwrap().form, app.form());
             assert!(!app.follows_todo());
         }
     }

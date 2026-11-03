@@ -1075,23 +1075,6 @@ fn implementation_followup(literal: &str) -> bool {
     )
 }
 
-fn proceed_with_plan(text: &str) -> bool {
-    let literal = instruction(text);
-    matches!(
-        literal.trim().trim_end_matches(['.', '!', '?']).trim(),
-        "proceed"
-            | "please proceed"
-            | "go ahead"
-            | "proceed with the plan"
-            | "진행해줘"
-            | "진행해 줘"
-            | "진행해주세요"
-            | "진행해 주세요"
-            | "진행하자"
-            | "계획대로 진행해줘"
-    )
-}
-
 pub fn classify(text: &str) -> Option<Selection> {
     if text.len() > super::MAX_GOAL_BYTES {
         return None;
@@ -1305,161 +1288,13 @@ pub fn classify(text: &str) -> Option<Selection> {
     })
 }
 
-/// Terse todo labels and provider phases supplement the request classifier.
-/// Ordered role words break ties only after explicit request intent wins.
-const STEP_ROLES: &[(usize, &[&str])] = &[
-    (7, &["review", "audit", "검토", "리뷰"]),
-    (
-        5,
-        &[
-            "diagnose",
-            "debug",
-            "investigate",
-            "troubleshoot",
-            "root cause",
-            "진단",
-            "디버그",
-            "디버깅",
-            "원인",
-        ],
-    ),
-    (
-        6,
-        &[
-            "refactor",
-            "clean up",
-            "cleanup",
-            "optimize",
-            "optimise",
-            "benchmark",
-            "profile",
-            "measure",
-            "speed up",
-            "리팩터",
-            "리팩토",
-            "최적화",
-            "성능",
-            "측정",
-            "벤치마크",
-        ],
-    ),
-    (
-        4,
-        &[
-            "design",
-            "plan",
-            "architecture",
-            "architect",
-            "설계",
-            "계획",
-            "아키텍처",
-        ],
-    ),
-    (
-        8,
-        &[
-            "document",
-            "docs",
-            "readme",
-            "changelog",
-            "summarize",
-            "summarise",
-            "summary",
-            "handoff",
-            "write up",
-            "문서",
-            "요약",
-            "정리",
-            "기록",
-            "인계",
-        ],
-    ),
-    (
-        1,
-        &[
-            "inspect",
-            "explore",
-            "investigation",
-            "research",
-            "survey",
-            "understand",
-            "read",
-            "discover",
-            "discovery",
-            "analyze",
-            "analyse",
-            "analysis",
-            "context",
-            "조사",
-            "탐색",
-            "분석",
-            "파악",
-            "확인",
-            "살펴",
-        ],
-    ),
-    (
-        2,
-        &[
-            "verify",
-            "verification",
-            "validate",
-            "validation",
-            "test",
-            "tests",
-            "testing",
-            "run",
-            "build",
-            "compile",
-            "check",
-            "qa",
-            "검증",
-            "테스트",
-            "실행",
-            "빌드",
-            "컴파일",
-        ],
-    ),
-    (
-        3,
-        &[
-            "implement",
-            "implementation",
-            "add",
-            "create",
-            "wire",
-            "set up",
-            "setup",
-            "develop",
-            "write",
-            "fix",
-            "integrate",
-            "구현",
-            "추가",
-            "구성",
-            "개발",
-            "작성",
-            "만들",
-            "수정",
-            "연결",
-            "적용",
-        ],
-    ),
-];
-
-fn step_role(text: &str) -> Option<Selection> {
-    let form = STEP_ROLES.iter().find(|(_, words)| any(text, words))?.0;
-    Some(role_selection(form))
-}
-
+/// The appearance a role leads to. Capability is never chosen by the form:
+/// every role keeps the ordinary approved tool set, narrowed only by the
+/// user's explicit restriction.
 fn role_selection(form: usize) -> Selection {
     Selection {
         form,
-        operation: if matches!(form, 2 | 3 | 6) {
-            Operation::Implement
-        } else {
-            Operation::Plan
-        },
+        operation: Operation::Implement,
         reason: match form {
             1 => Message::CoreEvolutionDiscovery,
             2 => Message::CoreEvolutionVerification,
@@ -1473,43 +1308,17 @@ fn role_selection(form: usize) -> Selection {
     }
 }
 
-/// The form a todo step leads to: its label read as a request first, then its
-/// provider phase, then role words. Literal and negated labels never gain a
-/// capability from the fallback. A local prediction, never authority.
+/// The form a todo step leads to: only the structured role the provider's own
+/// plan names (native phase or a `[role]` tag on any route). Step text is never
+/// re-guessed from word lists; an untagged step steers nothing.
 pub fn classify_step(step: &crate::workspace::progress::Step) -> Option<Selection> {
-    // A structured role from the provider's own plan picks the specialist
-    // directly, without re-guessing intent from words. The operation is the
-    // role's, unless the label independently names the same role with its own
-    // operation (a handoff step that updates a README still writes). Neither
-    // exceeds what an ordinary unclassified request receives; every effect
-    // still needs exact approval.
-    if let Some(role) = step
-        .phase
-        .as_deref()
-        .and_then(crate::workspace::progress::Role::parse)
-    {
-        let mut selection = role_selection(role.form());
-        if let Some(stated) = classify(&step.label).filter(|stated| stated.form == role.form()) {
-            selection.operation = stated.operation;
-        }
-        return Some(selection);
-    }
-    classify(&step.label).or_else(|| {
-        let label = instruction(&step.label);
-        if any(&label, NEGATIVE)
-            || !label
-                .split_whitespace()
-                .any(|word| !matches!(word, "command" | "./"))
-        {
-            return None;
-        }
-        step.phase
-            .as_deref()
-            .map(instruction)
-            .as_deref()
-            .and_then(step_role)
-            .or_else(|| step_role(&label))
-    })
+    step.role().map(|role| role_selection(role.form()))
+}
+
+/// The user's own literal read-only wording narrows capability; it never
+/// widens it and never picks a form.
+fn write_restricted(text: &str) -> bool {
+    any(&instruction(text), READONLY)
 }
 
 impl App {
@@ -1541,7 +1350,7 @@ impl App {
 
     /// The adopted todo step that automatic evolution continues, if any.
     fn todo_focus(&self) -> Option<Selection> {
-        (self.lead.auto_form && self.planning.explicit_operation().is_none())
+        (self.lead.auto_form && self.planning.explicit_operation() != Some(Operation::Review))
             .then(|| self.workflows.progress.as_ref()?.focus_step())
             .flatten()
             .and_then(|(_, step)| classify_step(step))
@@ -1554,52 +1363,37 @@ impl App {
         Some((position, self.todo_focus().map(|todo| todo.form)))
     }
 
-    /// Whether the next Send's appearance comes from the current todo step
-    /// rather than the request text itself.
+    /// Whether the next Send's appearance comes from the current todo step:
+    /// an ambiguous continuation of the adopted plan.
     pub(super) fn follows_todo(&self) -> bool {
-        classify(&self.input).is_none()
-            && self.todo_focus().is_some()
-            && (crate::providers::effort::ambiguous_followup(&self.input)
-                || !self.planning.plan_conversation())
+        self.todo_focus().is_some() && crate::providers::effort::ambiguous_followup(&self.input)
     }
 
     /// Shared by inspection and ordinary Submit; does not mutate or prepare work.
+    ///
+    /// The request text never picks a form. A fresh request keeps the current
+    /// appearance and the model's role-tagged plan evolves it while it runs; a
+    /// continuation takes the adopted focus step's role. Capability is the
+    /// ordinary approved tool set (every file effect and command still needs
+    /// exact one-shot approval), narrowed only by explicit user policy.
     pub(super) fn request_evolution(&self) -> Option<Selection> {
-        // A todo-driven choice says so, rather than echoing the step's reason
-        // as if the request text had asked for it.
-        let todo = self.todo_focus().map(|todo| Selection {
-            reason: Message::CoreEvolutionTodo,
-            ..todo
-        });
-        let mut choice = classify(&self.input)
-            .or_else(|| todo.filter(|_| crate::providers::effort::ambiguous_followup(&self.input)))
-            .or_else(|| {
-                (self.planning.operation == Operation::Plan
-                    && proceed_with_plan(&self.input)
-                    && classify(&self.planning.submitted_request)
-                        .is_some_and(|prior| prior.reason == Message::CoreEvolutionPlanning)
-                    && self.planning.has_completed_plan())
-                .then_some(Selection {
-                    form: 3,
-                    operation: Operation::Implement,
-                    reason: Message::CoreEvolutionImplementation,
-                })
+        let mut choice = self
+            .todo_focus()
+            .filter(|_| self.follows_todo())
+            .map(|todo| Selection {
+                reason: Message::CoreEvolutionTodo,
+                ..todo
             })
-            .or_else(|| {
-                // Like other coding agents, an unclassified request gets the full
-                // tool set: every file effect and command still needs exact
-                // one-shot approval. An ongoing planning/diagnosis conversation
-                // keeps its session for ambiguous follow-ups instead.
-                // An unclassified request keeps those tools but takes the
-                // current todo step's appearance.
-                (!self.planning.plan_conversation()).then_some(Selection {
-                    form: todo.map_or_else(|| self.form(), |todo| todo.form),
-                    operation: Operation::Implement,
-                    reason: todo.map_or(Message::CoreEvolutionGeneral, |todo| todo.reason),
-                })
-            })?;
+            .unwrap_or(Selection {
+                form: self.form(),
+                operation: Operation::Implement,
+                reason: Message::CoreEvolutionGeneral,
+            });
+        if write_restricted(&self.input) {
+            choice.operation = Operation::Plan;
+            choice.reason = Message::CoreEvolutionReadonly;
+        }
         if !self.lead.auto_form {
-            // Pin appearance, never the tools needed for the current request.
             choice.form = self.form();
         }
         if self.planning.explicit_operation() == Some(Operation::Review) {
@@ -1613,6 +1407,30 @@ impl App {
             choice.reason = Message::CoreEvolutionReadonly;
         }
         Some(choice)
+    }
+
+    /// Follow the adopted plan while the lead's request runs: the focus step's
+    /// role changes appearance only. The running request keeps its frozen
+    /// owner, operation and approvals; nothing is sent, granted or cancelled.
+    pub(super) fn follow_todo_role(&mut self) {
+        let Some(target) = self.todo_focus() else {
+            return;
+        };
+        let from = self.form();
+        if target.form == from {
+            return;
+        }
+        self.set_form(target.form);
+        // A carry-over snapshot is for deliberate switches between requests.
+        self.carry_over.pending = None;
+        self.carry_over.pending_visible = false;
+        self.evolution.transition = Some(Transition {
+            from,
+            to: target.form,
+            reason: Message::CoreEvolutionTodo,
+            fresh: false,
+        });
+        self.evolution.popup_shown = false;
     }
 
     pub(super) fn open_evolution_preview(&mut self) {
@@ -1701,6 +1519,26 @@ impl App {
 }
 
 #[cfg(test)]
+pub(crate) mod tests_support {
+    pub(crate) fn role_focus(app: &mut crate::app::App, phase: &str) {
+        use crate::workspace::progress::{State, Status, Step};
+        let mut progress = State::default();
+        progress
+            .propose(
+                "native todo",
+                vec![Step {
+                    label: "Current step".into(),
+                    phase: Some(phase.into()),
+                    status: Status::Active,
+                }],
+            )
+            .unwrap();
+        progress.adopt().unwrap();
+        app.workflows.progress = Some(progress);
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::{
@@ -1718,237 +1556,172 @@ mod tests {
         app.planning.preference_event(Ok(None));
         app
     }
-    #[test]
-    fn adopted_progress_predicts_explicit_continuations_without_midrun_evolution() {
-        use crate::workspace::progress::{State, Status, Step};
-        for (width, height) in [(120, 36), (60, 18)] {
-            for (followup, labels) in [
-                (
-                    "continue",
-                    ["Investigate error", "Improve tool UI", "Verify tests"],
-                ),
-                ("계속", ["오류 조사", "툴 UI 개선", "테스트 실행"]),
-            ] {
-                let mut app = app();
-                app.width = width;
-                app.height = height;
-                app.open_editor(store::EditorField::Request);
-                app.input = followup.into();
-                let mut progress = State::default();
-                for active in 0..3 {
-                    let steps = labels
-                        .iter()
-                        .enumerate()
-                        .map(|(index, label)| Step {
-                            label: (*label).into(),
-                            phase: Some(["investigate", "fix", "verify"][index].into()),
-                            status: if index < active {
-                                Status::Done
-                            } else if index == active {
-                                Status::Active
-                            } else {
-                                Status::Pending
-                            },
-                        })
-                        .collect();
-                    progress.propose("fixture", steps).unwrap();
-                    app.workflows.progress = Some(progress.clone());
-                    let before = (
-                        app.form(),
-                        app.planning.operation,
-                        app.input.clone(),
-                        app.cursor,
-                    );
-                    assert!(
-                        app.workflows
-                            .progress
-                            .as_ref()
-                            .unwrap()
-                            .focus_label()
-                            .is_none()
-                    );
-                    progress.adopt().unwrap();
-                    app.workflows.progress = Some(progress.clone());
-                    assert_eq!(
-                        (
-                            app.form(),
-                            app.planning.operation,
-                            app.input.clone(),
-                            app.cursor
-                        ),
-                        before
-                    );
-                    app.open_evolution_preview();
-                    let predicted = app.evolution_preview().unwrap();
-                    assert_eq!(predicted.selection.form, [5, 3, 2][active]);
-                    assert!(
-                        predicted
-                            .todo_step
-                            .as_deref()
-                            .unwrap()
-                            .contains(labels[active])
-                    );
-                    let selection = predicted.selection;
-                    app.close_overlay();
-                    assert!(app.evolve_request());
-                    assert_eq!(
-                        (app.form(), app.planning.operation),
-                        (selection.form, selection.operation)
-                    );
-                    assert!(app.pending_request.is_none() && app.planning.pending.is_none());
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn structured_step_roles_choose_the_form_without_word_matching() {
-        use crate::workspace::progress::{Role, Status, Step};
-        let step = |label: &str, phase: &str| Step {
-            label: label.into(),
-            phase: Some(phase.into()),
-            status: Status::Active,
-        };
-        // Labels no word table recognizes still evolve from their role.
-        for (role, operation) in [
-            (Role::Discover, Operation::Plan),
-            (Role::Verify, Operation::Implement),
-            (Role::Implement, Operation::Implement),
-            (Role::Plan, Operation::Plan),
-            (Role::Diagnose, Operation::Plan),
-            (Role::Refactor, Operation::Implement),
-            (Role::Review, Operation::Plan),
-            (Role::Handoff, Operation::Plan),
-        ] {
-            // "정리" alone reads as a refactor; a different role keeps its own operation.
-            let selection = classify_step(&step("결제 모듈 흐름 정리", role.name())).unwrap();
-            assert_eq!(selection.form, role.form(), "{role:?}");
-            assert_eq!(selection.operation, operation, "{role:?}");
-        }
-        // The role wins over a label's word match; a stated operation is kept.
-        let selection = classify_step(&step("Review the code", "diagnose")).unwrap();
-        assert_eq!((selection.form, selection.operation), (5, Operation::Plan));
-        let selection = classify_step(&step("README 업데이트해줘", "handoff")).unwrap();
-        assert_eq!(
-            (selection.form, selection.operation),
-            (8, Operation::Implement)
-        );
-        // Free-text phases from other routes keep the word fallback.
-        let selection = classify_step(&step("결제 모듈", "investigate")).unwrap();
-        assert_eq!(selection.form, 5);
-        assert_eq!(classify_step(&step("결제 모듈", "someday")), None);
-    }
-
-    #[test]
-    fn adopted_role_steps_drive_automatic_evolution_and_user_policy_still_wins() {
-        use crate::workspace::progress::{State, Status, Step};
+    fn role_plan(
+        steps: &[(&str, &str, crate::workspace::progress::Status)],
+    ) -> crate::workspace::progress::State {
+        use crate::workspace::progress::{State, Step};
         let mut progress = State::default();
         progress
             .propose(
                 "native todo",
-                vec![
-                    Step {
-                        label: "결제 모듈 흐름 정리".into(),
-                        phase: Some("discover".into()),
-                        status: Status::Done,
-                    },
-                    Step {
-                        label: "결제 모듈 개편안".into(),
-                        phase: Some("plan".into()),
-                        status: Status::Active,
-                    },
-                ],
+                steps
+                    .iter()
+                    .map(|(label, phase, status)| Step {
+                        label: (*label).into(),
+                        phase: (!phase.is_empty()).then(|| (*phase).into()),
+                        status: *status,
+                    })
+                    .collect(),
             )
             .unwrap();
         progress.adopt().unwrap();
-        let mut app = app();
-        app.workflows.progress = Some(progress);
-        app.input = "계속".into();
-        let choice = app.request_evolution().unwrap();
-        assert_eq!((choice.form, choice.operation), (4, Operation::Plan));
-        assert_eq!(choice.reason, Message::CoreEvolutionTodo);
-        // An explicit request still beats the plan's role.
-        app.input = "Review the code".into();
-        assert_eq!(app.request_evolution().unwrap().form, 7);
-        // A pinned form keeps its appearance.
-        app.input = "계속".into();
-        app.lead.auto_form = false;
-        assert_eq!(app.request_evolution().unwrap().form, app.form());
-    }
-
-    #[test]
-    fn adopted_pending_focus_distinguishes_continuations_from_fresh_unclassified_work() {
-        use crate::workspace::progress::{State, Status, Step};
-        for label in ["Investigate error", "오류 조사"] {
-            let mut progress = State::default();
-            progress
-                .propose(
-                    "fixture",
-                    vec![
-                        Step {
-                            label: "Fix code".into(),
-                            phase: None,
-                            status: Status::Done,
-                        },
-                        Step {
-                            label: label.into(),
-                            phase: None,
-                            status: Status::Pending,
-                        },
-                    ],
-                )
-                .unwrap();
-            progress.adopt().unwrap();
-            for (draft, operation) in [
-                ("Continue.", Operation::Plan),
-                ("계속해 주세요.", Operation::Plan),
-                ("Tell me more about this task.", Operation::Implement),
-            ] {
-                let mut app = app();
-                app.workflows.progress = Some(progress.clone());
-                app.input = draft.into();
-                let choice = app.request_evolution().unwrap();
-                assert_eq!((choice.form, choice.operation), (5, operation), "{draft}");
-                assert!(app.follows_todo());
-                assert_eq!(app.form(), 0, "prediction evolved before Send");
-            }
-            let mut app = planned_app();
-            app.workflows.progress = Some(progress);
-            app.input = "Tell me more about this task.".into();
-            assert!(app.request_evolution().is_none());
-            assert!(!app.follows_todo());
-            assert_eq!(app.planning.operation, Operation::Plan);
-        }
-    }
-
-    #[test]
-    fn adopted_progress_never_overrides_manual_or_explicit_user_policy() {
-        use crate::workspace::progress::{State, Status, Step};
-        let mut app = app();
-        let mut progress = State::default();
         progress
-            .propose(
-                "fixture",
-                vec![Step {
-                    label: "Fix code".into(),
-                    phase: None,
-                    status: Status::Active,
-                }],
-            )
-            .unwrap();
-        progress.adopt().unwrap();
-        app.workflows.progress = Some(progress);
-        app.input = "Review the code".into();
-        assert_eq!(app.request_evolution().unwrap().form, 7);
-        app.input = "continue".into();
-        app.planning.set_operation(Operation::Plan);
-        assert_eq!(app.request_evolution().unwrap().operation, Operation::Plan);
-        app.lead.auto_form = false;
-        assert_eq!(app.request_evolution().unwrap().form, app.form());
+    }
+
+    #[test]
+    fn structured_step_roles_choose_the_form_and_untagged_steps_steer_nothing() {
+        use crate::workspace::progress::{Role, Status, Step};
+        let step = |label: &str, phase: Option<&str>| Step {
+            label: label.into(),
+            phase: phase.map(Into::into),
+            status: Status::Active,
+        };
+        for role in Role::ALL {
+            // Labels no word table recognizes still evolve from their role, and
+            // the role never narrows or widens the request's tools.
+            let selection = classify_step(&step("결제 모듈 흐름 정리", Some(role.name()))).unwrap();
+            assert_eq!(selection.form, role.form(), "{role:?}");
+            assert_eq!(selection.operation, Operation::Implement, "{role:?}");
+        }
+        // The role wins over any word in the label.
+        assert_eq!(
+            classify_step(&step("Review the code", Some("diagnose")))
+                .unwrap()
+                .form,
+            5
+        );
+        // Step text is never re-guessed: untagged or free-text phases steer nothing.
+        assert_eq!(classify_step(&step("Review the code", None)), None);
+        assert_eq!(classify_step(&step("결제 모듈", Some("investigate"))), None);
+        // A `[role]` tag from a CLI/ACP plan becomes the same structured role.
+        let tagged = step("[Verify] cargo test", None).untag();
+        assert_eq!(
+            (tagged.label.as_str(), tagged.role()),
+            ("cargo test", Some(Role::Verify))
+        );
+        assert_eq!(classify_step(&tagged).unwrap().form, 2);
+    }
+
+    #[test]
+    fn fresh_requests_keep_appearance_and_full_tools_while_continuations_follow_roles() {
+        use crate::workspace::progress::Status;
+        let mut app = app();
+        // The request text never picks a form, however specific it sounds.
+        for text in [
+            "Review the code",
+            "이 에러 원인 찾아줘",
+            "Read src/main.rs",
+            "Fix the bug",
+        ] {
+            app.input = text.into();
+            let choice = app.request_evolution().unwrap();
+            assert_eq!(
+                (choice.form, choice.operation),
+                (0, Operation::Implement),
+                "{text}"
+            );
+        }
+        app.workflows.progress = Some(role_plan(&[
+            ("결제 모듈 흐름 정리", "discover", Status::Done),
+            ("결제 모듈 개편안", "plan", Status::Active),
+        ]));
+        for followup in ["계속", "continue", "Continue."] {
+            app.input = followup.into();
+            assert!(app.follows_todo());
+            let choice = app.request_evolution().unwrap();
+            assert_eq!(
+                (choice.form, choice.operation),
+                (4, Operation::Implement),
+                "{followup}"
+            );
+            assert_eq!(choice.reason, Message::CoreEvolutionTodo);
+        }
+        // A fresh request is not a continuation; the plan steers it while it runs.
+        app.input = "Tell me more about this task.".into();
+        assert!(!app.follows_todo());
+        assert_eq!(app.request_evolution().unwrap().form, 0);
+        assert_eq!(app.form(), 0, "prediction evolved before Send");
+        assert!(app.pending_request.is_none() && app.planning.pending.is_none());
+    }
+
+    #[test]
+    fn explicit_user_policy_and_pinned_forms_still_win_over_the_plan() {
+        use crate::workspace::progress::Status;
+        let mut app = app();
+        app.workflows.progress = Some(role_plan(&[("결제 모듈", "implement", Status::Active)]));
+        // The user's literal read-only wording narrows tools; the role keeps the form.
+        app.input = "계속, 읽기만 해".into();
+        let choice = app.request_evolution().unwrap();
+        assert_eq!(choice.operation, Operation::Plan);
         app.input = "Read src/main.rs; do not change files".into();
         assert_eq!(app.request_evolution().unwrap().operation, Operation::Plan);
+        // Explicit Plan mode narrows tools without stopping evolution.
+        app.input = "continue".into();
+        app.planning.set_operation(Operation::Plan);
+        let choice = app.request_evolution().unwrap();
+        assert_eq!((choice.form, choice.operation), (3, Operation::Plan));
+        // A pinned form keeps its appearance.
+        app.lead.auto_form = false;
+        assert_eq!(app.request_evolution().unwrap().form, app.form());
     }
 
+    #[test]
+    fn running_request_evolves_with_its_plan_without_changing_owner_or_tools() {
+        use crate::workspace::progress::Status;
+        for (width, height) in [(120, 36), (60, 18)] {
+            let mut app = app();
+            app.width = width;
+            app.height = height;
+            let steps = [
+                ("오류 위치 확인", "discover"),
+                ("원인 진단", "diagnose"),
+                ("수정", "implement"),
+                ("테스트", "verify"),
+            ];
+            for active in 0..steps.len() {
+                let list: Vec<_> = steps
+                    .iter()
+                    .enumerate()
+                    .map(|(index, (label, phase))| {
+                        (
+                            *label,
+                            *phase,
+                            match index.cmp(&active) {
+                                std::cmp::Ordering::Less => Status::Done,
+                                std::cmp::Ordering::Equal => Status::Active,
+                                std::cmp::Ordering::Greater => Status::Pending,
+                            },
+                        )
+                    })
+                    .collect();
+                app.workflows.progress = Some(role_plan(&list));
+                let operation = app.planning.operation;
+                app.follow_todo_role();
+                assert_eq!(app.form(), [1, 5, 3, 2][active]);
+                let transition = app.evolution.transition.unwrap();
+                assert_eq!(transition.to, app.form());
+                assert_eq!(transition.reason, Message::CoreEvolutionTodo);
+                assert_eq!(app.planning.operation, operation, "tools stay frozen");
+                assert!(app.pending_request.is_none() && app.planning.pending.is_none());
+            }
+            // Explicit independent Review keeps its reviewer.
+            app.planning.set_operation(Operation::Review);
+            app.evolution.transition = None;
+            app.follow_todo_role();
+            assert_eq!(app.form(), 2);
+            assert!(app.evolution.transition.is_none());
+        }
+    }
     #[test]
     fn prediction_preserves_draft_and_matches_submitted_appearance_and_policy() {
         for draft in [
@@ -2056,7 +1829,7 @@ mod tests {
     fn planned_app() -> App {
         let mut app = app();
         app.planning.agent = Agent::Compatible;
-        app.input = "새 프로젝트 구현 계획 세워줘".into();
+        app.input = "새 프로젝트 구현 계획 세워줘. 읽기만 해줘.".into();
         app.submit_request();
         app.pending_request = None;
         app.planning.submitted_request = app.input.as_str().into();
@@ -2110,32 +1883,7 @@ mod tests {
     }
 
     #[test]
-    fn proceeding_requires_a_complete_current_plan_not_analysis_or_source_instructions() {
-        for prior in [
-            "Analyze the error.",
-            "Read src/main.rs.",
-            "Plan the project, read only.",
-        ] {
-            let mut app = planned_app();
-            app.planning.submitted_request = prior.into();
-            app.planning.items[0].request = app.planning.submitted_request.clone();
-            app.input = "진행해줘".into();
-            app.submit_request();
-            assert_eq!(app.planning.operation, Operation::Plan, "{prior}");
-        }
-        for invalid in 0..5 {
-            let mut app = planned_app();
-            match invalid {
-                0 => app.planning.items[0].complete = false,
-                1 => app.planning.plan_completed = false,
-                2 => app.planning.items[0].owner = None,
-                3 => app.planning.items[0].text = "x".repeat(64 * 1024),
-                _ => app.planning.items[0].request = "unrelated request".into(),
-            }
-            app.input = "진행해줘".into();
-            app.submit_request();
-            assert_eq!(app.planning.operation, Operation::Plan);
-        }
+    fn explicit_plan_or_review_policy_survives_implementation_followups() {
         for operation in [Operation::Plan, Operation::Review] {
             let mut app = planned_app();
             app.planning.set_operation(operation);
@@ -2166,7 +1914,7 @@ mod tests {
     }
 
     #[test]
-    fn ordinary_project_planning_is_readonly_without_setup_or_selected_paths() {
+    fn project_planning_requests_classify_as_planning_for_move_grouping() {
         for text in [
             "프로젝트 계획 세워줘",
             "프로젝트 계획을 작성해줘.",
@@ -2184,27 +1932,6 @@ mod tests {
                 (4, Operation::Plan),
                 "{text}"
             );
-            for agent in [Agent::Compatible, Agent::Codex, Agent::Claude] {
-                let mut app = app();
-                app.planning.agent = agent;
-                app.planning.edit_paths = vec![".env".into(), ".git/config".into()];
-                assert!(app.goal.is_empty());
-                app.input = text.into();
-                app.submit_request();
-                assert_eq!(app.planning.operation, Operation::Plan, "{text}");
-                assert_eq!(app.goal, text);
-                let snapshot = app.snapshot("/workspace");
-                app.planning.command("new", true, &snapshot, &[], None);
-                let Some(Request::Preview(input)) = app.planning.pending.take() else {
-                    panic!("ordinary planning did not prepare: {text}");
-                };
-                assert_eq!(input.instruction(), text);
-                assert!(input.edit_paths.is_empty());
-                assert!(!providers::writing_required(input.operation));
-                assert!(input.report.is_none());
-                assert!(input.validate_review().is_ok());
-                assert!(!app.execution.busy());
-            }
         }
     }
 
@@ -2242,50 +1969,17 @@ mod tests {
             app.submit_request();
             assert_eq!(app.planning.operation, Operation::Plan, "{text}");
         }
-        // After a diagnosis, an elliptical fix request gains write tools.
+        // A diagnosis already has write tools, so an elliptical fix needs no switch.
         for followup in ["고쳐줘", "fix it", "응 그렇게 해줘"] {
             let mut app = app();
             app.input = "Analyze the error.".into();
             app.submit_request();
-            assert_eq!(app.planning.operation, Operation::Plan);
+            assert_eq!(app.planning.operation, Operation::Implement);
             app.pending_request = None;
             app.planning.thread_id = Some("diagnosis-thread".into());
             app.input = followup.into();
             app.submit_request();
             assert_eq!(app.planning.operation, Operation::Implement, "{followup}");
-        }
-    }
-
-    #[test]
-    fn planning_followups_preserve_session_until_an_actual_mutation_request() {
-        for followup in [
-            "Explain the first step.",
-            "첫 단계를 자세히 설명해줘.",
-            "Continue.",
-        ] {
-            let mut app = app();
-            app.input = "프로젝트 계획 세워줘".into();
-            app.submit_request();
-            app.pending_request = None;
-            app.planning.thread_id = Some("owned-planning-thread".into());
-            app.input = followup.into();
-            app.submit_request();
-            assert_eq!(app.planning.operation, Operation::Plan);
-            assert_eq!(
-                app.planning.thread_id.as_deref(),
-                Some("owned-planning-thread")
-            );
-            assert!(app.pending_request.unwrap().1);
-            app.pending_request = None;
-            app.input = "Create `src/main.rs`.".into();
-            app.submit_request();
-            assert_eq!(app.planning.operation, Operation::Implement);
-            assert!(app.planning.thread_id.is_none());
-            assert!(!app.pending_request.unwrap().1);
-            app.pending_request = None;
-            app.input = "Continue.".into();
-            app.submit_request();
-            assert_eq!(app.planning.operation, Operation::Implement);
         }
     }
 
@@ -2353,19 +2047,6 @@ mod tests {
                 "{text}"
             );
         }
-        // An explicit improvement request can leave an existing diagnosis session.
-        for followup in ["Improve it.", "개선해줘", "todo 툴 UI를 개선해줘."] {
-            let mut app = app();
-            app.input = "Diagnose the tool UI.".into();
-            app.submit_request();
-            assert_eq!(app.planning.operation, Operation::Plan);
-            app.pending_request = None;
-            app.planning.thread_id = Some("diagnosis-thread".into());
-            app.input = followup.into();
-            app.submit_request();
-            assert_eq!(app.planning.operation, Operation::Implement, "{followup}");
-            assert!(app.planning.thread_id.is_none());
-        }
     }
 
     #[test]
@@ -2404,58 +2085,6 @@ mod tests {
         ] {
             assert!(classify(text).is_none(), "{text}");
         }
-    }
-
-    #[test]
-    fn terse_todo_steps_use_their_phase_and_leading_verb() {
-        use crate::workspace::progress::{Status, Step};
-        let step = |label: &str, phase: Option<&str>| Step {
-            label: label.into(),
-            phase: phase.map(Into::into),
-            status: Status::Active,
-        };
-        for (label, phase, form) in [
-            ("프로젝트 구조와 사용 가능한 기반 확인", Some("조사"), 1),
-            ("Windows 파일 탐색기 구현", Some("구현"), 3),
-            ("실행 또는 빌드 검증", Some("검증"), 2),
-            ("Refactor the parser", None, 6),
-            ("Benchmark large directories", None, 6),
-            ("성능 측정", None, 6),
-            ("Add virtualization to list view", None, 3),
-            ("UI 레이아웃 구성", None, 3),
-            ("Wire up UI", None, 3),
-            ("Document usage", None, 8),
-            ("결과 정리", None, 8),
-            ("Survey the codebase", None, 1),
-            // An explicit request reading wins over the provider's phase.
-            ("Run the project tests", Some("구현"), 2),
-            // The phase decides when the label alone is ambiguous.
-            ("Explorer list view", Some("design"), 4),
-        ] {
-            let selected = classify_step(&step(label, phase)).unwrap_or_else(|| panic!("{label}"));
-            assert_eq!(selected.form, form, "{label} / {phase:?}");
-            assert_eq!(
-                selected.operation == Operation::Implement,
-                matches!(form, 2 | 3 | 6),
-                "{label}"
-            );
-        }
-        assert!(classify_step(&step("Explorer", None)).is_none());
-        for label in [
-            "Do not run",
-            "Never refactor",
-            "구현하지 마",
-            "`Run`",
-            "> Refactor",
-            "Tool output: Run",
-        ] {
-            assert!(
-                classify_step(&step(label, Some("implementation"))).is_none(),
-                "{label}"
-            );
-        }
-        let readonly = classify_step(&step("Read only", Some("implementation"))).unwrap();
-        assert_eq!(readonly.operation, Operation::Plan);
     }
 
     #[test]
@@ -2959,7 +2588,7 @@ mod tests {
     }
 
     #[test]
-    fn explicit_file_changes_leave_automatic_readonly_roles() {
+    fn unrestricted_file_requests_leave_a_user_restricted_readonly_request() {
         for text in [
             "Create `hello.py`",
             "Edit \"src/main.rs\"",
@@ -2972,7 +2601,7 @@ mod tests {
         ] {
             let mut app = app();
             app.planning.agent = Agent::Compatible;
-            app.input = "Read src/main.rs".into();
+            app.input = "Read src/main.rs without writing.".into();
             assert!(app.evolve_request());
             assert_eq!(app.planning.operation, Operation::Plan);
             app.input = text.into();
@@ -3014,23 +2643,24 @@ mod tests {
         assert_eq!(app.form(), 0);
         app.close_overlay();
         app.submit_request();
-        assert_eq!(app.form(), 3);
+        // The request text does not evolve; the running plan will.
+        assert_eq!(app.form(), 0);
         assert!(app.lead.auto_form);
         assert_eq!((app.input.as_str(), app.cursor), (text, caret));
         assert!(app.pending_request.is_some() && app.save_requested);
         assert!(app.planning.pending.is_none() && !app.execution.busy());
         let snapshot = app.snapshot("/workspace");
-        assert_eq!((snapshot.form, snapshot.auto_form), (3, true));
+        assert_eq!((snapshot.form, snapshot.auto_form), (0, true));
         assert_eq!(snapshot.request_text(), text);
         assert!(app.planning.command("new", true, &snapshot, &[], None));
         let Some(Request::Preview(input)) = app.planning.pending.take() else {
             panic!("missing frozen input");
         };
-        assert_eq!(input.task.form, 3);
+        assert_eq!(input.task.form, 0);
         assert!(input.task.auto_form);
         assert_eq!(input.task.request_text(), text);
         assert_eq!(input.operation, Operation::Implement);
-        assert_eq!(app.planning.owner().unwrap().form, 3);
+        assert_eq!(app.planning.owner().unwrap().form, 0);
         assert!(!app.execution.busy());
     }
 
@@ -3061,16 +2691,16 @@ mod tests {
     }
 
     #[test]
-    fn mixed_discovery_edit_freezes_writing_after_automatic_readonly_request() {
+    fn mixed_discovery_edit_freezes_writing_after_user_restricted_readonly_request() {
         let mut app = app();
-        app.input = "Read the project source files.".into();
+        app.input = "Read the project source files without changing anything.".into();
         app.submit_request();
-        assert_eq!((app.form(), app.planning.operation), (1, Operation::Plan));
+        assert_eq!((app.form(), app.planning.operation), (0, Operation::Plan));
         app.pending_request = None;
         let text = "List the project files, read the generated Python source, and edit only its value using the observed digest.";
         app.input = text.into();
         app.submit_request();
-        assert_eq!((app.form(), app.lead.auto_form), (3, true));
+        assert_eq!((app.form(), app.lead.auto_form), (0, true));
         assert_eq!(app.planning.operation, Operation::Implement);
         let snapshot = app.snapshot("/workspace");
         assert!(app.planning.command("new", true, &snapshot, &[], None));
@@ -3078,9 +2708,9 @@ mod tests {
             panic!("missing frozen mixed discovery/edit input");
         };
         assert_eq!(input.task.request_text(), text);
-        assert_eq!(input.task.form, 3);
+        assert_eq!(input.task.form, 0);
         assert_eq!(input.operation, Operation::Implement);
-        assert_eq!(app.planning.owner().unwrap().form, 3);
+        assert_eq!(app.planning.owner().unwrap().form, 0);
         assert!(!app.execution.busy());
     }
 
@@ -3097,7 +2727,7 @@ mod tests {
         assert_eq!((app.form(), app.lead.auto_form), (0, true));
         app.input = "Create a code file.".into();
         app.submit_request();
-        assert_eq!((app.form(), app.lead.auto_form), (3, true));
+        assert_eq!((app.form(), app.lead.auto_form), (0, true));
         assert_eq!(app.planning.operation, Operation::Plan);
         app.pending_request = None;
         app.apply_execution_action(execution::Action::SelectForm(0));
@@ -3124,14 +2754,17 @@ mod tests {
     fn every_fixed_form_can_discover_create_and_edit_without_changing_appearance() {
         for form in 1..9 {
             for (text, operation) in [
-                ("Read the current project source files.", Operation::Plan),
+                (
+                    "Read the current project source files.",
+                    Operation::Implement,
+                ),
                 ("Create `hello.py`.", Operation::Implement),
                 ("구현해줘", Operation::Implement),
                 ("Implement it.", Operation::Implement),
                 ("Edit `src/main.rs`.", Operation::Implement),
-                ("Diagnose how to fix src/main.rs.", Operation::Plan),
-                ("Review how to repair the code.", Operation::Plan),
-                ("오류 수정 방법을 분석해줘.", Operation::Plan),
+                ("Diagnose how to fix src/main.rs.", Operation::Implement),
+                ("Review how to repair the code.", Operation::Implement),
+                ("오류 수정 방법을 분석해줘.", Operation::Implement),
                 (
                     "Write project documentation to README.md.",
                     Operation::Implement,

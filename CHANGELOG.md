@@ -2,6 +2,10 @@
 
 ## 2026-11-03
 
+- feat(evolution)!: made automatic evolution follow the model's role-tagged plan on every route and while the request runs; the request text no longer picked a form, and mid-run evolution changed appearance only while the running request kept its owner, tools and approvals.
+- feat(providers): sent the same role-tag plan contract (`progress_policy`) to Codex, Claude Agent SDK and ACP routes and normalized `[role]` step tags into the structured phase, so every agent produced the same role-driven todos as native routes.
+- feat(forms)!: gave every form the full approved tool set for ordinary requests; only explicit Plan/Review mode or literal read-only wording in the request made it nonwriting, and that restriction applied per request.
+- refactor(evolution): removed send-time word routing, the plan-proceed heuristic and the todo label/phase word fallback from evolution; the word classifier remained only as the repetition-move grouping key.
 - feat(evolution): added a closed todo step-role vocabulary (discover, verify, implement, plan, diagnose, refactor, review, handoff) to the native todo tool and prelude, so automatic evolution followed the model's own structured plan instead of re-matching step text against word tables; word rules remained only for the request text, free-text phases and routes without native phases.
 - fix(auth): sent the OpenAI browser sign-in redirect as the registered `http://localhost:<port>/auth/callback` spelling instead of a numeric loopback address, and served the callback on both IPv4 and IPv6 loopback.
 - fix(auth): kept OpenAI device authorization alive through 429 slow-down (+5 s interval, capped at 60 s) and up to three consecutive transient network/5xx polling failures, reusing the one issued device code; setup and other statuses still stopped without retry.

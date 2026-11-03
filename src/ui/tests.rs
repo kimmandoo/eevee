@@ -887,7 +887,8 @@ fn first_file_output_reclaims_compact_rows_without_dismissing_transition_or_draf
     let mut app = App::new("/workspace".into(), 60, 18);
     app.task_id = 7;
     app.storage = crate::app::StorageState::Saved;
-    app.input = "Create a Python code file.".into();
+    crate::app::evolution::tests_support::role_focus(&mut app, "implement");
+    app.input = "continue".into();
     app.cursor = app.input.len();
     app.editing = true;
     app.editor_field = EditorField::Request;
@@ -898,7 +899,7 @@ fn first_file_output_reclaims_compact_rows_without_dismissing_transition_or_draf
     app.refresh_carry_over();
     assert!(app.evolution.transition.is_some());
     assert!(app.carry_over().is_some());
-    app.planning.submitted_request = Arc::from("Create a Python code file.");
+    app.planning.submitted_request = Arc::from("continue");
     app.planning.items.push(crate::app::planning::Item {
         thread_id: String::new(),
         turn_id: "owned-turn".into(),

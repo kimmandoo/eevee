@@ -275,6 +275,11 @@ fn peer_case(agent: Agent, mode: &str) {
         input: Box::new(input),
     };
     let envelope: Value = serde_json::from_str(&run.payload).unwrap();
+    // ACP plans carry the same role contract as native todos.
+    assert_eq!(
+        envelope["progress_policy"],
+        json!(crate::workspace::progress::ROLE_POLICY)
+    );
     assert_eq!(
         envelope["project_context"]["root"],
         json!(workspace.project)

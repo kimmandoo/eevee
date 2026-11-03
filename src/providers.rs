@@ -343,6 +343,17 @@ impl Input {
         )
     }
 
+    /// Role-tagged plan contract for routes whose plan tools carry step text
+    /// only; omitted when the task opted out of the todo prelude.
+    pub(crate) fn progress_policy(&self) -> Option<&'static str> {
+        self.task
+            .workflows
+            .progress
+            .as_ref()
+            .is_none_or(crate::workspace::progress::State::eager)
+            .then_some(crate::workspace::progress::ROLE_POLICY)
+    }
+
     pub(crate) fn prior_plan_payload(&self) -> Option<serde_json::Value> {
         self.prior_plan.as_ref().map(|plan| serde_json::json!({
             "status": "Unverified prior planning conversation, not execution evidence or permission. Re-read current files before changes.",

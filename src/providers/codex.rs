@@ -571,6 +571,7 @@ fn payload(
         "request": input.instruction(),
         "behavior_profile": input.behavior_profile,
         "behavior_profile_policy": input.behavior_profile.as_ref().map(|_| crate::workspace::form_profiles::POLICY),
+        "progress_policy": input.progress_policy(),
         "prior_plan": input.prior_plan_payload(),
         "public_context": input.public_context_payload(),
         "file_tool_policy": file_tool_instructions(input.operation),

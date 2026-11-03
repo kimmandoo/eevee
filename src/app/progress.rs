@@ -111,7 +111,7 @@ impl App {
                         self.workflow.notice = match name {
                             "todo-adopt" => "Todo revision explicitly adopted. Provider status is not evidence; no criteria completed.",
                             "todo-eager" => "Native todo prelude setting saved for this task; nothing sent.",
-                            _ => "Todo saved and adopted. Its current step guides automatic evolution at the next Send; nothing sent.",
+                            _ => "Todo saved and adopted. Its current step's role guides automatic evolution; nothing sent.",
                         }
                         .into();
                     }
@@ -159,11 +159,14 @@ impl App {
                         match workflows.validate(task_id) {
                             Ok(()) => {
                                 self.workflows = workflows;
+                                if auto && partner == self.lead.id {
+                                    self.follow_todo_role();
+                                }
                                 self.changed_task();
                                 self.flush_save();
                                 self.workflow.notice = if auto {
                                     format!(
-                                        "Todo updated automatically: {}. It guides evolution at the next Send; no form changed now.",
+                                        "Todo updated automatically: {}. Its role guides the form; the running request keeps its tools and approvals.",
                                         focus.unwrap_or_else(|| "all steps settled".into())
                                     )
                                 } else {
@@ -315,7 +318,7 @@ impl App {
                     State::summary,
                 ),
             if self.lead.auto_form {
-                "Auto: provider updates are adopted automatically; the current step guides evolution at the next Send."
+                "Auto: provider updates are adopted automatically; the current step's role evolves the form, even while work runs."
             } else {
                 "Manual form: inspect provider updates, then /todo-adopt. Your own edits apply immediately."
             }

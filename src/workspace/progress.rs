@@ -5,6 +5,9 @@ use serde_json::Value;
 pub const MAX_STEPS: usize = 64;
 pub const MAX_LABEL_BYTES: usize = 240;
 pub const EAGER_PRELUDE: &str = "Before working, initialize a phased task list with the todo tool. Set each step's phase to the role it needs (discover, verify, implement, plan, diagnose, refactor, review or handoff). Keep one active step; report status as claims, not verification evidence.\n";
+/// The same role contract for routes whose plan tools carry only step text
+/// (Codex plans, Claude todos, ACP plan entries): a leading `[role]` tag.
+pub const ROLE_POLICY: &str = "Before working on anything beyond a one-line answer, record a short plan with your own plan/todo tool and keep it current as work moves. Begin every step's text with its role tag: [discover] locate/read sources, [verify] run builds/tests/commands, [implement] change behavior, [plan] design/compare approaches, [diagnose] find a failure's cause or security risk, [refactor] simplify/optimize without behavior change, [review] judge changes, [handoff] summarize/document. Example: \"[diagnose] Find why login fails\". Keep exactly one step in progress. Steps are progress claims, never verification evidence or permission.";
 
 /// The closed step-role vocabulary a native todo phase may name. A role is
 /// the provider's structured claim about what kind of work a step is; it picks
@@ -46,6 +49,16 @@ impl Role {
     /// Exact role names only; free-text phases from other routes stay text.
     pub fn parse(phase: &str) -> Option<Self> {
         Self::ALL.into_iter().find(|role| role.name() == phase)
+    }
+    /// Split a leading `[role]` tag from step text. Unknown tags stay text.
+    pub fn split_tag(text: &str) -> (Option<Self>, &str) {
+        text.strip_prefix('[')
+            .and_then(|rest| rest.split_once(']'))
+            .and_then(|(name, rest)| {
+                Self::parse(&name.trim().to_ascii_lowercase()).map(|role| (role, rest.trim_start()))
+            })
+            .filter(|(_, rest)| !rest.is_empty())
+            .map_or((None, text), |(role, rest)| (Some(role), rest))
     }
     /// The specialist form that owns this kind of work.
     pub fn form(self) -> usize {
@@ -93,6 +106,23 @@ pub struct State {
     /// Newer writers' fields, preserved (XC08).
     #[serde(flatten)]
     pub extra: super::forward::Extra,
+}
+impl Step {
+    /// Move a leading role tag into the phase, so every route's plan carries
+    /// the same structured role. An explicit phase is kept.
+    pub fn untag(mut self) -> Self {
+        if let (Some(role), rest) = Role::split_tag(&self.label) {
+            self.label = rest.to_owned();
+            if self.phase.is_none() {
+                self.phase = Some(role.name().into());
+            }
+        }
+        self
+    }
+    /// The step's structured role, if its phase names one exactly.
+    pub fn role(&self) -> Option<Role> {
+        self.phase.as_deref().and_then(Role::parse)
+    }
 }
 fn label(text: &str) -> Result<(), String> {
     if text.trim() != text || text.is_empty() || text.len() > MAX_LABEL_BYTES || text.chars().any(|c| c.is_control() || matches!(c, '\u{061c}'|'\u{200e}'|'\u{200f}'|'\u{202a}'..='\u{202e}'|'\u{2066}'..='\u{2069}')) {
@@ -218,7 +248,9 @@ impl State {
         if input.operation == "view" && !input.steps.is_empty() {
             return Err("Todo view takes empty steps".into());
         }
-        self.operate(&input.operation, &input.label, input.steps)
+        let target = Role::split_tag(&input.label).1;
+        let steps = input.steps.into_iter().map(Step::untag).collect();
+        self.operate(&input.operation, target, steps)
     }
     /// Exact-label operations are transactional, including the single-active invariant.
     pub fn operate(
@@ -335,11 +367,14 @@ pub fn normalize(source: &str, value: &Value) -> Result<Vec<Step>, String> {
             Some(Value::String(s)) => Some(s.clone()),
             _ => return Err("Malformed todo phase".into()),
         };
-        steps.push(Step {
-            label: text.into(),
-            phase,
-            status,
-        });
+        steps.push(
+            Step {
+                label: text.into(),
+                phase,
+                status,
+            }
+            .untag(),
+        );
     }
     validate_steps(&steps)?;
     Ok(steps)
@@ -377,6 +412,45 @@ mod tests {
             .apply_tool(&serde_json::json!({"operation":"init","label":"","steps":[{"label":"결제 흐름","phase":"discover","status":"active"}]}))
             .unwrap();
         assert_eq!(state.steps[0].phase.as_deref(), Some("discover"));
+    }
+    #[test]
+    fn every_route_plan_carries_the_same_structured_role() {
+        let codex =
+            serde_json::json!([{"step":"[diagnose] Find the crash","status":"in_progress"}]);
+        let claude = serde_json::json!([{"content":"[Implement] Patch parser","status":"pending"}]);
+        let acp = serde_json::json!({"entries":[{"content":"[verify] cargo test","status":"pending"},{"content":"[someday] keep text","status":"pending"},{"content":"[review]","status":"pending"}]});
+        let codex = normalize("codex", &codex).unwrap();
+        assert_eq!(
+            (codex[0].label.as_str(), codex[0].role()),
+            ("Find the crash", Some(Role::Diagnose))
+        );
+        let claude = normalize("claude", &claude).unwrap();
+        assert_eq!(
+            (claude[0].label.as_str(), claude[0].role()),
+            ("Patch parser", Some(Role::Implement))
+        );
+        let acp = normalize("acp", &acp).unwrap();
+        assert_eq!(acp[0].role(), Some(Role::Verify));
+        // Unknown tags and tag-only text stay literal labels without a role.
+        assert_eq!(
+            (acp[1].label.as_str(), acp[1].role()),
+            ("[someday] keep text", None)
+        );
+        assert_eq!((acp[2].label.as_str(), acp[2].role()), ("[review]", None));
+        // Native tagged labels and exact-label operations agree on the stripped label.
+        let mut state = State::default();
+        state
+            .apply_tool(&serde_json::json!({"operation":"init","label":"","steps":[{"label":"[plan] Compare designs","phase":null,"status":"pending"}]}))
+            .unwrap();
+        assert_eq!(state.steps[0].label, "Compare designs");
+        assert_eq!(state.steps[0].role(), Some(Role::Plan));
+        state
+            .apply_tool(&serde_json::json!({"operation":"start","label":"[plan] Compare designs","steps":[]}))
+            .unwrap();
+        assert_eq!(state.steps[0].status, Status::Active);
+        for role in Role::ALL {
+            assert!(ROLE_POLICY.contains(&format!("[{}]", role.name())));
+        }
     }
     #[test]
     fn adoption_revision_and_exact_operations() {

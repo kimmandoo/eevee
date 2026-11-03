@@ -1078,6 +1078,11 @@ fn sdk_project_context_is_filename_only_frozen_and_separate_from_write_policy() 
     let exclusions = [PathBuf::from("omitted.rs")];
     let (text, scope) = payload(data.path(), &input, &exclusions, None).unwrap();
     let envelope: Value = serde_json::from_str(&text).unwrap();
+    // Claude todos carry the same role contract as native todos.
+    assert_eq!(
+        envelope["progress_policy"],
+        json!(crate::workspace::progress::ROLE_POLICY)
+    );
     assert_eq!(envelope["project_context"]["root"], json!(root.path()));
     assert_eq!(
         envelope["project_context"]["filenames"]["paths"],

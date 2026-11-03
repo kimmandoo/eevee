@@ -678,6 +678,14 @@ fn readonly_roles_capture_real_source_without_mutation_targets_or_writer_lease()
         )));
         let text = payload(&fixture.data, &input, &[], Some(&scope)).unwrap();
         let envelope: Value = serde_json::from_str(&text).unwrap();
+        // Codex plans carry the same role contract as native todos; the
+        // independent review envelope is a single verdict, not a plan.
+        if operation == Operation::Plan {
+            assert_eq!(
+                envelope["progress_policy"],
+                json!(crate::workspace::progress::ROLE_POLICY)
+            );
+        }
         assert_eq!(envelope["project_context"]["root"], json!(fixture.root));
         assert_eq!(
             envelope["project_context"]["filenames"]["paths"],
