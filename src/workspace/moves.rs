@@ -1715,7 +1715,6 @@ mod tests {
             assert!(!used.contains(&name));
             used.push(name);
         }
-        assert_eq!(used, ["Thunderbolt", "Charge Beam", "Thunder Wave"]);
         assert_eq!(
             suggested_name(2, &steps, &["thunderbolt".into(), "Thunderbolt".into()]),
             "Charge Beam"
@@ -1727,20 +1726,6 @@ mod tests {
         let mut exhausted: Vec<String> = ELECTRIC_NAMES.iter().map(|name| (*name).into()).collect();
         exhausted.push("Thunderbolt 2".into());
         assert_eq!(suggested_name(2, &steps, &exhausted), "Thunderbolt 3");
-        let expected = [
-            "Helping Hand",
-            "Surf",
-            "Thunderbolt",
-            "Flamethrower",
-            "Future Sight",
-            "Foul Play",
-            "Leaf Blade",
-            "Ice Beam",
-            "Moonblast",
-        ];
-        for (form, name) in expected.iter().enumerate() {
-            assert_eq!(suggested_name(form, &steps, &[]), *name);
-        }
         let mut proposal = proposal(2, steps);
         proposal.name = "雷光一閃".into();
         assert!(validate_proposal(&proposal).is_ok());

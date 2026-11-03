@@ -302,20 +302,6 @@ mod tests {
         }
     }
     #[test]
-    fn built_in_styles_are_distinct_and_shape_every_answer() {
-        let styles: Vec<_> = (0..9).map(built_in_instructions).collect();
-        for (form, style) in styles.iter().enumerate() {
-            for part in ["Working style:", "Answer shape:", "Tools:", "Avoid:"] {
-                assert!(style.contains(part), "form {form} lacks {part}");
-            }
-            assert!(
-                style.len() <= MAX_INSTRUCTIONS / 2,
-                "form {form} leaves room to edit"
-            );
-            assert_eq!(styles.iter().filter(|other| *other == style).count(), 1);
-        }
-    }
-    #[test]
     fn disable_and_edit_survive_restart_without_touching_other_projects() {
         let directory = std::env::temp_dir().join(format!(
             "ev-profiles-{}-{}",

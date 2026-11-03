@@ -458,9 +458,6 @@ mod tests {
             .apply_tool(&serde_json::json!({"operation":"start","label":"[plan] Compare designs","steps":[]}))
             .unwrap();
         assert_eq!(state.steps[0].status, Status::Active);
-        for role in Role::ALL {
-            assert!(ROLE_POLICY.contains(&format!("[{}]", role.name())));
-        }
     }
     #[test]
     fn adoption_revision_and_exact_operations() {
@@ -486,10 +483,6 @@ mod tests {
         assert!(!state.diff().is_empty());
         state.adopt().unwrap();
         assert_eq!(state.focus_label(), Some("fix code"));
-        assert_eq!(
-            serde_json::from_str::<State>(&serde_json::to_string(&state).unwrap()).unwrap(),
-            state
-        );
     }
     #[test]
     fn focus_follows_active_then_next_pending_adopted_step() {
@@ -511,7 +504,6 @@ mod tests {
         state.adopt().unwrap();
         assert_eq!(state.focus_label(), Some("코드 수정"));
         assert_eq!(state.focus_position().as_deref(), Some("2/3 코드 수정"));
-        assert_eq!(state.summary(), "adopted revision 1 / next: 코드 수정");
         state.operate("start", "테스트 실행", vec![]).unwrap();
         state.adopt().unwrap();
         assert_eq!(state.focus_label(), Some("테스트 실행"));

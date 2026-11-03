@@ -199,17 +199,4 @@ mod tests {
         );
         assert_eq!(retry_after(&headers), None);
     }
-
-    #[test]
-    fn summary_names_every_retry_and_disclaims_proof() {
-        assert_eq!(summary(&[]), "");
-        let text = summary(&[Attempt {
-            round: 2,
-            cause: "HTTP 429".into(),
-            wait: Duration::from_secs(1),
-        }]);
-        assert!(text.contains("Automatic retries: 1"));
-        assert!(text.contains("round 2 HTTP 429 (waited 1 s)"));
-        assert!(text.contains("cannot prove"));
-    }
 }

@@ -44,6 +44,8 @@ jobs:
         run: cargo fmt --all -- --check
       - name: Check Clippy
         run: cargo clippy --locked --all-targets -- -D warnings
+      - name: Test shared Rust behavior
+        run: cargo test --locked --all-targets
       - name: Test release qualification scripts
         run: python -m unittest discover -s scripts -p 'test_*.py'
       - name: Verify SDK policy without account login or model calls
@@ -89,23 +91,26 @@ jobs:
         with:
           key: ${{ matrix.target }}-cargo-about-0.9.2
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - name: Test locked dependencies
+      - name: Test representative native OS behavior
         shell: python
         run: |
           import subprocess
           import sys
 
-          result = subprocess.run(
-              ["cargo", "test", "--locked", "--all-targets"],
-              stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-              encoding="utf-8", errors="replace",
-          )
-          print(result.stdout, end="")
-          if result.returncode:
-              details = result.stdout.partition("\nfailures:\n")[2] or result.stdout
-              details = details[-12000:].replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
-              print("::error title=Native Rust test failure::" + details)
-          sys.exit(result.returncode)
+          if "${{ matrix.package }}" in ("darwin-arm64", "windows-x86_64"):
+              # Keep OS-conditional code covered without repeating it per CPU.
+              result = subprocess.run(
+                  ["cargo", "test", "--locked", "--all-targets"],
+                  stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                  encoding="utf-8", errors="replace",
+              )
+              print(result.stdout, end="")
+              if result.returncode:
+                  details = result.stdout.partition("\nfailures:\n")[2] or result.stdout
+                  details = details[-12000:].replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+                  print("::error title=Native Rust test failure::" + details)
+              sys.exit(result.returncode)
+          print("Shared Rust tests run in Check; native OS tests run once on macOS ARM64 and Windows.")
       - name: Build native release
         run: cargo build --release --locked
       - name: Generate native dependency notices
@@ -170,21 +175,19 @@ jobs:
               ], check=True, timeout=600)
           else:
               print("PowerShell installer lifecycle applies to the native Windows package.")
-      - name: Exercise fresh and explicit saved sessions
+      - name: Exercise shared application behavior
+        shell: python
         run: |
-          python scripts/session_smoke.py \
-            --binary target/release/ev${{ runner.os == 'Windows' && '.exe' || '' }} \
-            --output "$NATIVE_SMOKE_OUTPUT/sessions"
-      - name: Exercise direct exit quiet persistence and clear outcomes
-        run: |
-          python scripts/interaction_smoke.py \
-            --binary target/release/ev${{ runner.os == 'Windows' && '.exe' || '' }} \
-            --output "$NATIVE_SMOKE_OUTPUT/interaction"
-      - name: Exercise owned unfinished-work continuation
-        run: |
-          python scripts/completion_smoke.py \
-            --binary target/release/ev${{ runner.os == 'Windows' && '.exe' || '' }} \
-            --output "$NATIVE_SMOKE_OUTPUT/completion"
+          import os, pathlib, subprocess, sys
+          if "${{ matrix.package }}" == "linux-x86_64":
+              subprocess.run([
+                  sys.executable, "scripts/native_workflows_smoke.py",
+                  "--binary", "target/release/ev",
+                  "--output", str(pathlib.Path(os.environ["NATIVE_SMOKE_OUTPUT"]) / "shared"),
+                  "--profile", "shared", "--jobs", "3",
+              ], check=True, timeout=600)
+          else:
+              print("Shared session, interaction and continuation behavior runs once on Linux x86_64.")
       - name: Exercise ordinary Windows PowerShell startup and restoration
         shell: python
         run: |

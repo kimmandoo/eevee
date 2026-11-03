@@ -82,30 +82,6 @@ fn corrected_command_query_keeps_a_choice_but_clearing_it_is_neutral() {
 }
 
 #[test]
-fn root_commands_open_each_specialist_desk_without_a_second_palette() {
-    for (command, tab) in [
-        ("workflow-diagnosis", workflows::Tab::Diagnosis),
-        ("workflow-refactor", workflows::Tab::Refactor),
-        ("workflow-review", workflows::Tab::Review),
-        ("workflow-recipe", workflows::Tab::Recipe),
-    ] {
-        let mut app = app();
-        key(&mut app, KeyCode::Char('/'));
-        type_text(&mut app, command);
-        key(&mut app, KeyCode::Enter);
-        assert_eq!(app.overlay, Some(Overlay::Workflows), "{command}");
-        assert_eq!(app.workflow.tab, tab);
-        assert!(app.command_popup.is_none());
-        assert!(app.planning.pending.is_none());
-        assert!(app.execution.active.is_none());
-        assert!(!app.workflow.preview);
-        assert!(!app.workflow.affirmative);
-        key(&mut app, KeyCode::Esc);
-        assert!(app.overlay.is_none());
-    }
-}
-
-#[test]
 fn direct_specialist_navigation_restores_draft_caret_and_suffix() {
     let mut app = app();
     app.command("goal");
@@ -156,34 +132,6 @@ fn root_session_inspection_keeps_saved_task_prerequisites() {
     assert!(app.overlay.is_none());
     assert!(app.planning.pending.is_none());
     assert!(app.notice.contains("save a local task"));
-}
-
-#[test]
-fn root_criteria_edit_opens_the_editor_without_the_list() {
-    let mut app = app();
-    key(&mut app, KeyCode::Char('/'));
-    type_text(&mut app, "criteria-edit");
-    key(&mut app, KeyCode::Enter);
-    assert!(app.editing);
-    assert_eq!(app.editor_field, store::EditorField::Criteria);
-    assert!(app.overlay.is_none());
-    assert!(app.criteria.is_empty());
-    assert!(app.planning.pending.is_none());
-}
-
-#[test]
-fn command_search_keeps_exact_commands_first() {
-    let mut app = app();
-    app.open_commands();
-    let popup = app.command_popup.as_mut().unwrap();
-    popup.query = "/ROLE-REVIEW".into();
-    assert_eq!(
-        popup
-            .candidates()
-            .map(|choice| choice.command)
-            .collect::<Vec<_>>(),
-        vec!["role-review"]
-    );
 }
 
 #[test]
@@ -736,32 +684,6 @@ fn preview_is_navigation_only_and_preserves_picker_preview() {
     app.command("preview");
     assert_eq!(app.overlay, Some(Overlay::Preview));
     assert_eq!(app.preview_form(), 0);
-}
-
-#[test]
-fn linear_toggle_and_semantic_actions_remain_available() {
-    let mut app = app();
-    app.command("layout");
-    assert!(app.linear);
-    app.command("goal");
-    app.update(Event::Paste("linear goal".into()));
-    key(&mut app, KeyCode::Enter);
-    app.command("forms");
-    app.selected = 2;
-    key(&mut app, KeyCode::Enter);
-    assert_eq!(app.form(), 2);
-    app.command("preview");
-    key(&mut app, KeyCode::Esc);
-    app.command("layout");
-    assert!(!app.linear);
-    assert_eq!(app.goal, "linear goal");
-    save_request(&mut app);
-    app.command("quit");
-    assert!(
-        app.confirmation.is_none(),
-        "a committed task exits directly"
-    );
-    assert!(app.quit);
 }
 
 #[test]
@@ -1366,52 +1288,6 @@ fn archived_view_restores_instead_of_resuming_hidden_tasks() {
 }
 
 #[test]
-fn party_roster_lists_every_partner_with_derived_idle_status() {
-    let mut app = app();
-    let partners = vec![
-        store::Partner {
-            id: 1,
-            nickname: Some("Bolt".into()),
-            form: 2,
-            auto_form: false,
-            met_at: 7,
-            met_derived: false,
-            created_project: "/workspace".into(),
-        },
-        store::Partner {
-            id: 2,
-            nickname: None,
-            form: 0,
-            auto_form: true,
-            met_at: 9,
-            met_derived: false,
-            created_project: "/workspace".into(),
-        },
-    ];
-    app.store_event(store::Event::Loaded(store::Project {
-        tasks: Vec::new(),
-        partners,
-        active_id: None,
-        usage_bytes: 0,
-    }));
-    let roster = app.partners();
-    assert_eq!(roster.len(), 2);
-    assert_eq!(App::partner_label(&roster[0]), "Bolt");
-    assert_eq!(App::partner_label(&roster[1]), "Eevee #2");
-    for partner in &roster {
-        // Nothing is running: every partner derives idle without a request.
-        assert_eq!(app.partner_status(partner), party::PartnerStatus::Idle);
-        assert_eq!(app.partner_task(partner), "-");
-    }
-    // The roster opens and Escape restores the previous surface and focus.
-    app.editing = false;
-    app.command("party");
-    assert_eq!(app.overlay, Some(Overlay::Party));
-    key(&mut app, KeyCode::Esc);
-    assert_eq!(app.overlay, None);
-}
-
-#[test]
 fn partner_status_tracks_live_request_and_approval_states() {
     let mut app = app();
     app.task_id = 7;
@@ -1492,16 +1368,6 @@ fn roster_add_is_disabled_with_the_capacity_reason_at_six() {
     app.command("add");
     assert!(app.party_request.is_none());
     assert!(app.notice.contains("at most 6"), "{}", app.notice);
-}
-
-#[test]
-fn roster_reflects_unsaved_form_switch_on_the_lead_row() {
-    let mut app = app();
-    app.editing = false;
-    app.command("jolteon");
-    let roster = app.partners();
-    assert_eq!(roster[0].form, 2);
-    assert_eq!(app.lead().form, 2);
 }
 
 fn type_text(app: &mut App, text: &str) {
@@ -3650,52 +3516,6 @@ fn lead_and_roster_stay_reachable_while_another_partner_requests() {
 }
 
 #[test]
-fn each_forms_primary_empty_action_opens_its_flow_and_executes_nothing() {
-    for (index, form) in crate::domain::FORMS.iter().enumerate() {
-        let mut app = app();
-        app.command(&form.name.to_lowercase());
-        assert_eq!(app.form(), index);
-        let (_, action, _) = crate::domain::FIRST_ACTIONS[index];
-        match action {
-            Some(command) => {
-                key(&mut app, KeyCode::Char('/'));
-                type_text(&mut app, command);
-                key(&mut app, KeyCode::Enter);
-                let opened = match command {
-                    "criteria-edit" => {
-                        app.editing && app.editor_field == store::EditorField::Criteria
-                    }
-                    "files" => app.overlay == Some(Overlay::Sources),
-                    "command-edit" => {
-                        app.editing && app.editor_field == store::EditorField::Command
-                    }
-                    "paths" => {
-                        app.overlay == Some(Overlay::Planning)
-                            && app.planning.paths_editor.is_some()
-                    }
-                    "handoff" => app.overlay == Some(Overlay::Handoff),
-                    _ => app.overlay == Some(Overlay::Workflows),
-                };
-                assert!(
-                    opened,
-                    "{}: /{command} did not open; {}",
-                    form.name, app.notice
-                );
-            }
-            None => {
-                // The composer is the flow: typing stays a local draft.
-                app.open_editor(store::EditorField::Request);
-                type_text(&mut app, "which approach?");
-                assert_eq!(app.input, "which approach?");
-            }
-        }
-        assert!(app.planning.pending.is_none(), "{}", form.name);
-        assert!(!app.execution.busy(), "{}", form.name);
-        assert!(app.execution.history.is_empty(), "{}", form.name);
-    }
-}
-
-#[test]
 fn out_of_role_command_authoring_offers_a_nonreplaying_switch() {
     {
         let (form, command, owner_index) = ("espeon", "command-edit", 2);
@@ -4596,16 +4416,6 @@ fn forms_a_restores_auto_without_changing_form_or_draft() {
     key(&mut app, KeyCode::Esc);
     assert_eq!(app.input, draft.0, "the draft returns intact");
     assert!(app.pending_request.is_none() && app.planning.pending.is_none());
-}
-
-#[test]
-fn first_run_send_opens_the_full_provider_list() {
-    let mut app = request_app();
-    if app.agents.any_route_ready() {
-        return; // A configured fixture route takes the ordinary path.
-    }
-    app.agents.begin_provider_list();
-    assert!(app.agents.notice.contains("Not connected yet"));
 }
 
 #[test]

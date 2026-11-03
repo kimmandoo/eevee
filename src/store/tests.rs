@@ -848,21 +848,6 @@ fn failed_revision_does_not_hide_a_later_accepted_save() {
 }
 
 #[test]
-fn final_form_index_eight_round_trips() {
-    let directory = Directory::new();
-    let saved = Snapshot {
-        form: 8,
-        ..snapshot("project", 1)
-    };
-    let store = worker(&directory, "project");
-    assert_eq!(loaded(&store), empty_project(&directory));
-    let saved = create(&store, saved);
-    drop(store);
-    let reopened = worker(&directory, "project");
-    assert_eq!(loaded(&reopened).tasks, vec![saved]);
-}
-
-#[test]
 fn sqlite_full_rolls_back_save_without_success() {
     let directory = Directory::new();
     let mut state = State {

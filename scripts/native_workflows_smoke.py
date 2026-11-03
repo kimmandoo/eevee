@@ -23,7 +23,7 @@ import time
 from file_creation_smoke import SIZES, selected_variants
 from terminal_smoke import WindowsJob
 
-PROFILES = ('full', 'windows', 'macos', 'architecture')
+PROFILES = ('full', 'architecture', 'shared')
 DRIVER_TIMEOUT = 20 * 60
 TOOLS = (
     ('receipts', 'receipts_smoke.py', ()),
@@ -32,6 +32,11 @@ TOOLS = (
     ('artifacts', 'artifacts_smoke.py', ()),
     ('sources', 'source_observation_smoke.py', ('--mode', 'native')),
     ('conversation', 'conversation_flow_smoke.py', ('--mode', 'native')),
+)
+SHARED = (
+    ('sessions', 'session_smoke.py', 1),
+    ('interaction', 'interaction_smoke.py', 5),
+    ('completion', 'completion_smoke.py', 5),
 )
 
 
@@ -48,9 +53,6 @@ def make_plan(binary, output, profile, jobs=2):
     job_count(jobs)
     binary, output = Path(binary).resolve(), Path(output).resolve()
     scripts = Path(__file__).resolve().parent
-    file_profile = 'full' if profile == 'full' else 'platform'
-    variants = selected_variants(file_profile)
-    controlled = file_profile == 'full' and os.name == 'posix'
     sizes = [{'width': size[0], 'height': size[1], 'ascii': ascii_mode}
              for size, ascii_mode in SIZES]
     commands = []
@@ -65,27 +67,37 @@ def make_plan(binary, output, profile, jobs=2):
             'coverage': {'sizes': sizes, **coverage},
         })
 
-    add('platform-files', 'file_creation_smoke.py',
-        ('--profile', file_profile), {
-            'suite': 'files', 'profile': file_profile,
-            'routes': [{'provider': variant[0], 'protocol': variant[1],
-                        'keyless': variant[2]}
-                       for variant in variants],
-            'controlled_codex': controlled,
-        })
-    tools = () if profile == 'architecture' else TOOLS
-    for suite, script, extra in tools:
-        add('platform-tools-' + suite, script, extra,
-            {'suite': suite, 'mode': 'native'})
-    native_files = len(SIZES) * len(variants)
-    codex_files = len(SIZES) if controlled else 0
-    tool_runs = len(tools) * len(SIZES)
+    if profile == 'shared':
+        for suite, script, _cases in SHARED:
+            add(suite, script, (), {'suite': suite})
+        native_files = codex_files = tool_runs = 0
+    else:
+        file_profile = 'full' if profile == 'full' else 'platform'
+        variants = selected_variants(file_profile)
+        controlled = file_profile == 'full' and os.name == 'posix'
+        add('platform-files', 'file_creation_smoke.py',
+            ('--profile', file_profile), {
+                'suite': 'files', 'profile': file_profile,
+                'routes': [{'provider': variant[0], 'protocol': variant[1],
+                            'keyless': variant[2]}
+                           for variant in variants],
+                'controlled_codex': controlled,
+            })
+        tools = TOOLS if profile == 'full' else ()
+        for suite, script, extra in tools:
+            add('platform-tools-' + suite, script, extra,
+                {'suite': suite, 'mode': 'native'})
+        native_files = len(SIZES) * len(variants)
+        codex_files = len(SIZES) if controlled else 0
+        tool_runs = len(tools) * len(SIZES)
+    shared_runs = len(SIZES) * sum(cases for _, _, cases in SHARED) if profile == 'shared' else 0
     return {
         'schema_version': 1, 'profile': profile, 'jobs': jobs,
         'binary': str(binary), 'output': str(output),
         'counts': {'commands': len(commands), 'native_file_journeys': native_files,
                    'controlled_codex_journeys': codex_files, 'tool_journeys': tool_runs,
-                   'total_journeys': native_files + codex_files + tool_runs},
+                   'application_journeys': shared_runs,
+                   'total_journeys': native_files + codex_files + tool_runs + shared_runs},
         'commands': commands,
     }
 

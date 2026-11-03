@@ -432,14 +432,14 @@ npm ci --ignore-scripts --no-audit --no-fund --prefix sidecar && npm test --pref
 
 Terminal acceptance needs **Python 3.12**, `pyte==0.8.2` and `wcwidth==0.2.13`. Drivers use disposable projects and deterministic local peers, not API keys. Choose fresh output directories for each run.
 
-Every push/PR keeps native tests, packaging, offline installation and compact/wide core journeys on **all five targets**. To run the core terminal scope locally:
+Every push/PR builds, packages, installs offline and exercises compact/wide file consent on **all five targets**. The full Rust suite runs on Linux plus one macOS and Windows representative—not twice per OS architecture. Test builds omit debug symbols; release optimization is unchanged. Shared session/interaction/continuation journeys run **once**, concurrently on Linux. Native Windows protection, installer and PowerShell console checks remain mandatory. To exercise these scopes locally:
 
 ```sh
 python scripts/native_workflows_smoke.py --binary target/release/ev --output /tmp/ev-core-proof --profile architecture --jobs 2
-python scripts/session_smoke.py --binary target/release/ev --output /tmp/ev-session-proof
+python scripts/native_workflows_smoke.py --binary target/release/ev --output /tmp/ev-shared-proof --profile shared --jobs 3
 ```
 
-[Extended terminal regressions](https://github.com/kimmandoo/eevee/actions/workflows/terminal-regression.yml) run daily at 03:17 UTC or manually. They reuse exact qualified native packages on Linux, macOS and Windows without rebuilding. Empty `source_ref` selects the workflow's current commit; it must already have successful main-push native qualification. An explicit older qualified commit is allowed, but failures/pending runs never silently select another source. These expanded results are separate from the release's core qualification.
+[Expanded protocol regressions](https://github.com/kimmandoo/eevee/actions/workflows/terminal-regression.yml) run **weekly, Monday03:17UTC**, or manually. They reuse the exact qualified Linux package for broader protocol/context/tool and reviewed-contract coverage without rebuilding or repeating OS-independent journeys on macOS/Windows. Empty `source_ref` selects the workflow's current commit, which must already have successful main-push native qualification. Explicit older qualified sources are allowed; failed/pending qualification never silently selects another source. These expanded results are separate from release core qualification.
 
 ```sh
 gh workflow run terminal-regression.yml

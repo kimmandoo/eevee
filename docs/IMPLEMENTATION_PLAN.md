@@ -1,6 +1,6 @@
 # Eevee Implementation Plan
 
-Updated2026-11-02. Public0.1.45 completed the requested minor fixes and existing learning/evolution verification. Exact-source native41421707024 and publication41425630610 passed; public bytes, complete Linux24/34 installation, changed runtime and actual Windows repair passed. Earlier assets remain immutable. No new training architecture, unrelated roadmap closure or live-provider quality claim.
+Updated2026-11-03. Active user priority: reduce redundant CI smoke and low-value tests before completing the requested CI fix and0.1.46 release. Public0.1.45 and all earlier assets remain immutable. No unrelated roadmap closure or live-provider quality claim.
 
 Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPATIBILITY.md). Live-provider conformance remains distinct from implemented transports and deterministic runtime proof.
 
@@ -8,8 +8,9 @@ Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPAT
 
 1. Read failed native41429077771 and dependent extended41436022466 evidence. Repair the OAuth page-write test's macOS socket-configuration ordering without changing callback acceptance or weakening CI.
 2. Migrate runtime fixtures from retired text-based form/capability routing to structured roles; require valid native todo phases. Reproduce and fix the activity-only evolution save conflict with an inflight-ack RED→GREEN regression, without weakening revision admission. Run Rust1.90 formatting, locked tests, strict Clippy, Python/SDK checks and actual callback, continuation, progress, evolution and reviewed coding journeys.
-3. Advance Cargo/lock, README and dated version notes. Commit/push the source-gated candidate; require the newest exact-source main push to pass Check and all five native jobs, every step, in one attempt before tagging.
-4. Publish a new immutablev0.1.46 through the existing qualification/promotion workflow; verify public assets/checksums/native layouts and the downloaded host executable and changed runtime paths. Record final IDs/results and commit the handoff. Earlier tags/assets, security guards and unrelated roadmap tasks remain unchanged.
+3. Apply the requested diet: remove only low-value test/prose/default/wiring duplicates; omit test debug symbols; run common Rust once plus representative macOS/Windows suites, common application smoke once concurrently, and expanded protocol/contracts weekly/manual on Linux. Preserve every target's native build/offline install/core files and Windows-specific protections/console/installer checks.
+4. Run integrated source gates once after test cleanup, measure remaining tests/test binary/CI cost and execute the changed shared-runner path. Freeze version/docs/checkpoint and require the newest exact-source main Check/all five native jobs/every selected step before tagging.
+5. Publish immutablev0.1.46 through existing qualification/promotion. Verify all public asset digests/checksums/native layouts and bounded actual downloaded-host installation/update/run/uninstall; reuse completed unchanged feature/runtime evidence instead of repeating every long optional suite. Record final IDs/results and commit the handoff.
 
 ## Completed delivery — Minor fixes, learning/evolution acceptance and0.1.45 release (2026-11-02)
 

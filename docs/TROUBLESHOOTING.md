@@ -1,5 +1,12 @@
 # Troubleshooting
 
+### [2026-11-03] Native CI repeated shared suites and hashed a372MiB test executable
+
+- **Context / Symptom:** The user reported excessive CI/test duration. Successful native41421707024 took1354s on Windows: release build438s, full Rust test step363s, plus shared interaction/continuation187s. Both macOS CPU rows repeated the same suites. The local debug test executable was390521336 bytes.
+- **Root Cause:** Every native architecture compiled/executed the entire Rust suite and repeated OS-independent session/interaction/continuation journeys; optional expanded coverage repeated across three OSes daily. Test debug symbols increased compilation/linking and self-executable hashing cost.
+- **Solution:** Shared Rust tests now run in Check, with macOS ARM64/Windows repeats only for OS-conditional branches; all five native packages still exercise actual offline install and file consent. Shared application smoke runs once concurrently on Linux. Expanded protocol/contract coverage is weekly/manual on Linux. Test debug symbols are disabled, release optimization unchanged, and low-value test/profile wiring was removed without blanket ignores or count-only regrouping.
+- **Prevention / Reference:** Compare observed step durations, actual selected journeys, test binary size and remaining behavior boundaries—not test count alone. Exact-source package qualification, failures, protection scans and native platform checks remain required.
+
 ### [2026-11-03] Activity-driven evolution reused a committed task revision
 
 - **Context / Symptom:** Actual120-column evolution and OpenAI file-permission journeys showed Flareon live but `Storage: save failed`. The inspector reported `Refusing a stale or conflicting revision; reload the committed task before saving.` A held file-preview fixture also incorrectly waited for durable form publication before its terminal frame was released.

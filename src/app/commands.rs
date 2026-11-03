@@ -2361,72 +2361,6 @@ mod tests {
     }
 
     #[test]
-    fn named_form_commands_and_element_aliases_resolve_to_the_same_form() {
-        for (index, (name, alias)) in FORM_COMMANDS.iter().enumerate() {
-            for command in [name, alias] {
-                let mut app = App::new("/workspace".into(), 120, 36);
-                app.editing = false;
-                assert!(app.command(command));
-                assert_eq!(app.form(), index, "/{command} switched the wrong form");
-            }
-        }
-        let mut app = App::new("/workspace".into(), 120, 36);
-        app.editing = false;
-        assert!(app.command("electric"));
-        assert_eq!(app.form(), 2);
-        assert!(app.command("electric"));
-        assert_eq!(app.form(), 2);
-    }
-
-    #[test]
-    fn command_and_alias_namespace_has_no_duplicates() {
-        let mut seen = std::collections::HashSet::new();
-        for (name, alias) in FORM_COMMANDS {
-            assert!(seen.insert(name), "form command /{name} repeats");
-            assert!(seen.insert(alias), "element alias /{alias} repeats");
-        }
-        let mut app = App::new("/workspace".into(), 120, 36);
-        app.editing = false;
-        for overlay in [
-            None,
-            Some(Overlay::Forms),
-            Some(Overlay::Help),
-            Some(Overlay::Inspector),
-            Some(Overlay::Companion),
-            Some(Overlay::Preview),
-            Some(Overlay::Tasks),
-            Some(Overlay::Criteria),
-            Some(Overlay::Repository),
-            Some(Overlay::Sources),
-            Some(Overlay::Execution),
-            Some(Overlay::Agents),
-            Some(Overlay::Planning),
-            Some(Overlay::Handoff),
-            Some(Overlay::Images),
-            Some(Overlay::Workflows),
-            Some(Overlay::Memory),
-            Some(Overlay::Party),
-        ] {
-            app.overlay = overlay;
-            let choices = app.command_choices();
-            let mut names = std::collections::HashSet::new();
-            for choice in &choices {
-                assert!(
-                    names.insert(choice.command),
-                    "duplicate command /{} on {overlay:?}",
-                    choice.command
-                );
-            }
-            for name in &seen {
-                assert!(
-                    names.contains(name),
-                    "form command /{name} missing on {overlay:?}"
-                );
-            }
-        }
-    }
-
-    #[test]
     fn popup_context_does_not_change_underlying_surface_or_selection() {
         let mut app = App::new("/workspace".into(), 120, 36);
         app.editing = false;
@@ -3883,6 +3817,54 @@ mod tests {
             }));
             assert!(app.execution.prepared.is_none());
             assert!(app.pending_command.is_none());
+        }
+    }
+
+    #[test]
+    fn command_and_alias_namespace_has_no_duplicates() {
+        let mut seen = std::collections::HashSet::new();
+        for (name, alias) in FORM_COMMANDS {
+            assert!(seen.insert(name), "form command /{name} repeats");
+            assert!(seen.insert(alias), "element alias /{alias} repeats");
+        }
+        let mut app = App::new("/workspace".into(), 120, 36);
+        app.editing = false;
+        for overlay in [
+            None,
+            Some(Overlay::Forms),
+            Some(Overlay::Help),
+            Some(Overlay::Inspector),
+            Some(Overlay::Companion),
+            Some(Overlay::Preview),
+            Some(Overlay::Tasks),
+            Some(Overlay::Criteria),
+            Some(Overlay::Repository),
+            Some(Overlay::Sources),
+            Some(Overlay::Execution),
+            Some(Overlay::Agents),
+            Some(Overlay::Planning),
+            Some(Overlay::Handoff),
+            Some(Overlay::Images),
+            Some(Overlay::Workflows),
+            Some(Overlay::Memory),
+            Some(Overlay::Party),
+        ] {
+            app.overlay = overlay;
+            let choices = app.command_choices();
+            let mut names = std::collections::HashSet::new();
+            for choice in &choices {
+                assert!(
+                    names.insert(choice.command),
+                    "duplicate command /{} on {overlay:?}",
+                    choice.command
+                );
+            }
+            for name in &seen {
+                assert!(
+                    names.contains(name),
+                    "form command /{name} missing on {overlay:?}"
+                );
+            }
         }
     }
 }

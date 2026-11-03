@@ -1295,19 +1295,6 @@ mod tests {
     }
 
     #[test]
-    fn credential_io_errors_distinguish_missing_and_access_denied() {
-        let missing = user_file_io_error(true, &std::io::ErrorKind::NotFound.into());
-        let denied = user_file_io_error(true, &std::io::ErrorKind::PermissionDenied.into());
-        assert!(missing.contains("not found"));
-        assert!(!missing.contains("denied access"));
-        assert!(denied.contains("denied access by the operating system"));
-        for error in [missing, denied] {
-            assert!(error.contains("/connect chatgpt"));
-            assert!(error.contains("No provider file or permissions were changed"));
-        }
-    }
-
-    #[test]
     fn native_account_setup_never_discovers_or_reads_cli_auth_implicitly() {
         let selected = Inputs {
             get: |key: &str| {

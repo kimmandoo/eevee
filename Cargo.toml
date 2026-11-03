@@ -59,6 +59,11 @@ ratatui-core = { path = "vendor/ratatui-core" }
 [profile.dev.package.sha2]
 opt-level = 3
 
+# Tests execute the real binary in admission fixtures; debug symbols add no
+# behavioral coverage and make hashing/linking needlessly expensive in CI.
+[profile.test]
+debug = 0
+
 [profile.release]
 lto = "thin"
 codegen-units = 1

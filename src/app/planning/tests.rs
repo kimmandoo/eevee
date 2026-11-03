@@ -1830,32 +1830,6 @@ fn missing_retained_selection_is_never_marked_as_default_or_changed_on_open() {
 }
 
 #[test]
-fn newer_catalogue_choices_keep_exact_model_and_effort_without_dispatch() {
-    let mut state = State::new();
-    state.reset(7);
-    let mut models = catalogue();
-    models.models.push(crate::providers::ModelOption {
-        id: "provider-next-generation".into(),
-        name: "New native model".into(),
-        description: "Native discovery response".into(),
-        efforts: vec!["max".into()],
-        default_effort: Some("max".into()),
-    });
-    state.catalogues.insert(Agent::Codex, models);
-    command(&mut state, "model", true);
-    press(&mut state, KeyCode::Down, true);
-    press(&mut state, KeyCode::Down, true);
-    press(&mut state, KeyCode::Enter, true);
-    assert_eq!(state.selection, ModelSelection::default());
-    assert!(state.picker == Some(Picker::Effort));
-    assert_eq!(state.effort_model().unwrap().id, "provider-next-generation");
-    press(&mut state, KeyCode::Down, true);
-    press(&mut state, KeyCode::Enter, true);
-    assert_eq!(state.selection.effort.as_deref(), Some("max"));
-    assert!(state.pending.is_none() && state.thread_id.is_none());
-}
-
-#[test]
 fn active_model_change_is_refused_and_unsupported_effort_cannot_be_selected() {
     let mut state = active();
     command(&mut state, "model", true);
@@ -2279,33 +2253,6 @@ fn missing_model_recovery_does_not_replace_cancellation_or_unrelated_blockers() 
             assert!(state.pending.is_none());
         }
     }
-}
-
-#[test]
-fn preview_shows_local_receipt() {
-    let mut state = State::new();
-    command(&mut state, "new", true);
-    state.pending.take();
-    state.event(Event::Preview(Preview {
-        transport: None,
-        comparison_scope: None,
-        arrival: crate::providers::approval_arrival(),
-        destination: None,
-        requires_connection_review: true,
-        generation: 11,
-        task_id: 7,
-        thread_id: None,
-        trust: Vec::new(),
-        payload: "{\"purpose\":\"Plan\",\"task\":{\"goal\":\"한국어\"}}".into(),
-        blockers: Vec::new(),
-    }));
-    assert!(
-        state
-            .receipt
-            .iter()
-            .any(|line| line.starts_with("Instructions:"))
-    );
-    assert!(state.pending_journal.is_empty());
 }
 
 fn active() -> State {
