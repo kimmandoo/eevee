@@ -1,9 +1,7 @@
 use super::*;
 use crate::workspace::context::screenshot::Format;
 use image::{ImageEncoder, codecs::png::PngEncoder};
-use rusqlite::types::Value;
 use sha2::{Digest, Sha256};
-use std::collections::BTreeMap;
 
 fn validate_selected(data_dir: &Path, attachment: &Attachment) -> Result<(), String> {
     validate_selection(data_dir, &attachment.capture.root, attachment)
@@ -382,98 +380,6 @@ fn project_application_storage_and_archival_boundaries_refuse_without_replacing(
     apply(&mut state, &image, Operation::Purge(image.capture.clone()));
 }
 
-fn existing_rows(connection: &Connection) -> BTreeMap<String, Vec<Vec<Value>>> {
-    let names = connection.prepare("SELECT name FROM sqlite_schema WHERE type='table' AND name!='screenshots' ORDER BY name").unwrap()
-        .query_map([], |row| row.get::<_, String>(0)).unwrap().collect::<rusqlite::Result<Vec<_>>>().unwrap();
-    names
-        .into_iter()
-        .map(|name| {
-            let mut statement = connection
-                .prepare(&format!("SELECT * FROM {name} ORDER BY rowid"))
-                .unwrap();
-            let columns = statement.column_count();
-            let rows = statement
-                .query_map([], |row| {
-                    (0..columns)
-                        .map(|i| row.get(i))
-                        .collect::<rusqlite::Result<Vec<Value>>>()
-                })
-                .unwrap()
-                .collect::<rusqlite::Result<Vec<_>>>()
-                .unwrap();
-            (name, rows)
-        })
-        .collect()
-}
-
-#[test]
-fn genuine_schema_nineteen_migration_preserves_every_old_value_and_is_atomic() {
-    let fixture = Fixture::new();
-    let mut state = fixture.open();
-    let mut task = Snapshot::empty(fixture.project.clone());
-    task.goal = "Unchanged historical task".into();
-    let task = state.save(task).unwrap();
-    drop(state);
-    let mut connection = Connection::open(fixture.data.join(DATABASE)).unwrap();
-    connection
-        .execute_batch("DROP TABLE screenshots; PRAGMA user_version=19;")
-        .unwrap();
-    let before = existing_rows(&connection);
-    assert!(matches!(
-        super::super::schema::inspect(&connection).unwrap(),
-        Schema::Current
-    ));
-    {
-        let transaction = connection.transaction().unwrap();
-        super::super::schema::migrate(&transaction, Schema::Current).unwrap();
-        assert_eq!(
-            transaction
-                .pragma_query_value::<i64, _>(None, "user_version", |row| row.get(0))
-                .unwrap(),
-            20
-        );
-        assert_eq!(existing_rows(&transaction), before);
-    }
-    assert_eq!(
-        connection
-            .pragma_query_value::<i64, _>(None, "user_version", |row| row.get(0))
-            .unwrap(),
-        19
-    );
-    assert!(connection.prepare("SELECT * FROM screenshots").is_err());
-    connection.execute_batch("VACUUM;").unwrap();
-    let pages: i64 = connection
-        .pragma_query_value(None, "page_count", |row| row.get(0))
-        .unwrap();
-    connection
-        .pragma_update(None, "max_page_count", pages)
-        .unwrap();
-    assert!(initialize(&mut connection).is_err());
-    assert_eq!(
-        connection
-            .pragma_query_value::<i64, _>(None, "user_version", |row| row.get(0))
-            .unwrap(),
-        19
-    );
-    assert_eq!(existing_rows(&connection), before);
-    connection
-        .pragma_update(None, "max_page_count", 1_000_000)
-        .unwrap();
-    initialize(&mut connection).unwrap();
-    assert_eq!(existing_rows(&connection), before);
-    assert_eq!(
-        load_task(&connection, &fixture.project, task.id).unwrap(),
-        Some(task)
-    );
-    assert_eq!(
-        connection
-            .pragma_query_value::<i64, _>(None, "user_version", |row| row.get(0))
-            .unwrap(),
-        20
-    );
-    super::super::schema::inspect(&connection).unwrap();
-}
-
 #[test]
 fn strict_schema_and_corrupt_capture_admission_refuse_without_changing_database_bytes() {
     for corruption in [
@@ -674,49 +580,4 @@ fn deletion_preview_lists_exact_selected_and_removed_images_and_excludes_purged(
     apply(&mut state, &first, Operation::Purge(first.capture.clone()));
     let targets = state.preview_delete(&[task.id], None).unwrap();
     assert_eq!(targets[0].screenshots, vec![(second.capture.clone(), true)]);
-}
-
-#[test]
-fn opening_an_older_schema_keeps_a_bounded_pre_migration_copy() {
-    let fixture = Fixture::new();
-    let mut state = fixture.open();
-    let mut task = Snapshot::empty(fixture.project.clone());
-    task.goal = "Backed-up historical task".into();
-    state.save(task).unwrap();
-    drop(state);
-    let backups = super::super::tasks::backup_directory(&fixture.data);
-    assert!(!backups.exists(), "current schema needs no copy");
-    drop(fixture.open());
-    assert!(
-        !backups.exists(),
-        "reopening the current schema copies nothing"
-    );
-    for round in 0..4 {
-        Connection::open(fixture.data.join(DATABASE))
-            .unwrap()
-            .execute_batch("DROP TABLE screenshots; PRAGMA user_version=19;")
-            .unwrap();
-        drop(fixture.open());
-        let copies = fs::read_dir(&backups).unwrap().count();
-        assert_eq!(copies, (round + 1).min(3));
-        // Distinct second-resolution names; the oldest copy is pruned first.
-        std::thread::sleep(std::time::Duration::from_millis(1100));
-    }
-    let copy = fs::read_dir(&backups)
-        .unwrap()
-        .next()
-        .unwrap()
-        .unwrap()
-        .path();
-    let copy = Connection::open(copy).unwrap();
-    assert_eq!(
-        copy.pragma_query_value::<i64, _>(None, "user_version", |row| row.get(0))
-            .unwrap(),
-        19
-    );
-    let goal: String = copy
-        .query_row("SELECT goal FROM tasks", [], |row| row.get(0))
-        .unwrap();
-    assert_eq!(goal, "Backed-up historical task");
-    let _ = fs::remove_dir_all(&backups);
 }

@@ -28,34 +28,10 @@ pub(super) fn reserve_capacity(connection: &Connection, task: i64) -> Result<(),
     }
     Ok(())
 }
-pub(super) fn migrate(connection: &Connection) -> Result<(), String> {
-    let unexpected: bool = connection
-        .query_row(
-            r#"SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE tbl_name='executions' COLLATE NOCASE
-               AND (type='trigger' OR (type='index' AND sql IS NOT NULL)))
-           OR EXISTS(SELECT 1 FROM sqlite_master AS owner
-               JOIN pragma_foreign_key_list(owner.name) AS dependency
-               WHERE owner.type='table' AND dependency."table"='executions' COLLATE NOCASE)"#,
-            [],
-            |row| row.get(0),
-        )
-        .map_err(|error| error.to_string())?;
-    if unexpected {
-        return Err("Execution capacity migration refuses user-defined indexes, triggers or foreign-key dependents; no evidence was changed".into());
-    }
+pub(super) fn create(connection: &Connection) -> Result<(), String> {
     connection
         .execute_batch(
-            "CREATE TABLE executions_v19(
-        run_id TEXT PRIMARY KEY,task_id INTEGER NOT NULL,request_id TEXT NOT NULL UNIQUE,
-        record TEXT NOT NULL CHECK(length(CAST(record AS BLOB))<=131072),
-        output_name TEXT NOT NULL UNIQUE,output_identity TEXT NOT NULL,
-        capacity INTEGER NOT NULL CHECK(capacity>=1024 AND capacity<=16777216),
-        reserved INTEGER NOT NULL CHECK(reserved IN (0,1)));
-        INSERT INTO executions_v19(rowid,run_id,task_id,request_id,record,output_name,output_identity,capacity,reserved)
-          SELECT rowid,run_id,task_id,request_id,record,output_name,output_identity,capacity,reserved FROM executions;
-        DROP TABLE executions;
-        ALTER TABLE executions_v19 RENAME TO executions;
-        CREATE TABLE tool_artifacts(
+            "CREATE TABLE tool_artifacts(
         task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
         id TEXT PRIMARY KEY NOT NULL CHECK(length(id)=64),
         record TEXT NOT NULL CHECK(length(CAST(record AS BLOB))<=16384),

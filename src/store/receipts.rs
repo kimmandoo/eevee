@@ -52,7 +52,7 @@ pub enum Response {
     Purged { request_id: Option<String> },
 }
 
-pub(super) fn migrate(connection: &Connection) -> Result<(), String> {
+pub(super) fn create(connection: &Connection) -> Result<(), String> {
     connection.execute_batch(
         "CREATE TABLE outgoing_receipts(
          request_id TEXT PRIMARY KEY NOT NULL CHECK(length(CAST(request_id AS BLOB)) BETWEEN 1 AND 128),
@@ -60,7 +60,7 @@ pub(super) fn migrate(connection: &Connection) -> Result<(), String> {
          partner INTEGER NOT NULL CHECK(partner>0),
          record TEXT NOT NULL CHECK(length(CAST(record AS BLOB))<=65536),
          source TEXT CHECK(source IS NULL OR length(CAST(source AS BLOB))<=8388608));"
-    ).map_err(|error| format!("Cannot migrate outgoing receipts: {error}"))
+    ).map_err(|error| format!("Cannot create outgoing receipts: {error}"))
 }
 
 fn validate_source(record: &Durable, source: Option<&str>) -> Result<(), String> {
@@ -112,7 +112,7 @@ fn validate_source(record: &Durable, source: Option<&str>) -> Result<(), String>
     Ok(())
 }
 
-/// Strict row inspection participates in startup/migration admission. The parent
+/// Strict row inspection participates in startup admission. The parent
 /// schema inspector also checks the table's exact columns and constraints.
 pub(super) fn inspect(connection: &Connection) -> Result<(), String> {
     inspect_columns(

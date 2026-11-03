@@ -329,34 +329,6 @@ fn backup_precedes_migration_and_newer_reader_refusal_never_touches_source_or_ba
 }
 
 #[test]
-fn older_backup_keeps_original_schema_until_restored_reader_migrates_fresh_copy() {
-    let fixture = Fixture::new();
-    drop(fixture.state_at(fixture.source()));
-    let connection = Connection::open(fixture.source().join(DATABASE)).unwrap();
-    remove_context_schema(&connection);
-    connection.pragma_update(None, "user_version", 18).unwrap();
-    drop(connection);
-    let before = source_bytes(&fixture.source());
-    create(&fixture.source(), &fixture.backup()).unwrap();
-    restore(&fixture.backup(), &fixture.restored()).unwrap();
-    assert_eq!(source_bytes(&fixture.source()), before);
-    assert_eq!(
-        open_readonly(&fixture.source().join(DATABASE))
-            .unwrap()
-            .pragma_query_value::<i64, _>(None, "user_version", |r| r.get(0))
-            .unwrap(),
-        18
-    );
-    assert_eq!(
-        open_readonly(&fixture.restored().join(DATABASE))
-            .unwrap()
-            .pragma_query_value::<i64, _>(None, "user_version", |r| r.get(0))
-            .unwrap(),
-        20
-    );
-}
-
-#[test]
 fn live_owner_and_destination_collisions_are_create_only() {
     let fixture = Fixture::new();
     let state = fixture.state_at(fixture.source());

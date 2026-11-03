@@ -1,4 +1,4 @@
-//! SQLite file safety, interrupted-migration recovery and export.
+//! SQLite file safety, interrupted-write (hot journal) recovery and export.
 use super::*;
 
 pub(super) fn sqlite_no_follow() -> OpenFlags {
@@ -153,7 +153,10 @@ pub(super) fn recovery_digest_into(
     const MAX_RECOVERY_FILE: u64 = 64 * 1024 * 1024;
     let mut source = read_regular(path)?;
     if source.metadata().map_err(|error| error.to_string())?.len() > MAX_RECOVERY_FILE {
-        return Err("Automatic interrupted-migration recovery is limited to 64 MiB per database/journal file".into());
+        return Err(
+            "Automatic interrupted-write recovery is limited to 64 MiB per database/journal file"
+                .into(),
+        );
     }
     let mut digest = Sha256::new();
     let mut buffer = [0; 8192];
@@ -186,7 +189,7 @@ pub(super) fn inspect_recovered_copy(path: &Path) -> Result<(), String> {
     let journal = parent.join("workbench.sqlite3-journal");
     regular_target(&journal, false)?;
     // WAL recovery needs a consistent multi-file snapshot and is not this
-    // rollback-journal migration path. Never guess at a mixed-mode store.
+    // rollback-journal recovery path. Never guess at a mixed-mode store.
     for suffix in ["workbench.sqlite3-wal", "workbench.sqlite3-shm"] {
         match fs::symlink_metadata(parent.join(suffix)) {
             Ok(_) => {
@@ -206,7 +209,7 @@ pub(super) fn inspect_recovered_copy(path: &Path) -> Result<(), String> {
     {
         let mut file = read_regular(&journal_copy)?;
         if file.metadata().map_err(|error| error.to_string())?.len() < 16 {
-            return Err("The interrupted migration journal is incomplete".into());
+            return Err("The interrupted write journal is incomplete".into());
         }
         file.seek(SeekFrom::End(-8))
             .map_err(|error| error.to_string())?;
@@ -230,7 +233,7 @@ pub(super) fn inspect_recovered_copy(path: &Path) -> Result<(), String> {
         // SQLite rolls back only the private copy. Original files are writable
         // only after its recovered, committed schema and contents are known.
         inspect(&recovered)
-            .map_err(|error| format!("Interrupted migration recovery was refused: {error}"))?;
+            .map_err(|error| format!("Interrupted write recovery was refused: {error}"))?;
     }
     if database_digest != recovery_digest(path, None)?
         || journal_digest != recovery_digest(&journal, None)?

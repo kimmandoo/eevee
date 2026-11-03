@@ -1,3 +1,10 @@
+## 2026-11-03 — Pre-release single schema, migrations removed (completed)
+
+- **Request / baseline:** User approved removing migrations (pre-release; keep only the latest). Started main6af3c5c.
+- **Changes:** `src/store/schema.rs` creates schema 20 directly (`create_core` + module `create` functions, formerly `migrate`) and inspects only schema 20; versions 1–19 refuse unchanged with an `--export-data` hint. Removed `Schema` legacy variants, all migrate helpers, `artifacts` execution rebuild and `tasks::backup_before_migration`. `--export-data` still reads historical layouts. Tests: 24 migration-only tests/helpers removed, three mixed tests trimmed, crash fixture rebuilt, new refusal/export test. `scripts/workbench_smoke.py` legacy journey now expects refusal. README, DESIGN_RULES (storage rule, XC08 backup sentence, restore), CHANGELOG, TROUBLESHOOTING updated.
+- **Verification:** New fresh-store DDL diffed against the old migrated store: identical. fmt; strict Clippy clean; Rust 2002 passed/2 ignored (22.8 s wall, 326 s summed); Python unittest OK (4 skips); release `ev --export-data` on a legacy goals store exit 0. `workbench_smoke.py` fails at line 521 (`missing state: 2/2`) identically on the previous commit (pre-existing, not in CI).
+- **Next action:** None. Optional: investigate pre-existing workbench_smoke and conversation_flow_smoke failures.
+
 ## 2026-11-03 — Test suite cost reduction (completed)
 
 - **Request / baseline:** User asked to reduce the 2,027-test suite ("알아서 개수까지"). Started main0667ad0.

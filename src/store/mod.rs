@@ -276,8 +276,8 @@ pub struct Partner {
     pub form: usize,
     #[serde(default = "default_auto_form")]
     pub auto_form: bool,
-    /// Unix milliseconds; `met_derived` marks a value reconstructed from task
-    /// history during the Schema 7 migration rather than a real first meeting.
+    /// Unix milliseconds; `met_derived` marks a value that is not a real first
+    /// meeting (partner #1 of a fresh store, or an older derived record).
     pub met_at: i64,
     pub met_derived: bool,
     /// Project this partner was first seen on; empty when no task existed.

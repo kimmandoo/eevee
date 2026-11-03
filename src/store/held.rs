@@ -7,7 +7,7 @@ const MAX_TARGET_BYTES: usize = 32 * 1024;
 const MAX_PATH_BYTES: usize = 4096;
 const MAX_PROJECT_ITEMS: usize = MAX_PARTNERS * 9;
 
-pub(super) fn migrate(connection: &Connection) -> Result<(), String> {
+pub(super) fn create(connection: &Connection) -> Result<(), String> {
     connection
         .execute_batch(
             "CREATE TABLE held_items(
@@ -15,10 +15,9 @@ pub(super) fn migrate(connection: &Connection) -> Result<(), String> {
          partner INTEGER NOT NULL CHECK(partner>0),
          form INTEGER NOT NULL CHECK(form>=0 AND form<9),
          target TEXT NOT NULL CHECK(length(CAST(target AS BLOB))<=32768),
-         PRIMARY KEY(project,partner,form));
-         PRAGMA user_version=17;",
+         PRIMARY KEY(project,partner,form));",
         )
-        .map_err(|error| format!("Cannot migrate held preferences: {error}"))
+        .map_err(|error| format!("Cannot create held preferences: {error}"))
 }
 
 fn target_identity(target: &Target) -> Result<(), String> {

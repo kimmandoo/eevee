@@ -40,10 +40,7 @@ impl State {
 
     fn open_and_load_with_baseline(&mut self, startup: bool) -> Result<Project, String> {
         if fs::symlink_metadata(self.data_dir.join(super::snapshot::INCOMPLETE)).is_ok() {
-            return Err(
-                "This data directory is an incomplete restore; it cannot be opened or migrated"
-                    .into(),
-            );
+            return Err("This data directory is an incomplete restore; it cannot be opened".into());
         }
         if self.project.is_empty() {
             return Err("The canonical Unicode project identity is empty".into());
@@ -82,7 +79,6 @@ impl State {
             // Inspect before any writable SQLite open. Unknown, corrupt, and newer
             // databases must not be changed by initialization or journal recovery.
             preflight(&path)?;
-            backup_before_migration(&path, &self.data_dir)?;
         }
         let flags =
             OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE | sqlite_no_follow();
@@ -907,73 +903,6 @@ pub(super) fn json_column<T: serde::de::DeserializeOwned>(
 }
 
 pub(super) const CURRENT_SCHEMA: i64 = 20;
-const KEPT_BACKUPS: usize = 3;
-
-/// Where pre-migration copies go: a sibling of the data directory, so
-/// snapshots and quotas of the store itself never include old copies.
-pub(super) fn backup_directory(data_dir: &Path) -> PathBuf {
-    let name = data_dir.file_name().map_or_else(
-        || "eevee".into(),
-        |name| name.to_string_lossy().into_owned(),
-    );
-    data_dir.with_file_name(format!("{name}-backups"))
-}
-
-/// XC08: before an older schema is migrated in place, keep a consistent
-/// read-only copy (`VACUUM INTO`) and the three newest such copies.
-fn backup_before_migration(path: &Path, data_dir: &Path) -> Result<(), String> {
-    let connection = open_readonly(path)?;
-    let version: i64 = match connection.pragma_query_value(None, "user_version", |row| row.get(0)) {
-        Ok(version) => version,
-        // A hot journal needs the writable open's recovery first; preflight has
-        // already inspected a recovered copy, so no consistent copy exists yet.
-        Err(error) if recovery_required(&error) => return Ok(()),
-        Err(error) => return Err(format!("Cannot inspect the database version: {error}")),
-    };
-    if version == 0 || version >= CURRENT_SCHEMA {
-        return Ok(());
-    }
-    let directory = backup_directory(data_dir);
-    fs::create_dir_all(&directory)
-        .map_err(|error| format!("Cannot create the pre-migration backup directory: {error}"))?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = fs::set_permissions(&directory, fs::Permissions::from_mode(0o700));
-    }
-    let stamp = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |time| time.as_secs());
-    let target = directory.join(format!("eevee-schema{version}-{stamp}.sqlite3"));
-    if target.exists() {
-        return Ok(());
-    }
-    connection
-        .execute("VACUUM INTO ?1", [target.to_string_lossy().as_ref()])
-        .map_err(|error| {
-            format!("Pre-migration backup failed; the database was not migrated: {error}")
-        })?;
-    let mut copies = fs::read_dir(&directory)
-        .map_err(|error| error.to_string())?
-        .filter_map(Result::ok)
-        .map(|entry| entry.path())
-        .filter(|path| {
-            path.file_name()
-                .and_then(|name| name.to_str())
-                .is_some_and(|name| name.starts_with("eevee-schema") && name.ends_with(".sqlite3"))
-        })
-        .collect::<Vec<_>>();
-    copies.sort_by_key(|path| {
-        fs::metadata(path)
-            .and_then(|meta| meta.modified())
-            .unwrap_or(std::time::UNIX_EPOCH)
-    });
-    while copies.len() > KEPT_BACKUPS {
-        let _ = fs::remove_file(copies.remove(0));
-    }
-    Ok(())
-}
-
 /// XC08: newer ignorable fields load and round-trip; an unknown field the
 /// writer declared critical refuses the row exactly like a strict reader did.
 fn forward_compatible(
@@ -1023,7 +952,7 @@ pub(super) fn snapshot_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Snapshot
         }
         value != 0
     } else {
-        // Historical layouts predate durable mode and are read during migration.
+        // Historical layouts predate durable mode and are read only by export.
         row.get::<_, usize>(2)? == 0
     };
     Ok(Snapshot {

@@ -34,7 +34,7 @@ pub enum Response {
     Disconnected(Option<Document>),
 }
 
-pub(super) fn migrate(connection: &Connection) -> Result<(), String> {
+pub(super) fn create(connection: &Connection) -> Result<(), String> {
     connection.execute_batch("CREATE TABLE tool_catalog(project TEXT PRIMARY KEY,document TEXT NOT NULL CHECK(length(CAST(document AS BLOB))<=524288));").map_err(|e| e.to_string())
 }
 pub(super) fn inspect(connection: &Connection) -> Result<(), String> {

@@ -131,7 +131,7 @@ pub fn name_key(name: &str) -> String {
     key
 }
 
-pub(super) fn migrate(connection: &Connection) -> Result<(), String> {
+pub(super) fn create(connection: &Connection) -> Result<(), String> {
     connection.execute_batch(
         "CREATE TABLE moves(
           id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -156,9 +156,8 @@ pub(super) fn migrate(connection: &Connection) -> Result<(), String> {
           observed INTEGER NOT NULL DEFAULT 1 CHECK(observed IN (0,1)));
         CREATE TABLE move_usages(
           id TEXT PRIMARY KEY, task_id INTEGER NOT NULL, project TEXT NOT NULL,
-          move_id INTEGER NOT NULL, partner INTEGER NOT NULL, record TEXT NOT NULL CHECK(length(CAST(record AS BLOB))<=65536));
-        PRAGMA user_version=14;"
-    ).map_err(|error| format!("Cannot migrate moves: {error}"))
+          move_id INTEGER NOT NULL, partner INTEGER NOT NULL, record TEXT NOT NULL CHECK(length(CAST(record AS BLOB))<=65536));"
+    ).map_err(|error| format!("Cannot create moves: {error}"))
 }
 
 fn sql(error: rusqlite::Error) -> String {

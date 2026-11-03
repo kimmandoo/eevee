@@ -18,8 +18,8 @@ pub enum Operation {
 pub struct Response {
     pub rows: Vec<CacheRevision>,
 }
-pub fn migrate(connection: &rusqlite::Connection) -> Result<(), String> {
-    connection.execute_batch("CREATE TABLE context_revisions(task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,source_key TEXT NOT NULL CHECK(length(CAST(source_key AS BLOB))<=65536),source_sha256 TEXT NOT NULL CHECK(length(source_sha256)=64),policy TEXT NOT NULL CHECK(length(policy)<=256),tokenizer TEXT NOT NULL CHECK(length(tokenizer)<=256),tokens INTEGER NOT NULL CHECK(tokens>=0),assembly TEXT CHECK(assembly IS NULL OR length(CAST(assembly AS BLOB))<=4194304),PRIMARY KEY(task_id,source_key));").map_err(|e|format!("Cannot migrate context revision index: {e}"))
+pub(super) fn create(connection: &rusqlite::Connection) -> Result<(), String> {
+    connection.execute_batch("CREATE TABLE context_revisions(task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,source_key TEXT NOT NULL CHECK(length(CAST(source_key AS BLOB))<=65536),source_sha256 TEXT NOT NULL CHECK(length(source_sha256)=64),policy TEXT NOT NULL CHECK(length(policy)<=256),tokenizer TEXT NOT NULL CHECK(length(tokenizer)<=256),tokens INTEGER NOT NULL CHECK(tokens>=0),assembly TEXT CHECK(assembly IS NULL OR length(CAST(assembly AS BLOB))<=4194304),PRIMARY KEY(task_id,source_key));").map_err(|e|format!("Cannot create context revision index: {e}"))
 }
 pub fn inspect(connection: &rusqlite::Connection) -> Result<(), String> {
     let columns = {

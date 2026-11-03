@@ -1,5 +1,12 @@
 # Troubleshooting
 
+### [2026-11-03] Removing pre-release migrations without changing the schema 20 shape
+
+- **Context / Symptom:** The user asked to drop all SQL migrations before the first stable release and keep only the latest schema. Fresh stores had always been built by replaying migrations 0→20 (table rebuilds, `ALTER TABLE ADD COLUMN`, a derived partner #1), so the final DDL existed nowhere in one place, and existing v20 stores created by that chain still had to open.
+- **Root Cause:** Strict inspection compares column layouts (and the ribbons table SQL text), so a hand-written schema that differed even in a default or CHECK would make existing schema 20 stores refuse.
+- **Solution:** Dumped `sqlite_schema` from a store initialized by the old chain, wrote the direct `create` path, then dumped the new store and compared every table and index after normalizing whitespace and quoting: no differences, same partner #1 row `(1,NULL,0,0,1,'',1)` and `user_version` 20. The hot-journal crash fixture now interrupts a current-schema write instead of a migration.
+- **Prevention / Reference:** When the schema next changes, compare a dump of a fresh store with a dump of an upgraded one before release. `scripts/workbench_smoke.py` (not in CI) fails at `missing state: 2/2` (line 521) on both the previous commit and this one, before it reaches the storage journeys; its pre-release refusal journey is therefore unexercised, though the Rust test `pre_release_schemas_refuse_unchanged_and_remain_exportable` covers that behaviour.
+
 ### [2026-11-03] Test count was not the test-time cost; a storage queue could panic
 
 - **Context / Symptom:** The user asked to cut the 2,027-test Rust suite. Measured with `RUSTC_BOOTSTRAP=1 cargo test --locked --all-targets -- -Z unstable-options --format json --report-time`: 32.8 s wall, 437 s summed, 1,597 tests under 0.1 s, and the 50 slowest tests 261 s. Body-similarity search over all tests found only 19 near-duplicate pairs (≥0.75), almost all distinct scenarios on a shared setup.

@@ -732,11 +732,13 @@ def main():
                 db.execute("CREATE TABLE goals(project TEXT PRIMARY KEY,goal TEXT NOT NULL,form INTEGER NOT NULL)")
                 db.execute("INSERT INTO goals VALUES (?,?,?)", (project_identity,"migration retained",1))
                 db.commit()
-            migrated = launch("migration", legacy)
-            migrated.command("goal")
-            wait_for(migrated, "migration retained")
-            wait_for(migrated, "Storage: saved")
-            quit_app(migrated)
+            # Pre-release stores are not migrated: refuse and keep the bytes.
+            original = (legacy / "workbench.sqlite3").read_bytes()
+            refused = launch("pre-release", legacy)
+            wait_for(refused, "Storage: save failed")
+            refused.capture("pre-release-store-refused")
+            refused.close()
+            assert (legacy / "workbench.sqlite3").read_bytes() == original
             exported = root / "recovery.json"
             command = [str(binary), "--data-dir",str(legacy),"--export-data",str(exported)]
             export = subprocess.run(command, capture_output=True, text=True, timeout=10)
@@ -745,7 +747,7 @@ def main():
             before = exported.read_bytes()
             assert subprocess.run(command, capture_output=True, timeout=10).returncode != 0
             assert exported.read_bytes() == before
-            passed("transactional-migration-and-nondestructive-export")
+            passed("pre-release-store-refused-and-nondestructive-export")
             pending = launch("quit-after-apply", root / "pending")
             wait_for(pending, "Storage: saved")
             pending.send("\x1b")

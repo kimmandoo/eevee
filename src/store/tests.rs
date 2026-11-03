@@ -95,19 +95,6 @@ fn create(worker: &Worker, snapshot: Snapshot) -> Snapshot {
     saved(worker)
 }
 
-fn downgrade_workflows(connection: &Connection) {
-    downgrade_partners(connection);
-    connection
-        .execute_batch(
-            "DROP TABLE memories;
-             ALTER TABLE tasks DROP COLUMN workflows;
-             ALTER TABLE tasks DROP COLUMN memory_draft;
-             ALTER TABLE tasks DROP COLUMN approved_memories;
-             ALTER TABLE tasks DROP COLUMN workflow_draft;
-             PRAGMA user_version=5;",
-        )
-        .unwrap();
-}
 #[test]
 fn provider_journal_survives_restart_with_owner_origin_and_explicit_purge() {
     let directory = Directory::new();
@@ -193,16 +180,7 @@ fn provider_journal_survives_restart_with_owner_origin_and_explicit_purge() {
     );
 }
 #[test]
-fn provider_journal_migrates_v4_and_enforces_quota_without_partial_record() {
-    let mut connection = Connection::open_in_memory().unwrap();
-    initialize(&mut connection).unwrap();
-    downgrade_workflows(&connection);
-    connection
-        .execute_batch("DROP TABLE provider_journal; PRAGMA user_version=4;")
-        .unwrap();
-    assert!(matches!(inspect(&connection).unwrap(), Schema::Evidence));
-    initialize(&mut connection).unwrap();
-    assert!(matches!(inspect(&connection).unwrap(), Schema::Current));
+fn provider_journal_enforces_quota_without_partial_record() {
     let directory = Directory::new();
     let mut store = state(&directory, "project", Policy::default());
     let task = store.save(Snapshot::empty("project".into())).unwrap();
@@ -497,48 +475,6 @@ fn directory_aliases_share_writer_identity_and_allow_readonly_open() {
 }
 
 #[test]
-fn migrates_documented_schema_zero_and_one_atomically() {
-    for version in [0, 1] {
-        let directory = Directory::new();
-        let path = directory.0.join(DATABASE);
-        let connection = Connection::open(&path).unwrap();
-        legacy(&connection, version);
-        drop(connection);
-        for (project, goal, form, revision) in [
-            (
-                "project",
-                "legacy goal",
-                2,
-                if version == 0 { 0 } else { 37 },
-            ),
-            ("other", "other goal", 8, if version == 0 { 0 } else { 91 }),
-        ] {
-            let store = worker(&directory, project);
-            let actual = loaded(&store);
-            assert_eq!(actual.tasks.len(), 1);
-            let task = &actual.tasks[0];
-            assert_eq!(actual.active_id, Some(task.id));
-            assert!(task.id > 0);
-            assert_eq!(task.goal, goal);
-            assert_eq!(task.form, form);
-            assert_eq!(task.revision, revision);
-            assert_eq!(task.updated_at, 0);
-            assert!(
-                task.partner_drafts
-                    .values()
-                    .all(|state| state.drafts.is_empty())
-                    && task.criteria.is_empty()
-                    && !task.complete
-            );
-        }
-        let connection = open_readonly(&path).unwrap();
-        assert!(matches!(inspect(&connection).unwrap(), Schema::Current));
-        assert!(connection.prepare("SELECT * FROM goals").is_err());
-        assert!(connection.prepare("SELECT * FROM projects").is_err());
-    }
-}
-
-#[test]
 fn newer_foreign_and_corrupt_databases_are_untouched() {
     for fixture in [0, 1, 2] {
         let directory = Directory::new();
@@ -561,6 +497,42 @@ fn newer_foreign_and_corrupt_databases_are_untouched() {
         ));
         drop(worker);
         assert_eq!(fs::read(path).unwrap(), before);
+    }
+}
+
+/// Pre-release stores are not migrated: a real older store (here a current
+/// store relabelled 19, and a legacy goals table) refuses before any write,
+/// keeps its bytes and names the export escape hatch; export still reads it.
+#[test]
+fn pre_release_schemas_refuse_unchanged_and_remain_exportable() {
+    for legacy_goals in [false, true] {
+        let directory = Directory::new();
+        let path = directory.0.join(DATABASE);
+        if legacy_goals {
+            legacy(&Connection::open(&path).unwrap(), 1);
+        } else {
+            let mut store = state(&directory, "project", Policy::default());
+            store.save(snapshot("project", 0)).unwrap();
+            drop(store);
+            Connection::open(&path)
+                .unwrap()
+                .execute_batch("PRAGMA user_version=19;")
+                .unwrap();
+        }
+        let before = fs::read(&path).unwrap();
+        let worker = worker(&directory, "project");
+        assert!(matches!(
+            event(&worker),
+            Event::Failed { revision: None, message }
+                if message.contains("Pre-release database schema version")
+                    && message.contains("--export-data")
+        ));
+        drop(worker);
+        assert_eq!(fs::read(&path).unwrap(), before);
+        let output = directory.0.join("export.json");
+        export_readable(&directory.0, &output).unwrap();
+        assert!(fs::read_to_string(&output).unwrap().contains("goal"));
+        assert_eq!(fs::read(&path).unwrap(), before);
     }
 }
 
@@ -898,87 +870,8 @@ fn sqlite_full_rolls_back_save_without_success() {
 }
 
 #[test]
-fn sqlite_full_during_migration_preserves_committed_legacy_schema() {
-    for version in [0, 1] {
-        let directory = Directory::new();
-        let path = directory.0.join(DATABASE);
-        let mut connection = Connection::open(&path).unwrap();
-        legacy(&connection, version);
-        let page_count: i64 = connection
-            .pragma_query_value(None, "page_count", |row| row.get(0))
-            .unwrap();
-        connection
-            .pragma_update(None, "max_page_count", page_count)
-            .unwrap();
-        let error = initialize(&mut connection).unwrap_err();
-        assert!(error.contains("database or disk is full"), "{error}");
-        assert_eq!(
-            connection
-                .pragma_query_value(None, "user_version", |row| row.get::<_, u8>(0))
-                .unwrap(),
-            version
-        );
-        let table = if version == 0 { "goals" } else { "projects" };
-        assert_eq!(
-            connection
-                .query_row(
-                    &format!("SELECT goal FROM {table} WHERE project='project'"),
-                    [],
-                    |row| row.get::<_, String>(0)
-                )
-                .unwrap(),
-            "legacy goal"
-        );
-        assert!(connection.prepare("SELECT * FROM tasks").is_err());
-        assert!(connection.prepare("SELECT * FROM selections").is_err());
-        drop(connection);
-        let reopened = worker(&directory, "project");
-        assert_eq!(loaded(&reopened).tasks[0].goal, "legacy goal");
-    }
-}
-
-#[test]
-fn interrupted_migration_transaction_rolls_back_all_schema_changes() {
-    for version in [0, 1] {
-        let directory = Directory::new();
-        let path = directory.0.join(DATABASE);
-        let mut connection = Connection::open(&path).unwrap();
-        legacy(&connection, version);
-        {
-            let transaction = connection
-                .transaction_with_behavior(TransactionBehavior::Immediate)
-                .unwrap();
-            migrate(&transaction, inspect(&transaction).unwrap()).unwrap();
-            // Drop the actual migration transaction before commit.
-        }
-        assert_eq!(
-            connection
-                .pragma_query_value(None, "user_version", |row| row.get::<_, u8>(0))
-                .unwrap(),
-            version
-        );
-        let table = if version == 0 { "goals" } else { "projects" };
-        assert_eq!(
-            connection
-                .query_row(
-                    &format!("SELECT goal FROM {table} WHERE project='project'"),
-                    [],
-                    |row| row.get::<_, String>(0)
-                )
-                .unwrap(),
-            "legacy goal"
-        );
-        assert!(connection.prepare("SELECT * FROM tasks").is_err());
-        assert!(connection.prepare("SELECT * FROM selections").is_err());
-        drop(connection);
-        let reopened = worker(&directory, "project");
-        assert_eq!(loaded(&reopened).tasks[0].goal, "legacy goal");
-    }
-}
-
-#[test]
 #[ignore = "subprocess-only fixture; invoked by hot-journal recovery tests"]
-fn interrupted_migration_process_fixture() {
+fn interrupted_write_process_fixture() {
     let path = std::env::var_os("EV_STORE_CRASH_FIXTURE").expect("fixture database path");
     let kind = std::env::var("EV_STORE_CRASH_KIND").unwrap();
     let mut connection = Connection::open(PathBuf::from(path)).unwrap();
@@ -993,54 +886,73 @@ fn interrupted_migration_process_fixture() {
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .unwrap();
-    match kind.as_str() {
-        "current" => {
-            transaction
-                .execute(
-                    "UPDATE tasks SET goal=printf('%04000d',id),revision=revision+1",
-                    [],
-                )
-                .unwrap();
-            transaction
-                .execute("UPDATE selections SET active_id=999999", [])
-                .unwrap();
-        }
-        "one" => migrate(&transaction, Schema::Projects).unwrap(),
-        _ => migrate(&transaction, Schema::Legacy).unwrap(),
+    if kind == "current" {
+        transaction
+            .execute(
+                "UPDATE tasks SET goal=printf('%04000d',id),revision=revision+1",
+                [],
+            )
+            .unwrap();
+        transaction
+            .execute("UPDATE selections SET active_id=999999", [])
+            .unwrap();
+    } else {
+        transaction
+            .execute("UPDATE goals SET goal=printf('%04000d',rowid)", [])
+            .unwrap();
     }
     // Terminate the actual process without running SQLite or transaction
     // destructors. The spilled transaction leaves a hot rollback journal.
     std::process::exit(73);
 }
 
-fn crash_during_migration(directory: &Directory, kind: &str) {
+fn crash_during_write(directory: &Directory, kind: &str) {
     let path = directory.0.join(DATABASE);
-    let mut connection = Connection::open(&path).unwrap();
-    connection
-        .execute_batch(
-            "CREATE TABLE goals(project TEXT PRIMARY KEY,goal TEXT NOT NULL,form INTEGER NOT NULL);
-             INSERT INTO goals VALUES ('project','committed before process interruption',8);
-             WITH RECURSIVE numbers(n) AS (VALUES(1) UNION ALL SELECT n+1 FROM numbers WHERE n<100)
-             INSERT INTO goals SELECT 'project-' || n, printf('%02000d',n), 0 FROM numbers;",
-        )
-        .unwrap();
-    match kind {
-            "newer" => connection.execute_batch("PRAGMA user_version=16;").unwrap(),
+    if kind == "current" {
+        let mut store = state(directory, "project", Policy::default());
+        let mut task = snapshot("project", 0);
+        task.goal = "committed before process interruption".into();
+        task.form = 8;
+        store.save(task).unwrap();
+        drop(store);
+        // Enough rows that the interrupted update spills to a hot journal.
+        Connection::open(&path)
+            .unwrap()
+            .execute_batch(&format!(
+            "WITH RECURSIVE numbers(n) AS (VALUES(1) UNION ALL SELECT n+1 FROM numbers WHERE n<100)
+             INSERT INTO tasks({TASK_COLUMNS}) SELECT {} FROM tasks, numbers;",
+            TASK_COLUMNS
+                .split(',')
+                .map(str::trim)
+                .map(|column| match column {
+                    "id" => "NULL",
+                    "project" => "'project-' || n",
+                    "goal" => "printf('%02000d',n)",
+                    column => column,
+                })
+                .collect::<Vec<_>>()
+                .join(",")
+        ))
+            .unwrap();
+    } else {
+        let connection = Connection::open(&path).unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE goals(project TEXT PRIMARY KEY,goal TEXT NOT NULL,form INTEGER NOT NULL);
+                 WITH RECURSIVE numbers(n) AS (VALUES(1) UNION ALL SELECT n+1 FROM numbers WHERE n<100)
+                 INSERT INTO goals SELECT 'project-' || n, printf('%02000d',n), 0 FROM numbers;",
+            )
+            .unwrap();
+        match kind {
+            "older" => connection.execute_batch("PRAGMA user_version=16;").unwrap(),
             "foreign" => connection.execute_batch("CREATE TABLE unrelated(value TEXT); INSERT INTO unrelated VALUES ('preserve');").unwrap(),
-            "one" => connection.execute_batch(
-                "CREATE TABLE projects(project TEXT PRIMARY KEY,goal TEXT NOT NULL,form INTEGER NOT NULL,revision INTEGER NOT NULL);
-                 INSERT INTO projects SELECT project,goal,form,17 FROM goals;
-                 DROP TABLE goals; PRAGMA user_version=1;",
-            ).unwrap(),
-            "current" => initialize(&mut connection).unwrap(),
-            "known" => {}
             _ => panic!("unknown fixture"),
         }
-    drop(connection);
+    }
     let status = std::process::Command::new(std::env::current_exe().unwrap())
         .args([
             "--exact",
-            "store::tests::interrupted_migration_process_fixture",
+            "store::tests::interrupted_write_process_fixture",
             "--ignored",
             "--nocapture",
         ])
@@ -1064,34 +976,31 @@ fn crash_during_migration(directory: &Directory, kind: &str) {
 }
 
 #[test]
-fn process_interruption_recovers_legacy_and_current_committed_tasks() {
-    for kind in ["known", "one", "current"] {
-        let directory = Directory::new();
-        crash_during_migration(&directory, kind);
-        let store = worker(&directory, "project");
-        let project = loaded(&store);
-        assert_eq!(project.tasks.len(), 1);
-        let task = &project.tasks[0];
-        assert_eq!(task.goal, "committed before process interruption");
-        assert_eq!(task.form, 8);
-        assert_eq!(task.revision, if kind == "one" { 17 } else { 0 });
-        assert_eq!(project.active_id, Some(task.id));
-        drop(store);
-        let connection = open_readonly(&directory.0.join(DATABASE)).unwrap();
-        assert_eq!(
-            connection
-                .query_row("SELECT count(*) FROM tasks", [], |row| row.get::<_, i64>(0))
-                .unwrap(),
-            101
-        );
-    }
+fn process_interruption_recovers_current_committed_tasks() {
+    let directory = Directory::new();
+    crash_during_write(&directory, "current");
+    let store = worker(&directory, "project");
+    let project = loaded(&store);
+    assert_eq!(project.tasks.len(), 1);
+    let task = &project.tasks[0];
+    assert_eq!(task.goal, "committed before process interruption");
+    assert_eq!(task.form, 8);
+    assert_eq!(project.active_id, Some(task.id));
+    drop(store);
+    let connection = open_readonly(&directory.0.join(DATABASE)).unwrap();
+    assert_eq!(
+        connection
+            .query_row("SELECT count(*) FROM tasks", [], |row| row.get::<_, i64>(0))
+            .unwrap(),
+        101
+    );
 }
 
 #[test]
-fn hot_journal_recovery_never_modifies_newer_or_foreign_originals() {
-    for kind in ["newer", "foreign"] {
+fn hot_journal_recovery_never_modifies_older_or_foreign_originals() {
+    for kind in ["older", "foreign"] {
         let directory = Directory::new();
-        crash_during_migration(&directory, kind);
+        crash_during_write(&directory, kind);
         let path = directory.0.join(DATABASE);
         let journal = directory.0.join("workbench.sqlite3-journal");
         let database_before = fs::read(&path).unwrap();
@@ -1767,125 +1676,6 @@ fn secrets_are_redacted_before_sqlite_and_export_and_history_is_sticky() {
 }
 
 #[test]
-fn migrations_redact_all_legacy_payloads_and_exports_without_rewriting_identities() {
-    for version in [0, 1, 2] {
-        let directory = Directory::new();
-        let path = directory.0.join(DATABASE);
-        let connection = Connection::open(&path).unwrap();
-        if version < 2 {
-            legacy(&connection, version);
-            let table = if version == 0 { "goals" } else { "projects" };
-            connection
-                .execute(
-                    &format!("UPDATE {table} SET goal='password=legacy-secret'"),
-                    [],
-                )
-                .unwrap();
-        } else {
-            connection.execute_batch(
-                    "CREATE TABLE tasks(id INTEGER PRIMARY KEY,project TEXT NOT NULL,goal TEXT NOT NULL,form INTEGER NOT NULL,revision INTEGER NOT NULL,criteria TEXT NOT NULL,next_action TEXT NOT NULL,complete INTEGER NOT NULL,drafts TEXT NOT NULL,navigation TEXT NOT NULL,updated_at INTEGER NOT NULL);
-                     CREATE TABLE selections(project TEXT PRIMARY KEY,active_id INTEGER NOT NULL);
-                     PRAGMA user_version=2;"
-                ).unwrap();
-            connection.execute("INSERT INTO tasks VALUES (7,'project','password=legacy-secret',0,1,?1,'Bearer legacy-bearer',0,?2,?3,0)",
-                    params![r#"[{"text":"token=legacy-token","met":false}]"#, r#"[{"field":"Goal","text":"ghp_legacysecret","cursor":15}]"#, serde_json::to_string(&Navigation::default()).unwrap()]).unwrap();
-            connection
-                .execute("INSERT INTO selections VALUES ('project',7)", [])
-                .unwrap();
-        }
-        drop(connection);
-        let before = fs::read(&path).unwrap();
-        let output = directory.0.join("legacy-export.json");
-        export_readable(&directory.0, &output).unwrap();
-        assert_eq!(fs::read(&path).unwrap(), before);
-        assert!(
-            !fs::read_to_string(output)
-                .unwrap()
-                .contains("legacy-secret")
-        );
-        {
-            let mut connection = Connection::open(&path).unwrap();
-            {
-                let transaction = connection
-                    .transaction_with_behavior(TransactionBehavior::Immediate)
-                    .unwrap();
-                migrate(&transaction, inspect(&transaction).unwrap()).unwrap();
-                // Dropping the transaction models interruption before commit.
-            }
-            assert_eq!(
-                connection
-                    .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
-                    .unwrap(),
-                i64::from(version)
-            );
-            let pages: i64 = connection
-                .pragma_query_value(None, "page_count", |row| row.get(0))
-                .unwrap();
-            connection
-                .pragma_update(None, "max_page_count", pages)
-                .unwrap();
-            assert!(initialize(&mut connection).is_err());
-            assert_eq!(
-                connection
-                    .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
-                    .unwrap(),
-                i64::from(version)
-            );
-        }
-        let store = state(&directory, "project", Policy::default());
-        let connection = store.connection.as_ref().unwrap();
-        let raw: String = connection
-            .query_row(
-                "SELECT goal||criteria||next_action||drafts FROM tasks WHERE project='project'",
-                [],
-                |row| row.get(0),
-            )
-            .unwrap();
-        for secret in [
-            "legacy-secret",
-            "legacy-bearer",
-            "legacy-token",
-            "legacysecret",
-        ] {
-            assert!(!raw.contains(secret));
-        }
-        assert!(load(connection, "project").unwrap().tasks[0].redacted);
-    }
-    let directory = Directory::new();
-    let secret = "/project/ghp_secret123456";
-    let worker = worker(&directory, secret);
-    assert!(
-        matches!(event(&worker), Event::Failed { message, .. } if !message.contains(secret) && message.contains("identity"))
-    );
-    assert!(!directory.0.join(DATABASE).exists());
-}
-
-#[test]
-fn secret_bearing_legacy_identity_is_refused_without_rewriting_or_merging() {
-    let directory = Directory::new();
-    let path = directory.0.join(DATABASE);
-    let connection = Connection::open(&path).unwrap();
-    legacy(&connection, 1);
-    connection
-        .execute(
-            "UPDATE projects SET project='/projects/ghp_identitysecret' WHERE project='project'",
-            [],
-        )
-        .unwrap();
-    drop(connection);
-    let before = fs::read(&path).unwrap();
-    let store = worker(&directory, "ordinary-project");
-    assert!(
-        matches!(event(&store), Event::Failed { message, .. } if message.contains("identity") && !message.contains("ghp_identitysecret"))
-    );
-    drop(store);
-    assert_eq!(fs::read(&path).unwrap(), before);
-    let output = directory.0.join("refused.json");
-    assert!(export_readable(&directory.0, &output).is_err());
-    assert!(!output.exists());
-}
-
-#[test]
 fn management_events_follow_commit_and_failures_preserve_records() {
     let directory = Directory::new();
     let store = worker(&directory, "project");
@@ -2533,77 +2323,6 @@ fn replaced_output_links_are_unavailable_and_purge_never_deletes_external_files(
 }
 
 #[test]
-fn schema_three_migration_is_transactional_and_preserves_archives_and_four_command_drafts() {
-    let directory = Directory::new();
-    let mut store = state(&directory, "project", Policy::default());
-    let first = store.save(snapshot("project", 1)).unwrap();
-    let second = store.save(snapshot("project", 1)).unwrap();
-    store
-        .manage(Management::Archive {
-            id: first.id,
-            archived: true,
-        })
-        .unwrap();
-    drop(store);
-    let path = directory.0.join(DATABASE);
-    let mut connection = Connection::open(&path).unwrap();
-    downgrade_workflows(&connection);
-    connection.execute_batch("DROP TABLE provider_journal; DROP TABLE excerpts; DROP TABLE executions; ALTER TABLE tasks DROP COLUMN command; PRAGMA user_version=3;").unwrap();
-    {
-        let transaction = connection.transaction().unwrap();
-        migrate(&transaction, inspect(&transaction).unwrap()).unwrap();
-        // No commit: the complete schema-three task/selection remains usable.
-    }
-    assert_eq!(
-        connection
-            .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
-            .unwrap(),
-        3
-    );
-    assert!(matches!(inspect(&connection).unwrap(), Schema::Lifecycle));
-    drop(connection);
-    let mut store = state(&directory, "project", Policy::default());
-    let project = load(store.connection.as_ref().unwrap(), "project").unwrap();
-    assert!(project.tasks[0].archived && project.tasks[0].command.is_empty());
-    assert_eq!(project.active_id, Some(second.id));
-    let mut task = project.tasks[1].clone();
-    task.revision += 1;
-    task.command = "echo password=command-value".into();
-    task.partner_drafts = partner_drafts(
-        [
-            EditorField::Goal,
-            EditorField::Criteria,
-            EditorField::NextAction,
-            EditorField::Command,
-        ]
-        .into_iter()
-        .map(|field| Draft {
-            field,
-            text: "token=draft-value".into(),
-            cursor: 17,
-        })
-        .collect(),
-    );
-    task.partner_drafts.get_mut(&1).unwrap().editor_field = EditorField::Command;
-    task.navigation.editor_field = EditorField::Command;
-    let saved = store.save(task).unwrap();
-    assert_eq!(saved.command, "echo password=[REDACTED]");
-    assert_eq!(saved.partner_drafts[&1].drafts.len(), 4);
-    assert!(
-        saved.partner_drafts[&1]
-            .drafts
-            .iter()
-            .all(|draft| !draft.text.contains("draft-value"))
-    );
-    drop(store);
-    let store = state(&directory, "project", Policy::default());
-    assert_eq!(
-        load_task(store.connection.as_ref().unwrap(), "project", second.id).unwrap(),
-        Some(saved)
-    );
-}
-
-#[test]
 fn excerpt_capacity_and_lowered_quota_never_evict_and_still_allow_explicit_reclamation() {
     let directory = Directory::new();
     let mut store = state(&directory, "project", Policy::default());
@@ -2945,52 +2664,6 @@ fn stale_run_observation_cannot_erase_committed_capture_evidence() {
     drop(permit);
 }
 
-#[test]
-fn lifecycle_migration_never_reuses_deleted_task_identities() {
-    for keep_survivor in [false, true] {
-        let directory = Directory::new();
-        let mut store = state(&directory, "project", Policy::default());
-        let first = store.save(snapshot("project", 1)).unwrap();
-        let deleted = store.save(snapshot("project", 1)).unwrap();
-        let ids = if keep_survivor {
-            vec![deleted.id]
-        } else {
-            vec![first.id, deleted.id]
-        };
-        store
-            .manage(Management::Delete {
-                ids,
-                expired_before: None,
-            })
-            .unwrap();
-        drop(store);
-        let mut connection = Connection::open(directory.0.join(DATABASE)).unwrap();
-        downgrade_workflows(&connection);
-        connection
-            .execute_batch(
-                "DROP TABLE provider_journal; DROP TABLE excerpts; DROP TABLE executions;
-                 ALTER TABLE tasks DROP COLUMN command; PRAGMA user_version=3;",
-            )
-            .unwrap();
-        {
-            let transaction = connection.transaction().unwrap();
-            migrate(&transaction, inspect(&transaction).unwrap()).unwrap();
-            // Aborting the migration must preserve both schema and the high-water mark.
-        }
-        assert!(matches!(inspect(&connection).unwrap(), Schema::Lifecycle));
-        let sequence: i64 = connection
-            .query_row(
-                "SELECT seq FROM sqlite_sequence WHERE name='tasks'",
-                [],
-                |row| row.get(0),
-            )
-            .unwrap();
-        assert_eq!(sequence, deleted.id);
-        drop(connection);
-        let mut reopened = state(&directory, "project", Policy::default());
-        assert!(reopened.save(snapshot("project", 1)).unwrap().id > deleted.id);
-    }
-}
 fn memory_proposal(
     task_id: i64,
     scope: crate::workspace::memory::Scope,
@@ -3004,319 +2677,6 @@ fn memory_proposal(
             task_id,
         },
     }
-}
-
-#[test]
-fn schema_six_migration_is_atomic_and_defaults_preserve_old_snapshots() {
-    let directory = Directory::new();
-    let mut store = state(&directory, "project", Policy::default());
-    let task = store.save(snapshot("project", 1)).unwrap();
-    drop(store);
-    let mut connection = Connection::open(directory.0.join(DATABASE)).unwrap();
-    downgrade_workflows(&connection);
-    {
-        let transaction = connection.transaction().unwrap();
-        migrate(&transaction, inspect(&transaction).unwrap()).unwrap();
-        assert!(matches!(inspect(&transaction).unwrap(), Schema::Current));
-    }
-    assert!(matches!(
-        inspect(&connection).unwrap(),
-        Schema::ProviderJournal
-    ));
-    initialize(&mut connection).unwrap();
-    assert_eq!(
-        load_task(&connection, "project", task.id).unwrap().unwrap(),
-        task
-    );
-    assert!(
-        memories(&connection, "project", task.id)
-            .unwrap()
-            .is_empty()
-    );
-    assert!(matches!(inspect(&connection).unwrap(), Schema::Current));
-}
-
-fn downgrade_moves(connection: &Connection) {
-    super::records::remove_schema(connection);
-    connection
-        .execute_batch(
-            "DROP TABLE moves; DROP TABLE move_candidates; DROP TABLE move_sources;
-         DROP TABLE move_usages; DROP TABLE move_dispatches; PRAGMA user_version=13;",
-        )
-        .unwrap();
-}
-
-fn downgrade_partners(connection: &Connection) {
-    downgrade_moves(connection);
-    connection
-        .execute_batch(
-            "DROP TABLE provider_preferences;
-             DROP TABLE active_work;
-             DROP TABLE partners;
-             ALTER TABLE tasks DROP COLUMN lead_partner;
-             ALTER TABLE tasks DROP COLUMN partner_drafts;
-             PRAGMA user_version=6;",
-        )
-        .unwrap();
-}
-
-#[test]
-fn schema_seven_capacity_migration_preserves_escaped_drafts_evidence_and_deleted_ids() {
-    for version in [6, 7] {
-        let directory = Directory::new();
-        let mut store = state(&directory, "project", Policy::default());
-        let task = store.save(snapshot("project", 1)).unwrap();
-        drop(store);
-        let mut connection = Connection::open(directory.0.join(DATABASE)).unwrap();
-        downgrade_partners(&connection);
-        if version == 7 {
-            migrate_partners(&connection).unwrap();
-        }
-        let text = "\0".repeat(4096);
-        let drafts: Vec<_> = [
-            EditorField::Goal,
-            EditorField::Criteria,
-            EditorField::NextAction,
-            EditorField::Command,
-        ]
-        .into_iter()
-        .map(|field| Draft {
-            field,
-            text: text.clone(),
-            cursor: text.len(),
-        })
-        .collect();
-        let legacy = serde_json::to_string(&drafts).unwrap();
-        assert!(legacy.len() > 65536);
-        connection
-            .execute("UPDATE tasks SET drafts=?1", [&legacy])
-            .unwrap();
-        let mut excerpt = captured_excerpt(
-            task.id,
-            &directory.0.join("source.txt"),
-            "preserved evidence",
-        );
-        excerpt.id = 1;
-        let evidence = serde_json::to_string(&excerpt).unwrap();
-        connection
-            .execute(
-                "INSERT INTO excerpts(id,task_id,record) VALUES (1,?1,?2)",
-                params![task.id, evidence],
-            )
-            .unwrap();
-        connection
-            .execute_batch(
-                "UPDATE sqlite_sequence SET seq=900 WHERE name='tasks';
-             UPDATE sqlite_sequence SET seq=700 WHERE name='excerpts';",
-            )
-            .unwrap();
-        let schema = inspect(&connection).unwrap();
-        assert!(matches!(
-            (version, schema),
-            (6, Schema::Workflows) | (7, Schema::Partners)
-        ));
-        {
-            let transaction = connection.transaction().unwrap();
-            migrate(&transaction, schema).unwrap();
-            assert!(matches!(inspect(&transaction).unwrap(), Schema::Current));
-            // Dropping the transaction must restore the original schema and rows.
-        }
-        assert_eq!(
-            connection
-                .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
-                .unwrap(),
-            version
-        );
-        assert_eq!(
-            connection
-                .query_row("SELECT drafts FROM tasks", [], |row| row
-                    .get::<_, String>(0))
-                .unwrap(),
-            legacy
-        );
-        initialize(&mut connection).unwrap();
-        assert!(matches!(inspect(&connection).unwrap(), Schema::Current));
-        connection
-            .execute_batch(
-                "INSERT INTO partners(id,nickname,form,met_at,met_derived,created_project)
-             SELECT 2,NULL,0,0,1,'project' UNION ALL SELECT 3,NULL,0,0,1,'project'
-             UNION ALL SELECT 4,NULL,0,0,1,'project' UNION ALL SELECT 5,NULL,0,0,1,'project'
-             UNION ALL SELECT 6,NULL,0,0,1,'project';",
-            )
-            .unwrap();
-        let loaded = load(&connection, "project").unwrap();
-        assert_eq!(loaded.tasks[0].partner_drafts[&1].drafts, drafts);
-        assert_eq!(
-            connection
-                .query_row("SELECT record FROM excerpts", [], |row| row
-                    .get::<_, String>(0))
-                .unwrap(),
-            evidence
-        );
-        assert_eq!(
-            connection
-                .query_row(
-                    "SELECT seq FROM sqlite_sequence WHERE name='tasks'",
-                    [],
-                    |row| row.get::<_, i64>(0)
-                )
-                .unwrap(),
-            900
-        );
-        assert_eq!(
-            connection
-                .query_row(
-                    "SELECT seq FROM sqlite_sequence WHERE name='excerpts'",
-                    [],
-                    |row| row.get::<_, i64>(0)
-                )
-                .unwrap(),
-            700
-        );
-        let states: BTreeMap<_, _> = (1..=6)
-            .map(|id| {
-                (
-                    id,
-                    PartnerDrafts {
-                        drafts: drafts.clone(),
-                        ..PartnerDrafts::default()
-                    },
-                )
-            })
-            .collect();
-        let encoded = serde_json::to_string(&states).unwrap();
-        assert!(encoded.len() > 512 * 1024);
-        assert!(encoded.len() < MAX_PARTNER_DRAFTS_BYTES);
-        connection
-            .execute("UPDATE tasks SET drafts='[]',partner_drafts=?1", [&encoded])
-            .unwrap();
-        assert_eq!(
-            load(&connection, "project").unwrap().tasks[0].partner_drafts,
-            states
-        );
-        let oversized = "x".repeat(MAX_PARTNER_DRAFTS_BYTES + 1);
-        assert!(
-            connection
-                .execute("UPDATE tasks SET partner_drafts=?1", [&oversized])
-                .is_err()
-        );
-        connection.execute(&format!(
-            "INSERT INTO tasks({TASK_COLUMNS}) SELECT project,goal,form,revision,NULL,criteria,next_action,complete,drafts,navigation,updated_at,archived,archived_at,redacted,command,workflows,memory_draft,approved_memories,workflow_draft,lead_partner,partner_drafts FROM tasks"
-        ), []).unwrap();
-        assert_eq!(connection.last_insert_rowid(), 901);
-    }
-}
-
-#[test]
-fn schema_six_store_migrates_partner_one_and_resumes_tasks_unchanged() {
-    let directory = Directory::new();
-    let mut store = state(&directory, "project", Policy::default());
-    let first = store
-        .save(Snapshot {
-            form: 2,
-            ..snapshot("project", 1)
-        })
-        .unwrap();
-    let second = store.save(snapshot("project", 1)).unwrap();
-    drop(store);
-    let path = directory.0.join(DATABASE);
-    let mut connection = Connection::open(&path).unwrap();
-    downgrade_partners(&connection);
-    // Deterministic history: a foreign project's earliest task wins partner #1.
-    connection
-        .execute_batch(&format!(
-            "INSERT INTO tasks(project,goal,form,revision,criteria,next_action,complete,drafts,
-                 navigation,updated_at,archived,archived_at,redacted,command,workflows,
-                 memory_draft,approved_memories,workflow_draft)
-             SELECT 'other',goal,5,revision,criteria,next_action,complete,drafts,navigation,
-                 200000,archived,archived_at,redacted,command,workflows,memory_draft,
-                 approved_memories,workflow_draft FROM tasks WHERE id={};
-             UPDATE tasks SET updated_at=300000 WHERE id={};
-             UPDATE tasks SET updated_at=400000 WHERE id={};",
-            first.id, first.id, second.id
-        ))
-        .unwrap();
-    assert!(matches!(inspect(&connection).unwrap(), Schema::Workflows));
-    {
-        let transaction = connection.transaction().unwrap();
-        migrate(&transaction, inspect(&transaction).unwrap()).unwrap();
-        transaction.commit().unwrap();
-    }
-    assert!(matches!(inspect(&connection).unwrap(), Schema::Current));
-    // Partner #1: the oldest task's project and form, earliest met date,
-    // derived flag set, no nickname, and every task leads partner #1.
-    let partner: (i64, Option<String>, i64, i64, i64, String) = connection
-        .query_row(
-            "SELECT id,nickname,form,met_at,met_derived,created_project FROM partners",
-            [],
-            |row| {
-                Ok((
-                    row.get(0)?,
-                    row.get(1)?,
-                    row.get(2)?,
-                    row.get(3)?,
-                    row.get(4)?,
-                    row.get(5)?,
-                ))
-            },
-        )
-        .unwrap();
-    assert_eq!(partner, (1, None, 5, 200000, 1, "other".to_string()));
-    assert_eq!(
-        connection
-            .query_row("SELECT count(*) FROM partners WHERE id != 1", [], |row| row
-                .get::<_, i64>(0))
-            .unwrap(),
-        0
-    );
-    assert_eq!(
-        connection
-            .query_row(
-                "SELECT count(*) FROM tasks WHERE lead_partner != 1 OR partner_drafts != '{}'",
-                [],
-                |row| row.get::<_, i64>(0)
-            )
-            .unwrap(),
-        0
-    );
-    drop(connection);
-    // Every task resumes unchanged: snapshots equal the pre-migration rows.
-    let reopened = worker(&directory, "project");
-    let project = loaded(&reopened);
-    assert_eq!(
-        project.partners,
-        vec![Partner {
-            id: 1,
-            nickname: None,
-            form: 5,
-            auto_form: false,
-            met_at: 200000,
-            met_derived: true,
-            created_project: "other".into(),
-        }]
-    );
-    assert_eq!(
-        project.tasks,
-        vec![
-            Snapshot {
-                lead_partner: 1,
-                updated_at: 300000,
-                ..first
-            },
-            Snapshot {
-                lead_partner: 1,
-                updated_at: 400000,
-                ..second
-            },
-        ]
-    );
-    drop(reopened);
-    let other = worker(&directory, "other");
-    let other_project = loaded(&other);
-    assert_eq!(other_project.tasks.len(), 1);
-    assert_eq!(other_project.tasks[0].form, 5);
-    assert_eq!(other_project.tasks[0].lead_partner, 1);
-    drop(other);
 }
 
 #[test]
@@ -3944,32 +3304,6 @@ fn nickname_store_enforces_unicode_write_boundaries_without_losing_the_original(
 }
 
 #[test]
-fn schema_eight_migrates_request_drafts_without_changing_task_facts() {
-    let mut connection = Connection::open_in_memory().unwrap();
-    initialize(&mut connection).unwrap();
-    downgrade_moves(&connection);
-    connection
-        .execute_batch(
-            "DROP TABLE active_work; DROP TABLE provider_preferences; PRAGMA user_version=8;",
-        )
-        .unwrap();
-    initialize(&mut connection).unwrap();
-    let mut task = Snapshot::empty("/workspace".into());
-    task.goal = "Stable task identity".into();
-    task.next_action = "Existing task fact".into();
-    task.partner_drafts = partner_drafts(vec![Draft {
-        field: EditorField::Request,
-        text: "Follow-up question".into(),
-        cursor: 18,
-    }]);
-    validate(&task).unwrap();
-    let restored: Snapshot = serde_json::from_str(&serde_json::to_string(&task).unwrap()).unwrap();
-    assert_eq!(restored.request_text(), "Follow-up question");
-    assert_eq!(restored.goal, "Stable task identity");
-    assert_eq!(restored.next_action, "Existing task fact");
-}
-
-#[test]
 fn provider_preferences_survive_restart_and_preserve_exact_route_ids_and_task_data() {
     use crate::providers::{Agent, ModelSelection};
     for density in [TextDensity::Compact, TextDensity::Comfortable] {
@@ -4081,55 +3415,6 @@ fn failed_preference_save_preserves_committed_preference_and_task_draft() {
     );
 }
 
-#[test]
-fn schema_nine_preference_migration_is_atomic_and_preserves_existing_data() {
-    let directory = Directory::new();
-    let mut store = state(&directory, "project", Policy::default());
-    let task = store.save(snapshot("project", 1)).unwrap();
-    drop(store);
-    let mut connection = Connection::open(directory.0.join(DATABASE)).unwrap();
-    downgrade_moves(&connection);
-    connection
-        .execute_batch(
-            "DROP TABLE active_work; DROP TABLE provider_preferences; PRAGMA user_version=9;",
-        )
-        .unwrap();
-    {
-        let transaction = connection.transaction().unwrap();
-        migrate(&transaction, inspect(&transaction).unwrap()).unwrap();
-        assert_eq!(
-            load_task(&transaction, "project", task.id).unwrap(),
-            Some(task.clone())
-        );
-        assert!(
-            super::preferences::load_preferences(&transaction)
-                .unwrap()
-                .is_none()
-        );
-    }
-    assert_eq!(
-        connection
-            .pragma_query_value::<i64, _>(None, "user_version", |row| row.get(0))
-            .unwrap(),
-        9
-    );
-    assert!(
-        connection
-            .prepare("SELECT * FROM provider_preferences")
-            .is_err()
-    );
-    initialize(&mut connection).unwrap();
-    assert_eq!(
-        load_task(&connection, "project", task.id).unwrap(),
-        Some(task)
-    );
-    assert!(
-        super::preferences::load_preferences(&connection)
-            .unwrap()
-            .is_none()
-    );
-}
-
 fn stored_table_rows(connection: &Connection, table: &str) -> Vec<Vec<rusqlite::types::Value>> {
     let mut statement = connection
         .prepare(&format!("SELECT * FROM {table} ORDER BY rowid"))
@@ -4144,146 +3429,6 @@ fn stored_table_rows(connection: &Connection, table: &str) -> Vec<Vec<rusqlite::
         .unwrap()
         .collect::<rusqlite::Result<Vec<_>>>()
         .unwrap()
-}
-
-#[test]
-fn schema_ten_dismissal_migration_preserves_rows_and_rolls_back_atomically() {
-    let directory = Directory::new();
-    let mut store = state(&directory, "project", Policy::default());
-    let mut original = snapshot("project", 1);
-    original.auto_form = false;
-    let task = store.save(original).unwrap();
-    store.select(task.id).unwrap();
-    let sources = Directory::new();
-    store
-        .context(ContextRequest {
-            producer: None,
-            task_id: task.id,
-            operation: ContextOperation::Pin(captured_excerpt(
-                task.id,
-                &sources.0.join("source.txt"),
-                "unchanged source evidence",
-            )),
-        })
-        .unwrap();
-    let prepared = prepared_run(task.id, &store.data_dir, "schema-ten");
-    drop(store.reserve_run(task.id, prepared.clone(), 1024).unwrap());
-    let mut record = crate::workspace::runner::RunRecord::awaiting(&prepared);
-    record.state = crate::workspace::runner::RunState::Failed;
-    record.tree = crate::workspace::runner::TreeOutcome::NotStarted;
-    record.ended_at_ms = Some(timestamp().unwrap() as u64);
-    store.update_run(task.id, record).unwrap();
-    store
-        .journal_request(JournalRequest {
-            task_id: task.id,
-            operation: JournalOperation::Put(Box::new(ProviderRecord {
-                id: "schema-ten-provider-item".into(),
-                agent: crate::providers::Agent::Codex,
-                generation: 1,
-                thread_id: "thread".into(),
-                turn_id: "turn".into(),
-                item_id: "item".into(),
-                origin: "Codex provider-native".into(),
-                coverage: "Public observed result only; not a local check".into(),
-                text: "Unchanged provider evidence".into(),
-                complete: true,
-                partner: None,
-            })),
-        })
-        .unwrap();
-    let preferences = ProviderPreferences {
-        provider: crate::providers::Agent::Codex,
-        selections: [(
-            crate::providers::Agent::Codex,
-            crate::providers::ModelSelection {
-                model: Some("exact/schema-ten".into()),
-                effort: Some("high".into()),
-            },
-        )]
-        .into_iter()
-        .collect(),
-        reduced_motion: false,
-        text_density: TextDensity::Compact,
-    };
-    store
-        .preference_request(PreferenceRequest::Save(preferences.clone()))
-        .unwrap();
-    drop(store);
-
-    let mut connection = Connection::open(directory.0.join(DATABASE)).unwrap();
-    // Whitespace and the obsolete palette field must survive without JSON reserialization.
-    let navigation = r#"{ "focus":1, "linear":false, "form_selection":0,
-        "palette_selection":21, "criterion_selection":0, "scroll":[0,0,0,0,0],
-        "overlay":null, "editing":false, "editor_field":"Goal" }"#;
-    connection
-        .execute("UPDATE tasks SET navigation=?1", [navigation])
-        .unwrap();
-    downgrade_moves(&connection);
-    connection
-        .execute_batch("DROP TABLE active_work; PRAGMA user_version=10;")
-        .unwrap();
-    let tables = [
-        "tasks",
-        "excerpts",
-        "executions",
-        "provider_journal",
-        "provider_preferences",
-        "selections",
-        "partners",
-        "memories",
-        "sqlite_sequence",
-    ];
-    // SQLite values retain each original TEXT/BLOB byte, not a parsed JSON representation.
-    let before: Vec<_> = tables
-        .iter()
-        .map(|table| stored_table_rows(&connection, table))
-        .collect();
-    assert!(matches!(inspect(&connection).unwrap(), Schema::Current));
-    {
-        let transaction = connection.transaction().unwrap();
-        migrate(&transaction, inspect(&transaction).unwrap()).unwrap();
-        assert!(matches!(inspect(&transaction).unwrap(), Schema::Current));
-        for (table, rows) in tables.iter().zip(&before) {
-            let actual = stored_table_rows(&transaction, table);
-            assert_eq!(actual.len(), rows.len(), "{table}");
-            for (actual, expected) in actual.iter().zip(rows) {
-                assert_eq!(
-                    actual.get(..expected.len()),
-                    Some(expected.as_slice()),
-                    "{table}"
-                );
-            }
-        }
-        // Aborting this actual migration transaction also rolls back the version fence.
-    }
-    assert_eq!(
-        connection
-            .pragma_query_value::<i64, _>(None, "user_version", |row| row.get(0))
-            .unwrap(),
-        10
-    );
-    for (table, rows) in tables.iter().zip(&before) {
-        assert_eq!(stored_table_rows(&connection, table), *rows, "{table}");
-    }
-    initialize(&mut connection).unwrap();
-    for (table, rows) in tables.iter().zip(&before) {
-        let actual = stored_table_rows(&connection, table);
-        assert_eq!(actual.len(), rows.len(), "{table}");
-        for (actual, expected) in actual.iter().zip(rows) {
-            assert_eq!(
-                actual.get(..expected.len()),
-                Some(expected.as_slice()),
-                "{table}"
-            );
-        }
-    }
-    let restored = load_task(&connection, "project", task.id).unwrap().unwrap();
-    assert_eq!(restored, task);
-    assert_eq!(restored.navigation.dismissed_suggestion, None);
-    assert_eq!(
-        super::preferences::load_preferences(&connection).unwrap(),
-        Some(preferences)
-    );
 }
 
 #[test]
@@ -4825,243 +3970,6 @@ fn startup_recovers_claims_only_after_exclusive_writer_lock() {
     assert!(validate_work_input(&directory.0, &task, &[], &claim).is_err());
     let replacement = work_claim(&reopened, &task, 1, "new-writer", true);
     claim_work(&mut reopened, &task, &replacement).unwrap();
-}
-
-#[test]
-fn schema_twelve_work_migration_preserves_old_rows_and_transactional_fence() {
-    let directory = Directory::new();
-    let mut store = state(&directory, "project", Policy::default());
-    store.save(snapshot("project", 1)).unwrap();
-    drop(store);
-    let mut connection = Connection::open(directory.0.join(DATABASE)).unwrap();
-    downgrade_moves(&connection);
-    connection
-        .execute_batch("DROP TABLE active_work; PRAGMA user_version=12;")
-        .unwrap();
-    let tables = [
-        "tasks",
-        "executions",
-        "excerpts",
-        "provider_journal",
-        "partners",
-        "memories",
-        "selections",
-        "provider_preferences",
-        "sqlite_sequence",
-    ];
-    let before: Vec<_> = tables
-        .iter()
-        .map(|table| stored_table_rows(&connection, table))
-        .collect();
-    {
-        let transaction = connection.transaction().unwrap();
-        migrate(&transaction, inspect(&transaction).unwrap()).unwrap();
-        for (table, rows) in tables.iter().zip(&before) {
-            let actual = stored_table_rows(&transaction, table);
-            assert_eq!(actual.len(), rows.len(), "{table}");
-            for (actual, expected) in actual.iter().zip(rows) {
-                assert_eq!(
-                    actual.get(..expected.len()),
-                    Some(expected.as_slice()),
-                    "{table}"
-                );
-            }
-        }
-    }
-    assert_eq!(
-        connection
-            .pragma_query_value::<i64, _>(None, "user_version", |row| row.get(0))
-            .unwrap(),
-        12
-    );
-    initialize(&mut connection).unwrap();
-    inspect(&connection).unwrap();
-    for (table, rows) in tables.iter().zip(&before) {
-        let actual = stored_table_rows(&connection, table);
-        assert_eq!(actual.len(), rows.len(), "{table}");
-        for (actual, expected) in actual.iter().zip(rows) {
-            assert_eq!(
-                actual.get(..expected.len()),
-                Some(expected.as_slice()),
-                "{table}"
-            );
-        }
-    }
-}
-
-#[test]
-fn schema15_auto_form_migration_is_conservative_atomic_and_preserves_all_other_rows() {
-    fn retained_rows(connection: &Connection) -> Vec<(String, Vec<Vec<rusqlite::types::Value>>)> {
-        let mut tables = connection
-            .prepare("SELECT name FROM sqlite_schema WHERE type='table' AND name!='partners' ORDER BY name")
-            .unwrap();
-        let names = tables
-            .query_map([], |row| row.get::<_, String>(0))
-            .unwrap()
-            .collect::<rusqlite::Result<Vec<_>>>()
-            .unwrap();
-        names
-            .into_iter()
-            .map(|name| {
-                let mut statement = connection
-                    .prepare(&format!("SELECT * FROM \"{name}\" ORDER BY rowid"))
-                    .unwrap();
-                let count = statement.column_count();
-                let rows = statement
-                    .query_map([], |row| {
-                        (0..count)
-                            .map(|index| row.get(index))
-                            .collect::<rusqlite::Result<Vec<rusqlite::types::Value>>>()
-                    })
-                    .unwrap()
-                    .collect::<rusqlite::Result<Vec<_>>>()
-                    .unwrap();
-                (name, rows)
-            })
-            .collect()
-    }
-
-    fn assert_retained(
-        connection: &Connection,
-        before: &[(String, Vec<Vec<rusqlite::types::Value>>)],
-    ) {
-        let after = retained_rows(connection);
-        for retained in before {
-            assert_eq!(
-                after.iter().find(|(name, _)| name == &retained.0),
-                Some(retained),
-                "{}",
-                retained.0,
-            );
-        }
-    }
-
-    let directory = Directory::new();
-    let mut store = state(&directory, "project", Policy::default());
-    let second = store.add_partner().unwrap().last().unwrap().id;
-    let mut eevee = Snapshot::empty("project".into());
-    eevee.goal = "Preserve shared task facts".into();
-    eevee.partner_drafts = partner_drafts(vec![Draft {
-        field: EditorField::Request,
-        text: "Retain this exact outgoing draft".into(),
-        cursor: 7,
-    }]);
-    let eevee = store.save(eevee).unwrap();
-    let mut specialist = snapshot("project", 1);
-    specialist.lead_partner = second;
-    let specialist = store.save(specialist).unwrap();
-    let mut source = captured_excerpt(
-        eevee.id,
-        &directory.0.join("source.rs"),
-        "Retained source evidence",
-    );
-    source.id = 17;
-    let record = ProviderRecord {
-        id: "retained-provider-record".into(),
-        agent: crate::providers::Agent::Codex,
-        generation: 1,
-        thread_id: "retained-thread".into(),
-        turn_id: "retained-turn".into(),
-        item_id: "retained-item".into(),
-        origin: "Observed fixture output".into(),
-        coverage: "Retained observation only".into(),
-        text: "Retain journal bytes".into(),
-        complete: true,
-        partner: None,
-    };
-    store
-        .journal_request(JournalRequest {
-            task_id: eevee.id,
-            operation: JournalOperation::Put(Box::new(record)),
-        })
-        .unwrap();
-    let mut connection = store.connection.take().unwrap();
-    connection
-        .execute(
-            "INSERT INTO excerpts(id,task_id,record) VALUES (?1,?2,?3)",
-            params![
-                source.id,
-                source.task_id,
-                serde_json::to_string(&source).unwrap()
-            ],
-        )
-        .unwrap();
-    super::schema::remove_context_schema(&connection);
-    connection
-        .execute_batch(
-            "UPDATE sqlite_sequence SET seq=700 WHERE name='partners';
-             ALTER TABLE partners DROP COLUMN auto_form;
-             DROP TABLE held_items;
-             DROP TABLE ribbons;
-             PRAGMA user_version=15;",
-        )
-        .unwrap();
-    let before = retained_rows(&connection);
-    let partner_rows = |connection: &Connection| {
-        let mut statement = connection
-            .prepare("SELECT id,nickname,form,met_at,met_derived,created_project FROM partners ORDER BY id")
-            .unwrap();
-        statement
-            .query_map([], |row| {
-                (0..6)
-                    .map(|index| row.get(index))
-                    .collect::<rusqlite::Result<Vec<rusqlite::types::Value>>>()
-            })
-            .unwrap()
-            .collect::<rusqlite::Result<Vec<_>>>()
-            .unwrap()
-    };
-    let before_partners = partner_rows(&connection);
-    {
-        let transaction = connection.transaction().unwrap();
-        migrate(&transaction, inspect(&transaction).unwrap()).unwrap();
-        assert_retained(&transaction, &before);
-        assert_eq!(partner_rows(&transaction), before_partners);
-        let roster = partners(&transaction).unwrap();
-        assert!(
-            roster
-                .iter()
-                .find(|partner| partner.id == 1)
-                .unwrap()
-                .auto_form
-        );
-        assert!(
-            !roster
-                .iter()
-                .find(|partner| partner.id == second)
-                .unwrap()
-                .auto_form
-        );
-        inspect(&transaction).unwrap();
-        // Dropping the transaction restores the entire old layout and contents.
-    }
-    assert_eq!(
-        connection
-            .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
-            .unwrap(),
-        15
-    );
-    assert!(
-        connection
-            .prepare("SELECT auto_form FROM partners")
-            .is_err()
-    );
-    assert_retained(&connection, &before);
-    initialize(&mut connection).unwrap();
-    assert_retained(&connection, &before);
-    assert_eq!(partner_rows(&connection), before_partners);
-    assert_eq!(
-        load_task(&connection, "project", eevee.id).unwrap(),
-        Some(eevee)
-    );
-    assert_eq!(
-        load_task(&connection, "project", specialist.id).unwrap(),
-        Some(specialist)
-    );
-    store.connection = Some(connection);
-    let added = store.add_partner().unwrap();
-    let new_partner = added.last().unwrap();
-    assert!(new_partner.id > 700 && new_partner.auto_form && new_partner.form == 0);
 }
 
 #[test]

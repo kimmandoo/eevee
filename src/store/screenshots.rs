@@ -29,7 +29,7 @@ pub struct Response {
     pub retained: Option<Capture>,
 }
 
-pub(super) fn migrate(connection: &Connection) -> Result<(), String> {
+pub(super) fn create(connection: &Connection) -> Result<(), String> {
     connection
         .execute_batch(
             "CREATE TABLE screenshots(
@@ -40,7 +40,7 @@ pub(super) fn migrate(connection: &Connection) -> Result<(), String> {
             selected INTEGER NOT NULL CHECK(selected IN (0,1)),
             PRIMARY KEY(task_id,partner));",
         )
-        .map_err(|error| format!("Cannot migrate screenshot storage: {error}"))
+        .map_err(|error| format!("Cannot create screenshot storage: {error}"))
 }
 
 struct Stored {

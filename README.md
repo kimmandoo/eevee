@@ -88,7 +88,7 @@ It also comes with a companion: a party of Eevee forms that evolve with the kind
 | **Move library** | 32 moves with typed parameters (`/move-library`); four stay on quick slots |
 | **Usage meter** | Launch/task/request tokens and `est.` cost; prices in `usage.toml`, `/prices` reloads |
 | **Safe retry** | Native HTTP rounds refused with 429/503/529 or a refused connection retry up to three times; `--retry off` |
-| **Forward-compatible data** | Fields from newer versions are kept; older schemas are copied before migration |
+| **Forward-compatible data** | Fields from newer versions are kept; pre-release stores of an older schema are refused unchanged, not migrated |
 
 </details>
 
@@ -141,7 +141,7 @@ ev uninstall        # remove the binary; your data stays
 ```
 
 > [!IMPORTANT]
-> Before upgrading, exit every running `ev` and back up the **whole data directory**. Data formats can change between versions even when the schema number does not; `ev` refuses data it cannot read safely rather than converting it. From 0.1.38, task data a newer `ev` added is kept and written back unless that version marked it critical, and opening an older schema first saves a copy in `<data dir>-backups/`.
+> Before upgrading, exit every running `ev` and back up the **whole data directory**. Data formats can change between versions even when the schema number does not; `ev` refuses data it cannot read safely rather than converting it. From 0.1.38, task data a newer `ev` added is kept and written back unless that version marked it critical. Before the first stable release, `ev` opens only its current storage schema: an older store is refused unchanged, so export its tasks with `--export-data PATH` and move the data directory aside to start fresh.
 
 <details>
 <summary>Pinned versions, offline archives and persistent PATH</summary>
@@ -404,9 +404,9 @@ The operation requires exclusive project write ownership and fresh complete-scop
 <details>
 <summary>Data compatibility when upgrading or rolling back</summary>
 
-Parked drafts, landmarks, adopted progress and typed auto effort use strict reader admission. Since 0.1.33, admitted SQL 0–19 data migrates to SQL 20 for retained screenshots, and structured todo events require complete SDK bridge 11; replace sidecar source/policy/dependencies together. TM1/formation 2 remain unchanged. Back up the whole data directory before upgrading. Public 0.1.34 refuses a task saved with `/todo-eager off`; public 0.1.32 refuses SQL 20; a matching version number is not a reader/rollback compatibility guarantee.
+Parked drafts, landmarks, adopted progress and typed auto effort use strict reader admission. SQL 20 stores retained screenshots; older SQL versions are no longer migrated (refused unchanged; use `--export-data`), and structured todo events require complete SDK bridge 11; replace sidecar source/policy/dependencies together. TM1/formation 2 remain unchanged. Back up the whole data directory before upgrading. Public 0.1.34 refuses a task saved with `/todo-eager off`; public 0.1.32 refuses SQL 20; a matching version number is not a reader/rollback compatibility guarantee.
 
-Version 0.1.38 preserves ignorable task-workflow/receipt fields and refuses unknown declared critical fields. Before major SQL migration it keeps three consistent database copies beside the data directory. This helps only subsequent readers; older releases still refuse unfamiliar data. Delegated receipt state, profile metadata/recipes and critical parameterized move metadata can make old readers refuse even though SQL 20 and complete SDK bridge 11 remain unchanged. Parameterized TMs use TM2; literal TM1 imports keep their semantics. Keep a complete `ev snapshot` before upgrading or rolling back; database migration copies alone are not complete evidence backups.
+Version 0.1.38 preserves ignorable task-workflow/receipt fields and refuses unknown declared critical fields. This helps only subsequent readers; older releases still refuse unfamiliar data. Delegated receipt state, profile metadata/recipes and critical parameterized move metadata can make old readers refuse even though SQL 20 and complete SDK bridge 11 remain unchanged. Parameterized TMs use TM2; literal TM1 imports keep their semantics. Keep a complete `ev snapshot` before upgrading or rolling back.
 
 </details>
 

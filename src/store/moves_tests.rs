@@ -1362,69 +1362,6 @@ fn last_task_purge_removes_project_moves_sources_and_uses_but_not_personal_recor
     fixture.open();
 }
 
-fn remove_move_schema(connection: &Connection) {
-    super::super::records::remove_schema(connection);
-    connection.execute_batch("DROP TABLE moves; DROP TABLE move_candidates; DROP TABLE move_sources; DROP TABLE move_usages; DROP TABLE move_dispatches; PRAGMA user_version=13;").unwrap();
-}
-#[test]
-fn schema_thirteen_upgrade_is_atomic_preserves_facts_and_backfills_real_history() {
-    let fixture = Fixture::new();
-    let mut store = fixture.open();
-    let task = fixture.task(&mut store, 2);
-    for id in ["old-1", "old-2", "old-3"] {
-        let record = run_record(
-            &task,
-            owner(&store, 1),
-            id,
-            vec!["test".into(), "--workspace".into()],
-            RunState::Succeeded,
-        );
-        commit_run(&mut store, &record);
-    }
-    let mut connection = store.connection.take().unwrap();
-    remove_move_schema(&connection);
-    let facts: String = connection
-        .query_row(
-            "SELECT record FROM executions ORDER BY rowid LIMIT 1",
-            [],
-            |row| row.get(0),
-        )
-        .unwrap();
-    {
-        let transaction = connection.transaction().unwrap();
-        super::super::schema::migrate(
-            &transaction,
-            super::super::schema::inspect(&transaction).unwrap(),
-        )
-        .unwrap();
-        assert!(matches!(
-            super::super::schema::inspect(&transaction).unwrap(),
-            Schema::Current
-        ));
-    }
-    assert_eq!(
-        connection
-            .pragma_query_value::<i64, _>(None, "user_version", |row| row.get(0))
-            .unwrap(),
-        13
-    );
-    initialize(&mut connection).unwrap();
-    assert_eq!(
-        connection
-            .query_row::<String, _, _>(
-                "SELECT record FROM executions ORDER BY rowid LIMIT 1",
-                [],
-                |row| row.get(0)
-            )
-            .unwrap(),
-        facts
-    );
-    store.connection = Some(connection);
-    let response = call(&mut store, &task, 1, 2, Operation::Load).unwrap();
-    assert_eq!(response.candidates.len(), 1);
-    assert_eq!(response.candidates[0].uses, 3);
-}
-
 #[test]
 fn readonly_admission_refuses_older_and_newer_schema_without_migration_or_writes() {
     let fixture = Fixture::new();

@@ -1162,36 +1162,10 @@ fn usage_keeps_unknown_fields_distinct_boundaries_and_exact_request_owner_after_
 }
 
 #[test]
-fn schema14_migration_and_current_admission_are_strict_and_quota_rolls_back_local_writes() {
+fn current_admission_is_strict_and_quota_rolls_back_local_writes() {
     let fixture = Fixture::new();
     let mut state = fixture.open();
     let task = fixture.task(&mut state);
-    let connection = state.connection.as_mut().unwrap();
-    remove_schema(connection);
-    assert!(validate_planning_input(&state.data_dir, &task, &[]).is_err());
-    {
-        let connection = state.connection.as_mut().unwrap();
-        connection.execute_batch("VACUUM;").unwrap();
-        let pages: i64 = connection
-            .pragma_query_value(None, "page_count", |r| r.get(0))
-            .unwrap();
-        connection
-            .pragma_update(None, "max_page_count", pages + 2)
-            .unwrap();
-        assert!(initialize(connection).is_err());
-        assert_eq!(
-            connection
-                .pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
-                .unwrap(),
-            14
-        );
-        let leaked:i64=connection.query_row("SELECT count(*) FROM sqlite_schema WHERE name IN('local_artifacts','diagnosis_transitions','form_routes')",[],|r|r.get(0)).unwrap();
-        assert_eq!(leaked, 0);
-        connection
-            .pragma_update(None, "max_page_count", 1_000_000)
-            .unwrap();
-    }
-    initialize(state.connection.as_mut().unwrap()).unwrap();
     validate_planning_input(&state.data_dir, &task, &[]).unwrap();
     let old = load_task(
         state.connection.as_ref().unwrap(),
@@ -1363,51 +1337,6 @@ fn summary_counts_distinct_tasks_by_actual_producer_form_and_labels_shared_memor
         .unwrap();
     assert!(untouched.produced_tasks.iter().all(|n| *n == 0));
     assert_eq!(untouched.shared_bond_memories, 1);
-}
-
-#[test]
-fn schema14_backfill_retains_old_capture_workflow_unknowns_and_actual_run_producer_without_activity_replay()
- {
-    let fixture = Fixture::new();
-    fs::write(fixture.root.join("project/source.rs"), "old source\n").unwrap();
-    let mut state = fixture.open();
-    let mut task = fixture.task(&mut state);
-    let acting = owner(&state, 1);
-    fixture.capture(&mut state, task.id, Some(acting.clone()), 1, 1);
-    terminal(&mut state, task.id, "legacy", "old", true, b"ok\n");
-    task.revision += 1;
-    task.workflows.hypotheses.push(workflows::Hypothesis {
-        id: 1,
-        explanation: "Legacy hypothesis without current support".into(),
-        evidence: Vec::new(),
-    });
-    state.save(task.clone()).unwrap();
-    let connection = state.connection.as_ref().unwrap();
-    remove_schema(connection);
-    drop(state);
-    let mut state = fixture.open();
-    let records = load(&mut state, task.id, Some(observed("old")));
-    assert!(records.activities.is_empty());
-    let capture = records
-        .artifacts
-        .iter()
-        .find(|a| a.artifact.kind == ArtifactKind::Capture)
-        .unwrap();
-    assert!(capture.artifact.producer.is_none());
-    let run = records
-        .artifacts
-        .iter()
-        .find(|a| a.artifact.kind == ArtifactKind::Run)
-        .unwrap();
-    assert_eq!(run.artifact.producer.as_ref(), Some(&acting));
-    let hypothesis = records
-        .artifacts
-        .iter()
-        .find(|a| a.artifact.kind == ArtifactKind::Hypothesis)
-        .unwrap();
-    assert!(hypothesis.artifact.producer.is_none());
-    assert!(!hypothesis.artifact.supported_diagnosis);
-    assert_eq!(hypothesis.freshness, Freshness::Ambiguous);
 }
 
 #[test]

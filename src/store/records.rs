@@ -69,7 +69,7 @@ pub enum Response {
 const MAX_RECORD: usize = 128 * 1024;
 const MAX_PROJECT_RECORDS: i64 = 8192;
 
-pub(super) fn migrate(connection: &Connection) -> Result<(), String> {
+pub(super) fn create(connection: &Connection) -> Result<(), String> {
     connection.execute_batch("CREATE TABLE local_artifacts(id TEXT PRIMARY KEY,project TEXT NOT NULL,task_id INTEGER NOT NULL,record TEXT NOT NULL CHECK(length(CAST(record AS BLOB))<=131072));
 CREATE TABLE diagnosis_transitions(id TEXT PRIMARY KEY,project TEXT NOT NULL,task_id INTEGER NOT NULL,record TEXT NOT NULL CHECK(length(CAST(record AS BLOB))<=8192));
 CREATE TABLE form_routes(id TEXT PRIMARY KEY,project TEXT NOT NULL,task_id INTEGER NOT NULL,record TEXT NOT NULL CHECK(length(CAST(record AS BLOB))<=4096));
@@ -82,8 +82,7 @@ CREATE TABLE instruction_candidates(id TEXT PRIMARY KEY,project TEXT NOT NULL,re
 CREATE TABLE instruction_sources(id TEXT PRIMARY KEY,project TEXT NOT NULL,task_id INTEGER NOT NULL,signature TEXT NOT NULL,record TEXT NOT NULL CHECK(length(CAST(record AS BLOB))<=4096));
 CREATE TABLE partner_pairings(id TEXT PRIMARY KEY,project TEXT NOT NULL,partner INTEGER NOT NULL,form INTEGER NOT NULL CHECK(form>=0 AND form<9),record TEXT NOT NULL CHECK(length(CAST(record AS BLOB))<=8192),UNIQUE(project,partner,form));
 CREATE TABLE provider_usage(id TEXT PRIMARY KEY,project TEXT NOT NULL,task_id INTEGER NOT NULL,record TEXT NOT NULL CHECK(length(CAST(record AS BLOB))<=131072));
-CREATE TABLE provider_usage_events(id TEXT PRIMARY KEY,project TEXT NOT NULL,task_id INTEGER NOT NULL,owner TEXT NOT NULL CHECK(length(CAST(owner AS BLOB))<=2048),agent TEXT NOT NULL CHECK(length(CAST(agent AS BLOB))<=128));
-PRAGMA user_version=15;").map_err(|e|format!("Cannot migrate local records: {e}"))
+CREATE TABLE provider_usage_events(id TEXT PRIMARY KEY,project TEXT NOT NULL,task_id INTEGER NOT NULL,owner TEXT NOT NULL CHECK(length(CAST(owner AS BLOB))<=2048),agent TEXT NOT NULL CHECK(length(CAST(agent AS BLOB))<=128));").map_err(|e|format!("Cannot create local records: {e}"))
 }
 fn key(project: &str, local: &str) -> String {
     use sha2::{Digest, Sha256};
@@ -2793,18 +2792,6 @@ fn bounded_failure_paths(
         paths.insert(path.to_owned());
     }
     paths.into_iter().collect()
-}
-
-#[cfg(test)]
-pub(super) fn remove_schema(connection: &Connection) {
-    super::schema::remove_context_schema(connection);
-    connection
-        .execute_batch("DROP TABLE held_items; DROP TABLE ribbons;")
-        .unwrap();
-    connection
-        .execute_batch("ALTER TABLE partners DROP COLUMN auto_form;")
-        .unwrap();
-    connection.execute_batch("DROP TABLE diagnosis_transitions;DROP TABLE local_artifacts;DROP TABLE form_routes;DROP TABLE local_activity;DROP TABLE local_settings;DROP TABLE failure_signatures;DROP TABLE failure_observations;DROP TABLE failure_resolutions;DROP TABLE instruction_candidates;DROP TABLE instruction_sources;DROP TABLE partner_pairings;DROP TABLE provider_usage;DROP TABLE provider_usage_events;PRAGMA user_version=14;").unwrap();
 }
 
 struct CommandLabel<'a>(&'a runner::CommandSpec);

@@ -22,10 +22,10 @@ struct Support {
     evidence: Vec<workflows::EvidenceRef>,
 }
 
-pub(super) fn migrate(connection: &Connection) -> Result<(), String> {
+pub(super) fn create(connection: &Connection) -> Result<(), String> {
     connection
-        .execute_batch(&format!("{TABLE}; PRAGMA user_version=18;"))
-        .map_err(|error| format!("Cannot migrate local ribbon history: {error}"))
+        .execute_batch(&format!("{TABLE};"))
+        .map_err(|error| format!("Cannot create local ribbon history: {error}"))
 }
 
 fn recorded(connection: &Connection, project: &str, kind: Kind) -> Result<bool, String> {

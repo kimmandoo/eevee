@@ -420,7 +420,7 @@ fn prepared_capacity(task: i64, root: &Path, suffix: &str) -> crate::workspace::
 }
 
 #[test]
-fn schema19_preserves_actual_reserved_row_and_accepts_a16mib_reservation() {
+fn abandoning_an_8mib_reservation_admits_a_16mib_one() {
     let mut fixture = Fixture::new();
     let legacy = prepared_capacity(fixture.task, &fixture.state.data_dir, "legacy8mib");
     drop(
@@ -429,24 +429,6 @@ fn schema19_preserves_actual_reserved_row_and_accepts_a16mib_reservation() {
             .reserve_run(fixture.task, legacy.clone(), 1024)
             .unwrap(),
     );
-    let stored = stored_run(
-        fixture.state.connection.as_ref().unwrap(),
-        fixture.task,
-        &legacy.run_id,
-    )
-    .unwrap();
-    let connection = Connection::open_in_memory().unwrap();
-    super::super::schema::create_evidence_schema(&connection).unwrap();
-    connection.execute("INSERT INTO executions(rowid,run_id,task_id,request_id,record,output_name,output_identity,capacity,reserved) VALUES(23,?1,?2,?3,?4,?5,?6,?7,?8)",
-        params![legacy.run_id,fixture.task,legacy.request_id,run_json(&stored.record).unwrap(),stored.output_name,stored.output_identity,stored.capacity,stored.reserved]).unwrap();
-    let read = |connection: &Connection| -> Vec<rusqlite::types::Value> {
-        connection.query_row("SELECT rowid,run_id,task_id,request_id,record,output_name,output_identity,capacity,reserved FROM executions",[],|row|(0..9).map(|index|row.get(index)).collect()).unwrap()
-    };
-    let before = read(&connection);
-    connection.execute_batch("BEGIN IMMEDIATE").unwrap();
-    migrate(&connection).unwrap();
-    connection.execute_batch("COMMIT").unwrap();
-    assert_eq!(read(&connection), before);
     fixture
         .state
         .run_request(RunRequest {
@@ -473,35 +455,4 @@ fn schema19_preserves_actual_reserved_row_and_accepts_a16mib_reservation() {
         .capacity,
         16 * 1024 * 1024
     );
-}
-
-#[test]
-fn schema19_capacity_migration_refuses_unrelated_execution_schema_objects_before_mutation() {
-    for extra in [
-        "CREATE INDEX user_execution_index ON executions(task_id)",
-        "CREATE TRIGGER user_execution_trigger AFTER UPDATE ON executions BEGIN SELECT 1; END",
-        "CREATE TABLE user_execution_dependency(run_id TEXT REFERENCES executions(run_id))",
-    ] {
-        let connection = Connection::open_in_memory().unwrap();
-        super::super::schema::create_evidence_schema(&connection).unwrap();
-        connection.execute_batch(extra).unwrap();
-        let original: String = connection
-            .query_row(
-                "SELECT sql FROM sqlite_master WHERE name='executions'",
-                [],
-                |row| row.get(0),
-            )
-            .unwrap();
-        assert!(migrate(&connection).is_err());
-        let after: String = connection
-            .query_row(
-                "SELECT sql FROM sqlite_master WHERE name='executions'",
-                [],
-                |row| row.get(0),
-            )
-            .unwrap();
-        assert_eq!(after, original);
-        let changed:bool=connection.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name IN ('executions_v19','tool_artifacts'))",[],|row|row.get(0)).unwrap();
-        assert!(!changed);
-    }
 }
