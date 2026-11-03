@@ -2,6 +2,7 @@
 mod coding;
 pub(crate) mod config;
 mod delegation;
+mod fault;
 mod mcp;
 pub mod retry;
 mod tools;
@@ -1117,6 +1118,37 @@ fn http_status(status: u16) -> String {
         _ => format!("HTTP {status}: provider request failed; no response body or credentials retained"),
     }
 }
+/// Bounded wait/bytes for reading a rejection's typed error code.
+const REJECTION_BYTES: usize = 16 * 1024;
+const REJECTION_WAIT: Duration = Duration::from_secs(2);
+/// A status message plus the provider's typed code when its bounded JSON body has
+/// one (e.g. 400 context_length_exceeded vs. an unsupported setting). The body
+/// is classified and dropped; a slow, oversized or untyped body adds nothing.
+async fn rejection(
+    message: String,
+    mut response: reqwest::Response,
+    control: &Control<'_>,
+) -> String {
+    let deadline = (Instant::now() + REJECTION_WAIT).min(control.deadline);
+    let mut bytes = Vec::new();
+    loop {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if control.cancelled() || remaining.is_zero() {
+            return message;
+        }
+        match tokio::time::timeout(remaining, response.chunk()).await {
+            Ok(Ok(Some(chunk))) if bytes.len() + chunk.len() <= REJECTION_BYTES => {
+                bytes.extend_from_slice(&chunk)
+            }
+            Ok(Ok(None)) => break,
+            _ => return message,
+        }
+    }
+    match fault::from_body(&bytes) {
+        Some(fault) => format!("{message}; {}", fault.detail()),
+        None => message,
+    }
+}
 async fn wait_attempt<T>(
     future: impl Future<Output = Result<T, reqwest::Error>>,
     control: &Control<'_>,
@@ -1179,7 +1211,7 @@ where
                 format!("{error}; remote outcome unknown after dispatch; no retry"),
             )
         })?;
-        let (cause, requested, failure, base) = match attempt {
+        let (cause, requested, failure, base, rejected) = match attempt {
             Ok(response) => {
                 if round == 1 && !*dispatched {
                     if let Some(event) = run.input.dispatched(run.generation) {
@@ -1212,13 +1244,17 @@ where
                 };
                 if !retry::retryable_status(status) {
                     connection_failure(events, run, super::diagnostics::Failure::Http(status));
-                    return Err((outcome, http_status(status)));
+                    return Err((
+                        outcome,
+                        rejection(http_status(status), response, control).await,
+                    ));
                 }
                 (
                     format!("HTTP {status}"),
                     retry::retry_after(response.headers()),
                     (outcome, super::diagnostics::Failure::Http(status)),
                     http_status(status),
+                    Some(response),
                 )
             }
             Err(error) => {
@@ -1241,11 +1277,14 @@ where
                     None,
                     (Outcome::Unknown, super::diagnostics::Failure::Transport),
                     base,
+                    None,
                 )
             }
         };
         match retry::decide(policy, done, requested, control.deadline, retry::jitter()) {
             retry::Decision::Retry(wait) => {
+                // A retried rejection's body is never read.
+                drop(rejected);
                 emit(
                     events,
                     Event::Status {
@@ -1278,6 +1317,10 @@ where
                         " after {done} automatic retr{}",
                         if done == 1 { "y" } else { "ies" }
                     )
+                };
+                let base = match rejected {
+                    Some(response) => rejection(base, response, control).await,
+                    None => base,
                 };
                 return Err((outcome, format!("{base}{tried}; {reason}")));
             }
@@ -1880,7 +1923,9 @@ impl Stream {
                 Protocol::Gemini => self.observe_usage(value.get("usageMetadata")),
             }
             self.failed = true;
-            return Err("Provider reported an inference error; private error body omitted".into());
+            return Err(
+                fault::from_envelope(value).describe("Provider reported an inference error")
+            );
         }
         match self.protocol {
             Protocol::Codex | Protocol::Responses => {
@@ -1908,7 +1953,14 @@ impl Stream {
                             .is_some_and(|v| v != "completed")
                         {
                             self.failed = true;
-                            return Err("Provider response did not complete successfully".into());
+                            return Err(fault::from_tokens([
+                                response
+                                    .get("incomplete_details")
+                                    .and_then(|v| v.get("reason")),
+                                response.get("error").and_then(|v| v.get("code")),
+                                response.get("status"),
+                            ])
+                            .describe("Provider response did not complete successfully"));
                         }
                         if response.get("output").is_some_and(Value::is_array) {
                             let streamed = std::mem::take(&mut self.text);
@@ -1921,7 +1973,16 @@ impl Stream {
                     }
                     "response.failed" | "response.incomplete" => {
                         self.failed = true;
-                        return Err("Provider response failed or was incomplete; private diagnostics omitted".into());
+                        let response = value.get("response");
+                        let error = response.and_then(|v| v.get("error"));
+                        return Err(fault::from_tokens([
+                            error.and_then(|v| v.get("code")),
+                            error.and_then(|v| v.get("type")),
+                            response
+                                .and_then(|v| v.get("incomplete_details"))
+                                .and_then(|v| v.get("reason")),
+                        ])
+                        .describe("Provider response failed or was incomplete"));
                     }
                     _ => {}
                 }
@@ -1947,7 +2008,10 @@ impl Stream {
                         if let Some(reason) = choice.get("finish_reason").and_then(Value::as_str) {
                             if !matches!(reason, "stop" | "tool_calls") {
                                 self.failed = true;
-                                return Err("Chat response stopped with a non-success finish reason (length, filter or error)".into());
+                                return Err(fault::from_tokens([choice.get("finish_reason")])
+                                    .describe(
+                                        "Chat response stopped with a non-success finish reason",
+                                    ));
                             }
                             self.chat_finished = true;
                         }
@@ -1986,9 +2050,10 @@ impl Stream {
                         && !matches!(reason, "end_turn" | "stop_sequence" | "tool_use")
                     {
                         self.failed = true;
-                        return Err(
-                            "Anthropic response ended with a non-success stop reason".into()
-                        );
+                        return Err(fault::from_tokens([value
+                            .get("delta")
+                            .and_then(|v| v.get("stop_reason"))])
+                        .describe("Anthropic response ended with a non-success stop reason"));
                     }
                 }
                 "message_stop" => self.complete = true,
@@ -1998,13 +2063,17 @@ impl Stream {
                 self.observe(value.get("modelVersion").and_then(Value::as_str))?;
                 self.observe_response(value.get("responseId"));
                 self.observe_usage(value.get("usageMetadata"));
-                if value
+                if let Some(reason) = value
                     .get("promptFeedback")
                     .and_then(|v| v.get("blockReason"))
-                    .is_some()
                 {
                     self.failed = true;
-                    return Err("Gemini blocked the request; private diagnostics omitted".into());
+                    let mut fault = fault::from_tokens([Some(reason)]);
+                    // Any prompt block is a policy refusal, even an unknown reason.
+                    if fault.class == fault::Class::Unclassified {
+                        fault.class = fault::Class::ContentPolicy;
+                    }
+                    return Err(fault.describe("Gemini blocked the request"));
                 }
                 if let Some(candidates) = value.get("candidates").and_then(Value::as_array) {
                     for candidate in candidates {
@@ -2029,9 +2098,10 @@ impl Stream {
                         {
                             if reason != "STOP" {
                                 self.failed = true;
-                                return Err(
-                                    "Gemini response ended with a non-success finish reason".into(),
-                                );
+                                return Err(fault::from_tokens([candidate.get("finishReason")])
+                                    .describe(
+                                        "Gemini response ended with a non-success finish reason",
+                                    ));
                             }
                             self.complete = true;
                         }

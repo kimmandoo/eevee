@@ -2,6 +2,11 @@
 
 ## 2026-11-03
 
+### Unreleased
+
+- fix(providers): classified native provider failures (stream error envelopes, failed/incomplete responses, non-success finish/stop/block reasons and bounded non-success HTTP bodies) from typed codes only across Responses/Codex, Chat Completions, Messages and Gemini, so the reason named the cause (overloaded, rate limit, quota/billing, context limit, output limit, content policy, invalid request, authentication, permission, not found, server error, timeout) with the provider's short code and a concrete next step instead of a bare "inference error"; provider prose and bodies stayed omitted and retry eligibility was unchanged.
+- fix(providers): stopped labelling a provider-reported terminal failure as "remote completion/cancellation is not confirmed"; only unattributed reader failures kept the unknown-outcome wording.
+
 ### 0.1.46
 
 - docs(release): published v0.1.46 from9a85a56 using native41581839732 attempt1 and publication41584897503 without rebuilding; verified latest identity, eight public assets/seven checksums/five native layouts, earlier-release preservation and actual public Linux upgrade/resume/uninstall with draft/caret/data intact.

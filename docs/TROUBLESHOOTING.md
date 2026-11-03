@@ -1,5 +1,12 @@
 # Troubleshooting
 
+### [2026-11-03] Native provider failures showed only "inference error" with a contradictory suffix
+
+- **Context / Symptom:** A handoff request ended `Failed` with `Provider reported an inference error; private error body omitted; local reader settled; remote completion/cancellation is not confirmed; no automatic retry` and the generic hint `Inspect completed effects; change input or retry explicitly.` The user could not tell whether to wait, shrink context, fix billing or rephrase.
+- **Root Cause:** The native stream parser discarded every error envelope, including its machine code (`overloaded_error`, `context_length_exceeded`, `insufficient_quota`, Gemini `status`, …), to avoid leaking provider prose. Non-success finish/stop/block reasons and HTTP 4xx/5xx bodies were dropped the same way, so a 400 for context overflow read as "unsupported settings" and an exhausted 429 could not distinguish quota from rate limit. Separately, the round wrapper appended the unknown-outcome suffix even when the provider itself had reported the terminal failure.
+- **Solution:** Added `src/providers/direct/fault.rs`, which maps only safe identifier tokens from all four wire protocols to a public cause plus next step and shows the token as `(code …)`. Wired it into the stream parser and a bounded (16 KiB / 2 s) read of non-retryable or retry-stopped HTTP rejection bodies; retried rejections are still never read. Provider-reported failures now end with `the provider ended this round; no automatic retry`.
+- **Prevention / Reference:** `cargo test --locked -- fault:: http_rejections protocol_errors ineligible_or_long_waits`. Add new provider codes to `fault::classify`; unknown codes already surface as `unclassified provider error (code …)` instead of disappearing. Local `conversation_flow_smoke.py --mode native` needs `pyte` (install it into a scratch venv); locally (debug and release) it fails the interrupted-request history inspection both before and after this change.
+
 ### [2026-11-03] Native CI repeated shared suites and hashed a372MiB test executable
 
 - **Context / Symptom:** The user reported excessive CI/test duration. Successful native41421707024 took1354s on Windows: release build438s, full Rust test step363s, plus shared interaction/continuation187s. Both macOS CPU rows repeated the same suites. The local debug test executable was390521336 bytes.

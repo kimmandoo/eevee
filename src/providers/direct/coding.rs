@@ -278,6 +278,10 @@ async fn inference_rounds(
                 },
                 if unsubmitted {
                     format!("{error}; no model frame attempted; no retry or fallback")
+                } else if stream.failed {
+                    // The provider's own terminal failure settles the round
+                    // remotely; only unattributed reader failures stay unknown.
+                    format!("{error}; the provider ended this round; no automatic retry")
                 } else {
                     format!(
                         "{error}; local reader settled; remote completion/cancellation is not confirmed; no automatic retry"

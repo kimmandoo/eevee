@@ -277,6 +277,40 @@ fn protocol_errors_and_non_success_finishes_never_become_completed() {
         assert!(!stream.complete);
         assert!(!error.contains("private provider diagnostic"));
     }
+    // Typed codes give a cause and next step without any provider prose.
+    for (protocol, data, cause) in [
+        (
+            Protocol::Messages,
+            json!({"type":"error","error":{"type":"overloaded_error","message":"private provider diagnostic"}}),
+            "overloaded or unavailable (code overloaded_error); wait briefly",
+        ),
+        (
+            Protocol::ChatCompletions,
+            json!({"error":{"type":"invalid_request_error","code":"context_length_exceeded","message":"private provider diagnostic"}}),
+            "context or size limit (code context_length_exceeded)",
+        ),
+        (
+            Protocol::Codex,
+            json!({"type":"response.failed","response":{"error":{"code":"usage_limit_reached","message":"private provider diagnostic"}}}),
+            "billing limit reached (code usage_limit_reached)",
+        ),
+        (
+            Protocol::Gemini,
+            json!({"promptFeedback":{"blockReason":"OTHER"}}),
+            "content policy (code OTHER)",
+        ),
+        (
+            Protocol::ChatCompletions,
+            json!({"choices":[{"delta":{},"finish_reason":"length"}]}),
+            "output limit reached (code length)",
+        ),
+    ] {
+        let mut stream = Stream::new(protocol);
+        let error = stream.event("", &data.to_string()).unwrap_err();
+        assert!(stream.failed);
+        assert!(error.contains(cause), "{error}");
+        assert!(!error.contains("private provider diagnostic"), "{error}");
+    }
     let mut stream = Stream::new(Protocol::ChatCompletions);
     assert!(stream.event("", "[DONE]").is_err());
     assert!(!stream.complete);
@@ -1492,6 +1526,62 @@ fn inference_headers_prove_one_frozen_dispatch_even_for_http_errors() {
 }
 
 #[test]
+fn http_rejections_name_the_typed_provider_cause_and_drop_the_body() {
+    let runtime = runtime();
+    for (status, body, cause) in [
+        (
+            400,
+            r#"{"error":{"message":"private-provider-sentinel","type":"invalid_request_error","code":"context_length_exceeded"}}"#,
+            Some("code context_length_exceeded: request exceeds the model's context"),
+        ),
+        (
+            500,
+            r#"{"type":"error","error":{"type":"api_error","message":"private-provider-sentinel"}}"#,
+            Some("code api_error: provider internal error"),
+        ),
+        (400, "private-provider-sentinel plain text", None),
+    ] {
+        let mut run = prepared();
+        *run.input = crate::providers::tests::claimed(Agent::Compatible, Operation::Plan, false);
+        let events = Arc::new(Mutex::new(VecDeque::new()));
+        let stopped = AtomicBool::new(false);
+        let cancelled = AtomicU64::new(0);
+        let control = control(&stopped, &cancelled);
+        let (url, server) = http_status_fixture(status, body.into());
+        let connection = config::test_connection(Protocol::Responses, &url, Some("fixture-model"));
+        let result = runtime.block_on(async {
+            let client = http_client().unwrap();
+            send_inference(
+                || {
+                    connection
+                        .request(&client, "POST", &connection.inference_url("fixture-model"))
+                        .body("reviewed instruction")
+                        .send()
+                },
+                &run,
+                &events,
+                &control,
+                1,
+                retry::Policy::Off,
+                &mut false,
+                &mut Vec::new(),
+            )
+            .await
+            .map(|_| ())
+        });
+        server.join().unwrap();
+        let (_, message) = result.unwrap_err();
+        assert!(message.starts_with(&http_status(status)), "{message}");
+        match cause {
+            Some(cause) => assert!(message.contains(cause), "{message}"),
+            None => assert_eq!(message, http_status(status)),
+        }
+        assert!(!message.contains("private-provider-sentinel"));
+        assert!(!format!("{:?}", events.lock()).contains("private-provider-sentinel"));
+    }
+}
+
+#[test]
 fn failed_local_admission_and_unproven_transport_never_emit_dispatch_receipts() {
     let mut run = prepared();
     *run.input = crate::providers::tests::claimed(Agent::Compatible, Operation::Plan, false);
@@ -1703,6 +1793,26 @@ fn ineligible_or_long_waits_are_not_retried() {
         false,
     );
     assert!(result.unwrap_err().1.contains("--retry off"));
+    assert_eq!(served, 1);
+
+    // A stopped 429 names quota versus rate limit from its typed code only.
+    let (result, _, _, served) = send_sequence(
+        vec![(
+            429,
+            "",
+            r#"{"error":{"type":"insufficient_quota","message":"private-provider-sentinel"}}"#
+                .into(),
+        )],
+        retry::Policy::Off,
+        false,
+    );
+    let message = result.unwrap_err().1;
+    assert!(
+        message.contains("code insufficient_quota: account usage quota or billing limit")
+            && message.ends_with("--retry off)"),
+        "{message}"
+    );
+    assert!(!message.contains("private-provider-sentinel"));
     assert_eq!(served, 1);
 }
 
