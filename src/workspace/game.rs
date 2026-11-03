@@ -96,22 +96,24 @@ pub fn loose_key(text: &str) -> String {
 }
 
 /// Proposal-only normalization. Original instruction bytes are never rewritten.
+/// Language-agnostic: typed slots come from character classes and script
+/// boundaries, never from per-language word lists.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Similarity {
-    pub tokens: Vec<String>,
-    pub leading_verb: String,
+    /// Lowercased text with each slot replaced by its kind marker.
+    pub shape: String,
     pub parameters: Vec<(String, String)>,
     pub spans: Vec<(usize, usize)>,
 }
 
-pub fn similarity(text: &str) -> Similarity {
-    normalize(text, true)
-}
+/// Slot-abstracted shapes longer than this compare exactly, bounding work.
+const FUZZY_LIMIT: usize = 512;
+/// Minimum character similarity of two shapes in one proposal group.
+const SIMILAR: f64 = 0.75;
 
-fn normalize(text: &str, parameters: bool) -> Similarity {
+pub fn similarity(text: &str) -> Similarity {
     let mut result = Similarity {
-        tokens: Vec::new(),
-        leading_verb: String::new(),
+        shape: String::new(),
         parameters: Vec::new(),
         spans: Vec::new(),
     };
@@ -143,33 +145,28 @@ fn normalize(text: &str, parameters: bool) -> Similarity {
             }
         }
         let raw = &text[start..end];
-        let mut word = raw.trim_end_matches(['.', '!', '?', '。', '~', ',', ';', ':']);
-        // Closed suffix list: do not stem arbitrary Korean words.
-        for suffix in [
-            "에서", "으로", "에게", "부터", "까지", "의", "을", "를", "은", "는", "이", "가", "에",
-            "로",
-        ] {
-            if word.ends_with(suffix) {
-                let stem = &word[..word.len() - suffix.len()];
-                if !quoted
-                    && (stem.contains('.')
-                        || stem.contains('/')
-                        || stem.contains('_')
-                        || stem.chars().count() >= 2
-                            && stem.chars().all(|ch| ('가'..='힣').contains(&ch)))
-                {
-                    word = stem;
-                    break;
-                }
-            }
-        }
+        let word = raw.trim_end_matches(|ch: char| {
+            ch.is_ascii_punctuation() && !matches!(ch, '"' | '\'' | '`')
+                || matches!(ch, '。' | '、' | '~')
+        });
         if word.is_empty() {
             continue;
         }
-        let mut lower = word.to_lowercase();
-        if matches!(lower.as_str(), "a" | "an" | "the") {
-            continue;
-        }
+        // A slot written in ASCII may carry attached text in another script
+        // (an inflection or particle); the slot ends at that boundary.
+        let (slot_text, rest) = if quoted {
+            (word, "")
+        } else {
+            let split = word
+                .char_indices()
+                .find(|(_, ch)| !ch.is_ascii())
+                .map_or(word.len(), |(index, _)| index);
+            if split > 0 && word.is_char_boundary(split) {
+                (&word[..split], &word[split..])
+            } else {
+                (word, "")
+            }
+        };
         let kind = if quoted {
             (raw.len() > ch.len_utf8() && raw.ends_with(ch)).then(|| {
                 if ch == '`'
@@ -182,94 +179,105 @@ fn normalize(text: &str, parameters: bool) -> Similarity {
                     "quoted"
                 }
             })
-        } else if word.chars().any(|ch| ch.is_ascii_digit()) && word.parse::<f64>().is_ok() {
-            Some("number")
-        } else if word
-            .chars()
-            .all(|ch| ch.is_alphanumeric() || matches!(ch, '/' | '\\' | '.' | '_' | '-' | ':'))
-            && (word.contains('/')
-                || word.contains('\\')
-                || word.rsplit_once('.').is_some_and(|(stem, ext)| {
-                    !stem.is_empty() && !ext.is_empty() && ext.chars().all(char::is_alphanumeric)
-                }))
-        {
-            Some("path")
-        } else if word
-            .chars()
-            .all(|ch| ch.is_alphanumeric() || matches!(ch, '_' | ':'))
-            && (word.contains('_')
-                || word.contains("::")
-                || word.chars().skip(1).any(char::is_uppercase)
-                    && word.chars().any(char::is_lowercase)
-                    && word.chars().next().is_some_and(char::is_lowercase))
-        {
-            Some("identifier")
         } else {
-            None
+            slot_kind(slot_text)
         };
-        if let Some(kind) = kind {
-            result.tokens.push(format!("<{kind}>"));
-            if parameters {
-                result.parameters.push((kind.into(), word.to_owned()));
-                let offset = word.as_ptr() as usize - text.as_ptr() as usize;
-                result.spans.push((offset, offset + word.len()));
-            }
-        } else {
-            let ending = match lower.as_str() {
-                "고쳐주세요" | "고쳐줘요" | "고쳐줘" | "고쳐" => Some("고쳐"),
-                "삭제해주세요" | "삭제해줘" | "삭제해" => Some("삭제해"),
-                "실행해주세요" | "실행해줘" | "실행해" => Some("실행해"),
-                _ => None,
-            };
-            if let Some(ending) = ending {
-                lower.clear();
-                lower.push_str(ending);
-            }
-            if result.leading_verb.is_empty()
-                && matches!(
-                    lower.as_str(),
-                    "fix"
-                        | "delete"
-                        | "remove"
-                        | "run"
-                        | "review"
-                        | "explain"
-                        | "plan"
-                        | "rename"
-                        | "add"
-                        | "update"
-                        | "고쳐"
-                        | "삭제해"
-                        | "실행해"
-                )
-            {
-                result.leading_verb.clone_from(&lower);
-            }
-            result.tokens.push(lower);
+        if !result.shape.is_empty() {
+            result.shape.push(' ');
         }
-    }
-    if result.leading_verb.is_empty() {
-        result.leading_verb = text
-            .split_whitespace()
-            .next()
-            .unwrap_or_default()
-            .to_lowercase();
+        match kind {
+            Some(kind) => {
+                let value = if quoted { raw } else { slot_text };
+                result.shape.push_str(&format!("<{kind}>"));
+                result.shape.push_str(&rest.to_lowercase());
+                result.parameters.push((kind.into(), value.to_owned()));
+                let offset = value.as_ptr() as usize - text.as_ptr() as usize;
+                result.spans.push((offset, offset + value.len()));
+            }
+            None => result.shape.push_str(&word.to_lowercase()),
+        }
     }
     result
 }
 
-pub fn similar_key(text: &str, classifier: &str) -> String {
-    use sha2::{Digest, Sha256};
-    let normalized = normalize(text, false);
-    let mut digest = Sha256::new();
-    for token in std::iter::once(classifier)
-        .chain(std::iter::once(normalized.leading_verb.as_str()))
-        .chain(normalized.tokens.iter().map(String::as_str))
+fn slot_kind(word: &str) -> Option<&'static str> {
+    if word.is_empty() {
+        None
+    } else if word.chars().any(|ch| ch.is_ascii_digit()) && word.parse::<f64>().is_ok() {
+        Some("number")
+    } else if word
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '/' | '\\' | '.' | '_' | '-' | ':'))
+        && (word.contains('/')
+            || word.contains('\\')
+            || word.rsplit_once('.').is_some_and(|(stem, ext)| {
+                !stem.is_empty()
+                    && !ext.is_empty()
+                    && ext.chars().all(|ch| ch.is_ascii_alphanumeric())
+            }))
     {
-        digest.update((token.len() as u64).to_le_bytes());
-        digest.update(token.as_bytes());
+        Some("path")
+    } else if word
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | ':'))
+        && (word.contains('_')
+            || word.contains("::")
+            || word.chars().skip(1).any(|ch| ch.is_ascii_uppercase())
+                && word.chars().any(|ch| ch.is_ascii_lowercase())
+                && word
+                    .chars()
+                    .next()
+                    .is_some_and(|ch| ch.is_ascii_lowercase()))
+    {
+        Some("identifier")
+    } else {
+        None
     }
-    format!("{:x}", digest.finalize())
+}
+
+fn slot_kinds(similarity: &Similarity) -> impl Iterator<Item = &str> {
+    similarity.parameters.iter().map(|(kind, _)| kind.as_str())
+}
+
+/// Whether two instructions are variants of one reusable request: the same
+/// slot kinds in the same order and nearly the same remaining text. Small
+/// wording differences (articles, particles, politeness endings) merge in any
+/// language; different requests do not.
+pub fn similar(a: &str, b: &str) -> bool {
+    let (a, b) = (similarity(a), similarity(b));
+    if !slot_kinds(&a).eq(slot_kinds(&b)) {
+        return false;
+    }
+    if a.shape == b.shape {
+        return true;
+    }
+    let (x, y): (Vec<char>, Vec<char>) = (a.shape.chars().collect(), b.shape.chars().collect());
+    if x.len().max(y.len()) > FUZZY_LIMIT {
+        return false;
+    }
+    let longest = x.len().max(y.len()) as f64;
+    1.0 - edit_distance(&x, &y) as f64 / longest >= SIMILAR
+}
+
+fn edit_distance(a: &[char], b: &[char]) -> usize {
+    let mut previous: Vec<usize> = (0..=b.len()).collect();
+    let mut current = vec![0; b.len() + 1];
+    for (i, x) in a.iter().enumerate() {
+        current[0] = i + 1;
+        for (j, y) in b.iter().enumerate() {
+            current[j + 1] = (previous[j] + usize::from(x != y))
+                .min(previous[j + 1] + 1)
+                .min(current[j] + 1);
+        }
+        std::mem::swap(&mut previous, &mut current);
+    }
+    previous[b.len()]
+}
+
+/// Stable identity of a proposal group, from its representative instruction.
+pub fn similar_key(text: &str) -> String {
+    use sha2::{Digest, Sha256};
+    format!("{:x}", Sha256::digest(similarity(text).shape.as_bytes()))
 }
 
 /// Exact variant table for the teach review, with every observed slot value.
@@ -287,38 +295,39 @@ pub fn variant_review(variants: &[String]) -> String {
 #[cfg(test)]
 mod tests {
     #[test]
-    fn xc07_typed_similarity_keeps_operation_and_token_boundaries() {
-        let key = |text| super::similar_key(text, "3:Implement");
-        assert_eq!(key("fix the bug in src/a.rs"), key("Fix bug in src/b.rs"));
-        assert_eq!(key("a.rs 버그 고쳐줘"), key("b.rs의 버그 고쳐줘"));
-        assert_eq!(
-            key("fix 버그를 a.rs에서 고쳐주세요"),
-            key("fix 버그 a.rs 고쳐줘")
-        );
-        assert_eq!(
-            key("fix user_name with 12 and \"old text\""),
-            key("fix other_name with 42 and \"new text\"")
-        );
-        assert_eq!(key("fix userName"), key("fix otherName"));
-        for different in [
-            "delete src/a.rs",
-            "fix src/a.rs now",
-            "fix 12",
-            "fix \"src/a.rs\"",
+    fn similarity_merges_small_wording_differences_in_any_language_without_word_lists() {
+        use super::similar;
+        for (a, b) in [
+            ("fix the bug in src/a.rs", "Fix bug in src/b.rs"),
+            ("a.rs 버그 고쳐줘", "b.rs의 버그 고쳐줘"),
+            ("a.rs 버그 고쳐줘", "b.rs 버그 고쳐주세요"),
+            (
+                "fix user_name with 12 and \"old text\"",
+                "fix other_name with 42 and \"new text\"",
+            ),
+            ("fix userName", "fix otherName"),
+            (
+                "Ejecuta las pruebas de src/a.rs",
+                "ejecuta pruebas de src/b.rs",
+            ),
         ] {
-            assert_ne!(key("fix src/a.rs"), key(different), "{different}");
+            assert!(similar(a, b), "{a} ~ {b}");
         }
-        assert_ne!(
-            key("fix src/a.rs"),
-            super::similar_key("fix src/a.rs", "7:Review")
-        );
-        assert_ne!(key("fix the bug"), key("repair the bug"));
-        let normalized =
-            super::similarity("fix src/a.rs with 1.5 and \"hello world\" and user_name");
+        for (a, b) in [
+            ("fix src/a.rs", "delete src/a.rs"),
+            ("fix src/a.rs", "fix 12"),
+            ("fix src/a.rs", "fix \"src/a.rs\""),
+            ("fix the bug", "write the release notes"),
+            ("테스트 돌려줘", "문서 정리해줘"),
+        ] {
+            assert!(!similar(a, b), "{a} !~ {b}");
+        }
+        // A slot ends where attached text in another script begins.
+        let normalized = super::similarity("b.rs의 버그와 1.5 \"hello world\" user_name");
         assert_eq!(
             normalized.parameters,
             vec![
-                ("path".into(), "src/a.rs".into()),
+                ("path".into(), "b.rs".into()),
                 ("number".into(), "1.5".into()),
                 ("quoted".into(), "\"hello world\"".into()),
                 ("identifier".into(), "user_name".into()),
@@ -331,7 +340,6 @@ mod tests {
         let review = super::variant_review(&variants);
         assert!(review.contains("Variant 1: \"fix the bug in src/a.rs\""));
         assert!(review.contains("path 1 = \"src/b.rs\""));
-        assert_eq!(variants[0], "fix the bug in src/a.rs");
     }
 
     use super::*;

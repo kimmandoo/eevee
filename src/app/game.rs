@@ -2,13 +2,10 @@
 //! repetition-proposed moves and item notices. Nothing here sends, runs,
 //! approves or grants; every row opens an existing command or review.
 use super::{App, Overlay, StorageState};
-use crate::{
-    messages::Message,
-    workspace::{
-        game::{self, Berry},
-        moves::{self, Proposal, Provenance, Scope, Steps},
-        runner,
-    },
+use crate::workspace::{
+    game::{self, Berry},
+    moves::{self, Proposal, Provenance, Scope, Steps},
+    runner,
 };
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
@@ -439,13 +436,6 @@ impl App {
             })
     }
 
-    fn move_similarity_key(text: &str) -> String {
-        let classifier = super::evolution::classify(text)
-            .map(|selection| format!("{}:{:?}", selection.form, selection.operation))
-            .unwrap_or_else(|| "unclassified".into());
-        game::similar_key(text, &classifier)
-    }
-
     /// Repeated similar Sends of this partner/form that no move covers yet.
     pub fn move_proposal(&self) -> Option<MoveProposal> {
         let form = self.form();
@@ -453,16 +443,17 @@ impl App {
             return None;
         }
         let dismissed = self.game().dismissed_moves;
-        let covered = |key: &str| {
+        let covered = |instruction: &str| {
             self.moves.records.iter().any(|record| {
                 record.proposal.partner == self.lead.id
                     && record.proposal.form == form
-                    && matches!(&record.proposal.steps, Steps::Request { instruction, .. }
-                        if Self::move_similarity_key(instruction) == key)
+                    && matches!(&record.proposal.steps, Steps::Request { instruction: taught, .. }
+                        if game::similar(taught, instruction))
             })
         };
         struct Group {
-            key: String,
+            /// The first-seen wording anchors membership and the stable key.
+            anchor: String,
             instruction: String,
             at: i64,
             sources: Vec<String>,
@@ -473,23 +464,19 @@ impl App {
             if habit.instruction.is_empty() || habit.dismissed {
                 continue;
             }
-            // Read-only or negated instructions describe a constraint, not a move.
-            if super::evolution::classify(&habit.instruction)
-                .is_some_and(|selection| selection.reason == Message::CoreEvolutionReadonly)
-            {
-                continue;
-            }
-            let key = Self::move_similarity_key(&habit.instruction);
             for source in habit
                 .sources
                 .iter()
                 .filter(|source| source.owner.partner == self.lead.id && source.owner.form == form)
             {
-                let entry = match groups.iter().position(|group| group.key == key) {
+                let entry = match groups
+                    .iter()
+                    .position(|group| game::similar(&group.anchor, &habit.instruction))
+                {
                     Some(index) => &mut groups[index],
                     None => {
                         groups.push(Group {
-                            key: key.clone(),
+                            anchor: habit.instruction.clone(),
                             instruction: habit.instruction.clone(),
                             at: 0,
                             sources: Vec::new(),
@@ -511,7 +498,7 @@ impl App {
             }
         }
         let Group {
-            key,
+            anchor,
             instruction,
             sources,
             variants,
@@ -520,14 +507,15 @@ impl App {
             .into_iter()
             .filter(|group| {
                 group.sources.len() >= REPEATS
-                    && !dismissed.contains(&group.key)
-                    && !covered(&group.key)
+                    && !dismissed.contains(&game::similar_key(&group.anchor))
+                    && !covered(&group.instruction)
                     && !group
                         .variants
                         .iter()
                         .any(|variant| dismissed.contains(&game::loose_key(variant)))
             })
             .max_by_key(|group| group.at)?;
+        let key = game::similar_key(&anchor);
         let steps = Steps::Request {
             instruction: instruction.clone(),
             pins: Vec::new(),
@@ -609,6 +597,11 @@ impl App {
             return;
         };
         let mut state = self.game();
+        // Every observed wording stays dismissed even if the group re-forms;
+        // the group key goes last so the bounded list evicts it last.
+        for variant in &proposal.variants {
+            state.dismiss(&game::loose_key(variant));
+        }
         state.dismiss(&proposal.key);
         self.set_game(state);
         self.notice = "Eevee won't offer that move again for this task.".into();
@@ -724,10 +717,11 @@ mod tests {
             habit("delete src/b.rs", &["three"], 3),
         ];
         assert!(app.move_proposal().is_none());
-        assert_ne!(
-            App::move_similarity_key("fix src/a.rs"),
-            App::move_similarity_key("review src/a.rs")
-        );
+        app.records.snapshot.habits = vec![
+            habit("fix src/a.rs", &["one", "two"], 3),
+            habit("review src/b.rs", &["three"], 3),
+        ];
+        assert!(app.move_proposal().is_none());
     }
 
     #[test]
@@ -748,13 +742,13 @@ mod tests {
         // Another form's Sends never count for this form.
         app.records.snapshot.habits = vec![habit("Fix the bug", &["r1", "r2", "r3"], 4)];
         assert!(app.move_proposal().is_none());
-        // Read-only instructions describe a constraint, not a move.
+        // Read-only requests are reusable too: wording is not interpreted.
         app.records.snapshot.habits = vec![habit(
             "Read src/main.rs; do not change files",
             &["r1", "r2", "r3"],
             3,
         )];
-        assert!(app.move_proposal().is_none());
+        assert!(app.move_proposal().is_some());
         // Every form learns repeated requests, including command/pin forms.
         app.records.snapshot.habits = vec![habit("Fix the bug", &["r1", "r2", "r3"], 2)];
         app.set_form(2);

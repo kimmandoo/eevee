@@ -4,10 +4,11 @@ use serde_json::Value;
 
 pub const MAX_STEPS: usize = 64;
 pub const MAX_LABEL_BYTES: usize = 240;
-pub const EAGER_PRELUDE: &str = "Before working, initialize a phased task list with the todo tool. Set each step's phase to the role it needs (discover, verify, implement, plan, diagnose, refactor, review or handoff). Keep one active step; report status as claims, not verification evidence.\n";
-/// The same role contract for routes whose plan tools carry only step text
-/// (Codex plans, Claude todos, ACP plan entries): a leading `[role]` tag.
-pub const ROLE_POLICY: &str = "Before working on anything beyond a one-line answer, record a short plan with your own plan/todo tool and keep it current as work moves. Begin every step's text with its role tag: [discover] locate/read sources, [verify] run builds/tests/commands, [implement] change behavior, [plan] design/compare approaches, [diagnose] find a failure's cause or security risk, [refactor] simplify/optimize without behavior change, [review] judge changes, [handoff] summarize/document. Example: \"[diagnose] Find why login fails\". Keep exactly one step in progress. Steps are progress claims, never verification evidence or permission.";
+pub const EAGER_PRELUDE: &str = "Before working, initialize a phased task list with the todo tool. Every step's phase is the role it needs (discover, verify, implement, plan, diagnose, refactor, review or handoff). Keep one active step and update it as work moves; report status as claims, not verification evidence.\n";
+/// The same role contract for every route. Routes that offer the `todo` tool
+/// get schema-checked roles; plan tools that carry only step text (Claude
+/// todos, ACP plan entries, Codex update_plan) use a leading `[role]` tag.
+pub const ROLE_POLICY: &str = "Before working on anything beyond a one-line answer, record a short plan and keep it current as work moves. If a `todo` tool is offered, use it: each step's phase is its role. Otherwise use your own plan/todo tool and begin every step's text with its role tag: [discover] locate/read sources, [verify] run builds/tests/commands, [implement] change behavior, [plan] design/compare approaches, [diagnose] find a failure's cause or security risk, [refactor] simplify/optimize without behavior change, [review] judge changes, [handoff] summarize/document. Example: \"[diagnose] Find why login fails\". Keep exactly one step in progress. Steps are progress claims, never verification evidence or permission.";
 
 /// The closed step-role vocabulary a native todo phase may name. A role is
 /// the provider's structured claim about what kind of work a step is; it picks
@@ -249,7 +250,16 @@ impl State {
             return Err("Todo view takes empty steps".into());
         }
         let target = Role::split_tag(&input.label).1;
-        let steps = input.steps.into_iter().map(Step::untag).collect();
+        let steps: Vec<Step> = input.steps.into_iter().map(Step::untag).collect();
+        // The todo tool is the structured route: a missing role is refused so
+        // the model corrects its own call instead of leaving a step unsteered.
+        if let Some(step) = steps.iter().find(|step| step.role().is_none()) {
+            return Err(format!(
+                "Todo step \"{}\" needs a role phase: one of {}",
+                step.label,
+                Role::ALL.map(Role::name).join(", ")
+            ));
+        }
         self.operate(&input.operation, target, steps)
     }
     /// Exact-label operations are transactional, including the single-active invariant.
@@ -380,9 +390,8 @@ pub fn normalize(source: &str, value: &Value) -> Result<Vec<Step>, String> {
     Ok(steps)
 }
 pub fn definition() -> Value {
-    let mut roles: Vec<Value> = Role::ALL.iter().map(|role| role.name().into()).collect();
-    roles.push(Value::Null);
-    serde_json::json!({"name":"todo","description":"Task progress claims only; no file, command or network effect. Exact labels; at most 64 steps, one active. Each step's phase names the role it needs: discover (locate/read sources), verify (run builds/tests/commands), implement (change behavior), plan (design/compare approaches), diagnose (find a failure's cause or security risk), refactor (simplify/optimize without behavior change), review (judge changes), handoff (summarize/document). Changed revisions require explicit user adoption.","parameters":{"type":"object","properties":{"operation":{"type":"string","enum":["init","start","done","drop","block","unblock","append","view"]},"label":{"type":"string"},"steps":{"type":"array","maxItems":64,"items":{"type":"object","properties":{"label":{"type":"string","maxLength":240},"phase":{"type":["string","null"],"enum":roles},"status":{"type":"string","enum":["pending","active","done","blocked","dropped"]}},"required":["label","phase","status"],"additionalProperties":false}}},"required":["operation","label","steps"],"additionalProperties":false}})
+    let roles: Vec<Value> = Role::ALL.iter().map(|role| role.name().into()).collect();
+    serde_json::json!({"name":"todo","description":"Task progress claims only; no file, command or network effect. Exact labels; at most 64 steps, one active. Each step's phase is required and names the role it needs: discover (locate/read sources), verify (run builds/tests/commands), implement (change behavior), plan (design/compare approaches), diagnose (find a failure's cause or security risk), refactor (simplify/optimize without behavior change), review (judge changes), handoff (summarize/document). Changed revisions require explicit user adoption.","parameters":{"type":"object","properties":{"operation":{"type":"string","enum":["init","start","done","drop","block","unblock","append","view"]},"label":{"type":"string"},"steps":{"type":"array","maxItems":64,"items":{"type":"object","properties":{"label":{"type":"string","maxLength":240},"phase":{"type":"string","enum":roles},"status":{"type":"string","enum":["pending","active","done","blocked","dropped"]}},"required":["label","phase","status"],"additionalProperties":false}}},"required":["operation","label","steps"],"additionalProperties":false}})
 }
 #[cfg(test)]
 mod tests {
@@ -400,8 +409,9 @@ mod tests {
         let roles = &definition["parameters"]["properties"]["steps"]["items"]["properties"]["phase"]
             ["enum"];
         let names: Vec<_> = roles.as_array().unwrap().iter().collect();
-        assert_eq!(names.len(), Role::ALL.len() + 1);
-        assert!(names.last().unwrap().is_null());
+        // A role is required: the schema offers no null phase.
+        assert_eq!(names.len(), Role::ALL.len());
+        assert!(names.iter().all(|name| name.is_string()));
         for role in Role::ALL {
             assert_eq!(Role::parse(role.name()), Some(role));
             assert!(EAGER_PRELUDE.contains(role.name()));
@@ -440,7 +450,7 @@ mod tests {
         // Native tagged labels and exact-label operations agree on the stripped label.
         let mut state = State::default();
         state
-            .apply_tool(&serde_json::json!({"operation":"init","label":"","steps":[{"label":"[plan] Compare designs","phase":null,"status":"pending"}]}))
+            .apply_tool(&serde_json::json!({"operation":"init","label":"","steps":[{"label":"[plan] Compare designs","phase":"plan","status":"pending"}]}))
             .unwrap();
         assert_eq!(state.steps[0].label, "Compare designs");
         assert_eq!(state.steps[0].role(), Some(Role::Plan));
@@ -537,13 +547,14 @@ mod tests {
     #[test]
     fn malformed_native_tool_is_transactional_and_view_grants_nothing() {
         let mut state = State::default();
-        state.apply_tool(&serde_json::json!({"operation":"init","label":"","steps":[{"label":"오류 조사","phase":"investigate","status":"active"}]})).unwrap();
+        state.apply_tool(&serde_json::json!({"operation":"init","label":"","steps":[{"label":"오류 조사","phase":"diagnose","status":"active"}]})).unwrap();
         let before = state.clone();
         for arguments in [
             serde_json::json!({"operation":"start","label":"오류","steps":[]}),
             serde_json::json!({"operation":"init","label":"","steps":[{"label":"bad","phase":null,"status":"invented"}]}),
             serde_json::json!({"operation":"view","label":"","steps":[],"command":"execute"}),
-            serde_json::json!({"operation":"init","label":"","steps":[{"label":"duplicate","phase":null,"status":"pending"},{"label":"duplicate","phase":null,"status":"pending"}]}),
+            serde_json::json!({"operation":"init","label":"","steps":[{"label":"duplicate","phase":"plan","status":"pending"},{"label":"duplicate","phase":"plan","status":"pending"}]}),
+            serde_json::json!({"operation":"init","label":"","steps":[{"label":"untagged","phase":null,"status":"pending"}]}),
         ] {
             assert!(state.apply_tool(&arguments).is_err());
             assert_eq!(state, before);

@@ -2,6 +2,12 @@
 
 ## 2026-11-03
 
+- feat(providers): required a structured role on every Eevee `todo` step (schema without null, refusals returned to the model) and offered the same todo tool to Codex as a client-executed dynamic tool.
+- feat(evolution): evolved the running request from its own tool activity (write → Flareon, command → Jolteon) whenever the plan's focus step named no role, so untagged plans and planless requests still evolved.
+- feat(evolution)!: started every Send from the adopted plan's focus-step role regardless of wording and removed the last request-text tables (read-only phrases, continuation phrases and the whole intent classifier).
+- feat(forms)!: stopped narrowing tools from request wording; only explicit Plan/Review mode is read-only, so consecutive ordinary requests kept one provider conversation, and leaving Plan mode carried the completed plan as public context.
+- feat(moves)!: replaced word-list similarity (Korean particles, English articles, verb lists, intent classifier) with language-agnostic slot shapes and character edit distance; dismissing a proposal also dismissed every observed wording.
+- fix(ui): reworded evolution reasons to describe the observed work instead of claiming "you asked".
 - feat(evolution)!: made automatic evolution follow the model's role-tagged plan on every route and while the request runs; the request text no longer picked a form, and mid-run evolution changed appearance only while the running request kept its owner, tools and approvals.
 - feat(providers): sent the same role-tag plan contract (`progress_policy`) to Codex, Claude Agent SDK and ACP routes and normalized `[role]` step tags into the structured phase, so every agent produced the same role-driven todos as native routes.
 - feat(forms)!: gave every form the full approved tool set for ordinary requests; only explicit Plan/Review mode or literal read-only wording in the request made it nonwriting, and that restriction applied per request.

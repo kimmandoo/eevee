@@ -4485,6 +4485,40 @@ fn automatic_todo_follows_provider_progress_and_steers_the_next_send() {
             app.planning.pending.take(),
             Some(Request::Run { generation: 91 })
         ));
+        // Without a plan yet, the request's own write activity steers
+        // appearance (automatic mode only); tools and approvals are unchanged.
+        let operation = app.planning.operation;
+        app.provider_event(
+            1,
+            ProviderEvent::Item {
+                generation: 91,
+                task_id: app.task_id,
+                thread_id: "native-91".into(),
+                turn_id: "round-1".into(),
+                item_id: "write-1".into(),
+                kind: crate::providers::ItemKind::File(crate::providers::FilePhase::Generating),
+                text: "src/lib.rs".into(),
+                complete: false,
+            },
+        );
+        assert_eq!(app.form(), if automatic { 3 } else { 0 });
+        assert_eq!(app.planning.operation, operation);
+        // A foreign generation never steers.
+        app.set_form(0);
+        app.provider_event(
+            1,
+            ProviderEvent::Item {
+                generation: 7,
+                task_id: app.task_id,
+                thread_id: "other".into(),
+                turn_id: "round-1".into(),
+                item_id: "write-2".into(),
+                kind: crate::providers::ItemKind::File(crate::providers::FilePhase::Generating),
+                text: "src/lib.rs".into(),
+                complete: false,
+            },
+        );
+        assert_eq!(app.form(), 0);
         let form = app.form();
         for active in 0..2 {
             assert!(app.provider_event(
@@ -4533,10 +4567,9 @@ fn automatic_todo_follows_provider_progress_and_steers_the_next_send() {
                 );
                 assert!(app.follows_todo(), "{input}");
             }
-            // A fresh request is not a continuation and its text picks no form.
+            // Request wording never picks a form; the focus step's role does.
             app.input = "Review the code".into();
-            assert_eq!(app.request_evolution().unwrap().form, app.form());
-            assert!(!app.follows_todo());
+            assert_eq!(app.request_evolution().unwrap().form, 3);
         }
     }
 }

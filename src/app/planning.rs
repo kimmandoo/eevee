@@ -790,9 +790,14 @@ impl State {
         if self.busy() {
             return;
         }
+        // Leaving Plan mode for ordinary work carries the completed plan as
+        // unverified public context, so the next request continues it.
+        let carried = (self.operation == Operation::Plan && operation == Operation::Implement)
+            .then(|| self.completed_plan())
+            .flatten();
         // Implement returns to ordinary request capabilities, not a sticky grant.
         self.operation_explicit = operation != Operation::Implement;
-        self.prior_plan = None;
+        self.prior_plan = carried;
         self.plan_completed = false;
         if self.operation == operation {
             return;

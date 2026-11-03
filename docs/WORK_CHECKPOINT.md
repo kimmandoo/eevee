@@ -1,3 +1,11 @@
+## 2026-11-03 — Role-required todos, activity fallback, no request-text tables (completed in source)
+
+- **Request:** Fix all three remaining limits (untagged plans not evolving, read-only wording breaking conversation, residual word tables); contract changes allowed; avoid hard-coding.
+- **Implemented:** Todo schema requires role (no null); `State::apply_tool` refuses role-less steps back to the model. Codex `dynamic_tools()` adds `todo`; `Engine::apply_todo` emits Progress. `App::observe_activity` (cooperation.rs) → `follow_activity` for the lead's owned running request when no role focus exists (File Generating/Received/AwaitingReview/Reported → implement; RunCommand → verify). `request_evolution` reads no text: focus role form or current; Implement unless explicit Plan/Review. Deleted `classify` and all word tables from evolution.rs (≈1250 lines) plus their tests. `set_operation(Plan→Implement)` carries `completed_plan()`. `workspace::game` similarity rewritten (script-boundary slots, edit distance ≥0.75, `similar`, `similar_key(text)`); `move_proposal` clusters by first-seen anchor. Evolution reason strings reworded.
+- **Verification:** `cargo fmt --check`, `cargo test --quiet` (2037 passed, 2 ignored; count dropped because classifier tests were removed), `cargo clippy --all-targets --all-features -- -D warnings` passed.
+- **Still not live-verified:** model compliance with role tags on Claude SDK/ACP (activity fallback covers writes/commands only); effort auto-resolution (GP08) still uses its own prose rules and `ambiguous_followup` — untouched by this request.
+- **Next action:** Optional live runs per route.
+
 ## 2026-11-03 — Plan-driven evolution on every route, mid-run evolution, no form-based read-only (completed in source)
 
 - **Request:** User required the same experience on every agent: evolution from the model's todo (not hard-coded words), including the first request and CLI/ACP/SDK routes, evolving during execution; asked why some forms were read-only.

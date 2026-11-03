@@ -217,7 +217,7 @@ fn unfinished_todo_final_continues_on_the_retained_socket_without_effect_replay(
         );
         event["response"]["output"].as_array_mut().unwrap().push(json!({
             "type":"function_call","id":"todo-item-start","call_id":"todo-start-call","name":"todo",
-            "arguments":json!({"operation":"init","label":"","steps":[{"label":"Create selected files","status":"active"}]}).to_string()
+            "arguments":json!({"operation":"init","label":"","steps":[{"label":"Create selected files","phase":"implement","status":"active"}]}).to_string()
         }));
         send(socket, event);
         let after_first = packet(socket);

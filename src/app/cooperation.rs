@@ -1204,6 +1204,41 @@ impl App {
 }
 
 impl App {
+    /// The lead's own running request: tool activity may steer appearance when
+    /// its plan names no role. Ownership is checked before anything changes.
+    fn observe_activity(&mut self, partner: i64, event: &crate::providers::Event) {
+        use crate::providers::{Event, FilePhase, ItemKind};
+        use crate::workspace::progress::Role;
+        let (generation, task_id, role) = match event {
+            Event::RunCommand {
+                generation,
+                task_id,
+                ..
+            } => (*generation, *task_id, Role::Verify),
+            Event::Item {
+                generation,
+                task_id,
+                kind:
+                    ItemKind::File(
+                        FilePhase::Generating
+                        | FilePhase::Received
+                        | FilePhase::AwaitingReview
+                        | FilePhase::Reported,
+                    ),
+                ..
+            } => (*generation, *task_id, Role::Implement),
+            _ => return,
+        };
+        let owned = partner == self.lead.id
+            && task_id == self.task_id
+            && self.planning.matches(generation, task_id)
+            && self.planning.busy()
+            && !self.planning.cancelling;
+        if owned {
+            self.follow_activity(role);
+        }
+    }
+
     pub fn provider_event(&mut self, partner: i64, event: crate::providers::Event) -> bool {
         if let crate::providers::Event::DelegateCapacity {
             generation,
@@ -1244,6 +1279,7 @@ impl App {
         {
             return self.provider_progress(partner, generation, task_id, source, steps);
         }
+        self.observe_activity(partner, &event);
         if let crate::providers::Event::RunCommand {
             generation,
             task_id,

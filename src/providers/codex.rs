@@ -67,6 +67,17 @@ fn capture_writes(
     }
 }
 
+/// Client-executed tools, including the same role-checked todo tool as
+/// native routes so Codex plans carry structured roles.
+fn dynamic_tools(writing: bool) -> Value {
+    let mut declarations = definitions(writing);
+    declarations.extend(crate::providers::artifacts::definitions());
+    declarations.push(crate::workspace::progress::definition());
+    Value::Array(declarations.into_iter().map(|entry| {
+        json!({"type":"function","name":entry["name"],"description":entry["description"],"inputSchema":entry["parameters"]})
+    }).collect())
+}
+
 fn requested_tool(params: &Value) -> Result<FileTool, String> {
     if params
         .get("namespace")
@@ -1030,6 +1041,8 @@ struct Engine<'a> {
         Receiver<Result<crate::workspace::artifacts::Response, String>>,
     )>,
     journal_session: String,
+    /// The Eevee `todo` dynamic tool's state, seeded like native routes.
+    progress: crate::workspace::progress::State,
 }
 fn run_transport(
     workspace: &Workspace,
@@ -1112,6 +1125,13 @@ fn run_transport(
         pending_write_preview: None,
         pending_command: None,
         pending_artifact: None,
+        progress: run
+            .input
+            .task
+            .workflows
+            .progress
+            .clone()
+            .unwrap_or_default(),
         journal_session: format!(
             "{}-{}",
             std::process::id(),
@@ -1628,11 +1648,7 @@ impl Engine<'_> {
             file_tool_instructions(self.run.input.operation)
         ));
         if let Some(scope) = &self.run.writes {
-            let mut declarations = definitions(scope.writing());
-            declarations.extend(crate::providers::artifacts::definitions());
-            params["dynamicTools"] = Value::Array(declarations.into_iter().map(|entry| {
-                json!({"type":"function","name":entry["name"],"description":entry["description"],"inputSchema":entry["parameters"]})
-            }).collect());
+            params["dynamicTools"] = dynamic_tools(scope.writing());
         }
         let method = if let Some(id) = &self.run.input.resume {
             params["threadId"] = json!(id);
@@ -2252,6 +2268,34 @@ impl Engine<'_> {
         self.queue(json!({"id":id,"result":{"success":value["status"] == "success","contentItems":[{"type":"inputText","text":text}]}}))
     }
 
+    /// Progress claims only: no file, command or network effect. A refused
+    /// call (for example a step without a role) is returned to the model so it
+    /// can correct itself.
+    fn apply_todo(&mut self, id: Value, input: &Value) -> Result<(), String> {
+        let operation = input.get("operation").and_then(Value::as_str);
+        let (success, result) = match self.progress.apply_tool(input) {
+            Ok(()) => {
+                if operation != Some("view") {
+                    emit(
+                        self.events,
+                        Event::Progress {
+                            generation: self.run.generation,
+                            task_id: self.run.input.task.id,
+                            source: "native todo".into(),
+                            steps: Ok(self.progress.steps.clone()),
+                        },
+                    )?;
+                }
+                (
+                    true,
+                    json!({"status":"success","message":"Provider progress claims only; adoption follows current task policy. No criteria, files, command or network effects.","steps":self.progress.steps}),
+                )
+            }
+            Err(error) => (false, json!({"status":"refused","message":safe(&error)})),
+        };
+        let text = serde_json::to_string(&result).map_err(|_| "Cannot encode todo result")?;
+        self.queue(json!({"id":id,"result":{"success":success,"contentItems":[{"type":"inputText","text":text}]}}))
+    }
     fn request_write(&mut self, id: Value, params: &Value) -> Result<(), String> {
         // Identity/authority failures are terminal, not model-correctable source
         // refusals. Check them before observing or enrolling any target.
@@ -2261,6 +2305,9 @@ impl Engine<'_> {
             return self.queue(json!({"id":id,"result":{"success":false,"contentItems":[{"type":"inputText","text":"A host command is pending; no overlapping tool effects are permitted"}]}}));
         }
         let tool = requested_tool(params)?;
+        if let FileTool::Todo { input } = &tool {
+            return self.apply_todo(id, input);
+        }
         if let Some(operation) = tool.artifact_operation() {
             let (reply, result) = mpsc::sync_channel(1);
             emit(

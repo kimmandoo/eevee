@@ -1920,3 +1920,30 @@ fn retained_command_artifact_declarations_parse_into_host_lookup_operations() {
         &json!({"run":{"state":"Failed","tree":"OwnedTreeExited","exit_code":1}})
     ));
 }
+
+#[test]
+fn codex_offers_the_role_checked_todo_tool_in_every_operation() {
+    for writing in [false, true] {
+        let tools = dynamic_tools(writing);
+        let todo = tools
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|tool| tool["name"] == "todo")
+            .expect("todo dynamic tool");
+        assert_eq!(
+            todo["inputSchema"]["properties"]["steps"]["items"]["properties"]["phase"]["enum"]
+                .as_array()
+                .unwrap()
+                .len(),
+            crate::workspace::progress::Role::ALL.len()
+        );
+        assert!(matches!(
+            requested_tool(
+                &json!({"tool":"todo","arguments":{"operation":"view","label":"","steps":[]}})
+            )
+            .unwrap(),
+            FileTool::Todo { .. }
+        ));
+    }
+}

@@ -487,7 +487,7 @@ fn unfinished_todo_final_continues_owned_work_without_replaying_effects() {
                         "plan",
                         "todo",
                         json!({"operation":"init","label":"","steps":[
-                            {"label":"Create selected files","status":"active"}
+                            {"label":"Create selected files","phase":"implement","status":"active"}
                         ]}),
                     ),
                     (
@@ -587,8 +587,8 @@ fn mixed_blocked_and_actionable_todos_finish_reachable_work_then_stop_incomplete
                     "plan",
                     "todo",
                     json!({"operation":"init","label":"","steps":[
-                        {"label":"Obtain missing prerequisite","status":"blocked"},
-                        {"label":"Create independent file","status":"active"}
+                        {"label":"Obtain missing prerequisite","phase":"implement","status":"blocked"},
+                        {"label":"Create independent file","phase":"implement","status":"active"}
                     ]}),
                 )],
                 "One prerequisite is blocked, but an independent step remains.",
@@ -675,7 +675,7 @@ fn clean_native_answers_and_finished_or_dropped_todos_stop_normally() {
                     "plan",
                     "todo",
                     json!({"operation":"init","label":"","steps":[
-                        {"label":"Answer the question","status":status}
+                        {"label":"Answer the question","phase":"implement","status":status}
                     ]}),
                 )],
                 "",
@@ -711,7 +711,7 @@ fn unfinished_todo_blockers_refusals_and_provider_errors_do_not_resume_as_succes
             "plan",
             "todo",
             json!({"operation":"init","label":"","steps":[
-                {"label":"Finish authorized work","status":if mode == "blocked" { "blocked" } else { "active" }}
+                {"label":"Finish authorized work","phase":"implement","status":if mode == "blocked" { "blocked" } else { "active" }}
             ]}),
         )];
         if mode.starts_with("denied") {
@@ -783,7 +783,7 @@ fn unfinished_todo_final_cannot_escape_the_logical_round_budget() {
                     &format!("plan-{round}"),
                     "todo",
                     json!({"operation":"init","label":"","steps":[
-                        {"label":format!("Remaining work {round}"),"status":"active"}
+                        {"label":format!("Remaining work {round}"),"phase":"implement","status":"active"}
                     ]}),
                 )],
                 "",
@@ -831,7 +831,7 @@ fn repeated_tool_observations_and_changed_todo_acknowledgments_do_not_rearm_fore
                     id.as_str(),
                     "todo",
                     json!({"operation":"init","label":"","steps":[
-                        {"label":format!("Remaining work {index}"),"status":"active"}
+                        {"label":format!("Remaining work {index}"),"phase":"implement","status":"active"}
                     ]}),
                 ));
             }
@@ -877,7 +877,7 @@ fn prior_task_progress_and_old_views_do_not_bind_a_new_request() {
             let mut progress = crate::workspace::progress::State::default();
             progress
                 .apply_tool(&json!({"operation":"init","label":"","steps":[
-                    {"label":"Earlier request's remaining work","status":"active"}
+                    {"label":"Earlier request's remaining work","phase":"implement","status":"active"}
                 ]}))
                 .unwrap();
             if adopted {
@@ -928,7 +928,7 @@ fn planning_answer_does_not_execute_its_proposed_future_todos() {
                 "future-plan",
                 "todo",
                 json!({"operation":"init","label":"","steps":[
-                    {"label":"Implement the proposed design","status":"pending"}
+                    {"label":"Implement the proposed design","phase":"implement","status":"pending"}
                 ]}),
             )],
             "",
@@ -1578,7 +1578,7 @@ fn cancel_during_permission_closes_prompt_without_write_or_continuation() {
                 "plan",
                 "todo",
                 json!({"operation":"init","label":"","steps":[
-                    {"label":"Create requested file","status":"active"}
+                    {"label":"Create requested file","phase":"implement","status":"active"}
                 ]}),
             ),
             (

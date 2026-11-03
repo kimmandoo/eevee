@@ -40,1254 +40,6 @@ pub struct State {
     preview: Option<Preview>,
 }
 
-struct Rule {
-    form: usize,
-    operation: Operation,
-    reason: Message,
-    actions: &'static [&'static str],
-    objects: &'static [&'static str],
-}
-
-// Shared development surfaces: these are task objects, not executable verbs.
-// Keep them out of the run/test rule so "check the UI" stays observational.
-const DEVELOPMENT_SURFACES: &[&str] = &[
-    "ui",
-    "interface",
-    "layout",
-    "tool",
-    "tools",
-    "todo",
-    "rendering",
-    "display",
-    "presentation",
-    "prompt",
-    "intent",
-    "evolution",
-    "ux",
-    "popup",
-    "dialog",
-    "modal",
-    "approval",
-    "button",
-    "panel",
-    "menu",
-    "animation",
-    "theme",
-    "화면",
-    "인터페이스",
-    "레이아웃",
-    "도구",
-    "툴",
-    "할 일",
-    "렌더링",
-    "표시",
-    "출력",
-    "프롬프트",
-    "의도",
-    "진화",
-    "자동전환",
-    "자동 전환",
-    "팝업",
-    "대화상자",
-    "모달",
-    "승인",
-    "버튼",
-    "패널",
-    "메뉴",
-    "애니메이션",
-    "테마",
-];
-
-// Ordered task roles, not the old advisory EV01 table. A task noun is required:
-// generic conversation ("write a greeting", "explain this fixture") stays put.
-const RULES: &[Rule] = &[
-    Rule {
-        form: 7,
-        operation: Operation::Review,
-        reason: Message::CoreEvolutionReview,
-        actions: &[
-            "review",
-            "audit",
-            "look over",
-            "safe to merge",
-            "ready to merge",
-            "검토",
-            "리뷰",
-            "변경사항 봐",
-            "변경 사항 봐",
-            "변경사항 확인",
-            "변경 사항 확인",
-            "머지해도",
-        ],
-        objects: &[
-            "patch",
-            "diff",
-            "change",
-            "changes",
-            "code",
-            "release",
-            "pr",
-            "pull request",
-            "merge",
-            "commit",
-            "commits",
-            "변경",
-            "패치",
-            "코드",
-            "출시",
-            "커밋",
-            "머지",
-        ],
-    },
-    Rule {
-        form: 5,
-        operation: Operation::Plan,
-        reason: Message::CoreEvolutionDiagnosis,
-        actions: &[
-            "diagnose",
-            "debug",
-            "investigate",
-            "analyze",
-            "analyse",
-            "check",
-            "trace",
-            "find",
-            "진단",
-            "분석",
-            "조사",
-            "점검",
-            "추적",
-            "찾아",
-            "알아내",
-        ],
-        objects: &[
-            "failure",
-            "error",
-            "crash",
-            "bug",
-            "security",
-            "vulnerability",
-            "root cause",
-            "panic",
-            "exception",
-            "leak",
-            "hang",
-            "실패",
-            "오류",
-            "에러",
-            "버그",
-            "보안",
-            "취약",
-            "원인",
-            "패닉",
-            "예외",
-            "누수",
-            "크래시",
-        ],
-    },
-    Rule {
-        form: 4,
-        operation: Operation::Plan,
-        reason: Message::CoreEvolutionPlanning,
-        actions: &[
-            "plan",
-            "design",
-            "compare",
-            "how should",
-            "what should",
-            "should we",
-            "should i",
-            "best way",
-            "설계",
-            "계획",
-            "비교",
-            "어떻게 구현",
-            "어떻게 설계",
-            "어떻게 만들",
-            "좋을까",
-            "나을까",
-        ],
-        objects: &[
-            "project",
-            "app",
-            "application",
-            "roadmap",
-            "architecture",
-            "implementation",
-            "approach",
-            "migration",
-            "feature",
-            "system",
-            "api",
-            "change",
-            "structure",
-            "프로젝트",
-            "앱",
-            "애플리케이션",
-            "로드맵",
-            "아키텍처",
-            "구현",
-            "접근",
-            "마이그레이션",
-            "기능",
-            "시스템",
-            "변경",
-            "구조",
-        ],
-    },
-    Rule {
-        form: 8,
-        operation: Operation::Plan,
-        reason: Message::CoreEvolutionDocumentation,
-        actions: &[
-            "write",
-            "create",
-            "generate",
-            "update",
-            "save",
-            "draft",
-            "document",
-            "prepare",
-            "summarize",
-            "summarise",
-            "write up",
-            "작성",
-            "생성",
-            "수정",
-            "갱신",
-            "업데이트",
-            "정리",
-            "저장",
-            "요약",
-            "준비",
-            "써",
-            "기록",
-        ],
-        objects: &[
-            "documentation",
-            "docs",
-            "readme",
-            "changelog",
-            "handoff",
-            "hand-off",
-            "commit message",
-            "release notes",
-            "what we did",
-            "what was done",
-            "문서",
-            "인수인계",
-            "작업 인계",
-            "핸드오프",
-            "변경 기록",
-            "커밋 메시지",
-            "릴리스 노트",
-            "릴리즈 노트",
-            "작업 내용",
-            "진행 상황",
-        ],
-    },
-    Rule {
-        form: 6,
-        operation: Operation::Implement,
-        reason: Message::CoreEvolutionRefactor,
-        actions: &[
-            "refactor",
-            "simplify",
-            "optimize",
-            "optimise",
-            "clean up",
-            "cleanup",
-            "tidy",
-            "deduplicate",
-            "speed up",
-            "improve performance",
-            "리팩터",
-            "리팩토",
-            "단순화",
-            "최적화",
-            "정리",
-            "중복 제거",
-            "성능 개선",
-            "성능을 개선",
-            "성능 향상",
-        ],
-        objects: &[
-            "code",
-            "module",
-            "function",
-            "implementation",
-            "component",
-            "performance",
-            "query",
-            "queries",
-            "duplicate",
-            "duplication",
-            "코드",
-            "모듈",
-            "함수",
-            "구현",
-            "컴포넌트",
-            "성능",
-            "속도",
-            "쿼리",
-            "중복",
-        ],
-    },
-    Rule {
-        form: 3,
-        operation: Operation::Implement,
-        reason: Message::CoreEvolutionImplementation,
-        actions: &[
-            "implement",
-            "create",
-            "generate",
-            "produce",
-            "write",
-            "save",
-            "make",
-            "edit",
-            "modify",
-            "replace",
-            "overwrite",
-            "repair",
-            "fix",
-            "add",
-            "update",
-            "improve",
-            "enhance",
-            "polish",
-            "refine",
-            "rename",
-            "delete",
-            "remove",
-            "upgrade",
-            "change the",
-            "change it",
-            "change this",
-            "구현",
-            "생성",
-            "만들",
-            "뽑",
-            "제작",
-            "작성",
-            "저장",
-            "수정",
-            "고쳐",
-            "고치",
-            "바꿔",
-            "바꾸",
-            "덮어",
-            "추가",
-            "개선",
-            "다듬",
-            "업데이트",
-            "업그레이드",
-            "삭제",
-            "제거",
-            "지워",
-            "변경해",
-            "적용",
-            "반영",
-            "향상",
-            "올려",
-            "넣어",
-        ],
-        objects: &[
-            "code",
-            "file",
-            "feature",
-            "function",
-            "module",
-            "component",
-            "bug",
-            "error",
-            "failure",
-            "endpoint",
-            "project",
-            "app",
-            "application",
-            "test",
-            "tests",
-            "dependency",
-            "dependencies",
-            "config",
-            "setting",
-            "settings",
-            "option",
-            "helper",
-            "class",
-            "method",
-            "type",
-            "schema",
-            "query",
-            "route",
-            "handler",
-            "parser",
-            "page",
-            "style",
-            "color",
-            "colour",
-            "message",
-            "messages",
-            "description",
-            "descriptions",
-            "text",
-            "label",
-            "log",
-            "logs",
-            "panic",
-            "crash",
-            "warning",
-            "warnings",
-            "코드",
-            "파일",
-            "기능",
-            "함수",
-            "모듈",
-            "컴포넌트",
-            "버그",
-            "오류",
-            "에러",
-            "엔드포인트",
-            "프로젝트",
-            "앱",
-            "애플리케이션",
-            "테스트",
-            "의존성",
-            "설정",
-            "옵션",
-            "헬퍼",
-            "클래스",
-            "메서드",
-            "메소드",
-            "타입",
-            "스키마",
-            "쿼리",
-            "라우트",
-            "핸들러",
-            "파서",
-            "페이지",
-            "스타일",
-            "색",
-            "메시지",
-            "설명",
-            "문구",
-            "로그",
-            "경고",
-            "패닉",
-            "진화체",
-        ],
-    },
-    Rule {
-        form: 2,
-        operation: Operation::Implement,
-        reason: Message::CoreEvolutionVerification,
-        actions: &[
-            "build",
-            "compile",
-            "run",
-            "execute",
-            "verify",
-            "test",
-            "빌드",
-            "컴파일",
-            "실행",
-            "검증",
-            "테스트",
-            "돌려",
-            "lint",
-            "린트",
-        ],
-        objects: &[
-            "command",
-            "lint",
-            "clippy",
-            "린트",
-            "test",
-            "tests",
-            "suite",
-            "build",
-            "check",
-            "compile",
-            "project",
-            "app",
-            "application",
-            "program",
-            "binary",
-            "code",
-            "bench",
-            "benchmark",
-            "benchmarks",
-            "명령",
-            "테스트",
-            "빌드",
-            "컴파일",
-            "프로젝트",
-            "앱",
-            "프로그램",
-            "바이너리",
-            "코드",
-            "검사",
-            "벤치마크",
-        ],
-    },
-    Rule {
-        form: 1,
-        operation: Operation::Plan,
-        reason: Message::CoreEvolutionDiscovery,
-        actions: &[
-            "read",
-            "list",
-            "find",
-            "search",
-            "inspect",
-            "locate",
-            "explore",
-            "show",
-            "explain",
-            "describe",
-            "understand",
-            "읽",
-            "목록",
-            "찾",
-            "검색",
-            "살펴",
-            "탐색",
-            "보여",
-            "봐",
-            "열어",
-            "설명",
-            "알려",
-            "파악해줘",
-            "파악해 줘",
-        ],
-        objects: &[
-            "file",
-            "files",
-            "source",
-            "code",
-            "project",
-            "repository",
-            "directory",
-            "directories",
-            "module",
-            "function",
-            "structure",
-            "codebase",
-            "flow",
-            "config",
-            "configuration",
-            "definition",
-            "usage",
-            "usages",
-            "references",
-            "파일",
-            "소스",
-            "코드",
-            "프로젝트",
-            "저장소",
-            "디렉터리",
-            "모듈",
-            "함수",
-            "구조",
-            "코드베이스",
-            "흐름",
-            "설정",
-            "정의",
-            "사용처",
-            "참조",
-        ],
-    },
-];
-
-// Reported symptoms ask for a diagnosis even without a diagnose verb.
-const SYMPTOMS: &[&str] = &[
-    "broken",
-    "failing",
-    "fails",
-    "crashes",
-    "crashing",
-    "panics",
-    "hangs",
-    "doesn't work",
-    "does not work",
-    "not working",
-    "memory leak",
-    "깨졌",
-    "깨져",
-    "실패해",
-    "실패하",
-    "실패했",
-    "안 돼",
-    "안돼",
-    "안 되",
-    "안되",
-    "죽어",
-    "죽는",
-    "멈춰",
-    "패닉",
-    "누수",
-    "에러 나",
-    "에러가 나",
-    "오류 나",
-    "오류가 나",
-    "터져",
-    "터지",
-];
-const WHY: &[&str] = &["why", "왜"];
-const SLOW: &[&str] = &["slow", "slower", "느려", "느린", "느리"];
-const SECURITY: &[&str] = &[
-    "security",
-    "vulnerability",
-    "vulnerabilities",
-    "보안",
-    "취약",
-];
-const LOOK: &[&str] = &[
-    "check", "scan", "find", "look", "확인", "점검", "찾", "봐", "스캔",
-];
-// An explicit run request keeps a reported failure on the command route.
-const RUN: &[&str] = &["run", "rerun", "execute", "돌려", "실행해", "실행하"];
-// Questions about where or how existing code works are discovery.
-const DISCOVERY: &[&str] = &[
-    "where is",
-    "where are",
-    "where's",
-    "how does",
-    "어디에 있",
-    "어디 있",
-    "어디서",
-    "어떻게 동작",
-    "어떻게 작동",
-    "어떻게 돌아",
-    "무슨 역할",
-    "grep",
-];
-
-// Explaining needs a named source object; "explain how to improve the UI"
-// is conversation about a surface, not a discovery task.
-const EXPLAIN: &[&str] = &["explain", "describe", "설명", "알려"];
-
-fn symptom(text: &str) -> bool {
-    any(text, SYMPTOMS)
-        || any(text, WHY) && (any(text, SLOW) || any(text, RULES[1].objects))
-        || any(text, SECURITY) && any(text, LOOK)
-}
-
-fn contains(text: &str, needle: &str) -> bool {
-    if !needle.is_ascii() {
-        return text.contains(needle);
-    }
-    text.match_indices(needle).any(|(at, _)| {
-        let word = |byte: u8| byte.is_ascii_alphanumeric() || byte == b'_';
-        (at == 0 || !word(text.as_bytes()[at - 1]))
-            && (at + needle.len() == text.len() || !word(text.as_bytes()[at + needle.len()]))
-    })
-}
-
-fn any(text: &str, needles: &[&str]) -> bool {
-    needles.iter().any(|needle| contains(text, needle))
-}
-
-fn filename(text: &str) -> bool {
-    let text = text.trim().trim_end_matches('.');
-    let text = ["에서", "으로", "을", "를", "에", "로", "의"]
-        .iter()
-        .find_map(|suffix| text.strip_suffix(suffix))
-        .unwrap_or(text);
-    if text.is_empty()
-        || text.contains("://")
-        || text.contains([
-            '\n', '\r', '\t', '(', ')', '{', '}', '[', ']', ';', '=', '<', '>', '|',
-        ])
-    {
-        return false;
-    }
-    let name = text.rsplit(['/', '\\']).next().unwrap_or(text);
-    name.rsplit_once('.').is_some_and(|(_, extension)| {
-        !extension.is_empty()
-            && extension.len() <= 16
-            && extension
-                .bytes()
-                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
-            && extension.bytes().any(|byte| byte.is_ascii_alphabetic())
-    }) || text.contains('/') && !text.chars().any(char::is_whitespace)
-        || [
-            "dockerfile",
-            "makefile",
-            "readme",
-            "license",
-            "notice",
-            "justfile",
-            "gemfile",
-            "rakefile",
-        ]
-        .iter()
-        .any(|candidate| name.eq_ignore_ascii_case(candidate))
-}
-
-fn source_path(text: &str) -> bool {
-    text.split_whitespace().any(|token| {
-        let token = token.trim_matches([':', ',', ';', '(', ')']);
-        token == "." || filename(token)
-    })
-}
-
-fn task_object(text: &str, rule: &Rule) -> bool {
-    any(text, rule.objects)
-        || matches!(rule.form, 1 | 3 | 4 | 5 | 6 | 7) && any(text, DEVELOPMENT_SURFACES)
-        || matches!(rule.form, 1 | 2 | 3 | 5 | 6 | 7) && source_path(text)
-}
-
-// Creating a plan is not creating its proposed files. Only suppress an
-// artifact verb attached to the planning noun, never a separate edit clause.
-fn planning_artifact(clause: &str, action: &str) -> bool {
-    if action == "구현" {
-        return any(clause, &["계획", "설계"]) && !any(clause, &["구현해", "구현하"]);
-    }
-    if source_path(clause) || any(clause, &["file", "files", "파일"]) {
-        return false;
-    }
-    if !matches!(
-        action,
-        "create" | "generate" | "write" | "make" | "작성" | "만들" | "생성"
-    ) {
-        return false;
-    }
-    if !action.is_ascii() {
-        return clause.find("계획").is_some_and(|plan| {
-            clause.match_indices(action).all(|(verb, _)| {
-                plan < verb
-                    && !any(
-                        &clause[plan..verb],
-                        &["하고", "세우고", "만들고", "한 뒤", "다음"],
-                    )
-            })
-        });
-    }
-    clause.match_indices(action).all(|(verb, _)| {
-        let after = &clause[verb + action.len()..];
-        after.find("plan").is_some_and(|plan| {
-            contains(&after[plan..], "plan")
-                && !any(&after[..plan], &["and", "then", "file", "files"])
-        })
-    })
-}
-
-// Describing a future command is not asking the host to execute it. A separate
-// imperative clause ("plan ...; then build ...") still requests that capability.
-// Every occurrence must be descriptive: a later repeated verb can be imperative.
-fn execution_description(clause: &str, action: &str) -> bool {
-    let mut occurrences = clause.match_indices(action);
-    let Some((at, _)) = occurrences.next() else {
-        return false;
-    };
-    execution_description_at(clause, action, at)
-        && occurrences.all(|(at, _)| execution_description_at(clause, action, at))
-}
-
-fn execution_description_at(clause: &str, action: &str, at: usize) -> bool {
-    let prefix = clause[..at]
-        .rsplit(" and ")
-        .next()
-        .unwrap_or("")
-        .rsplit(" then ")
-        .next()
-        .unwrap_or("")
-        .rsplit("하고")
-        .next()
-        .unwrap_or("")
-        .rsplit("해서")
-        .next()
-        .unwrap_or("")
-        .rsplit("한 뒤")
-        .next()
-        .unwrap_or("")
-        .rsplit(" 후 ")
-        .next()
-        .unwrap_or("");
-    any(
-        prefix,
-        &[
-            "plan",
-            "design",
-            "explain",
-            "describe",
-            "how to",
-            "what",
-            "why",
-            "whether",
-            "diagnose",
-            "investigate",
-            "analyze",
-            "analyse",
-            "inspect",
-            "review",
-            "계획",
-            "설명해",
-            "설명하",
-            "방법",
-            "분석",
-            "진단",
-            "왜",
-        ],
-    ) || action.is_ascii()
-        && prefix
-            .split_whitespace()
-            .next_back()
-            .is_some_and(|word| matches!(word, "the" | "this" | "a" | "project" | "current"))
-        || !action.is_ascii()
-            && [
-                "가", "는", "된", "의", "오류", "결과", "환경", "시간", "실패",
-            ]
-            .iter()
-            .any(|suffix| clause[at + action.len()..].trim_start().starts_with(suffix))
-        || !action.is_ascii()
-            && any(&clause[at + action.len()..], &["계획", "방법"])
-            && !any(clause, &["실행해", "빌드해", "컴파일해"])
-}
-
-// Repair/improvement prose can describe a plan or method instead of a change.
-// Reuse the bounded command-description guard, including compound imperatives.
-fn change_description(clause: &str, action: &str) -> bool {
-    (REPAIRS.contains(&action)
-        || matches!(action, "improve" | "enhance" | "polish" | "개선" | "다듬"))
-        && execution_description(clause, action)
-}
-
-// Korean adnominal/passive verb forms ("구현됐나", "뽑는 기능", "추가된 함수")
-// describe existing work rather than request it.
-fn verb_description(clause: &str, action: &str) -> bool {
-    !action.is_ascii()
-        && clause.contains(action)
-        && clause.match_indices(action).all(|(at, _)| {
-            [
-                "는", "던", "된", "됐", "되었", "되어", "되는", "되나", "되지", "어진", "아진",
-                "여진", "진", "힌",
-            ]
-            .iter()
-            .any(|ending| clause[at + action.len()..].starts_with(ending))
-        })
-}
-
-// Checking whether existing work is implemented or behaves correctly verifies
-// it; there is no new mutation request.
-const CHECKS: &[&str] = &["check", "확인", "점검"];
-const CHECKED: &[&str] = &[
-    "feature",
-    "implementation",
-    "implemented",
-    "works",
-    "working",
-    "기능",
-    "구현",
-    "동작",
-    "작동",
-];
-const REPAIRS: &[&str] = &["fix", "repair", "고쳐", "고치", "수정"];
-
-/// Strip literal/source instructions, retaining only object markers for quoted
-/// filenames or opaque arguments. Only unquoted verbs can request a capability;
-/// the original draft alone is submitted.
-fn instruction(text: &str) -> String {
-    let mut result = String::with_capacity(text.len());
-    let mut fence = None;
-    for line in text.lines() {
-        let trimmed = line.trim_start();
-        if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
-            let marker = &trimmed[..3];
-            if fence == Some(marker) {
-                fence = None;
-            } else if fence.is_none() {
-                fence = Some(marker);
-            }
-            continue;
-        }
-        if fence.is_some()
-            || trimmed.starts_with('>')
-            || line.starts_with("    ")
-            || [
-                "provider:",
-                "provider output:",
-                "provider response:",
-                "assistant:",
-                "assistant output:",
-                "system:",
-                "tool:",
-                "tool output:",
-                "output:",
-                "metadata:",
-                "출력:",
-                "응답:",
-                "메타데이터:",
-                "fn ",
-                "let ",
-                "const ",
-                "import ",
-                "use ",
-                "{",
-                "[",
-                "<",
-            ]
-            .iter()
-            .any(|prefix| {
-                trimmed
-                    .get(..prefix.len())
-                    .is_some_and(|head| head.eq_ignore_ascii_case(prefix))
-            })
-        {
-            continue;
-        }
-        let mut quote = None;
-        let mut previous = ' ';
-        for (offset, ch) in line.char_indices() {
-            if let Some((end, start)) = quote {
-                if ch == end {
-                    quote = None;
-                    if filename(&line[start..offset]) {
-                        result.push_str(" ./ ");
-                    } else if !line[start..offset].trim().is_empty() {
-                        // An opaque command such as `cargo build` is an object,
-                        // never a source of verbs. Only an outer run/execute
-                        // imperative can match the command rule with this noun.
-                        result.push_str(" command ");
-                    } else {
-                        result.push(' ');
-                    }
-                }
-            } else if matches!(ch, '`' | '"' | '“' | '‘')
-                || ch == '\'' && !previous.is_alphanumeric()
-            {
-                quote = Some((
-                    match ch {
-                        '“' => '”',
-                        '‘' => '’',
-                        _ => ch,
-                    },
-                    offset + ch.len_utf8(),
-                ));
-                result.push(' ');
-            } else {
-                result.extend(ch.to_lowercase());
-            }
-            previous = ch;
-        }
-        result.push('\n');
-    }
-    result
-}
-
-const READONLY: &[&str] = &[
-    "read-only",
-    "read only",
-    "readonly",
-    "only read",
-    "do not write",
-    "don't write",
-    "do not edit",
-    "don't edit",
-    "do not modify",
-    "don't modify",
-    "do not change files",
-    "don't change files",
-    "no changes",
-    "without changes",
-    "without changing anything",
-    "without modifying files",
-    "without writing",
-    "without editing",
-    "읽기 전용",
-    "읽기만",
-    "쓰기 금지",
-    "수정하지",
-    "변경하지",
-    "작성하지",
-];
-const NEGATIVE: &[&str] = &[
-    "do not",
-    "don't",
-    "never",
-    "not",
-    "avoid",
-    "without",
-    "하지 마",
-    "하지마",
-    "하지 않",
-    "하지 말",
-    "금지",
-    "말고",
-    "아니",
-];
-
-// Elliptical implementation requests still name the requested capability.
-// Generic "continue" remains ambiguous; a plan-bound "proceed" is handled below.
-fn implementation_followup(literal: &str) -> bool {
-    let text = literal.trim().trim_end_matches(['.', '!', '?']).trim();
-    matches!(
-        text,
-        "implement"
-            | "implement it"
-            | "implement this"
-            | "implement the plan"
-            | "please implement"
-            | "please implement it"
-            | "구현해줘"
-            | "구현해 줘"
-            | "구현해주세요"
-            | "구현해 주세요"
-            | "구현해"
-            | "구현하자"
-            | "이대로 구현해줘"
-            | "계획대로 구현해줘"
-            // Elliptical "act on what we discussed" requests.
-            | "fix it"
-            | "fix this"
-            | "fix them"
-            | "please fix it"
-            | "do it"
-            | "improve it"
-            | "improve this"
-            | "please improve it"
-            | "yes do it"
-            | "yes, do it"
-            | "make it"
-            | "apply it"
-            | "apply the fix"
-            | "apply the changes"
-            | "고쳐줘"
-            | "고쳐 줘"
-            | "고쳐주세요"
-            | "수정해줘"
-            | "수정해 줘"
-            | "수정해주세요"
-            | "개선해줘"
-            | "개선해 줘"
-            | "개선해주세요"
-            | "개선해 주세요"
-            | "적용해줘"
-            | "적용해 줘"
-            | "반영해줘"
-            | "만들어줘"
-            | "만들어 줘"
-            | "그렇게 해줘"
-            | "응 그렇게 해줘"
-            | "그대로 해줘"
-    )
-}
-
-pub fn classify(text: &str) -> Option<Selection> {
-    if text.len() > super::MAX_GOAL_BYTES {
-        return None;
-    }
-    let literal = instruction(text);
-    let readonly = any(&literal, READONLY);
-    if !readonly && implementation_followup(&literal) {
-        return Some(Selection {
-            form: 3,
-            operation: Operation::Implement,
-            reason: Message::CoreEvolutionImplementation,
-        });
-    }
-    let clauses = || {
-        literal
-            .split(". ")
-            .flat_map(|part| part.split(" but "))
-            .flat_map(|part| part.split_inclusive("말고"))
-            .flat_map(|part| part.split(['\n', ';', ',', '!', '?']))
-            .map(|clause| {
-                clause
-                    .split_once(" without ")
-                    .map_or(clause, |(request, _)| request)
-            })
-            .filter(|clause| {
-                !any(clause, NEGATIVE)
-                    && !any(
-                        clause,
-                        &["수정하지", "변경하지", "작성하지", "실행하지", "검토하지"],
-                    )
-            })
-    };
-    let read = &RULES[RULES.len() - 1];
-    // Source or diagnosed/reviewed task nouns can precede a later change clause.
-    // Keep negated and literal source out, without dropping "diagnose; fix it".
-    let source_context = clauses().any(|clause| {
-        RULES
-            .iter()
-            .any(|rule| matches!(rule.form, 1 | 5 | 7) && task_object(clause, rule))
-    });
-    // A repair can target a diagnosed object or reported symptom without
-    // repeating its noun.
-    let reported = symptom(&literal);
-    let diagnosis_context = reported || clauses().any(|clause| task_object(clause, &RULES[1]));
-    let explicit_run = clauses().any(|clause| any(clause, RUN));
-    if readonly
-        && task_object(&literal, read)
-        && clauses().any(|clause| any(clause, read.actions))
-        && !clauses().any(|clause| any(clause, RULES[0].actions) && task_object(clause, &RULES[0]))
-    {
-        return Some(Selection {
-            form: 1,
-            operation: Operation::Plan,
-            reason: Message::CoreEvolutionReadonly,
-        });
-    }
-    // Request intent chooses capability independently of the displayed specialty.
-    // A diagnosis/review prefix must not hide a later explicit change request.
-    let mutation_requested = !readonly
-        && clauses().any(|clause| {
-            RULES.iter().any(|rule| {
-                rule.operation == Operation::Implement
-                    && rule.actions.iter().any(|action| {
-                        contains(clause, action)
-                            && !(verb_description(clause, action)
-                                || planning_artifact(clause, action)
-                                || change_description(clause, action)
-                                || rule.form == 2 && execution_description(clause, action))
-                    })
-                    && (task_object(clause, rule) || source_context)
-            }) || REPAIRS.iter().any(|action| {
-                contains(clause, action)
-                    && !verb_description(clause, action)
-                    && !change_description(clause, action)
-            }) && diagnosis_context
-                || [
-                    "write",
-                    "create",
-                    "update",
-                    "generate",
-                    "save",
-                    "작성",
-                    "생성",
-                    "수정",
-                    "갱신",
-                    "저장",
-                    "업데이트",
-                    "써",
-                ]
-                .iter()
-                .any(|action| {
-                    contains(clause, action)
-                        && !verb_description(clause, action)
-                        && !change_description(clause, action)
-                        && !planning_artifact(clause, action)
-                }) && (source_path(clause)
-                    || any(
-                        clause,
-                        &[
-                            "documentation",
-                            "docs",
-                            "readme",
-                            "changelog",
-                            "file",
-                            "파일",
-                            "문서",
-                            "변경 기록",
-                        ],
-                    ))
-        });
-    let independent_review = any(&literal, &["independent", "independently", "독립"]);
-    for rule in RULES {
-        // A reported failure is diagnosed before it is merely re-run or read,
-        // unless the request explicitly asks to run something.
-        if rule.form == 2 && reported && !explicit_run {
-            return Some(Selection {
-                form: 5,
-                operation: if readonly || !mutation_requested {
-                    Operation::Plan
-                } else {
-                    Operation::Implement
-                },
-                reason: if readonly {
-                    Message::CoreEvolutionReadonly
-                } else {
-                    Message::CoreEvolutionDiagnosis
-                },
-            });
-        }
-        if clauses().any(|clause| {
-            rule.actions.iter().any(|action| {
-                contains(clause, action)
-                    && !(verb_description(clause, action)
-                        || change_description(clause, action)
-                        || rule.form == 2 && execution_description(clause, action)
-                        || rule.form == 5
-                            && matches!(*action, "check" | "점검")
-                            && any(clause, CHECKED))
-            }) && if rule.form == 1
-                && rule
-                    .actions
-                    .iter()
-                    .filter(|action| contains(clause, action))
-                    .all(|action| EXPLAIN.contains(action))
-            {
-                // A bare "." ends a sentence here; it is not the project root.
-                any(clause, rule.objects)
-                    || clause.split_whitespace().any(|token| {
-                        filename(token.trim_matches([':', ',', ';', '(', ')', '.', '?']))
-                    })
-            } else {
-                task_object(clause, rule)
-                    || matches!(rule.form, 3 | 6) && source_context
-                    // "Do not improve UI; inspect it" still names an observation
-                    // target. Negated nouns never supply mutation capability above.
-                    || matches!(rule.form, 1 | 5 | 7) && task_object(&literal, rule)
-            }
-        }) {
-            // A read-only instruction cannot become a mutation-capable operation.
-            // Prefer the actual read task over an incidental write-role noun.
-            if readonly && matches!(rule.form, 3 | 6) {
-                return Some(Selection {
-                    form: 1,
-                    operation: Operation::Plan,
-                    reason: Message::CoreEvolutionReadonly,
-                });
-            }
-            return Some(Selection {
-                form: rule.form,
-                operation: if rule.form == 7 && independent_review {
-                    Operation::Review
-                } else if readonly {
-                    Operation::Plan
-                } else if mutation_requested {
-                    Operation::Implement
-                } else if rule.operation == Operation::Review {
-                    Operation::Plan
-                } else {
-                    rule.operation
-                },
-                reason: if readonly {
-                    Message::CoreEvolutionReadonly
-                } else {
-                    rule.reason
-                },
-            });
-        }
-    }
-    if !readonly && clauses().any(|clause| any(clause, CHECKS) && any(clause, CHECKED)) {
-        return Some(Selection {
-            form: 2,
-            operation: Operation::Implement,
-            reason: Message::CoreEvolutionVerification,
-        });
-    }
-    if clauses().any(|clause| any(clause, DISCOVERY)) {
-        return Some(Selection {
-            form: 1,
-            operation: Operation::Plan,
-            reason: if readonly {
-                Message::CoreEvolutionReadonly
-            } else {
-                Message::CoreEvolutionDiscovery
-            },
-        });
-    }
-    readonly.then_some(Selection {
-        form: 1,
-        operation: Operation::Plan,
-        reason: Message::CoreEvolutionReadonly,
-    })
-}
-
 /// The appearance a role leads to. Capability is never chosen by the form:
 /// every role keeps the ordinary approved tool set, narrowed only by the
 /// user's explicit restriction.
@@ -1313,12 +65,6 @@ fn role_selection(form: usize) -> Selection {
 /// re-guessed from word lists; an untagged step steers nothing.
 pub fn classify_step(step: &crate::workspace::progress::Step) -> Option<Selection> {
     step.role().map(|role| role_selection(role.form()))
-}
-
-/// The user's own literal read-only wording narrows capability; it never
-/// widens it and never picks a form.
-fn write_restricted(text: &str) -> bool {
-    any(&instruction(text), READONLY)
 }
 
 impl App {
@@ -1363,23 +109,23 @@ impl App {
         Some((position, self.todo_focus().map(|todo| todo.form)))
     }
 
-    /// Whether the next Send's appearance comes from the current todo step:
-    /// an ambiguous continuation of the adopted plan.
+    /// Whether the next Send starts from the adopted plan's focus step. Any
+    /// Send continues the current plan until the model replaces it; the request
+    /// text is never interpreted.
     pub(super) fn follows_todo(&self) -> bool {
-        self.todo_focus().is_some() && crate::providers::effort::ambiguous_followup(&self.input)
+        self.todo_focus().is_some()
     }
 
     /// Shared by inspection and ordinary Submit; does not mutate or prepare work.
     ///
-    /// The request text never picks a form. A fresh request keeps the current
-    /// appearance and the model's role-tagged plan evolves it while it runs; a
-    /// continuation takes the adopted focus step's role. Capability is the
+    /// The request text never picks a form or a capability. A Send starts in the
+    /// adopted focus step's role form (otherwise the current form) and the
+    /// model's role-tagged plan evolves it while it runs. Capability is the
     /// ordinary approved tool set (every file effect and command still needs
-    /// exact one-shot approval), narrowed only by explicit user policy.
+    /// exact one-shot approval), narrowed only by an explicit Plan/Review mode.
     pub(super) fn request_evolution(&self) -> Option<Selection> {
         let mut choice = self
             .todo_focus()
-            .filter(|_| self.follows_todo())
             .map(|todo| Selection {
                 reason: Message::CoreEvolutionTodo,
                 ..todo
@@ -1389,10 +135,6 @@ impl App {
                 operation: Operation::Implement,
                 reason: Message::CoreEvolutionGeneral,
             });
-        if write_restricted(&self.input) {
-            choice.operation = Operation::Plan;
-            choice.reason = Message::CoreEvolutionReadonly;
-        }
         if !self.lead.auto_form {
             choice.form = self.form();
         }
@@ -1413,21 +155,38 @@ impl App {
     /// role changes appearance only. The running request keeps its frozen
     /// owner, operation and approvals; nothing is sent, granted or cancelled.
     pub(super) fn follow_todo_role(&mut self) {
-        let Some(target) = self.todo_focus() else {
-            return;
-        };
-        let from = self.form();
-        if target.form == from {
+        if let Some(target) = self.todo_focus() {
+            self.evolve_running(target.form, Message::CoreEvolutionTodo);
+        }
+    }
+
+    /// Observed tool activity of the lead's running request steers appearance
+    /// only while the plan's focus step names no role (or there is no plan):
+    /// a write proposal is implementation, a command request is verification.
+    pub(super) fn follow_activity(&mut self, role: crate::workspace::progress::Role) {
+        if !self.lead.auto_form
+            || self.planning.explicit_operation() == Some(Operation::Review)
+            || self.todo_focus().is_some()
+        {
             return;
         }
-        self.set_form(target.form);
+        let target = role_selection(role.form());
+        self.evolve_running(target.form, target.reason);
+    }
+
+    fn evolve_running(&mut self, form: usize, reason: Message) {
+        let from = self.form();
+        if form == from {
+            return;
+        }
+        self.set_form(form);
         // A carry-over snapshot is for deliberate switches between requests.
         self.carry_over.pending = None;
         self.carry_over.pending_visible = false;
         self.evolution.transition = Some(Transition {
             from,
-            to: target.form,
-            reason: Message::CoreEvolutionTodo,
+            to: form,
+            reason,
             fresh: false,
         });
         self.evolution.popup_shown = false;
@@ -1613,7 +372,7 @@ mod tests {
     }
 
     #[test]
-    fn fresh_requests_keep_appearance_and_full_tools_while_continuations_follow_roles() {
+    fn sends_start_from_the_plan_focus_role_and_never_read_the_request_text() {
         use crate::workspace::progress::Status;
         let mut app = app();
         // The request text never picks a form, however specific it sounds.
@@ -1635,7 +394,9 @@ mod tests {
             ("결제 모듈 흐름 정리", "discover", Status::Done),
             ("결제 모듈 개편안", "plan", Status::Active),
         ]));
-        for followup in ["계속", "continue", "Continue."] {
+        // Any Send continues the adopted plan's focus step, whatever its wording;
+        // a new topic gets a new plan from the model, which evolves it mid-run.
+        for followup in ["계속", "continue", "Tell me more about this task."] {
             app.input = followup.into();
             assert!(app.follows_todo());
             let choice = app.request_evolution().unwrap();
@@ -1646,8 +407,8 @@ mod tests {
             );
             assert_eq!(choice.reason, Message::CoreEvolutionTodo);
         }
-        // A fresh request is not a continuation; the plan steers it while it runs.
-        app.input = "Tell me more about this task.".into();
+        // A settled plan steers nothing.
+        app.workflows.progress = Some(role_plan(&[("결제 모듈 개편안", "plan", Status::Done)]));
         assert!(!app.follows_todo());
         assert_eq!(app.request_evolution().unwrap().form, 0);
         assert_eq!(app.form(), 0, "prediction evolved before Send");
@@ -1659,12 +420,12 @@ mod tests {
         use crate::workspace::progress::Status;
         let mut app = app();
         app.workflows.progress = Some(role_plan(&[("결제 모듈", "implement", Status::Active)]));
-        // The user's literal read-only wording narrows tools; the role keeps the form.
+        // Wording never narrows tools; the model reads it and approvals gate effects.
         app.input = "계속, 읽기만 해".into();
-        let choice = app.request_evolution().unwrap();
-        assert_eq!(choice.operation, Operation::Plan);
-        app.input = "Read src/main.rs; do not change files".into();
-        assert_eq!(app.request_evolution().unwrap().operation, Operation::Plan);
+        assert_eq!(
+            app.request_evolution().unwrap().operation,
+            Operation::Implement
+        );
         // Explicit Plan mode narrows tools without stopping evolution.
         app.input = "continue".into();
         app.planning.set_operation(Operation::Plan);
@@ -1673,6 +434,30 @@ mod tests {
         // A pinned form keeps its appearance.
         app.lead.auto_form = false;
         assert_eq!(app.request_evolution().unwrap().form, app.form());
+    }
+
+    #[test]
+    fn tool_activity_steers_only_when_the_plan_names_no_role() {
+        use crate::workspace::progress::{Role, Status};
+        let mut app = app();
+        app.follow_activity(Role::Verify);
+        assert_eq!(app.form(), 2);
+        assert_eq!(app.evolution.transition.unwrap().to, 2);
+        app.follow_activity(Role::Implement);
+        assert_eq!(app.form(), 3);
+        // A role-tagged focus step wins over activity.
+        app.workflows.progress = Some(role_plan(&[("검토", "review", Status::Active)]));
+        app.follow_activity(Role::Verify);
+        assert_eq!(app.form(), 3);
+        // Pinned forms and explicit Review never follow activity.
+        app.workflows.progress = None;
+        app.lead.auto_form = false;
+        app.follow_activity(Role::Verify);
+        assert_eq!(app.form(), 3);
+        app.lead.auto_form = true;
+        app.planning.set_operation(Operation::Review);
+        app.follow_activity(Role::Verify);
+        assert_eq!(app.form(), 3);
     }
 
     #[test]
@@ -1829,7 +614,9 @@ mod tests {
     fn planned_app() -> App {
         let mut app = app();
         app.planning.agent = Agent::Compatible;
-        app.input = "새 프로젝트 구현 계획 세워줘. 읽기만 해줘.".into();
+        // An explicit Plan mode, not wording, makes planning read-only.
+        app.planning.set_operation(Operation::Plan);
+        app.input = "새 프로젝트 구현 계획 세워줘".into();
         app.submit_request();
         app.pending_request = None;
         app.planning.submitted_request = app.input.as_str().into();
@@ -1851,100 +638,39 @@ mod tests {
     }
 
     #[test]
-    fn ordinary_implementation_followups_carry_public_plan_without_old_authority() {
-        for followup in [
-            "구현해줘",
-            "구현해 주세요.",
-            "Implement it.",
-            "진행해줘",
-            "Go ahead.",
-        ] {
-            let mut app = planned_app();
-            app.input = followup.into();
-            app.submit_request();
-            assert_eq!(app.planning.operation, Operation::Implement, "{followup}");
-            assert!(app.planning.thread_id.is_none());
-            assert_eq!(app.planning.items.len(), 1);
-            let snapshot = app.snapshot("/workspace");
-            app.planning.command("new", true, &snapshot, &[], None);
-            let Some(Request::Preview(input)) = app.planning.pending.take() else {
-                panic!("missing implementation preview for {followup}");
-            };
-            assert_eq!(input.instruction(), followup);
-            assert!(input.resume.is_none() && input.conversation.is_none());
-            assert!(input.work.is_none());
-            let context = input.prior_plan_payload().unwrap();
-            assert!(context.to_string().contains("planned/한글/saved.txt"));
-            assert!(!context.to_string().contains("planning-thread"));
-            assert_eq!(context["messages"][0]["role"], "user");
-            assert_eq!(context["messages"][1]["role"], "assistant");
-            assert!(input.validate_selection().is_ok());
-        }
+    fn leaving_plan_mode_carries_the_completed_plan_without_old_authority() {
+        let mut app = planned_app();
+        // Wording cannot leave an explicit Plan mode.
+        app.input = "구현해줘".into();
+        app.submit_request();
+        assert_eq!(app.planning.operation, Operation::Plan);
+        app.pending_request = None;
+        app.planning.set_operation(Operation::Implement);
+        assert_eq!(app.planning.operation, Operation::Implement);
+        assert!(app.planning.thread_id.is_none());
+        app.input = "구현해줘".into();
+        app.submit_request();
+        let snapshot = app.snapshot("/workspace");
+        app.planning.command("new", true, &snapshot, &[], None);
+        let Some(Request::Preview(input)) = app.planning.pending.take() else {
+            panic!("missing implementation preview");
+        };
+        assert_eq!(input.operation, Operation::Implement);
+        assert!(input.resume.is_none() && input.conversation.is_none());
+        let context = input.prior_plan_payload().expect("completed plan carried");
+        assert!(context.to_string().contains("planned/한글/saved.txt"));
+        assert!(!context.to_string().contains("planning-thread"));
+        assert!(input.validate_selection().is_ok());
     }
-
     #[test]
-    fn explicit_plan_or_review_policy_survives_implementation_followups() {
-        for operation in [Operation::Plan, Operation::Review] {
-            let mut app = planned_app();
-            app.planning.set_operation(operation);
-            app.input = "구현해줘".into();
-            app.submit_request();
-            assert_eq!(app.planning.operation, operation);
-        }
-        for text in [
-            "\"구현해줘\"",
-            "> 구현해줘",
-            "구현하지 마",
-            "Explain how to implement it.",
-        ] {
-            assert!(classify(text).is_none(), "{text}");
-        }
-        for text in [
-            "프로젝트 만들어줘",
-            "앱을 만들어줘",
-            "Overwrite saved.txt",
-            "saved.txt를 덮어써줘",
-        ] {
-            assert_eq!(
-                classify(text).unwrap().operation,
-                Operation::Implement,
-                "{text}"
-            );
-        }
-    }
-
-    #[test]
-    fn project_planning_requests_classify_as_planning_for_move_grouping() {
-        for text in [
-            "프로젝트 계획 세워줘",
-            "프로젝트 계획을 작성해줘.",
-            "앱 구현 계획을 만들어줘.",
-            "Help me plan this project.",
-            "Make a project plan.",
-            "Create an implementation plan for this app.",
-            "Write a project plan.",
-            "Design the project architecture.",
-            "Plan the project; read .env and .git/config.",
-        ] {
-            let selected = classify(text).unwrap();
-            assert_eq!(
-                (selected.form, selected.operation),
-                (4, Operation::Plan),
-                "{text}"
-            );
-        }
-    }
-
-    #[test]
-    fn ordinary_coding_requests_get_write_tools_like_other_agents() {
+    fn every_request_gets_the_approved_tool_set_unless_plan_or_review_mode_is_on() {
+        // Wording never changes tools: the model reads "read only" itself and
+        // every effect it might still propose needs exact approval.
         for text in [
             "make a snake game in python",
-            "add a login page",
-            "implement dark mode",
-            "다크모드 구현해줘",
-            "README에 설치 방법 써줘",
-            "의존성 업데이트해줘",
-            "hello world 출력하는 파이썬 파일",
+            "이 코드 설명해줘, 읽기만",
+            "Read src/main.rs; do not change files",
+            "Diagnose how to fix src/main.rs.",
             "뭐 더하면 좋을까?",
         ] {
             let mut app = app();
@@ -1958,678 +684,24 @@ mod tests {
             };
             assert!(providers::writing_required(input.operation), "{text}");
         }
-        // Explicit read-only intent and a Plan restriction still win.
-        for (text, restrict) in [("이 코드 설명해줘, 읽기만", false), ("make a game", true)]
-        {
+        for operation in [Operation::Plan, Operation::Review] {
             let mut app = app();
-            if restrict {
-                app.planning.set_operation(Operation::Plan);
-            }
-            app.input = text.into();
+            app.planning.set_operation(operation);
+            app.input = "make a game".into();
             app.submit_request();
-            assert_eq!(app.planning.operation, Operation::Plan, "{text}");
+            assert_eq!(app.planning.operation, operation);
         }
-        // A diagnosis already has write tools, so an elliptical fix needs no switch.
-        for followup in ["고쳐줘", "fix it", "응 그렇게 해줘"] {
-            let mut app = app();
-            app.input = "Analyze the error.".into();
-            app.submit_request();
-            assert_eq!(app.planning.operation, Operation::Implement);
-            app.pending_request = None;
-            app.planning.thread_id = Some("diagnosis-thread".into());
-            app.input = followup.into();
-            app.submit_request();
-            assert_eq!(app.planning.operation, Operation::Implement, "{followup}");
-        }
+        // Consecutive ordinary requests keep one conversation: no operation switch.
+        let mut app = app();
+        app.input = "Analyze the error.".into();
+        app.submit_request();
+        app.pending_request = None;
+        app.planning.thread_id = Some("diagnosis-thread".into());
+        app.input = "고쳐줘".into();
+        app.submit_request();
+        assert_eq!(app.planning.operation, Operation::Implement);
+        assert_eq!(app.planning.thread_id.as_deref(), Some("diagnosis-thread"));
     }
-
-    #[test]
-    fn planning_artifacts_do_not_hide_explicit_file_effects() {
-        for text in [
-            "Plan the project and implement its feature.",
-            "Make a project plan and create the code.",
-            "Plan the project; create src/main.rs.",
-            "Write the project plan to plan.md.",
-            "프로젝트 계획을 세우고 기능을 구현해줘.",
-            "프로젝트 계획을 작성하고 파일을 생성해줘.",
-            "프로젝트 구현 계획을 세우고 코드를 구현해줘.",
-            "프로젝트 계획을 만들고 기능을 만들어줘.",
-        ] {
-            assert_eq!(
-                classify(text).unwrap().operation,
-                Operation::Implement,
-                "{text}"
-            );
-        }
-        for text in [
-            "Plan the project and create code; do not modify files.",
-            "프로젝트 계획을 세우고 코드를 구현해줘. 파일은 수정하지 마.",
-        ] {
-            assert_eq!(classify(text).unwrap().operation, Operation::Plan, "{text}");
-        }
-    }
-
-    #[test]
-    fn development_surface_improvements_and_compound_requests_select_capabilities() {
-        for (text, form) in [
-            (
-                "Improve the todo tool UI and remove duplicate display rows.",
-                3,
-            ),
-            ("Enhance the interface layout.", 3),
-            ("Polish the tool presentation.", 3),
-            ("todo 툴 UI가 중복으로 출력돼. 이부분 개선해줘.", 3),
-            ("도구 화면의 레이아웃을 다듬어줘.", 3),
-            ("프롬프트 의도 자동전환을 개선해줘.", 3),
-            ("Inspect tool UI; improve its spacing.", 3),
-            ("Diagnose the error and improve the tool UI.", 5),
-            (
-                "Diagnose duplicated tool UI output and improve its layout.",
-                5,
-            ),
-            ("Diagnose the error; then fix it.", 5),
-            ("오류를 분석하고, 고쳐줘.", 5),
-            ("UI를 분석해서 레이아웃을 개선해줘.", 5),
-            ("UI를 점검한 뒤 레이아웃을 개선해줘.", 5),
-            ("UI를 분석 후 개선해줘.", 5),
-            ("Review tool UI, then fix its layout.", 7),
-            ("Review the patch, then fix it.", 7),
-            ("툴 화면을 검토하고 레이아웃을 개선해줘.", 7),
-            (
-                " #1 todo 툴같은거 ui가 안예쁘게 잡히네. 중복으로 계속 출력되고. 이부분 개선해주고, 프롬프트 의도 분석해서 이브이 진화체 자동전환도 점검해서 개선해줘",
-                5,
-            ),
-        ] {
-            let selected = classify(text).unwrap_or_else(|| panic!("missing intent: {text}"));
-            assert_eq!(
-                (selected.form, selected.operation),
-                (form, Operation::Implement),
-                "{text}"
-            );
-        }
-    }
-
-    #[test]
-    fn improvement_descriptions_negation_and_source_do_not_request_mutation() {
-        for text in [
-            "Plan how to improve the tool UI.",
-            "Create a UI improvement plan.",
-            "UI 개선 계획을 세워줘.",
-            "Diagnose how to improve the tool UI.",
-            "UI 개선 방법을 분석해줘.",
-            "Review tool UI without improving it.",
-            "Review tool UI; do not improve its layout.",
-            "UI를 개선하지 말고 점검해줘.",
-            "UI 개선은 하지 말고 점검만 해줘.",
-            "Improve the tool UI; read only.",
-            "UI를 개선해줘. 읽기 전용.",
-            "Inspect tool UI:\n```\nimprove its layout\n```",
-        ] {
-            let selected = classify(text).unwrap_or_else(|| panic!("missing intent: {text}"));
-            assert_eq!(selected.operation, Operation::Plan, "{text}");
-        }
-        for text in [
-            "Explain how to improve the UI.",
-            "\"Improve the tool UI\"",
-            "`UI를 개선해줘`",
-            "> Improve the tool UI.",
-            "Provider output: Improve the tool UI.",
-            "Tool output: UI를 개선해줘.",
-            "```\nImprove the tool UI.\n```",
-            "Do not improve the tool UI.",
-            "UI를 개선하지 마.",
-            "Improve my greeting.",
-            "Do not inspect the UI; improve my greeting.",
-            "Do not diagnose the error; write a greeting.",
-            "Continue.",
-        ] {
-            assert!(classify(text).is_none(), "{text}");
-        }
-    }
-
-    #[test]
-    fn everyday_requests_reach_the_matching_specialist() {
-        for (text, form, operation) in [
-            ("where is the parser defined?", 1, Operation::Plan),
-            ("이 프로젝트 어떻게 동작해?", 1, Operation::Plan),
-            ("코드 구조 설명해줘", 1, Operation::Plan),
-            ("lint 돌려줘", 2, Operation::Implement),
-            ("add tests for the parser", 3, Operation::Implement),
-            ("버튼 색 파란색으로 바꿔줘", 3, Operation::Implement),
-            ("의존성 업데이트해줘", 3, Operation::Implement),
-            ("승인팝업 ui ux도 좀 올려주고", 3, Operation::Implement),
-            ("진화체 별 설명도 쉽게 개선해줘", 3, Operation::Implement),
-            (
-                "what should the architecture be for caching",
-                4,
-                Operation::Plan,
-            ),
-            ("어떻게 구현하면 좋을까", 4, Operation::Plan),
-            ("tests are failing", 5, Operation::Plan),
-            ("이 함수 왜 느린지 알려줘", 5, Operation::Plan),
-            ("메모리 누수 찾아줘", 5, Operation::Plan),
-            ("보안 취약점 확인해줘", 5, Operation::Plan),
-            ("중복 코드 정리해줘", 6, Operation::Implement),
-            ("성능 개선해줘", 6, Operation::Implement),
-            ("review my changes", 7, Operation::Plan),
-            ("PR 리뷰해줘", 7, Operation::Plan),
-            ("summarize what we did", 8, Operation::Plan),
-            ("README 업데이트해줘", 8, Operation::Implement),
-        ] {
-            let selected = classify(text).unwrap_or_else(|| panic!("{text}"));
-            assert_eq!(
-                (selected.form, selected.operation),
-                (form, operation),
-                "{text}"
-            );
-        }
-        // An explicit run keeps a reported failure on the command route.
-        assert_eq!(classify("run the tests, they are failing").unwrap().form, 2);
-        for text in ["hello", "이거 설명해줘", "Explain how to improve the UI."] {
-            assert!(classify(text).is_none(), "{text}");
-        }
-    }
-
-    #[test]
-    fn deterministic_task_roles_in_both_languages() {
-        for (form, operation, en, ko) in [
-            (
-                1,
-                Operation::Plan,
-                "Read the project source files.",
-                "프로젝트 소스 파일을 읽어줘.",
-            ),
-            (
-                2,
-                Operation::Implement,
-                "Run the project tests.",
-                "프로젝트 테스트를 실행해줘.",
-            ),
-            (
-                3,
-                Operation::Implement,
-                "Create a Python code file.",
-                "파이썬 코드 파일을 생성해줘.",
-            ),
-            (
-                4,
-                Operation::Plan,
-                "Design the module architecture and implementation plan.",
-                "모듈 아키텍처와 구현 계획을 설계해줘.",
-            ),
-            (
-                5,
-                Operation::Plan,
-                "Diagnose the root cause of this runtime failure.",
-                "실행 오류의 근본 원인을 진단해줘.",
-            ),
-            (
-                6,
-                Operation::Implement,
-                "Refactor this code without changing behavior.",
-                "동작을 유지하면서 코드를 리팩터링해줘.",
-            ),
-            (
-                7,
-                Operation::Review,
-                "Perform an independent code review of the changes.",
-                "변경한 코드를 독립적으로 리뷰해줘.",
-            ),
-            (
-                8,
-                Operation::Plan,
-                "Prepare a handoff summary.",
-                "작업 인계 요약을 작성해줘.",
-            ),
-        ] {
-            for text in [en, ko] {
-                let selected = classify(text).unwrap_or_else(|| panic!("missing role for {text}"));
-                assert_eq!(
-                    (selected.form, selected.operation),
-                    (form, operation),
-                    "{text}"
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn negated_without_tail_cannot_authorize_changes() {
-        for text in [
-            "Review the code changes without implementing a fix.",
-            "Without implementing a fix, review the code changes.",
-            "코드를 수정하지 말고 검토해줘.",
-        ] {
-            let selected = classify(text).unwrap();
-            assert_eq!(selected.operation, Operation::Plan, "{text}");
-        }
-        for text in [
-            "Review the code changes without implementing a fix; implement the code fix afterwards.",
-            "Refactor this code without changing behavior.",
-        ] {
-            assert_eq!(
-                classify(text).unwrap().operation,
-                Operation::Implement,
-                "{text}"
-            );
-        }
-    }
-
-    #[test]
-    fn precedence_readonly_negation_and_documentation_capability() {
-        for text in [
-            "Do not write code; read the project files.",
-            "Read project source without changing anything.",
-            "파일을 수정하지 말고 읽어줘.",
-            "Do not create a file, but read the source files.",
-        ] {
-            let selected = classify(text).unwrap();
-            assert_eq!(
-                (selected.form, selected.operation),
-                (1, Operation::Plan),
-                "{text}"
-            );
-        }
-        for text in [
-            "Do not implement code.",
-            "Never run tests.",
-            "파일을 생성하지 마.",
-            "코드를 검토하지 마.",
-        ] {
-            assert!(classify(text).is_none(), "{text}");
-        }
-        for text in [
-            "Write project documentation to README.md.",
-            "README.md에 프로젝트 문서를 작성해줘.",
-        ] {
-            let selected = classify(text).unwrap();
-            assert_eq!(
-                (selected.form, selected.operation),
-                (8, Operation::Implement)
-            );
-        }
-        let selected = classify("Draft project documentation; do not modify files.").unwrap();
-        assert_eq!((selected.form, selected.operation), (8, Operation::Plan));
-        assert_eq!(
-            classify("Review the code changes; implement a code fix afterwards.")
-                .unwrap()
-                .form,
-            7
-        );
-        assert_eq!(
-            classify("Plan the architecture; implement the feature afterwards.")
-                .unwrap()
-                .form,
-            4
-        );
-        assert_eq!(classify("Read src/main.rs").unwrap().form, 1);
-        assert_eq!(classify("Create hello.py").unwrap().form, 3);
-        assert_eq!(classify("Review src/main.rs").unwrap().form, 7);
-        // Discovery must not hide an explicit edit in the same instruction.
-        assert_eq!(
-            classify("Read the source file and edit its value.")
-                .unwrap()
-                .operation,
-            Operation::Implement
-        );
-        assert_eq!(classify("Make a Python file.").unwrap().form, 3);
-        assert_eq!(classify("파이썬 파일을 만들어줘.").unwrap().form, 3);
-        assert_eq!(classify("소스 파일의 값을 바꿔줘.").unwrap().form, 3);
-    }
-
-    #[test]
-    fn everyday_search_cause_benchmark_and_structure_requests_find_their_form() {
-        for (text, form, operation) in [
-            ("이 에러 원인 찾아줘", 5, Operation::Plan),
-            ("trace the crash", 5, Operation::Plan),
-            ("find where the config is loaded", 1, Operation::Plan),
-            ("search for usages of parse_args", 1, Operation::Plan),
-            ("grep TODO", 1, Operation::Plan),
-            ("이 파일 구조 파악해줘", 1, Operation::Plan),
-            ("설정 정의 찾아줘", 1, Operation::Plan),
-            ("어떤 구조가 좋을까?", 4, Operation::Plan),
-            ("벤치마크 돌려줘", 2, Operation::Implement),
-            ("run the benchmarks", 2, Operation::Implement),
-        ] {
-            let selection = classify(text).unwrap_or_else(|| panic!("{text}"));
-            assert_eq!(
-                (selection.form, selection.operation),
-                (form, operation),
-                "{text}"
-            );
-        }
-        // Generic conversation still stays with the current form.
-        assert_eq!(classify("explain this fixture"), None);
-    }
-
-    #[test]
-    fn descriptive_verbs_checks_and_diagnosed_repairs_choose_the_requested_capability() {
-        for (text, form, operation) in [
-            // Checking existing work verifies it rather than requesting a mutation.
-            (
-                "프롬프트 의도 파악해서 todo 뽑는 기능 잘 구현됐나 확인",
-                2,
-                Operation::Implement,
-            ),
-            (
-                "Check whether the todo feature is implemented correctly",
-                2,
-                Operation::Implement,
-            ),
-            ("Check tool UI", 5, Operation::Plan),
-            (
-                "로그인 기능 잘 동작하는지 확인해줘",
-                2,
-                Operation::Implement,
-            ),
-            ("추가된 함수 보여줘", 1, Operation::Plan),
-            ("개선된 UI 보여줘", 1, Operation::Plan),
-            ("다듬어진 레이아웃 점검해줘", 5, Operation::Plan),
-            (
-                "개선된 UI를 살펴보고, 레이아웃을 다듬어줘",
-                3,
-                Operation::Implement,
-            ),
-            // Describing a repair is not an instruction to perform it.
-            ("Diagnose how to fix the error.", 5, Operation::Plan),
-            ("Diagnose how to fix src/main.rs.", 5, Operation::Plan),
-            ("Review how to repair the code.", 7, Operation::Plan),
-            ("오류 수정 방법을 분석해줘.", 5, Operation::Plan),
-            ("Review the patch; do not fix it.", 7, Operation::Plan),
-            ("Review the patch: \"fix src/main.rs\".", 7, Operation::Plan),
-            // A diagnosis prefix must not hide the later repair of its object.
-            ("Investigate the crash and fix it", 5, Operation::Implement),
-            (
-                "Investigate the crash. Then fix it.",
-                5,
-                Operation::Implement,
-            ),
-            ("크래시 원인 분석해서 수정해줘", 5, Operation::Implement),
-            (
-                "Diagnose the error and fix it if needed.",
-                5,
-                Operation::Implement,
-            ),
-            ("Review the patch; then repair it.", 7, Operation::Implement),
-            ("오류를 분석하고 수정해줘.", 5, Operation::Implement),
-            ("Analyze the error and summarize it", 5, Operation::Plan),
-            // Imperative requests keep their capability.
-            (
-                "버그같은거 더 없는지 확인해서 고쳐줘",
-                3,
-                Operation::Implement,
-            ),
-            ("새 기능 추가해줘", 3, Operation::Implement),
-            ("이 기능 구현해줘", 3, Operation::Implement),
-        ] {
-            let selected = classify(text).unwrap();
-            assert_eq!(
-                (selected.form, selected.operation),
-                (form, operation),
-                "{text}"
-            );
-        }
-        let selected = classify("분석만 하고 수정하지 마").unwrap();
-        assert_eq!((selected.form, selected.operation), (1, Operation::Plan));
-    }
-
-    #[test]
-    fn repeated_descriptive_verbs_keep_later_imperative_capability() {
-        for (text, form) in [
-            (
-                "Explain how to build the project and then build the project.",
-                2,
-            ),
-            ("Explain how to fix the error and then fix it.", 3),
-            ("오류 수정 방법을 분석하고 수정해줘.", 5),
-        ] {
-            let selected = classify(text).unwrap();
-            assert_eq!(
-                (selected.form, selected.operation),
-                (form, Operation::Implement),
-                "{text}"
-            );
-        }
-        for text in [
-            "Explain how to build the project and describe how to build it.",
-            "Explain how to fix the error and describe how to fix it.",
-            "오류 수정 방법을 분석하고 수정 방법을 설명해줘.",
-            "Explain how to build the project; do not build it.",
-            "Explain how to fix the error; do not fix it.",
-            "오류 수정 방법을 분석하고, 수정하지 마.",
-            "Explain how to build the project and quote \"build the project\".",
-            "Explain how to fix the error and quote \"fix the error\".",
-            "오류 수정 방법을 분석하고 \"수정해줘\" 문구를 설명해줘.",
-        ] {
-            assert!(
-                classify(text).is_none_or(|selection| selection.operation == Operation::Plan),
-                "{text}"
-            );
-        }
-    }
-
-    #[test]
-    fn discovery_and_mutation_share_source_context_across_clauses() {
-        for (text, form) in [
-            (
-                "List the project files, read the generated Python source, and edit only its value using the observed digest.",
-                3,
-            ),
-            ("Read src/main.rs; edit its value.", 3),
-            ("프로젝트 소스 파일을 읽고, 그 값을 수정해줘.", 3),
-            ("List the source files, then refactor their structure.", 6),
-            ("코드 파일을 찾아줘. 그 다음 리팩터링해줘.", 6),
-        ] {
-            let selected = classify(text).unwrap();
-            assert_eq!(
-                (selected.form, selected.operation),
-                (form, Operation::Implement),
-                "{text}"
-            );
-        }
-        for text in [
-            "List project source files, but do not edit their values.",
-            "프로젝트 파일 목록을 찾아줘. 파일을 수정하지 마.",
-        ] {
-            let selected = classify(text).unwrap();
-            assert_eq!(
-                (selected.form, selected.operation),
-                (1, Operation::Plan),
-                "{text}"
-            );
-        }
-        assert!(classify("Do not read source files; write a greeting.").is_none());
-        assert_eq!(
-            classify("Read the source files:\n```\nedit their values\n```")
-                .unwrap()
-                .form,
-            1
-        );
-    }
-
-    #[test]
-    fn literals_metadata_generic_chat_and_ambiguous_followups_never_classify() {
-        for text in [
-            "Continue.",
-            "Yes, that one.",
-            "계속해줘.",
-            "Write a greeting.",
-            "Explain this fixture.",
-            "\"implement code\"",
-            "'run tests'",
-            "`create code file`",
-            "> Review the code changes.\nThanks.",
-            "```rust\nimplement code\n```\nContinue.",
-            "~~~text\nRun the tests\n~~~",
-            "    create code file",
-            "Provider: implement code\nMetadata: run tests\nOutput: review code",
-            "fn implement_code() { create_file(); }",
-            "{\"instruction\": \"implement code\"}",
-        ] {
-            assert!(classify(text).is_none(), "{text}");
-        }
-        assert_eq!(
-            classify("Read the source files:\n```\nimplement code\n```")
-                .unwrap()
-                .form,
-            1
-        );
-    }
-
-    #[test]
-    fn ordinary_build_and_run_need_writer_capability_not_a_form_menu() {
-        for draft in [
-            "Build the project.",
-            "Compile src/main.rs and run the program.",
-            "빌드하고 실행해줘",
-            "프로젝트를 빌드하고 프로그램을 실행해줘.",
-            "Read src/main.rs; build the project.",
-            "Create main.c, edit its value, then compile and run the program.",
-            "코드 파일을 만들고 수정한 뒤 빌드하고 실행해줘.",
-            "Run `cargo build`.",
-            "Execute `./app`.",
-            "`cargo test` 실행해줘.",
-            "Run \"cargo test --offline\".",
-        ] {
-            assert_eq!(
-                classify(draft).unwrap().operation,
-                Operation::Implement,
-                "{draft}"
-            );
-            for manual in [false, true] {
-                for policy in [None, Some(Operation::Plan), Some(Operation::Review)] {
-                    let mut app = app();
-                    app.planning.agent = Agent::Compatible;
-                    app.lead.auto_form = !manual;
-                    if let Some(policy) = policy {
-                        app.planning.set_operation(policy);
-                    }
-                    let form = app.form();
-                    app.open_editor(store::EditorField::Request);
-                    app.input = draft.into();
-                    app.cursor = draft.len();
-                    app.submit_request();
-                    assert_eq!((&*app.input, app.cursor), (draft, draft.len()));
-                    if manual {
-                        assert_eq!(app.form(), form, "manual appearance: {draft}");
-                    }
-                    assert_eq!(
-                        app.planning.operation,
-                        policy.unwrap_or(Operation::Implement)
-                    );
-                    assert!(!app.execution.busy(), "classification executed a command");
-                    let snapshot = app.snapshot("/workspace");
-                    assert!(app.planning.command("new", true, &snapshot, &[], None));
-                    let Some(Request::Preview(input)) = app.planning.pending.take() else {
-                        panic!("ordinary request did not freeze: {draft}");
-                    };
-                    assert_eq!(input.instruction(), draft);
-                    assert_eq!(input.operation, policy.unwrap_or(Operation::Implement));
-                    assert!(
-                        input.work.is_none(),
-                        "intent manufactured command authority"
-                    );
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn future_commands_literals_and_readonly_requests_do_not_grant_execution() {
-        for draft in [
-            "Plan how to build the project.",
-            "Design the project build plan.",
-            "프로젝트 빌드 계획을 세워줘.",
-            "Read the source and explain how to compile the program.",
-            "Read the source and explain what this test does.",
-            "프로젝트 실행 오류를 분석해줘.",
-            "Build the project; do not change files.",
-            "읽기 전용으로 프로젝트 빌드 방법을 설명해줘.",
-            "Run `cargo build`; read only.",
-            "`cargo test` 실행해줘. 읽기 전용.",
-            // A reported failure is a read-only diagnosis, not a run.
-            "The project build is failing.",
-            "프로젝트 빌드가 실패했어.",
-        ] {
-            assert_eq!(
-                classify(draft).unwrap().operation,
-                Operation::Plan,
-                "{draft}"
-            );
-        }
-        for draft in [
-            "Explain how to run the program.",
-            "What does this test do?",
-            "\"Build the project\"",
-            "> 빌드하고 실행해줘",
-            "```\ncompile src/main.rs\n```",
-            "Tool output: run the program",
-            "Do not build the project.",
-            "프로젝트를 빌드하지 마.",
-            "Continue.",
-            "Explain `cargo build`.",
-            "Explain how to run `cargo build`.",
-            "Describe the command `cargo test`.",
-            "Do not run `cargo build`.",
-            "`cargo test` 실행하지 마.",
-            "`Run cargo build`",
-            "Output: Run `cargo build`",
-            "> Run `cargo build`",
-            "```\nRun `cargo build`\n```",
-        ] {
-            assert!(classify(draft).is_none(), "{draft}");
-        }
-        assert_eq!(
-            classify("Plan the project; then build the program.")
-                .unwrap()
-                .operation,
-            Operation::Implement
-        );
-    }
-
-    #[test]
-    fn unrestricted_file_requests_leave_a_user_restricted_readonly_request() {
-        for text in [
-            "Create `hello.py`",
-            "Edit \"src/main.rs\"",
-            "`새 파일.py`를 생성해줘.",
-            "Save this exact text as notes.custom.",
-            "Create handoff.md",
-            "handoff.md를 생성해줘.",
-            "Create `Dockerfile`",
-            "Save the handoff file.",
-        ] {
-            let mut app = app();
-            app.planning.agent = Agent::Compatible;
-            app.input = "Read src/main.rs without writing.".into();
-            assert!(app.evolve_request());
-            assert_eq!(app.planning.operation, Operation::Plan);
-            app.input = text.into();
-            app.cursor = app.input.len();
-            app.submit_request();
-            assert_eq!(app.planning.operation, Operation::Implement, "{text}");
-            assert!(app.pending_request.is_some(), "{text}");
-        }
-        for text in [
-            "\"Create hello.py\"",
-            "`Edit src/main.rs`",
-            "Provider: create hello.py",
-            "Do not create `hello.py`.",
-        ] {
-            assert!(classify(text).is_none(), "{text}");
-        }
-        assert_eq!(
-            classify("Prepare a handoff summary.").unwrap().operation,
-            Operation::Plan
-        );
-        assert_eq!(
-            classify("Read `src/main.rs` without writing.")
-                .unwrap()
-                .operation,
-            Operation::Plan
-        );
-    }
-
     #[test]
     fn only_submit_routes_before_save_and_frozen_input_without_an_extra_dispatch() {
         let mut app = app();
@@ -2691,30 +763,6 @@ mod tests {
     }
 
     #[test]
-    fn mixed_discovery_edit_freezes_writing_after_user_restricted_readonly_request() {
-        let mut app = app();
-        app.input = "Read the project source files without changing anything.".into();
-        app.submit_request();
-        assert_eq!((app.form(), app.planning.operation), (0, Operation::Plan));
-        app.pending_request = None;
-        let text = "List the project files, read the generated Python source, and edit only its value using the observed digest.";
-        app.input = text.into();
-        app.submit_request();
-        assert_eq!((app.form(), app.lead.auto_form), (0, true));
-        assert_eq!(app.planning.operation, Operation::Implement);
-        let snapshot = app.snapshot("/workspace");
-        assert!(app.planning.command("new", true, &snapshot, &[], None));
-        let Some(Request::Preview(input)) = app.planning.pending.take() else {
-            panic!("missing frozen mixed discovery/edit input");
-        };
-        assert_eq!(input.task.request_text(), text);
-        assert_eq!(input.task.form, 0);
-        assert_eq!(input.operation, Operation::Implement);
-        assert_eq!(app.planning.owner().unwrap().form, 0);
-        assert!(!app.execution.busy());
-    }
-
-    #[test]
     fn manual_pin_and_eevee_mode_respect_explicit_readonly_during_automatic_selection() {
         let mut app = app();
         app.apply_execution_action(execution::Action::SelectForm(3));
@@ -2748,80 +796,6 @@ mod tests {
         app.load_task(snapshot);
         assert_eq!(app.planning.operation, Operation::Review);
         assert!(!app.lead.auto_form);
-    }
-
-    #[test]
-    fn every_fixed_form_can_discover_create_and_edit_without_changing_appearance() {
-        for form in 1..9 {
-            for (text, operation) in [
-                (
-                    "Read the current project source files.",
-                    Operation::Implement,
-                ),
-                ("Create `hello.py`.", Operation::Implement),
-                ("구현해줘", Operation::Implement),
-                ("Implement it.", Operation::Implement),
-                ("Edit `src/main.rs`.", Operation::Implement),
-                ("Diagnose how to fix src/main.rs.", Operation::Implement),
-                ("Review how to repair the code.", Operation::Implement),
-                ("오류 수정 방법을 분석해줘.", Operation::Implement),
-                (
-                    "Write project documentation to README.md.",
-                    Operation::Implement,
-                ),
-                ("Review the code and fix its error.", Operation::Implement),
-                (
-                    "Diagnose the failure and repair the code.",
-                    Operation::Implement,
-                ),
-                // A fresh unclassified request has tools, like other agents.
-                ("Continue.", Operation::Implement),
-                ("Read only.", Operation::Plan),
-            ] {
-                let mut app = app();
-                app.apply_execution_action(execution::Action::SelectForm(form));
-                app.input = text.into();
-                app.submit_request();
-                assert_eq!((app.form(), app.lead.auto_form), (form, false), "{text}");
-                let snapshot = app.snapshot("/workspace");
-                app.planning.command("new", true, &snapshot, &[], None);
-                let Some(Request::Preview(input)) = app.planning.pending.take() else {
-                    panic!("missing preparation for form {form}: {text}");
-                };
-                assert_eq!(input.operation, operation, "form {form}: {text}");
-            }
-        }
-        assert_eq!(
-            classify("Review src/main.rs").unwrap().operation,
-            Operation::Plan
-        );
-        assert_eq!(
-            classify("Perform an independent code review.")
-                .unwrap()
-                .operation,
-            Operation::Review
-        );
-    }
-
-    #[test]
-    fn manual_form_stays_fixed_while_literal_readonly_and_documentation_choose_capability() {
-        let mut app = app();
-        app.apply_execution_action(execution::Action::SelectForm(8));
-        app.input = "Write project documentation to README.md.".into();
-        app.submit_request();
-        assert_eq!(
-            (app.form(), app.lead.auto_form, app.planning.operation),
-            (8, false, Operation::Implement)
-        );
-        app.pending_request = None;
-        app.apply_execution_action(execution::Action::SelectForm(3));
-        app.planning.set_operation(Operation::Implement);
-        app.input = "Read the source files without changing anything.".into();
-        app.submit_request();
-        assert_eq!(
-            (app.form(), app.lead.auto_form, app.planning.operation),
-            (3, false, Operation::Plan)
-        );
     }
 
     #[test]
