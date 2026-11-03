@@ -2,6 +2,7 @@
 
 ## 2026-11-03
 
+- feat(evolution): added a closed todo step-role vocabulary (discover, verify, implement, plan, diagnose, refactor, review, handoff) to the native todo tool and prelude, so automatic evolution followed the model's own structured plan instead of re-matching step text against word tables; word rules remained only for the request text, free-text phases and routes without native phases.
 - fix(auth): sent the OpenAI browser sign-in redirect as the registered `http://localhost:<port>/auth/callback` spelling instead of a numeric loopback address, and served the callback on both IPv4 and IPv6 loopback.
 - fix(auth): kept OpenAI device authorization alive through 429 slow-down (+5 s interval, capped at 60 s) and up to three consecutive transient network/5xx polling failures, reusing the one issued device code; setup and other statuses still stopped without retry.
 - feat(moves): listed every active library move in the move menu after the quick slots, with a row-scrolling two-column grid, so a form was no longer limited to four usable moves.

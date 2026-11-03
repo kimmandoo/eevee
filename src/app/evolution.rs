@@ -1449,7 +1449,11 @@ const STEP_ROLES: &[(usize, &[&str])] = &[
 
 fn step_role(text: &str) -> Option<Selection> {
     let form = STEP_ROLES.iter().find(|(_, words)| any(text, words))?.0;
-    Some(Selection {
+    Some(role_selection(form))
+}
+
+fn role_selection(form: usize) -> Selection {
+    Selection {
         form,
         operation: if matches!(form, 2 | 3 | 6) {
             Operation::Implement
@@ -1466,13 +1470,30 @@ fn step_role(text: &str) -> Option<Selection> {
             7 => Message::CoreEvolutionReview,
             _ => Message::CoreEvolutionDocumentation,
         },
-    })
+    }
 }
 
 /// The form a todo step leads to: its label read as a request first, then its
 /// provider phase, then role words. Literal and negated labels never gain a
 /// capability from the fallback. A local prediction, never authority.
 pub fn classify_step(step: &crate::workspace::progress::Step) -> Option<Selection> {
+    // A structured role from the provider's own plan picks the specialist
+    // directly, without re-guessing intent from words. The operation is the
+    // role's, unless the label independently names the same role with its own
+    // operation (a handoff step that updates a README still writes). Neither
+    // exceeds what an ordinary unclassified request receives; every effect
+    // still needs exact approval.
+    if let Some(role) = step
+        .phase
+        .as_deref()
+        .and_then(crate::workspace::progress::Role::parse)
+    {
+        let mut selection = role_selection(role.form());
+        if let Some(stated) = classify(&step.label).filter(|stated| stated.form == role.form()) {
+            selection.operation = stated.operation;
+        }
+        return Some(selection);
+    }
     classify(&step.label).or_else(|| {
         let label = instruction(&step.label);
         if any(&label, NEGATIVE)
@@ -1778,6 +1799,81 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn structured_step_roles_choose_the_form_without_word_matching() {
+        use crate::workspace::progress::{Role, Status, Step};
+        let step = |label: &str, phase: &str| Step {
+            label: label.into(),
+            phase: Some(phase.into()),
+            status: Status::Active,
+        };
+        // Labels no word table recognizes still evolve from their role.
+        for (role, operation) in [
+            (Role::Discover, Operation::Plan),
+            (Role::Verify, Operation::Implement),
+            (Role::Implement, Operation::Implement),
+            (Role::Plan, Operation::Plan),
+            (Role::Diagnose, Operation::Plan),
+            (Role::Refactor, Operation::Implement),
+            (Role::Review, Operation::Plan),
+            (Role::Handoff, Operation::Plan),
+        ] {
+            // "정리" alone reads as a refactor; a different role keeps its own operation.
+            let selection = classify_step(&step("결제 모듈 흐름 정리", role.name())).unwrap();
+            assert_eq!(selection.form, role.form(), "{role:?}");
+            assert_eq!(selection.operation, operation, "{role:?}");
+        }
+        // The role wins over a label's word match; a stated operation is kept.
+        let selection = classify_step(&step("Review the code", "diagnose")).unwrap();
+        assert_eq!((selection.form, selection.operation), (5, Operation::Plan));
+        let selection = classify_step(&step("README 업데이트해줘", "handoff")).unwrap();
+        assert_eq!(
+            (selection.form, selection.operation),
+            (8, Operation::Implement)
+        );
+        // Free-text phases from other routes keep the word fallback.
+        let selection = classify_step(&step("결제 모듈", "investigate")).unwrap();
+        assert_eq!(selection.form, 5);
+        assert_eq!(classify_step(&step("결제 모듈", "someday")), None);
+    }
+
+    #[test]
+    fn adopted_role_steps_drive_automatic_evolution_and_user_policy_still_wins() {
+        use crate::workspace::progress::{State, Status, Step};
+        let mut progress = State::default();
+        progress
+            .propose(
+                "native todo",
+                vec![
+                    Step {
+                        label: "결제 모듈 흐름 정리".into(),
+                        phase: Some("discover".into()),
+                        status: Status::Done,
+                    },
+                    Step {
+                        label: "결제 모듈 개편안".into(),
+                        phase: Some("plan".into()),
+                        status: Status::Active,
+                    },
+                ],
+            )
+            .unwrap();
+        progress.adopt().unwrap();
+        let mut app = app();
+        app.workflows.progress = Some(progress);
+        app.input = "계속".into();
+        let choice = app.request_evolution().unwrap();
+        assert_eq!((choice.form, choice.operation), (4, Operation::Plan));
+        assert_eq!(choice.reason, Message::CoreEvolutionTodo);
+        // An explicit request still beats the plan's role.
+        app.input = "Review the code".into();
+        assert_eq!(app.request_evolution().unwrap().form, 7);
+        // A pinned form keeps its appearance.
+        app.input = "계속".into();
+        app.lead.auto_form = false;
+        assert_eq!(app.request_evolution().unwrap().form, app.form());
     }
 
     #[test]

@@ -4,7 +4,63 @@ use serde_json::Value;
 
 pub const MAX_STEPS: usize = 64;
 pub const MAX_LABEL_BYTES: usize = 240;
-pub const EAGER_PRELUDE: &str = "Before working, initialize a phased task list with the todo tool. Keep one active step; report status as claims, not verification evidence.\n";
+pub const EAGER_PRELUDE: &str = "Before working, initialize a phased task list with the todo tool. Set each step's phase to the role it needs (discover, verify, implement, plan, diagnose, refactor, review or handoff). Keep one active step; report status as claims, not verification evidence.\n";
+
+/// The closed step-role vocabulary a native todo phase may name. A role is
+/// the provider's structured claim about what kind of work a step is; it picks
+/// an appearance and never grants a capability beyond the ordinary request.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Role {
+    Discover,
+    Verify,
+    Implement,
+    Plan,
+    Diagnose,
+    Refactor,
+    Review,
+    Handoff,
+}
+impl Role {
+    pub const ALL: [Self; 8] = [
+        Self::Discover,
+        Self::Verify,
+        Self::Implement,
+        Self::Plan,
+        Self::Diagnose,
+        Self::Refactor,
+        Self::Review,
+        Self::Handoff,
+    ];
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Discover => "discover",
+            Self::Verify => "verify",
+            Self::Implement => "implement",
+            Self::Plan => "plan",
+            Self::Diagnose => "diagnose",
+            Self::Refactor => "refactor",
+            Self::Review => "review",
+            Self::Handoff => "handoff",
+        }
+    }
+    /// Exact role names only; free-text phases from other routes stay text.
+    pub fn parse(phase: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|role| role.name() == phase)
+    }
+    /// The specialist form that owns this kind of work.
+    pub fn form(self) -> usize {
+        match self {
+            Self::Discover => 1,
+            Self::Verify => 2,
+            Self::Implement => 3,
+            Self::Plan => 4,
+            Self::Diagnose => 5,
+            Self::Refactor => 6,
+            Self::Review => 7,
+            Self::Handoff => 8,
+        }
+    }
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Status {
@@ -289,7 +345,9 @@ pub fn normalize(source: &str, value: &Value) -> Result<Vec<Step>, String> {
     Ok(steps)
 }
 pub fn definition() -> Value {
-    serde_json::json!({"name":"todo","description":"Task progress claims only; no file, command or network effect. Exact labels; at most 64 steps, one active. Changed revisions require explicit user adoption.","parameters":{"type":"object","properties":{"operation":{"type":"string","enum":["init","start","done","drop","block","unblock","append","view"]},"label":{"type":"string"},"steps":{"type":"array","maxItems":64,"items":{"type":"object","properties":{"label":{"type":"string","maxLength":240},"phase":{"type":["string","null"]},"status":{"type":"string","enum":["pending","active","done","blocked","dropped"]}},"required":["label","phase","status"],"additionalProperties":false}}},"required":["operation","label","steps"],"additionalProperties":false}})
+    let mut roles: Vec<Value> = Role::ALL.iter().map(|role| role.name().into()).collect();
+    roles.push(Value::Null);
+    serde_json::json!({"name":"todo","description":"Task progress claims only; no file, command or network effect. Exact labels; at most 64 steps, one active. Each step's phase names the role it needs: discover (locate/read sources), verify (run builds/tests/commands), implement (change behavior), plan (design/compare approaches), diagnose (find a failure's cause or security risk), refactor (simplify/optimize without behavior change), review (judge changes), handoff (summarize/document). Changed revisions require explicit user adoption.","parameters":{"type":"object","properties":{"operation":{"type":"string","enum":["init","start","done","drop","block","unblock","append","view"]},"label":{"type":"string"},"steps":{"type":"array","maxItems":64,"items":{"type":"object","properties":{"label":{"type":"string","maxLength":240},"phase":{"type":["string","null"],"enum":roles},"status":{"type":"string","enum":["pending","active","done","blocked","dropped"]}},"required":["label","phase","status"],"additionalProperties":false}}},"required":["operation","label","steps"],"additionalProperties":false}})
 }
 #[cfg(test)]
 mod tests {
@@ -300,6 +358,25 @@ mod tests {
             phase: Some("investigate".into()),
             status,
         }
+    }
+    #[test]
+    fn native_todo_advertises_the_closed_role_vocabulary() {
+        let definition = definition();
+        let roles = &definition["parameters"]["properties"]["steps"]["items"]["properties"]["phase"]
+            ["enum"];
+        let names: Vec<_> = roles.as_array().unwrap().iter().collect();
+        assert_eq!(names.len(), Role::ALL.len() + 1);
+        assert!(names.last().unwrap().is_null());
+        for role in Role::ALL {
+            assert_eq!(Role::parse(role.name()), Some(role));
+            assert!(EAGER_PRELUDE.contains(role.name()));
+        }
+        assert_eq!(Role::parse("Discover"), None, "exact names only");
+        let mut state = State::default();
+        state
+            .apply_tool(&serde_json::json!({"operation":"init","label":"","steps":[{"label":"결제 흐름","phase":"discover","status":"active"}]}))
+            .unwrap();
+        assert_eq!(state.steps[0].phase.as_deref(), Some("discover"));
     }
     #[test]
     fn adoption_revision_and_exact_operations() {
