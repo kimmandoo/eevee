@@ -1,9 +1,10 @@
-## 2026-11-03 — Version-independent README and v0.1.47 release (in progress)
+## 2026-11-03 — Version-independent README and v0.1.47 release (completed)
 
-- **Request / baseline:** User asked for a clean README with no version-specific content and a new release. Started main df3664a (already on origin).
-- **Changes:** README rewritten (no "What's new", version captions or pinned versions; data/backup, sidecar and Windows troubleshooting consolidated; stale "say read only" removed). Package 0.1.46→0.1.47; CHANGELOG `### 0.1.47`. Windows CI on 2120702 (native 41585514528) failed `real_257th_record_quota_requires_discard_release_then_ordinary_purge` with `storage event timed out`; its hang guard widened 5 s→30 s.
-- **Verification so far:** fmt; strict Clippy clean; Rust 2002 passed/2 ignored; Python unittest OK (4 skips); `ev --version` 0.1.47.
-- **Next action:** Wait for native CI success on the release commit's main push, then push annotated tag `v0.1.47`, watch the publish workflow and confirm the public release is latest with all assets. `gh` is not installed locally; use git push plus the public GitHub REST API.
+- **Request / baseline:** User asked for a clean README with no version-specific content and a new release. Started main df3664a.
+- **Changes:** README rewritten without version-specific sections, captions or pinned versions. Package 0.1.47; CHANGELOG `### 0.1.47`. A Windows-flaky journal test (failed native 41585514528 on 2120702 with `storage event timed out`) had its hang guard widened 5 s→30 s.
+- **Release:** Commit 30bad0a passed native run 41616359615. Annotated tag `v0.1.47` (object 339a3be) was pushed; publish run 41619171245 succeeded. Public release 432547772 is latest, not a draft or prerelease, with eight assets (five native archives, two installers, SHA256SUMS). The downloaded Linux x86_64 archive matched SHA256SUMS and reports `ev 0.1.47`.
+- **Not verified:** Other platform binaries were not executed and no public upgrade journey was run.
+- **Next action:** None.
 
 ## 2026-11-03 — Pre-release single schema, migrations removed (completed)
 
