@@ -449,7 +449,7 @@ impl App {
     /// Repeated similar Sends of this partner/form that no move covers yet.
     pub fn move_proposal(&self) -> Option<MoveProposal> {
         let form = self.form();
-        if !matches!(form, 3 | 4 | 7 | 8) || !self.records.loaded || self.task_id <= 0 {
+        if !self.records.loaded || self.task_id <= 0 {
             return None;
         }
         let dismissed = self.game().dismissed_moves;
@@ -755,10 +755,10 @@ mod tests {
             3,
         )];
         assert!(app.move_proposal().is_none());
-        // Forms whose moves are commands or pins cannot learn a request.
+        // Every form learns repeated requests, including command/pin forms.
         app.records.snapshot.habits = vec![habit("Fix the bug", &["r1", "r2", "r3"], 2)];
         app.set_form(2);
-        assert!(app.move_proposal().is_none());
+        assert!(app.move_proposal().is_some());
         app.set_form(3);
         app.records.snapshot.habits = vec![habit("Fix the bug", &["r1", "r2", "r3"], 3)];
         assert!(app.move_proposal().is_some());

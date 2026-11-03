@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-11-03
+
+- fix(auth): sent the OpenAI browser sign-in redirect as the registered `http://localhost:<port>/auth/callback` spelling instead of a numeric loopback address, and served the callback on both IPv4 and IPv6 loopback.
+- fix(auth): kept OpenAI device authorization alive through 429 slow-down (+5 s interval, capped at 60 s) and up to three consecutive transient network/5xx polling failures, reusing the one issued device code; setup and other statuses still stopped without retry.
+- feat(moves): listed every active library move in the move menu after the quick slots, with a row-scrolling two-column grid, so a form was no longer limited to four usable moves.
+- feat(moves): let every form learn repeated request moves, including Eevee, Vaporeon, Jolteon, Umbreon and Leafeon, and fell back to the form's own last submitted instruction when its signature task/pin/run source was unavailable.
+- feat(evolution): routed everyday cause-finding, search/grep/usages/config lookup, structure planning and benchmark-run requests to Umbreon, Vaporeon, Espeon and Jolteon.
+- feat(forms): gave each form a distinct default working style, answer shape, tool habit and avoid-list in its visible behavior profile.
+
 ## 2026-11-02
 
 ### 0.1.45

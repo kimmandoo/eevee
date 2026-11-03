@@ -116,52 +116,62 @@ impl App {
             taught_by: None,
             teacher_name: None,
         };
-        let steps = match self.form() {
-            0 => {
-                provenance
-                    .sources
-                    .push(format!("task:{}@{}", self.task_id, self.saved_revision));
-                Steps::Task {
+        // A form's signature source comes first; without one, the last request
+        // this form actually sent is still teachable.
+        let mut sources = Vec::new();
+        let signature: Result<Steps, String> = match self.form() {
+            0 if !self.goal.trim().is_empty() => {
+                sources.push(format!("task:{}@{}", self.task_id, self.saved_revision));
+                Ok(Steps::Task {
                     goal: self.goal.clone(),
                     criteria: self.criteria.iter().map(|c| c.text.clone()).collect(),
-                }
+                })
             }
-            1 => {
-                provenance.sources.extend(
+            1 if !self.sources.basket.is_empty() => {
+                sources.extend(
                     self.sources
                         .basket
                         .iter()
                         .map(|e| format!("source:{}", e.id)),
                 );
-                moves::pin_steps(&self.sources.basket)?
+                moves::pin_steps(&self.sources.basket)
             }
-            2 | 5 | 6 => {
-                let record = self
-                    .execution
-                    .selected_record()
-                    .filter(|r| {
-                        r.prepared.task_id == self.task_id
-                            && r.prepared
-                                .partner
-                                .as_ref()
-                                .is_some_and(|p| p.partner == self.lead.id)
-                    })
-                    .ok_or(
-                        "Select this partner's approved local run in /runs before teaching it.",
-                    )?;
-                provenance.sources.push(record.prepared.run_id.clone());
-                moves::journal_steps(Path::new(&self.cwd), record)?
-            }
-            _ => {
-                let sent=self.move_runtime.last_requests.get(&(self.task_id,self.lead.id,self.form()))
-                    .ok_or("Send a user-authored request from this form first. Unsent drafts and provider output cannot be taught.")?;
-                provenance.sources.push(sent.claim.request_id.clone());
+            2 | 5 | 6 => self
+                .execution
+                .selected_record()
+                .filter(|r| {
+                    r.prepared.task_id == self.task_id
+                        && r.prepared
+                            .partner
+                            .as_ref()
+                            .is_some_and(|p| p.partner == self.lead.id)
+                })
+                .ok_or_else(|| {
+                    "Select this partner's approved local run in /runs, or send a request from this form, before teaching.".to_owned()
+                })
+                .and_then(|record| {
+                    sources.push(record.prepared.run_id.clone());
+                    moves::journal_steps(Path::new(&self.cwd), record)
+                }),
+            _ => Err("Send a user-authored request from this form first. Unsent drafts and provider output cannot be taught.".into()),
+        };
+        let steps = match signature {
+            Ok(steps) => steps,
+            Err(error) => {
+                sources.clear();
+                let sent = self
+                    .move_runtime
+                    .last_requests
+                    .get(&(self.task_id, self.lead.id, self.form()))
+                    .ok_or(error)?;
+                sources.push(sent.claim.request_id.clone());
                 Steps::Request {
                     instruction: sent.instruction.clone(),
                     pins: sent.pins.clone(),
                 }
             }
         };
+        provenance.sources = sources;
         let used = self
             .moves
             .records
@@ -1197,5 +1207,15 @@ mod tests {
                 && pins==vec![Pin { path:"src/lib.rs".into(),start_line:2,end_line:4 }]));
         app.lead.form = 7;
         assert!(app.move_teaching_proposal().is_err());
+        // A run-signature form without a selected run still learns its own
+        // actually sent request, never another form's.
+        app.lead.form = 5;
+        assert!(app.move_teaching_proposal().is_err());
+        let sent = app.move_runtime.last_requests.remove(&(1, 1, 4)).unwrap();
+        app.move_runtime.last_requests.insert((1, 1, 5), sent);
+        let proposal = app.move_teaching_proposal().unwrap();
+        assert!(matches!(proposal.steps, Steps::Request { .. }));
+        assert_eq!(proposal.form, 5);
+        assert_eq!(proposal.provenance.sources, ["provider-actual"]);
     }
 }

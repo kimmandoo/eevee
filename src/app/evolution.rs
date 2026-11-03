@@ -150,10 +150,15 @@ const RULES: &[Rule] = &[
             "analyze",
             "analyse",
             "check",
+            "trace",
+            "find",
             "진단",
             "분석",
             "조사",
             "점검",
+            "추적",
+            "찾아",
+            "알아내",
         ],
         objects: &[
             "failure",
@@ -215,6 +220,7 @@ const RULES: &[Rule] = &[
             "system",
             "api",
             "change",
+            "structure",
             "프로젝트",
             "앱",
             "애플리케이션",
@@ -226,6 +232,7 @@ const RULES: &[Rule] = &[
             "기능",
             "시스템",
             "변경",
+            "구조",
         ],
     },
     Rule {
@@ -508,6 +515,9 @@ const RULES: &[Rule] = &[
             "program",
             "binary",
             "code",
+            "bench",
+            "benchmark",
+            "benchmarks",
             "명령",
             "테스트",
             "빌드",
@@ -518,6 +528,7 @@ const RULES: &[Rule] = &[
             "바이너리",
             "코드",
             "검사",
+            "벤치마크",
         ],
     },
     Rule {
@@ -547,6 +558,8 @@ const RULES: &[Rule] = &[
             "열어",
             "설명",
             "알려",
+            "파악해줘",
+            "파악해 줘",
         ],
         objects: &[
             "file",
@@ -562,6 +575,12 @@ const RULES: &[Rule] = &[
             "structure",
             "codebase",
             "flow",
+            "config",
+            "configuration",
+            "definition",
+            "usage",
+            "usages",
+            "references",
             "파일",
             "소스",
             "코드",
@@ -573,6 +592,10 @@ const RULES: &[Rule] = &[
             "구조",
             "코드베이스",
             "흐름",
+            "설정",
+            "정의",
+            "사용처",
+            "참조",
         ],
     },
 ];
@@ -638,6 +661,7 @@ const DISCOVERY: &[&str] = &[
     "어떻게 작동",
     "어떻게 돌아",
     "무슨 역할",
+    "grep",
 ];
 
 // Explaining needs a named source object; "explain how to improve the UI"
@@ -2526,6 +2550,31 @@ mod tests {
         assert_eq!(classify("Make a Python file.").unwrap().form, 3);
         assert_eq!(classify("파이썬 파일을 만들어줘.").unwrap().form, 3);
         assert_eq!(classify("소스 파일의 값을 바꿔줘.").unwrap().form, 3);
+    }
+
+    #[test]
+    fn everyday_search_cause_benchmark_and_structure_requests_find_their_form() {
+        for (text, form, operation) in [
+            ("이 에러 원인 찾아줘", 5, Operation::Plan),
+            ("trace the crash", 5, Operation::Plan),
+            ("find where the config is loaded", 1, Operation::Plan),
+            ("search for usages of parse_args", 1, Operation::Plan),
+            ("grep TODO", 1, Operation::Plan),
+            ("이 파일 구조 파악해줘", 1, Operation::Plan),
+            ("설정 정의 찾아줘", 1, Operation::Plan),
+            ("어떤 구조가 좋을까?", 4, Operation::Plan),
+            ("벤치마크 돌려줘", 2, Operation::Implement),
+            ("run the benchmarks", 2, Operation::Implement),
+        ] {
+            let selection = classify(text).unwrap_or_else(|| panic!("{text}"));
+            assert_eq!(
+                (selection.form, selection.operation),
+                (form, operation),
+                "{text}"
+            );
+        }
+        // Generic conversation still stays with the current form.
+        assert_eq!(classify("explain this fixture"), None);
     }
 
     #[test]

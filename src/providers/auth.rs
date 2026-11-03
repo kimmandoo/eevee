@@ -90,7 +90,7 @@ impl Method {
     pub fn guidance(self) -> Option<&'static str> {
         match self {
             Self::OpenAiBrowser => Some(
-                "Signs in directly with OpenAI, without an installed CLI. The browser returns to http://127.0.0.1:1455/auth/callback (1457 if available instead); paste the complete redirect URL into the hidden terminal input if the callback cannot reach this machine. PKCE and state bind this attempt. Esc/Ctrl+C cancels; old redirects cannot be reused. For WSL/SSH, device authorization needs no callback.",
+                "Signs in directly with OpenAI, without an installed CLI. The browser returns to http://localhost:1455/auth/callback (1457 if the first port is busy); paste the complete redirect URL into the hidden terminal input if the callback cannot reach this machine. PKCE and state bind this attempt. Esc/Ctrl+C cancels; old redirects cannot be reused. For WSL/SSH, device authorization needs no callback.",
             ),
             Self::OpenAiDevice => Some(
                 "Signs in directly with OpenAI without a CLI or localhost callback. Enable device-code authorization in ChatGPT Settings > Security (workspace policy may require an administrator). Open https://auth.openai.com/codex/device and enter only the one-time code shown in this terminal for the login you initiated. Keep this terminal open; Esc/Ctrl+C cancels. No automatic browser fallback.",

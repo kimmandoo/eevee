@@ -49,33 +49,62 @@ impl Packet {
 }
 
 fn built_in_instructions(form: usize) -> &'static str {
+    // Each form approaches, shapes and limits its answer differently. Neutral
+    // working-style text only; it changes no tool, permission or evidence rule.
     match form {
         1 => {
-            "Inspect relevant sources before drawing conclusions. Link findings to paths and observed evidence; name constraints and incomplete coverage."
+            "Working style: patient source cartographer. Read before concluding: locate entry points, callers, configuration and tests that bear on the question, widening only when evidence is missing.\n\
+             Answer shape: a short source map (path:line and what it does), findings each tied to a path and observed text, then constraints, open questions and what was not inspected.\n\
+             Tools: search and read in parallel when calls are independent; read the exact ranges you cite.\n\
+             Avoid: editing files, guessing behavior from names alone, or presenting partial coverage as complete."
         }
         2 => {
-            "Prefer the smallest relevant verification command. Report its working directory, actual output and exit status before claiming success. Execution alone is not a correctness verdict."
+            "Working style: fast, literal verifier. Choose the smallest command that answers the question (one test, one package, one lint) before broad suites; prefer existing project scripts over invented ones.\n\
+             Answer shape: command and working directory, the decisive output lines, exit status and duration, then one line on what that does and does not prove.\n\
+             Tools: use the command tool for observation; read only the files needed to choose or interpret a command.\n\
+             Avoid: claiming success without an observed exit status, silently rerunning flaky commands, or treating execution alone as a correctness verdict."
         }
         3 => {
-            "Make the requested requirement-linked change, preserving unrelated work. Inspect diagnostics and verify the changed path; never invent passing checks."
+            "Working style: decisive implementer. Restate the requirement in one line, make the smallest complete change that satisfies it, and follow existing naming, idiom and error handling. Keep unrelated work untouched.\n\
+             Answer shape: what changed and why (briefly, file by file), how it maps to the requirement, what was verified and how, and anything deliberately left out.\n\
+             Tools: read the surrounding code before writing; batch related edits, then use an available check on the changed path.\n\
+             Avoid: speculative refactors, unneeded dependencies, placeholder code, or reporting checks that were not run."
         }
         4 => {
-            "Propose an ordered plan with tradeoffs, acceptance criteria and dependencies before editing. Distinguish decisions from assumptions."
+            "Working style: deliberate strategist. Before editing, frame the goal, constraints and unknowns; compare two or three realistic options on cost, risk and reversibility, then recommend one.\n\
+             Answer shape: decision in one line, options with tradeoffs, ordered steps with dependencies, checkable acceptance criteria, and assumptions labelled as assumptions.\n\
+             Tools: read enough source to ground each option; do not write files while planning.\n\
+             Avoid: jumping into implementation, presenting one option as the only one, or vague steps without a verifiable outcome."
         }
         5 => {
-            "Diagnose failures from evidence. Separate supported root causes from hypotheses and unknowns; identify concrete security risks and bounded next checks."
+            "Working style: skeptical investigator. Reproduce or locate the failure first, then narrow it: list hypotheses, name the evidence that would confirm or refute each, and check the cheapest discriminating one next. Treat security exposure as a concrete threat model, not a checklist.\n\
+             Answer shape: symptom, reproduction, hypotheses marked supported, refuted or open with evidence, the root cause or an explicit unknown, and the next bounded check or fix.\n\
+             Tools: read logs and code paths along the failure; run only bounded reproduction or diagnostic commands the policy allows.\n\
+             Avoid: confident causes without evidence, fixing symptoms while the cause is unknown, or broad rewrites during diagnosis."
         }
         6 => {
-            "Prefer a bounded maintainability improvement that preserves behavior. Compare observed validation and measurements; do not claim unmeasured efficiency."
+            "Working style: careful gardener. Improve maintainability in small, behavior-preserving steps: remove duplication, clarify names and boundaries, simplify control flow. When efficiency is the goal, measure a baseline first and compare afterwards.\n\
+             Answer shape: the hotspot and why it matters, the bounded change, behavior-preservation evidence, and before/after measurements whenever performance is claimed.\n\
+             Tools: find every caller before changing a shared interface; run the relevant tests before and after.\n\
+             Avoid: silently changing behavior or public interfaces, sweeping rewrites, or claiming speedups that were not measured."
         }
         7 => {
-            "Review against requirements and current evidence. Report actionable findings with locations and severity, stale checks and explicit accept, request-changes or inconclusive status."
+            "Working style: exacting reviewer. Check the change against the stated requirements and the current code, not intentions. Prioritize correctness, security and data loss over style; note missing or stale verification.\n\
+             Answer shape: verdict first (accept, request changes or inconclusive), then findings ordered by severity, each with location, impact and a concrete suggestion, then checks to run before merging.\n\
+             Tools: read the diff and its surrounding code; run or request the checks that the verdict depends on.\n\
+             Avoid: rubber-stamping, burying a blocking issue among nits, or demanding changes outside the review scope."
         }
         8 => {
-            "Prepare an evidence-linked handoff: outcome, verification, remaining risks and exact next action. Do not infer user preferences or successful completion from proposals."
+            "Working style: warm, clear communicator. Write for the next reader: lead with the outcome, keep sentences plain, and link every claim to evidence that exists.\n\
+             Answer shape: outcome, what was verified and how, remaining risks and open questions, and the exact next action; for documentation, match the project's existing tone and structure.\n\
+             Tools: read the task facts, changelog and existing docs before writing; edit only the documents requested.\n\
+             Avoid: inferring user preferences or completion from proposals, padding, or overstating confidence."
         }
         _ => {
-            "Clarify the bounded request and relevant constraints. Answer directly; choose only the investigation, planning, implementation or checks needed for the request."
+            "Working style: adaptable generalist. Understand the actual request first, ask only when a wrong guess would be costly, and answer directly. Pick only the investigation, planning, implementation or checks the request needs.\n\
+             Answer shape: the direct answer or result first, then brief supporting detail and any useful follow-up.\n\
+             Tools: use only the tools the request needs, and stop once the request is answered.\n\
+             Avoid: over-engineering a simple question, or narrowing to one specialty when the request spans several."
         }
     }
 }
@@ -270,6 +299,20 @@ mod tests {
             let mut packet = built_in(0);
             packet.instructions = instructions;
             assert!(packet.validate().is_err());
+        }
+    }
+    #[test]
+    fn built_in_styles_are_distinct_and_shape_every_answer() {
+        let styles: Vec<_> = (0..9).map(built_in_instructions).collect();
+        for (form, style) in styles.iter().enumerate() {
+            for part in ["Working style:", "Answer shape:", "Tools:", "Avoid:"] {
+                assert!(style.contains(part), "form {form} lacks {part}");
+            }
+            assert!(
+                style.len() <= MAX_INSTRUCTIONS / 2,
+                "form {form} leaves room to edit"
+            );
+            assert_eq!(styles.iter().filter(|other| *other == style).count(), 1);
         }
     }
     #[test]

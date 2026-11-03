@@ -13,6 +13,8 @@ const BODY_LIMIT: usize = 128 * 1024;
 const INPUT_LIMIT: usize = 16 * 1024;
 const DEVICE_TIMEOUT: Duration = Duration::from_secs(900);
 const EXPIRY_SKEW: u64 = 60;
+const DEVICE_TRANSIENT_RETRIES: u32 = 3;
+const DEVICE_INTERVAL_LIMIT: Duration = Duration::from_secs(60);
 
 /// Content-free login diagnostics. Only locally authored stages/reasons and an
 /// HTTP status may cross back into the workbench; never response bodies or URLs.
@@ -124,9 +126,9 @@ pub(super) fn plan(profile: usize, method: Method) -> Plan {
         format!("Selected method: {}", method.label()),
         "No provider executable, CLI installation or provider-owned credential store is required. Authorization uses the fixed public client at https://auth.openai.com only; redirects on token/device HTTP requests are disabled.".into(),
         if method == Method::OpenAiBrowser {
-            "Browser: /oauth/authorize, public client app_EMoamEEZ73f0CkXaXp7hrann, openid profile email offline_access; S256 PKCE and fresh random state. Registered callback http://127.0.0.1:1455/auth/callback (1457 if the first port is unavailable). A complete pasted redirect is accepted only for this exact callback and state; arbitrary tokens/codes are not guessed. Exchange: /oauth/token.".into()
+            "Browser: /oauth/authorize, public client app_EMoamEEZ73f0CkXaXp7hrann, openid profile email offline_access; S256 PKCE and fresh random state. Registered callback http://localhost:1455/auth/callback (1457 if the first port is unavailable), served on IPv4 and IPv6 loopback. A complete pasted redirect is accepted only for this exact callback and state; arbitrary tokens/codes are not guessed. Exchange: /oauth/token.".into()
         } else {
-            "Device: POST /api/accounts/deviceauth/usercode; display the official https://auth.openai.com/codex/device link and one-time code; poll /api/accounts/deviceauth/token for at most 15 minutes. Only pending 403/404 responses are polled again. Exchange returned authorization code + verifier at /oauth/token with https://auth.openai.com/deviceauth/callback. No localhost listener or browser launch.".into()
+            "Device: POST /api/accounts/deviceauth/usercode; display the official https://auth.openai.com/codex/device link and one-time code; poll /api/accounts/deviceauth/token for at most 15 minutes. Pending 403/404 responses are polled again; 429 slows polling by 5 seconds and up to three consecutive transient network/5xx polling failures are retried with the same device code. Other statuses stop. Exchange returned authorization code + verifier at /oauth/token with https://auth.openai.com/deviceauth/callback. No localhost listener or browser launch.".into()
         },
         "An approved successful result replaces the active Eevee ChatGPT connection override, never another provider route. Session-only shadows any previous saved connection until exit; explicit private persistence replaces ~/.eevee-connections/chatgpt.json and clears the old session override. Provider-owned stores and environment variables are never modified.".into(),
         "The access credential is scoped only to https://chatgpt.com/backend-api/codex. Returned refresh tokens are not retained or used: this connection expires and requires explicit reconnect. No automatic renewal, account rotation, API billing/protocol fallback, or inference retry.".into(),
@@ -195,7 +197,9 @@ impl BrowserGrant {
         Ok(Self {
             state: random_secret()?,
             verifier: random_secret()?,
-            redirect: format!("http://127.0.0.1:{port}/auth/callback"),
+            // The public client registers the `localhost` spelling; a numeric
+            // loopback redirect is rejected by the authorize endpoint.
+            redirect: format!("http://localhost:{port}/auth/callback"),
             consumed: false,
         })
     }
@@ -282,6 +286,7 @@ struct Endpoint {
     issuer: String,
     client: reqwest::Client,
     poll_floor: Duration,
+    slow_down: Duration,
     failure: std::cell::Cell<Option<OpenAiFailure>>,
 }
 impl Endpoint {
@@ -298,6 +303,7 @@ impl Endpoint {
             issuer: ISSUER.into(),
             client,
             poll_floor: Duration::from_secs(1),
+            slow_down: Duration::from_secs(5),
             failure: std::cell::Cell::new(None),
         })
     }
@@ -316,6 +322,7 @@ impl Endpoint {
                 .build()
                 .unwrap(),
             poll_floor: Duration::ZERO,
+            slow_down: Duration::ZERO,
             failure: std::cell::Cell::new(None),
         }
     }
@@ -457,20 +464,45 @@ impl Endpoint {
             Some(Value::String(value)) => value.parse::<u64>().map_err(|_| Outcome::Failed)?,
             Some(value) => value.as_u64().ok_or(Outcome::Failed)?,
         };
-        let interval = Duration::from_secs(interval).max(self.poll_floor);
+        let mut interval = Duration::from_secs(interval).max(self.poll_floor);
         display(user_code);
         let started = Instant::now();
+        // Polling reuses one issued device code, so a transient polling failure
+        // can be retried without a second authorization; setup never retries.
+        let mut transient = 0;
         loop {
             control()?;
             if started.elapsed() >= DEVICE_TIMEOUT {
                 return Err(Outcome::Expired);
             }
-            let (status, result) = self.send(
+            let polled = self.send(
                 "Device authorization polling",
                 self.client.post(format!("{}/api/accounts/deviceauth/token", self.issuer))
                     .json(&serde_json::json!({"device_auth_id": device_id, "user_code": user_code})), control,
-            ).await?;
-            if status == 403 || status == 404 {
+            ).await;
+            let (status, result) = match polled {
+                Err(Outcome::Failed)
+                    if transient < DEVICE_TRANSIENT_RETRIES
+                        && self.failure.get().is_some_and(|f| f.status.is_none()) =>
+                {
+                    (0, Value::Null)
+                }
+                polled => polled?,
+            };
+            let pending = matches!(status, 403 | 404);
+            let retry = status == 0 || status == 429 || (500..600).contains(&status);
+            if retry && transient >= DEVICE_TRANSIENT_RETRIES && status != 429 {
+                return Err(self.failed("Device authorization polling", http_title(status), "Device authorization polling kept failing on service errors. Start a fresh login later; the issued code was not reused.", Some(status), http_remedy(status, true), Outcome::Failed));
+            }
+            if pending || retry {
+                if status == 429 {
+                    interval = (interval + self.slow_down).min(DEVICE_INTERVAL_LIMIT);
+                }
+                transient = if retry && status != 429 {
+                    transient + 1
+                } else {
+                    0
+                };
                 guarded(
                     tokio::time::sleep(
                         interval.min(DEVICE_TIMEOUT.saturating_sub(started.elapsed())),
@@ -806,25 +838,32 @@ async fn browser(
     endpoint: &Endpoint,
     terminal: &mut Terminal,
 ) -> Result<OpenAiCredential, Outcome> {
-    let listener = [1455, 1457]
-        .into_iter()
-        .find_map(|port| TcpListener::bind(("127.0.0.1", port)).ok());
-    let port = listener
-        .as_ref()
-        .and_then(|l| l.local_addr().ok())
-        .map_or(1455, |a| a.port());
-    if let Some(listener) = &listener {
+    // `localhost` may resolve to either loopback family: serve IPv6 too when
+    // the same port is free there.
+    let mut listeners = Vec::new();
+    for port in [1455, 1457] {
+        if let Ok(listener) = TcpListener::bind(("127.0.0.1", port)) {
+            listeners.push(listener);
+            listeners.extend(TcpListener::bind(("::1", port)).ok());
+            break;
+        }
+    }
+    for listener in &listeners {
         listener
             .set_nonblocking(true)
             .map_err(|_| Outcome::Failed)?;
     }
+    let port = listeners
+        .first()
+        .and_then(|l| l.local_addr().ok())
+        .map_or(1455, |a| a.port());
     let mut grant = BrowserGrant::new(port)?;
     let url = grant.authorize_url();
     println!("OpenAI account sign-in. Open this official link:\r\n{url}\r");
     println!(
         "Paste the COMPLETE localhost redirect URL here if needed, then Enter. Input is hidden; Esc/Ctrl+C cancels.\r"
     );
-    if listener.is_none() {
+    if listeners.is_empty() {
         println!(
             "Callback ports unavailable; paste the complete redirect or cancel and choose device authorization.\r"
         );
@@ -852,9 +891,10 @@ async fn browser(
             }
             None => None,
         };
-        if code.is_none()
-            && let Some(listener) = &listener
-        {
+        for listener in &listeners {
+            if code.is_some() {
+                break;
+            }
             match listener.accept() {
                 Ok((stream, address)) if address.ip().is_loopback() => {
                     code = serve(stream, &mut grant, &mut || terminal.check())?

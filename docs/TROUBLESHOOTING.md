@@ -1,5 +1,12 @@
 # Troubleshooting
 
+### [2026-11-03] OpenAI browser sign-in sent an unregistered numeric loopback redirect
+
+- **Context / Symptom:** Native OpenAI browser login built `redirect_uri=http://127.0.0.1:1455/auth/callback`. Local fixtures passed because they never contacted the real authorize endpoint, so the mismatch was invisible in tests.
+- **Root Cause:** The public client's registered redirect uses the `localhost` host spelling (the installed Codex binary prints `Starting local login server on http://localhost:`); OAuth redirect matching is exact, so the numeric spelling is not equivalent.
+- **Solution:** `BrowserGrant` now emits `http://localhost:<port>/auth/callback`, the listener also binds `::1` on the same port because `localhost` may resolve to IPv6, and pasted redirects must use the exact `localhost` URL.
+- **Prevention / Reference:** When reusing a public OAuth client, check its registered redirect spelling against the vendor binary (`strings <codex> | grep -F "login server on"`), not only local fixtures.
+
 ### [2026-11-02] Public verification rejected Windows LICENSE line endings
 
 - **Context / Symptom:** The disposable public verifier failed its LICENSE byte-equality assertion after all eight downloaded asset digests had passed.

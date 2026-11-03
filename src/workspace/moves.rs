@@ -273,15 +273,18 @@ pub fn validate_proposal(proposal: &Proposal) -> Result<(), String> {
 }
 
 /// Whether an explicitly selectable move definition belongs to this form.
+/// Every form sends ordinary requests, so every form can learn a repeated
+/// request move alongside its signature kind (task, pins or run).
 /// Historical execution evidence retains its actual producer form independently.
 pub fn form_accepts_steps(form: usize, steps: &Steps) -> bool {
-    matches!(
-        (form, steps),
-        (0, Steps::Task { .. })
-            | (1, Steps::Pins { .. })
-            | (2 | 5 | 6, Steps::Run { .. })
-            | (3 | 4 | 7 | 8, Steps::Request { .. })
-    )
+    form < crate::domain::FORMS.len()
+        && matches!(
+            (form, steps),
+            (0, Steps::Task { .. })
+                | (1, Steps::Pins { .. })
+                | (2 | 5 | 6, Steps::Run { .. })
+                | (_, Steps::Request { .. })
+        )
 }
 
 /// Syntax-only admission. Project paths must additionally pass `validate_steps_at`
@@ -1215,10 +1218,7 @@ mod tests {
         ];
         for form in 0..crate::domain::FORMS.len() {
             for (kind, steps) in kinds.iter().enumerate() {
-                let expected = matches!(
-                    (form, kind),
-                    (0, 0) | (1, 1) | (2 | 5 | 6, 2) | (3 | 4 | 7 | 8, 3)
-                );
+                let expected = matches!((form, kind), (0, 0) | (1, 1) | (2 | 5 | 6, 2) | (_, 3));
                 assert_eq!(
                     validate_steps(form, steps).is_ok(),
                     expected,

@@ -138,12 +138,22 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                 );
             } else if wide && app.moves.mode == Mode::Menu {
                 let half = body.width / 2;
-                let height = (body.height / 2).max(1);
-                for (index, record) in active.enumerate().take(4) {
+                let count = active.clone().count();
+                // Up to four moves keep the 2×2 menu; a larger library scrolls by row.
+                let height = if count <= 4 {
+                    (body.height / 2).max(1)
+                } else {
+                    3.min(body.height).max(1)
+                };
+                let rows = (body.height / height).max(1) as usize;
+                let first = (app.moves.selected / 2).saturating_sub(rows - 1) * 2;
+                let quick: Vec<i64> = app.moves.quick().map(|record| record.id).collect();
+                for (index, record) in active.enumerate().skip(first).take(rows * 2) {
+                    let slot = index - first;
                     let cell = Rect::new(
-                        body.x + (index % 2) as u16 * half,
-                        body.y + (index / 2) as u16 * height,
-                        if index % 2 == 0 {
+                        body.x + (slot % 2) as u16 * half,
+                        body.y + (slot / 2) as u16 * height,
+                        if slot.is_multiple_of(2) {
                             half
                         } else {
                             body.width - half
@@ -155,20 +165,27 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                     } else {
                         paint.accent
                     };
+                    let label = quick.iter().position(|id| *id == record.id).map_or_else(
+                        String::new,
+                        |position| {
+                            let slot = record
+                                .proposal
+                                .extra
+                                .0
+                                .get("quick_slot")
+                                .and_then(serde_json::Value::as_u64)
+                                .map_or(position + 1, |slot| slot as usize + 1);
+                            format!("Q{slot} ")
+                        },
+                    );
                     let title = format!(
-                        "{} Q{} {}",
+                        "{} {}{}",
                         if index == app.moves.selected {
                             ">"
                         } else {
                             " "
                         },
-                        record
-                            .proposal
-                            .extra
-                            .0
-                            .get("quick_slot")
-                            .and_then(serde_json::Value::as_u64)
-                            .map_or(index + 1, |slot| slot as usize + 1),
+                        label,
                         clipped(&record.proposal.name, cell.width.saturating_sub(6) as usize)
                     );
                     let last = app
@@ -1405,6 +1422,28 @@ mod tests {
             assert!(buffer.contains(if width >= 90 { "> Q4 Surf4" } else { "> Surf4" }));
             assert!(buffer.contains("Moves"));
             assert!(buffer.is_ascii());
+        }
+    }
+    #[test]
+    fn menu_lists_the_whole_library_beyond_four_quick_moves() {
+        for (width, height) in [(120, 36), (60, 18)] {
+            let mut app = App::new("project".into(), width, height);
+            app.moves.partner = 1;
+            app.moves.form = 1;
+            for id in 1..=20 {
+                let mut record = record();
+                record.id = id;
+                record.proposal.name = format!("Surf{id}");
+                app.moves.records.push(record);
+            }
+            assert_eq!(app.moves.menu_records().count(), 20);
+            app.moves.selected = 19;
+            let buffer = draw(&mut app, width, height);
+            assert!(buffer.contains("> Surf20"), "{buffer}");
+            assert!(!buffer.contains("Q5"));
+            app.moves.selected = 0;
+            let buffer = draw(&mut app, width, height);
+            assert!(buffer.contains(if width >= 90 { "> Q1 Surf1" } else { "> Surf1" }));
         }
     }
     #[test]

@@ -391,7 +391,8 @@ fn native_browser_state_pkce_exact_return_and_single_use() {
     assert!(!grant.authorize_url().contains(&grant.verifier));
     let valid = format!("{}?code=code-secret&state={}", grant.redirect, grant.state);
     for invalid in [
-        valid.replace("127.0.0.1", "foreign.invalid"),
+        valid.replace("localhost", "foreign.invalid"),
+        valid.replace("localhost", "127.0.0.1"),
         valid.replace(":1455", ":1457"),
         valid.replace("/auth/callback", "/other"),
         valid.replace(&grant.state, &other.state),
@@ -597,6 +598,49 @@ fn native_device_fixture_pending_success_and_exact_exchange_contract() {
             .all(|request| !request.to_ascii_lowercase().contains("authorization:"))
     );
 }
+#[test]
+fn native_device_polling_rides_out_rate_limits_and_brief_service_errors() {
+    let fixture = Fixture::new(vec![
+        usercode(),
+        Reply::json(429, Value::Null),
+        Reply::json(503, Value::Null),
+        Reply::json(403, Value::Null),
+        Reply::json(502, Value::Null),
+        device_grant(),
+        Reply::json(200, tokens()),
+    ]);
+    let credential = runtime()
+        .block_on(Endpoint::fixture(fixture.origin.clone()).device(&mut || Ok(()), |_| {}))
+        .unwrap();
+    assert_eq!(credential.access_token, "fixture-access-secret");
+    let requests = fixture.finish();
+    assert_eq!(
+        requests
+            .iter()
+            .filter(|request| request.starts_with("POST /api/accounts/deviceauth/usercode "))
+            .count(),
+        1,
+        "the issued device code is reused, never re-requested"
+    );
+
+    let mut replies = vec![usercode()];
+    replies.extend((0..=DEVICE_TRANSIENT_RETRIES).map(|_| Reply::json(503, Value::Null)));
+    let fixture = Fixture::new(replies);
+    let endpoint = Endpoint::fixture(fixture.origin.clone());
+    let outcome = runtime()
+        .block_on(endpoint.device(&mut || Ok(()), |_| {}))
+        .unwrap_err();
+    assert_eq!(outcome, Outcome::Failed);
+    assert_eq!(endpoint.failure.get().unwrap().status, Some(503));
+    let requests = fixture.finish();
+    assert_eq!(requests.len(), 2 + DEVICE_TRANSIENT_RETRIES as usize);
+    assert!(
+        requests
+            .iter()
+            .all(|r| !r.starts_with("POST /oauth/token "))
+    );
+}
+
 fn fixture_origin(request: &str) -> String {
     let host = request
         .lines()

@@ -321,10 +321,16 @@ impl State {
         });
         slots.into_iter().flatten()
     }
+    /// The menu lists quick moves first, then every other active library move,
+    /// so a form is never limited to four usable moves.
     pub fn menu_records(&self) -> impl Iterator<Item = &Record> + Clone {
-        self.quick()
-            .filter(|_| self.mode == Mode::Menu)
-            .chain(self.active().filter(|_| self.mode != Mode::Menu))
+        let menu = self.mode == Mode::Menu;
+        let quick = self.quick();
+        let rest_quick = quick.clone();
+        quick.filter(move |_| menu).chain(
+            self.active()
+                .filter(move |record| !menu || !rest_quick.clone().any(|q| q.id == record.id)),
+        )
     }
     pub fn parameter_current(&self) -> bool {
         self.parameter_instruction.is_some()
@@ -1818,7 +1824,8 @@ mod tests {
                 .menu_records()
                 .map(|record| record.id)
                 .collect::<Vec<_>>(),
-            [32, 1]
+            [32, 1].into_iter().chain(2..=31).collect::<Vec<_>>(),
+            "quick moves lead, then the rest of the library stays usable"
         );
         app.move_activate();
         assert_eq!(app.moves.detail, Some(32));
