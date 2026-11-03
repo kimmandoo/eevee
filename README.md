@@ -43,15 +43,15 @@ It also comes with a companion: a party of Eevee forms that evolve with the kind
 - **Local-first.** Tasks, drafts, transcripts and run history live in local SQLite. No account, server or Node runtime needed.
 - **Built for the terminal.** Rust + ratatui, 60×18 and up, mouse and keyboard, Kitty/Sixel sprites with text fallback, ASCII/mono modes. macOS, Linux, WSL and Windows, all built and tested in CI.
 
-## What's new in 0.1.45
+## What's new in 0.1.46
 
 | | What changed |
 | --- | --- |
-| **Safer Windows repair** | Reinstall repairs a missing `ev.exe` only when complete, unmodified ownership metadata and the downloaded package validate. Unowned or modified files still refuse; no antivirus or execution-policy bypass. |
-| **Actionable account failures** | Native sign-in keeps the failed stage, safe reason and next action visible. Repeated policy paragraphs are grouped without losing distinct restrictions. A review waiting for saved input cannot look ready to Connect. |
-| **Visible compact answers** | Successful completion details fit one row instead of pushing the received answer off a small screen beside pinned-form or learning notices. Failure reasons/actions stay inline; full details remain in `/verbose`. |
-| **Eevee callback pages** | Responsive light/dark callback pages use original inline geometry, no remote resources and no reflected credentials. A received redirect asks you to return to the terminal; it does not claim authentication succeeded. |
-| **Compound-request evolution** | A repeated descriptive verb no longer hides a later explicit build/fix instruction. Quoted text, negation, manual form choices and effect review retain their boundaries. Existing Moves/TM teaching remains local and does not grant tool authority. |
+| **Plan-driven evolution** | The model's structured todo role selects the form, including mid-request changes. Request wording no longer chooses a form or narrows tools; only explicit Plan/Review is read-only. Forms never grant permission. |
+| **Every agent route** | Native and Codex offer role-required todos; Codex, Claude SDK and ACP receive the same role-tag plan contract. Untagged write/command activity can steer appearance without changing ownership or approvals. |
+| **Open move library** | Every form can learn request moves, and the menu lists the complete active library after its quick slots. Similarity uses language-agnostic text shapes rather than word tables. |
+| **OpenAI sign-in fixes** | Browser sign-in uses the registered localhost redirect on IPv4/IPv6. Device polling keeps the same code through bounded transient errors and server-requested slow-down. Live-account success is not implied by fixture acceptance. |
+| **Reliable callback CI** | Response-write failure is injected after socket setup, preserving the callback result without macOS shutdown/deadline configuration races. |
 
 <details>
 <summary>Highlights retained from 0.1.44</summary>
@@ -64,7 +64,7 @@ It also comes with a companion: a party of Eevee forms that evolve with the kind
 | **Keep working** | Native current-request active/pending todos continue within the same owned request, up to three completion reminders and existing bounds. Completed effects are not replayed; blocked prerequisites do not suppress independent authorized work. External adapters are not silently resubmitted. |
 | **PowerShell caller stays open** | Installer errors no longer terminate the PowerShell host that called the documented ScriptBlock command. PS5.1/PS7 qualification covers install/update/rejected checksums/caller settings, default interactive animation, installed startup/quit and uninstall. Windows support remains. |
 | **More usable response space** | Ordinary answers stay borderless; useful output precedes compact result metadata. Actual growing source stays in filename/status boxes with numbered highlighted code; PgUp/PgDn reads earlier code and Alt+End follows. |
-| **The original Eevee stays** | The native pixel portrait and resize recovery remain intact. Intent-matched evolution, color/mono code diagnostics, draft-preserving effect reviews and exact consent remain; model-picker details moved to Alt+D. |
+| **The original Eevee stays** | The native pixel portrait and resize recovery remain intact. Plan-driven evolution, color/mono code diagnostics, draft-preserving effect reviews and exact consent remain; model-picker details moved to Alt+D. |
 | **Protected Windows qualification** | Exact executable/archive scans require current Defender intelligence and real-time/PUA/cloud protection. Packages remain unsigned; a clean CI scan is not device-specific antivirus clearance. |
 
 </details>
@@ -149,11 +149,11 @@ Pin a version:
 
 ```sh
 curl -fsSLo install-ev.sh https://github.com/kimmandoo/eevee/releases/latest/download/install.sh
-sh ./install-ev.sh --version v0.1.45
+sh ./install-ev.sh --version v0.1.46
 ```
 
 ```powershell
-& ([scriptblock]::Create((irm https://github.com/kimmandoo/eevee/releases/latest/download/install.ps1))) -Version v0.1.45
+& ([scriptblock]::Create((irm https://github.com/kimmandoo/eevee/releases/latest/download/install.ps1))) -Version v0.1.46
 ```
 
 Offline: download the matching archive, `SHA256SUMS` and installer from one release, then:

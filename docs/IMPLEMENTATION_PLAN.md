@@ -4,6 +4,13 @@ Updated2026-11-02. Public0.1.45 completed the requested minor fixes and existing
 
 Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPATIBILITY.md). Live-provider conformance remains distinct from implemented transports and deterministic runtime proof.
 
+## Current delivery — CI repair and0.1.46 release (2026-11-03)
+
+1. Read failed native41429077771 and dependent extended41436022466 evidence. Repair the OAuth page-write test's macOS socket-configuration ordering without changing callback acceptance or weakening CI.
+2. Migrate runtime fixtures from retired text-based form/capability routing to structured roles; require valid native todo phases. Run Rust1.90 formatting, locked tests, strict Clippy, Python/SDK checks and actual callback, continuation, progress and evolution journeys.
+3. Advance Cargo/lock, README and dated version notes. Commit/push the source-gated candidate; require the newest exact-source main push to pass Check and all five native jobs, every step, in one attempt before tagging.
+4. Publish a new immutablev0.1.46 through the existing qualification/promotion workflow; verify public assets/checksums/native layouts and the downloaded host executable and changed runtime paths. Record final IDs/results and commit the handoff. Earlier tags/assets, security guards and unrelated roadmap tasks remain unchanged.
+
 ## Completed delivery — Minor fixes, learning/evolution acceptance and0.1.45 release (2026-11-02)
 
 1. Preserve the completed Windows/auth changes and inspect existing Moves/TM teaching, use/history and explicit tool-catalog authority. Exercise actual native journeys for teaching, import/export, restart, replacement, usage and reviewed tool effects; distinguish this from model training or inherited tool grants.

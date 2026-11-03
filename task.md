@@ -4,6 +4,8 @@ Only unfinished work belongs here. Completed specifications and stable dependenc
 
 ## Current state
 
+- **Active delivery (2026-11-03):** CI repair and0.1.46 release. Native41429077771's macOS callback failure injection ran before socket setup; dependent extended41436022466 correctly refused its failed qualification. Repair that fixture, migrate role/capability acceptance, qualify the exact new source on all five targets and publish through immutable-artifact promotion. See the current implementation-plan section and checkpoint; do not start unrelated roadmap tasks.
+
 - **Released (2026-11-02):** [v0.1.45](https://github.com/kimmandoo/eevee/releases/tag/v0.1.45), sourceb27cbd9, native41421707024 attempt1 and publication41425630610. Shipped owned Windows repair, actionable auth/grouped policies/Eevee callback pages, repeated-verb evolution and visible compact answers. Existing Move/TM/tool learning passed actual both-size acceptance without new training or permission inheritance.
 - **Verification:** All eight public assets matched qualified bytes. Public Linux passed one complete24-group install/all34 terminal scenarios plus evolution/similarity/catalogue/OAuth; actual public Windows PS5.1 passed install/update/refusal/repair/uninstall and caller/data preservation. Native PS5.1/PS7 and protected scans passed. The original affected-device failure remains unconfirmed without its exact command/error/threat identity; do not claim device-specific clearance.
 - **Included milestones:** A08 → UX04A → S04 and P04A → P04B → T01B shipped: actionable connection diagnostics, persistent text density, reviewed portable workflows, reviewed updates/safe rollback and exact local context comparison. Specifications remain in [COMPLETED.md](tasks/COMPLETED.md).

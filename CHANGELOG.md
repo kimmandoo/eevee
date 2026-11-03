@@ -2,6 +2,10 @@
 
 ## 2026-11-03
 
+### 0.1.46
+
+- fix(ci): injected OAuth callback page-write failure after socket deadline setup, so macOS socket configuration could not prevent callback validation or discard the received authorization code.
+- chore(release): advanced the package to 0.1.46, retaining SQL20, SDK bridge11, TM2 and formation2 and preserving earlier release tags and assets.
 - feat(providers): required a structured role on every Eevee `todo` step (schema without null, refusals returned to the model) and offered the same todo tool to Codex as a client-executed dynamic tool.
 - feat(evolution): evolved the running request from its own tool activity (write → Flareon, command → Jolteon) whenever the plan's focus step named no role, so untagged plans and planless requests still evolved.
 - feat(evolution)!: started every Send from the adopted plan's focus-step role regardless of wording and removed the last request-text tables (read-only phrases, continuation phrases and the whole intent classifier).
@@ -9,15 +13,11 @@
 - feat(moves)!: replaced word-list similarity (Korean particles, English articles, verb lists, intent classifier) with language-agnostic slot shapes and character edit distance; dismissing a proposal also dismissed every observed wording.
 - fix(ui): reworded evolution reasons to describe the observed work instead of claiming "you asked".
 - feat(evolution)!: made automatic evolution follow the model's role-tagged plan on every route and while the request runs; the request text no longer picked a form, and mid-run evolution changed appearance only while the running request kept its owner, tools and approvals.
-- feat(providers): sent the same role-tag plan contract (`progress_policy`) to Codex, Claude Agent SDK and ACP routes and normalized `[role]` step tags into the structured phase, so every agent produced the same role-driven todos as native routes.
-- feat(forms)!: gave every form the full approved tool set for ordinary requests; only explicit Plan/Review mode or literal read-only wording in the request made it nonwriting, and that restriction applied per request.
-- refactor(evolution): removed send-time word routing, the plan-proceed heuristic and the todo label/phase word fallback from evolution; the word classifier remained only as the repetition-move grouping key.
-- feat(evolution): added a closed todo step-role vocabulary (discover, verify, implement, plan, diagnose, refactor, review, handoff) to the native todo tool and prelude, so automatic evolution followed the model's own structured plan instead of re-matching step text against word tables; word rules remained only for the request text, free-text phases and routes without native phases.
+- feat(providers): sent the same role-tag plan contract (`progress_policy`) to Codex, Claude Agent SDK and ACP routes and normalized supplied `[role]` step tags into structured phases without assuming live-model compliance.
 - fix(auth): sent the OpenAI browser sign-in redirect as the registered `http://localhost:<port>/auth/callback` spelling instead of a numeric loopback address, and served the callback on both IPv4 and IPv6 loopback.
 - fix(auth): kept OpenAI device authorization alive through 429 slow-down (+5 s interval, capped at 60 s) and up to three consecutive transient network/5xx polling failures, reusing the one issued device code; setup and other statuses still stopped without retry.
 - feat(moves): listed every active library move in the move menu after the quick slots, with a row-scrolling two-column grid, so a form was no longer limited to four usable moves.
 - feat(moves): let every form learn repeated request moves, including Eevee, Vaporeon, Jolteon, Umbreon and Leafeon, and fell back to the form's own last submitted instruction when its signature task/pin/run source was unavailable.
-- feat(evolution): routed everyday cause-finding, search/grep/usages/config lookup, structure planning and benchmark-run requests to Umbreon, Vaporeon, Espeon and Jolteon.
 - feat(forms): gave each form a distinct default working style, answer shape, tool habit and avoid-list in its visible behavior profile.
 
 ## 2026-11-02

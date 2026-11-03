@@ -127,7 +127,7 @@ def native_case(binary, output, root, size, mode):
             wait_for(session, 'Storage: saved', timeout=40)
             journey.setup_route()
             if mode in ('active-quit', 'interrupt-quit'):
-                before = journey.begin('Explain the project without modifying files.', [('cancel', None)], writing=False)
+                before = journey.begin('Explain the project without modifying files.', [('cancel', None)])
                 until(session, peer.cancel_started.is_set, 'actual streaming socket did not start')
                 session.paste(FUTURE, settle=False)
                 journey.capture('streaming-with-unsent-follow-up')
@@ -145,7 +145,7 @@ def native_case(binary, output, root, size, mode):
                 detail = {'owned_socket_closed': True, 'unsent_draft_exact': True, 'request_count': 1}
             elif mode == 'terminal-escape':
                 answer = 'The received answer remains available.'
-                before = journey.begin('Explain the project without modifying files.', [response_plan(peer, text=answer, gate=gate)], writing=False)
+                before = journey.begin('Explain the project without modifying files.', [response_plan(peer, text=answer, gate=gate)])
                 until(session, gate.ready.is_set, 'completed response did not reach its actual frame gate')
                 gate.release.set()
                 journey.settled(None, before + 1)
@@ -161,7 +161,7 @@ def native_case(binary, output, root, size, mode):
                 # observation cannot race a fast loopback retry sequence.
                 plans = [('rate_limited', lambda: gate.hold(peer))]
                 plans.extend([('rate_limited', None)] * 3)
-                before = journey.begin('Explain the project without modifying files.', plans, writing=False)
+                before = journey.begin('Explain the project without modifying files.', plans)
                 until(session, gate.ready.is_set, 'HTTP refusal did not reach its actual dispatch gate')
                 gate.release.set()
                 until(session, lambda: 'HTTP 429' in session.display() and not journey.snapshot()['claims']

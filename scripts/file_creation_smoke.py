@@ -770,20 +770,24 @@ def native_case(binary, output, root, size, ascii_mode, variant, advanced, *, mu
             assert denied_wire, 'denial was not returned to the same provider call'
             result['cases'].append('neutral denial creates no directories/files and continues with an actual correlated denial result')
 
-            # Ordinary planning must not strand a later short implementation
-            # request in read-only mode or discard the plan it refers to.
+            # Explicit Plan then Implement preserves public plan context without
+            # inferring either capability from request wording.
             planned_path = 'planned/한글/saved.txt'
             planned_content = 'implemented from the retained plan\r\n'
             plan_request = 'Plan the implementation of a new project.'
             plan_answer = f'Create {planned_path} with exact content: {planned_content}'
             gate.ready.clear()
             gate.release.clear()
+            journey.session.command('role-plan')
+            journey.workspace()
             before = journey.begin(plan_request, [
                 response_plan(peer, text=plan_answer, gate=gate, number=20)], writing=False)
             until(journey.session, gate.ready.is_set, 'ordinary plan response')
             assert not (journey.project / planned_path).parent.exists()
             gate.release.set()
             journey.settled('Create planned/', before + 1)
+            journey.session.command('role-implement')
+            journey.workspace()
             implementation = 'Implement it.'
             before = journey.begin(implementation, [
                 response_plan(peer, calls=[{'id': 'implement-retained-plan',
@@ -795,7 +799,7 @@ def native_case(binary, output, root, size, ascii_mode, variant, advanced, *, mu
             journey.permission(planned_path, allow=True)
             journey.settled('Planned file saved.', before + 2)
             assert (journey.project / planned_path).read_bytes() == planned_content.encode()
-            result['cases'].append('ordinary plan then short implementation retains plan, acquires writer tools, reviews and saves actual nested bytes')
+            result['cases'].append('explicit Plan then Implement retains public plan context, acquires writer tools, reviews and saves actual nested bytes')
             # One real native wire route covers mutation semantics at both terminal
             # sizes; the existing protocol matrix continues to cover serialization.
             if mutations and (route, protocol) == ('compatible', 'chat_completions'):

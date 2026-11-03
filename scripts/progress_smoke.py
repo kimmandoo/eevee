@@ -42,6 +42,9 @@ LABELS = {
     'en': ('Investigate error', 'Fix code', 'Verify tests'),
     'ko': ('오류 조사', '코드 수정', '테스트 검증'),
 }
+ROLES = ('diagnose', 'implement', 'verify')
+ROLE_FORMS = dict(zip(('discover', 'verify', 'implement', 'plan', 'diagnose',
+                      'refactor', 'review', 'handoff'), range(1, 9)))
 REQUESTS = {
     'en': ('Continue.', 'Continue.', 'Continue.'),
     'ko': ('계속해 주세요.', '계속해 주세요.', '계속해 주세요.'),
@@ -65,7 +68,7 @@ def protocol_steps(route, steps):
         return steps
     field = 'step' if route == 'codex' else 'content'
     statuses = {'active': 'in_progress', 'done': 'completed'}
-    return [{field: step['label'], 'phase': step.get('phase'),
+    return [{field: ('[' + step['phase'] + '] ' if step.get('phase') else '') + step['label'],
              'status': statuses.get(step['status'], step['status'])} for step in steps]
 
 
@@ -205,7 +208,7 @@ export function query({prompt,options}) {
           ...(options.tools.includes('Write')?['mcp__eevee_command__run_command']:[])],
         mcp_servers:[{name:'eevee_source',status:'connected'},
           ...(options.tools.includes('Write')?[{name:'eevee_command',status:'connected'}]:[])],plugins:[],skills:[]};
-      const todos=Array.isArray(spec.steps)?spec.steps.map(s=>({content:s.label,phase:s.phase,
+      const todos=Array.isArray(spec.steps)?spec.steps.map(s=>({content:(s.phase?'['+s.phase+'] ':'')+s.label,
         status:({active:'in_progress',done:'completed'})[s.status]??s.status})):spec.steps;
       // Neither replayed history nor a delegated list may replace task progress.
       for(const [id,extra] of [['replayed',{isReplay:true}],['delegated',{parent_tool_use_id:'parent'}]]){
@@ -381,6 +384,16 @@ class ProgressJourney(SurfaceJourney):
         publish(self.control / 'next.json', {'steps': steps, 'answer': answer,
                                             'hold': busy_probe and self.progress_route != 'native'})
         prediction = self.preview(request, label)
+        # Provider observations may evolve appearance during this request;
+        # its dispatch-time owner and operation must remain frozen.
+        partner_before = self.state()['partners'][0]
+        focus = next((step for status in ('active', 'pending') for step in steps
+                      if step['status'] == status), None)
+        valid = all(step['status'] in ('active', 'pending', 'blocked', 'done', 'dropped')
+                    for step in steps)
+        observed_form = (ROLE_FORMS.get(focus.get('phase'), prediction['form'])
+                         if valid and focus and partner_before['auto_form']
+                         and prediction['operation'] != 'review' else prediction['form'])
         posts = len(self.peer.snapshot('POST'))
         # These peers report progress only; they do not perform the unfinished
         # work. A native non-Plan request must try one forward reminder, then
@@ -424,7 +437,7 @@ class ProgressJourney(SurfaceJourney):
                 in_flight = self.state()
                 frozen_owner = in_flight['claims'][0]
                 current_form = in_flight['partners'][0]['form']
-                assert current_form == prediction['form'], 'provider progress evolved the active form mid-run'
+                assert current_form == observed_form, 'automatic form did not follow the running role-tagged plan'
                 adopted_revision = self.progress()['adopted_revision']
                 assert adopted_revision == self.progress()['revision'], 'automatic proposal was not adopted in flight'
                 held_count = self.dispatch_count()
@@ -453,7 +466,7 @@ class ProgressJourney(SurfaceJourney):
               'controlled turn did not settle', timeout=90)
         state = self.state()
         partner = next(p for p in state['partners'] if p['id'] == state['tasks'][0]['lead_partner'])
-        assert partner['form'] == prediction['form'], (prediction, partner)
+        assert partner['form'] == observed_form, (prediction, observed_form, partner)
         assert len(state['receipts']) == previous_receipts + 1, 'logical request did not retain exactly one outgoing receipt'
         receipt = state['receipts'][-1]
         assert receipt['owner']['form'] == prediction['form']
@@ -486,8 +499,14 @@ class ProgressJourney(SurfaceJourney):
             expected_error = any(step['status'] == 'invalid_progress_status' for step in steps)
             assert (value.get('status') in ('error', 'refused')) == expected_error, value
             save(self.output / (label + '-native-tool-result.json'), results)
-            operation = 'implement' if any(t.get('name') == 'eevee_write_file'
-                for t in observed[posts]['body'].get('tools', [])) else 'plan'
+            advertised = {tool.get('name') for tool in observed[posts]['body'].get('tools', [])}
+            mutation_tools = {'eevee_write_file', 'eevee_edit_file', 'eevee_delete_file',
+                              'eevee_rename_file', 'eevee_run_command'}
+            operation = 'implement' if 'eevee_write_file' in advertised else 'plan'
+            if operation == 'implement':
+                assert mutation_tools <= advertised, advertised
+            else:
+                assert not mutation_tools & advertised, advertised
             assert operation == prediction['operation'], (operation, prediction)
         else:
             assert not self.peer.snapshot('POST'), 'controlled route silently fell back to native HTTP'
@@ -511,7 +530,7 @@ class ProgressJourney(SurfaceJourney):
     def presentation(self, language):
         """Native host-tool updates in one request, using the production PTY."""
         labels = LABELS[language]
-        steps = [{'label': label, 'status': 'active' if i == 0 else 'pending'}
+        steps = [{'label': label, 'phase': ROLES[i], 'status': 'active' if i == 0 else 'pending'}
                  for i, label in enumerate(labels)]
         request = ('Investigate the error; explain only, do not change files.'
                    if language == 'en' else '오류를 조사하고 설명만 해 주세요. 파일은 변경하지 마세요.')
@@ -531,6 +550,9 @@ class ProgressJourney(SurfaceJourney):
             self.peer.plans.put(response_plan(self.peer, calls=[{
                 'id': 'presentation-' + str(index), 'name': 'todo', 'arguments': arguments_value}],
                 gate=gate if index == 7 else None))
+        self.peer.plans.put(response_plan(self.peer, text=answer))
+        # Implement is ordinary even when the request asks for explanation.
+        # The unchanged final answer stops after one owned-work reminder.
         self.peer.plans.put(response_plan(self.peer, text=answer))
         self.write_request(request)
         self.session.send('\r', settle=False)
@@ -572,7 +594,7 @@ class ProgressJourney(SurfaceJourney):
               'final answer was not visible after latest-output navigation')
         self.capture('presentation-final-answer-visible')
         observed = self.peer.snapshot('POST')
-        assert len(observed) == posts + len(arguments) + 1, 'Native loop retried or skipped calls'
+        assert len(observed) == posts + len(arguments) + 2, 'Native loop retried or skipped calls/reminder'
         results = tool_results('responses', observed[-1]['body'])
         values = {key: json.loads(value) if isinstance(value, str) else value for key, value in results.items()}
         assert len(values) == len(arguments), values
@@ -678,8 +700,7 @@ class ProgressJourney(SurfaceJourney):
                            'calc.py 오류를 조사하고 원인을 설명해 주세요. 파일은 변경하지 마세요.')
         self.write_request(initial_request)
         initial_steps = [{'label': text,
-                          'phase': ('조사', '수정', '검증')[i] if language == 'ko'
-                          else ('investigate', 'fix', 'verify')[i],
+                          'phase': ROLES[i],
                           'status': 'active' if i == 0 else 'pending'}
                          for i, text in enumerate(labels)]
         self.dispatch(initial_request, initial_steps, language + '-initial-proposal')
@@ -698,11 +719,12 @@ class ProgressJourney(SurfaceJourney):
         for stage, request in enumerate(REQUESTS[language]):
             statuses = (('done', 'active', 'pending'),
                         ('done', 'done', 'active'), ('done', 'done', 'done'))[stage]
-            steps = [{'label': text, 'phase': ('조사', '수정', '검증')[i] if language == 'ko'
-                      else ('investigate', 'fix', 'verify')[i], 'status': statuses[i]}
+            steps = [{'label': text, 'phase': ROLES[i], 'status': statuses[i]}
                      for i, text in enumerate(labels)]
             old = self.dispatch(request, steps, language + '-stage-' + str(stage), busy_probe=stage == 0)
-            assert self.evidence[-1]['actual_form'] == (5, 3, 2)[stage], self.evidence[-1]
+            assert self.evidence[-1]['prediction']['form'] == (5, 3, 2)[stage], self.evidence[-1]
+            assert self.evidence[-1]['prediction']['operation'] == 'implement', self.evidence[-1]
+            assert self.evidence[-1]['actual_form'] == (3, 2, 2)[stage], self.evidence[-1]
             until(self.session, lambda: self.progress().get('revision') == old.get('revision', 0) + 1,
                   'actual provider snapshot was lost or duplicated')
             proposed = self.progress()
@@ -711,9 +733,9 @@ class ProgressJourney(SurfaceJourney):
             assert proposed['adopted_steps'] == steps, proposed
             self.adopt(language + '-stage-' + str(stage))
 
-        # An adopted active fix must not override manual appearance or an
-        # explicit read-only request. These are real explicit sends, not just
-        # predictions, and their unchanged provider list remains adopted.
+        # A pinned appearance suppresses automatic evolution, but wording never
+        # narrows ordinary Implement. Provider proposals still need adoption
+        # in manual mode and every receipt retains its dispatch-time owner.
         self.manual('todo start ' + labels[1], language + '-guard-active-fix')
         guard_steps = self.progress()['steps']
         self.session.command('vaporeon')
@@ -738,14 +760,22 @@ class ProgressJourney(SurfaceJourney):
         readonly = ('Read calc.py and explain its current code; do not change files or run commands.'
                     if language == 'en' else
                     'calc.py 파일을 읽고 현재 코드를 설명해 주세요. 파일을 변경하거나 명령을 실행하지 마세요.')
-        self.dispatch(readonly, guard_steps, language + '-explicit-readonly-guard')
-        assert self.evidence[-1]['actual_form'] == 1
-        assert self.evidence[-1]['prediction']['operation'] == 'plan'
+        self.dispatch(readonly, guard_steps, language + '-request-wording-keeps-implement')
+        assert self.evidence[-1]['actual_form'] == 3
+        assert self.evidence[-1]['prediction']['operation'] == 'implement'
         assert self.progress()['adopted_revision'] == self.progress()['revision']
         before_review = self.dispatch_count()
-        review = self.preview('Review the code changes without implementing a fix.', language + '-explicit-review-guard')
-        assert review['form'] == 7 and review['operation'] == 'plan', 'Ordinary code review must remain read-only; independent Review is a separate explicit policy'
+        review = self.preview('Review the code changes without implementing a fix.', language + '-review-wording-keeps-implement')
+        assert review['form'] == 3 and review['operation'] == 'implement', review
         assert self.dispatch_count() == before_review
+        self.session.command('role-plan')
+        self.workspace()
+        self.dispatch(REQUESTS[language][0], guard_steps, language + '-explicit-plan-policy-guard')
+        assert self.evidence[-1]['prediction']['form'] == 3
+        assert self.evidence[-1]['prediction']['operation'] == 'plan'
+        assert self.evidence[-1]['actual_form'] == 3
+        self.session.command('role-implement')
+        self.workspace()
         self.manual('todo done ' + labels[1], language + '-guard-fix-complete-claim')
 
         # Exact-label user operations are adopted immediately, even in manual
@@ -758,13 +788,13 @@ class ProgressJourney(SurfaceJourney):
         self.manual('todo start ' + labels[1], language + '-active')
         self.manual('todo drop ' + labels[1], language + '-dropped')
         assert self.progress()['steps'][1]['status'] == 'dropped'
-        edited = [{'label': text + ' revised', 'phase': '검토' if language == 'ko' else 'revised',
-                   'status': 'pending'} for text in labels]
+        edited = [{'label': text + ' revised', 'phase': ROLES[i], 'status': 'pending'}
+                  for i, text in enumerate(labels)]
         self.manual('todo-edit ' + json.dumps(edited, ensure_ascii=False), language + '-edit')
         assert self.progress()['steps'] == edited
         count = self.dispatch_count()
         pending = self.preview(REQUESTS[language][0], language + '-pending-focus')
-        assert pending['form'] == 5 and pending['operation'] == 'plan', pending
+        assert pending['form'] == 5 and pending['operation'] == 'implement', pending
         assert self.dispatch_count() == count, 'pending-step prediction dispatched inference'
 
         before = self.progress()

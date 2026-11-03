@@ -135,11 +135,11 @@ def run_case(binary, output, root, size, route, protocol, form):
             before, count = start('Read `seed.rs`',
                                   [[{'id': 'read-seed', 'name': 'eevee_read_file',
                                      'arguments': {'path': 'seed.rs', 'start_line': 1, 'end_line': 0}}]],
-                                  read_reply, writing=False)
+                                  read_reply)
             journey.settled(read_reply, before + count)
             observed = json.dumps(tool_results(protocol, peer.snapshot('POST')[before + 1]['body']))
             assert hashlib.sha256((journey.project / 'seed.rs').read_bytes()).hexdigest() in observed
-            result['cases'].append('current-folder filename context excluded private/outside paths; actual source discovery used a nonwriting lease in the selected form')
+            result['cases'].append('current-folder filename context excluded private/outside paths; source discovery kept the ordinary approved lease without creating any file or command effect')
             journey.paths([])
             assert_form()
             result['cases'].append('optional path restriction opened directly without changing form, attaching context or granting writes')

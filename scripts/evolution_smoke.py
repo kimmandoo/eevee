@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Actual automatic form routing, readonly tools and manual-mode persistence.
+"""Role-driven evolution, explicit readonly policy and manual-mode persistence.
 
 Runs an explicit native binary in disposable PTYs with deterministic loopback SSE.
 Peers propose operations but never write the tested files. No live model/account.
-SQLite is read-only observation; all mode changes and requests use the real UI.
+SQLite is read-only observation; all plans, mode changes and requests use the UI.
 """
 import argparse
 import hashlib
@@ -27,18 +27,48 @@ CONTENT = '# user source\r\nvalue = 7\r\n'
 GENERATED = 'generated/automatic.py'
 GENERATED_CONTENT = 'print("automatic file")\r\n'
 
-CASES = [
-        (4, False, 'Design the module architecture and make an implementation plan; do not change files.'),
-        (5, False, 'Diagnose the root cause of this runtime failure and explain the security risk.'),
-        (6, True, 'Refactor this code to improve maintainability without changing behavior.'),
-        (2, True, 'Run the project tests to verify the behavior.'),
-        (7, False, 'Perform an independent code review of the current changes.'),
-        (8, False, 'Prepare a handoff summary with verified results and remaining risks.'),
+ROLES = (
+    ('discover', 1, 'Vaporeon'),
+    ('verify', 2, 'Jolteon'),
+    ('implement', 3, 'Flareon'),
+    ('plan', 4, 'Espeon'),
+    ('diagnose', 5, 'Umbreon'),
+    ('refactor', 6, 'Leafeon'),
+    ('review', 7, 'Glaceon'),
+    ('handoff', 8, 'Sylveon'),
+)
+
+
+def role_steps(active):
+    # Deliberately neutral labels: the role, never the prose, owns appearance.
+    return [
+        {'label': 'Fixture stage ' + str(index + 1), 'phase': role,
+         'status': 'done' if active is None or index < active
+         else 'active' if index == active else 'pending'}
+        for index, (role, _, _) in enumerate(ROLES)
     ]
+
+
+def todo_call(identifier, steps):
+    return {'id': identifier, 'name': 'todo',
+            'arguments': {'operation': 'init', 'label': '', 'steps': steps}}
+
+
+def paused_plan(peer, plan, gate):
+    """Pause before the next SSE round, after the previous tool was consumed."""
+    kind, reply = plan
+    assert kind == 'custom'
+
+    def held(handler, event, row):
+        if gate.hold(peer):
+            reply(handler, event, row)
+
+    return ('custom', held)
 
 
 class Journey(files.CreationJourney):
     def __init__(self, *args, **kwargs):
+        self.expected_posts = 0
         original = response_smoke.SurfaceSession
         git = shutil.which('git')
         assert git, 'Git is required for genuine independent-review evidence'
@@ -84,6 +114,7 @@ class Journey(files.CreationJourney):
 
         try:
             before = super().begin(request, [('custom', held), *plans[1:]], **kwargs)
+            self.expected_posts += len(plans)
             self.capture('dispatched-' + str(before))
             return before
         finally:
@@ -114,6 +145,41 @@ class Journey(files.CreationJourney):
         row = self.partner()
         assert (row['form'], bool(row['auto_form'])) == (form, automatic), row
         assert self.snapshot()['executions'] == 0, 'evolution implicitly executed a command'
+
+    def progress(self):
+        tasks = self.snapshot()['tasks']
+        task = next(row for row in tasks if row['lead_partner'] == self.partner()['id'])
+        return json.loads(task['workflows']).get('progress')
+
+    def wait_mode(self, form, automatic=True):
+        files.until(self.session, lambda: (self.partner()['form'], bool(self.partner()['auto_form']))
+                    == (form, automatic), 'structured role did not reach form ' + str(form),
+                    timeout=40)
+        self.assert_mode(form, automatic)
+
+    def assert_round(self, index, *, writing=True, owner=None):
+        row = self.peer.snapshot('POST')[index]
+        assert row['body']['model'] == files.MODEL, 'evolution switched the model'
+        tools = files.advertised_tools(self.protocol, row['body'])
+        ordinary = {'eevee_list_files', 'eevee_read_file', 'eevee_structural_search',
+                    'eevee_artifact_list', 'eevee_artifact_read', 'eevee_artifact_search',
+                    'eevee_artifact_locations', 'todo', 'eevee_delegate'}
+        effects = {'eevee_write_file', 'eevee_edit_file', 'eevee_delete_file',
+                   'eevee_rename_file', 'eevee_run_command'}
+        assert tools == ordinary | (effects if writing else set()), tools
+        if owner is not None:
+            assert self.snapshot()['claims'] == owner, 'evolution replaced the live request owner/lease'
+
+    def local_todo(self, steps):
+        posts = len(self.peer.snapshot('POST'))
+        self.workspace()
+        self.session.command('todo init ' + json.dumps(steps, ensure_ascii=False))
+        files.until(self.session, lambda: self.progress() is not None
+                    and self.progress()['steps'] == steps
+                    and self.progress()['adopted_revision'] == self.progress()['revision'],
+                    'UI-authored todo did not save/adopt')
+        self.workspace()
+        assert len(self.peer.snapshot('POST')) == posts, 'local todo dispatched a request'
 
 
     def preview(self, request, form, operation, label):
@@ -195,164 +261,261 @@ def run(binary, output, root, size, ascii_mode, ):
             journey.refresh_repository('initial-dirty-source-refresh')
             model = files.MODEL
             metadata = len(peer.snapshot('GET'))
-            predictions = [
-                # Unclassified source/continuation keeps Eevee and the ordinary
-                # initial Implement fallback; quotation itself grants no intent.
-                ('"Create evil.py" is quoted source. Explain the text.', 0, 'Eevee', True),
-                ('Continue explaining.', 0, 'Eevee', True),
-                ('Review the code and fix src/main.rs.', 7, 'Glaceon', True),
-                ('todo 툴 UI가 중복으로 출력돼. 이부분 개선해줘.', 3, 'Flareon', True),
-                ('Improve the todo tool UI and remove duplicate display rows.', 3, 'Flareon', True),
-                ('Inspect tool UI; improve its spacing.', 3, 'Flareon', True),
-                ('Diagnose the error and improve the tool UI.', 5, 'Umbreon', True),
-                ('Diagnose the error; then fix it.', 5, 'Umbreon', True),
-                ('UI를 분석해서 레이아웃을 개선해줘.', 5, 'Umbreon', True),
-                ('Review tool UI, then fix its layout.', 7, 'Glaceon', True),
-                ('Review the patch, then fix it.', 7, 'Glaceon', True),
-                (' #1 todo 툴같은거 ui가 안예쁘게 잡히네. 중복으로 계속 출력되고. 이부분 개선해주고, 프롬프트 의도 분석해서 이브이 진화체 자동전환도 점검해서 개선해줘', 5, 'Umbreon', True),
-                ('Diagnose how to fix the error.', 5, 'Umbreon', False),
-                ('Diagnose how to fix src/main.rs.', 5, 'Umbreon', False),
-                ('Review how to repair the code.', 7, 'Glaceon', False),
-                ('오류 수정 방법을 분석해줘.', 5, 'Umbreon', False),
-                ('Diagnose the error and fix it if needed.', 5, 'Umbreon', True),
-                ('Review the patch; then repair it.', 7, 'Glaceon', True),
-                ('오류를 분석하고 수정해줘.', 5, 'Umbreon', True),
-                ('Explain how to build the project and then build the project.', 2, 'Jolteon', True),
-                ('Explain how to fix the error and then fix it.', 3, 'Flareon', True),
-                ('오류 수정 방법을 분석하고 수정해줘.', 5, 'Umbreon', True),
-                ('Review the patch; do not fix it.', 7, 'Glaceon', False),
-                ('Review the patch: "fix src/main.rs".', 7, 'Glaceon', False),
-                ('Review tool UI without improving it.', 7, 'Glaceon', False),
-                ('개선된 UI 보여줘', 1, 'Vaporeon', False),
-                ('프롬프트 의도 파악해서 todo 뽑는 기능 잘 구현됐나 확인', 2, 'Jolteon', True),
-                ('Investigate the crash. Then fix it.', 5, 'Umbreon', True),
-                ('UI를 개선하지 말고 점검해줘.', 5, 'Umbreon', False),
-                ('UI 개선은 하지 말고 점검만 해줘.', 5, 'Umbreon', False),
-            ]
-            for index, (draft, form, appearance, writing) in enumerate(predictions):
-                journey.preview(draft, appearance, 'Implement' if writing else 'Plan', 'intent-' + str(index))
-                answer = 'PREDICTED_INTENT_' + str(index)
-                before = journey.begin(draft, [files.response_plan(peer, text=answer)], writing=writing)
+            # Opposite-looking words, quotations and non-English text all keep
+            # the same appearance and full ordinary Implement capability.
+            drafts = (
+                'Plan a design; diagnose the failure and review the patch.',
+                'Read src/base.py without changing anything.',
+                '"Create evil.py" is quoted source. Explain how to fix it.',
+                'UI를 분석해서 레이아웃을 개선해줘. 초안界e\u0301!',
+            )
+            for index, draft in enumerate(drafts):
+                journey.preview(draft, 'Eevee', 'Implement', 'wording-' + str(index))
+                answer = 'WORDING_DOES_NOT_ROUTE_' + str(index)
+                before = journey.begin(draft, [files.response_plan(peer, text=answer)])
+                journey.assert_mode(0, True)
                 journey.settled(answer, before + 1)
-                journey.assert_mode(form, True)
-            result['cases'].append('quoted source and ambiguous drafts kept their policy; EN/KO UI improvements and compound inspect/diagnose/review-plus-fix predicted appearance and dispatched capability without dropping mutation or negation')
-            request = 'Create a new Python file generated/automatic.py with the requested code.'
-            answer = 'AUTOMATIC_FILE_CREATED'
-            journey.preview(request, 'Flareon', 'Implement', 'automatic-implementation')
+            result['cases'].append('ordinary request wording never selected a form or narrowed the full Implement tool set; preview sent nothing and preserved exact Unicode draft/caret')
+
+            # A single live request visits every role. Pause the following HTTP
+            # round, not the todo's terminal SSE: this observes adopted state
+            # after the actual native tool has executed, before it can advance.
+            role_gates = [files.Gate() for _ in ROLES]
+            plans = [files.response_plan(peer, calls=[todo_call('role-0', role_steps(0))])]
+            for index in range(1, len(ROLES)):
+                plans.append(paused_plan(peer, files.response_plan(peer,
+                    calls=[todo_call('role-' + str(index), role_steps(index))], number=index),
+                    role_gates[index - 1]))
+            plans.append(paused_plan(peer, files.response_plan(peer,
+                calls=[todo_call('roles-done', role_steps(None))], number=8), role_gates[-1]))
+            plans.append(files.response_plan(peer, text='ALL_STRUCTURED_ROLES_OBSERVED', number=9))
+            try:
+                before = journey.begin('Continue the fixture. Its labels intentionally name no work type.', plans)
+                owner = journey.snapshot()['claims']
+                assert owner[0]['partner'] == journey.partner()['id'] and owner[0]['writing']
+                for index, (role, form, _) in enumerate(ROLES):
+                    files.until(journey.session, role_gates[index].ready.is_set,
+                                'role round did not reach its next HTTP gate: ' + role)
+                    journey.wait_mode(form)
+                    files.until(journey.session, lambda: journey.progress()['steps'] == role_steps(index)
+                                and journey.progress()['revision'] == journey.progress()['adopted_revision'],
+                                'role revision did not durably adopt: ' + role)
+                    progress = journey.progress()
+                    assert progress['revision'] == progress['adopted_revision'], progress
+                    assert progress['steps'] == role_steps(index), progress
+                    assert progress['adopted_steps'] == progress['steps'], progress
+                    journey.assert_round(before + index + 1, owner=owner)
+                    tool = json.loads(files.tool_results('responses',
+                        peer.snapshot('POST')[before + index + 1]['body'])['role-' + str(index)])
+                    assert tool['status'] == 'success' and tool['steps'] == role_steps(index), tool
+                    assert len(peer.snapshot('POST')) == before + index + 2, 'role evolution dispatched extra inference'
+                    journey.capture('running-role-' + role)
+                    role_gates[index].release.set()
+                journey.settled('ALL_STRUCTURED_ROLES_OBSERVED', before + 10)
+            finally:
+                for role_gate in role_gates:
+                    role_gate.release.set()
+            journey.assert_mode(8, True)
+            for index in range(before, before + 10):
+                journey.assert_round(index)
+            result['cases'].append('one owned running request adopted eight native role revisions and visited every specialist immediately; owner, writer lease, model and full tools stayed frozen without extra inference or execution')
+
+            # A user-authored untagged step must not acquire a role by its words.
+            # With no tagged focus, actual file activity is the fallback.
+            journey.local_todo([{'label': 'Review code and plan a diagnosis', 'phase': None, 'status': 'active'}])
+            request = 'Explain the source, do not infer a specialist from this wording.'
+            journey.preview(request, 'Sylveon', 'Implement', 'untagged-focus')
+            answer = 'ACTIVITY_FALLBACK_FILE_CREATED'
             before = journey.begin(request, [
                 files.response_plan(peer, calls=[{'id': 'automatic-create', 'path': GENERATED,
                     'content': GENERATED_CONTENT}], gate=gate),
-                files.response_plan(peer, text=answer, number=1)])
-            files.until(journey.session, gate.ready.is_set, 'automatic creation did not reach the terminal gate')
-            journey.assert_mode(3, True)
+                files.response_plan(peer, calls=[todo_call('clear-untagged-focus', [])], number=1),
+                files.response_plan(peer, text=answer, number=2)])
+            files.until(journey.session, gate.ready.is_set, 'file activity did not reach the terminal gate')
+            journey.wait_mode(3)
             busy_claims = journey.snapshot()['claims']
             assert busy_claims[0]['partner'] == journey.partner()['id']
             assert not (journey.project / GENERATED).exists()
-            future = 'Perform an independent review of the code. 초안界e\u0301'
+            future = 'Perform an independent review of the code. 초안界e\u0301!'
             journey.write_request(future)
             journey.session.send('\r')
             journey.assert_mode(3, True)
-            assert journey.snapshot()['claims'] == busy_claims, 'busy draft changed the active request owner or lease'
+            assert journey.snapshot()['claims'] == busy_claims, 'busy draft changed request ownership'
             assert len(peer.snapshot('POST')) == before + 1, 'busy Enter dispatched another request'
             journey.capture('busy-future-review-keeps-owner-and-form')
-            # Busy Enter now offers explicit steering/queueing; keep this draft
-            # rather than choosing either newly authorized action.
-            journey.session.send(files.ESC)
+            journey.session.send(files.ESC)  # Keep the draft, do not steer/queue.
             gate.release.set()
             journey.permission(GENERATED, allow=True)
-            journey.settled(answer, before + 2)
-            assert (journey.project / GENERATED).read_bytes() == GENERATED_CONTENT.encode()
-            assert any(draft['text'] == future for task in journey.snapshot()['tasks']
-                       for state in task['partner_drafts'].values() for draft in state['drafts']), 'pending review lost future draft'
-            journey.capture('automatic-create-and-kept-future-draft')
-            result['cases'].append('explicit create evolved the same partner to Flareon; busy future review never changed owner or dispatched; exact consent wrote actual bytes')
-
-            read_request = 'Read src/base.py and list the project source files without changing anything.'
-            journey.preview(read_request, 'Vaporeon', 'Plan', 'readonly-source')
-            answer = 'READ_ONLY_SOURCE_OBSERVED'
-            before = journey.begin(read_request, [
-                files.response_plan(peer, calls=[{'id': 'readonly-list', 'name': 'eevee_list_files',
-                    'arguments': {'directory': '', 'query': 'src/', 'offset': 0}}]),
-                files.response_plan(peer, calls=[{'id': 'readonly-read', 'name': 'eevee_read_file',
-                    'arguments': {'path': SOURCE, 'start_line': 1, 'end_line': 0}}], number=1),
-                files.response_plan(peer, text=answer, number=2)], writing=False)
-            journey.assert_mode(1, True)
             journey.settled(answer, before + 3)
-            read_results = files.tool_results('responses', peer.snapshot('POST')[before + 2]['body'])
-            listing = json.loads(read_results['readonly-list'])
-            assert listing['paths'] == [SOURCE], listing
-            actual = json.loads(read_results['readonly-read'])
-            assert actual['content'] == CONTENT and actual['sha256'] == hashlib.sha256(CONTENT.encode()).hexdigest(), actual
-            assert source.read_bytes() == CONTENT.encode()
-            journey.capture('automatic-readonly-vaporeon')
-            result['cases'].append('Vaporeon advertised only read/list with nonwriting lease and returned actual dirty CRLF bytes/digest without approval or mutation')
+            assert (journey.project / GENERATED).read_bytes() == GENERATED_CONTENT.encode()
+            assert response_smoke.saved_request(journey, future, len(future.encode())), 'file consent lost the later exact draft/caret'
+            result['cases'].append('untagged todo wording steered nothing; real file activity evolved Flareon without changing owner; busy future review did not send, and exact one-shot consent alone wrote actual bytes')
 
-            for form, writing, prompt in CASES:
-                if form == 7:
-                    journey.refresh_repository('fresh-independent-review-evidence')
-                answer = 'EVOLUTION_ROLE_' + str(form)
-                before = journey.begin(prompt, [files.response_plan(peer, text=answer)], writing=writing)
-                journey.assert_mode(form, True)
-                journey.settled(answer, before + 1)
-                assert peer.snapshot('POST')[before]['body']['model'] == model
-                journey.capture('automatic-role-' + str(form))
-            assert len(peer.snapshot('GET')) == metadata, 'automatic evolution changed connection or browsed models'
-            result['cases'].append('planning, diagnosis, refactor, verification, independent review and handoff selected their roles without changing provider/model, extra classifier calls or implicit local execution')
+            # A read-looking form is not a restriction: a discover role can
+            # propose and, only after exact approval, create a real file.
+            discover = [{'label': 'Neutral stage', 'phase': 'discover', 'status': 'active'}]
+            tagged_discover = [dict(discover[0], label='[discover] Neutral stage')]
+            discover_done = [dict(discover[0], status='done')]
+            tagged_gate = files.Gate()
+            try:
+                before = journey.begin('Review and diagnose this fixture.', [
+                    files.response_plan(peer, calls=[todo_call('discover-write-plan', tagged_discover)]),
+                    paused_plan(peer, files.response_plan(peer, calls=[{
+                        'id': 'discover-create', 'path': 'discovered.txt', 'content': 'approved discovery\n'}],
+                        number=1), tagged_gate),
+                    files.response_plan(peer, calls=[todo_call('discover-write-done', discover_done)], number=2),
+                    files.response_plan(peer, text='DISCOVER_WRITE_APPROVED', number=3)])
+                owner = journey.snapshot()['claims']
+                files.until(journey.session, tagged_gate.ready.is_set, 'discover write round did not arrive')
+                journey.wait_mode(1)
+                journey.assert_round(before + 1, owner=owner)
+                assert journey.progress()['steps'] == discover, 'role tag did not normalize into structured phase'
+                tagged_gate.release.set()
+                files.until(journey.session, lambda: files.file_review_pending(journey.session),
+                            'discover role lost its exact file approval')
+                journey.assert_mode(1, True)
+                assert journey.snapshot()['claims'] == owner and not (journey.project / 'discovered.txt').exists()
+                journey.permission('discovered.txt', allow=True)
+                journey.settled('DISCOVER_WRITE_APPROVED', before + 4)
+            finally:
+                tagged_gate.release.set()
+            assert (journey.project / 'discovered.txt').read_bytes() == b'approved discovery\n'
+            journey.assert_mode(1, True)
+            result['cases'].append('tagged discover focus beat write-activity fallback while retaining full tools, the same writer owner and a separate exact file approval')
 
-            document = 'Write project documentation to README.md.'
-            before = journey.begin(document, [
-                files.response_plan(peer, calls=[{'id': 'documentation-create', 'path': 'README.md', 'content': '# Actual documentation\n'}]),
-                files.response_plan(peer, text='DOCUMENTATION_WRITTEN', number=1)], writing=True)
-            journey.assert_mode(8, True)
-            journey.permission('README.md', allow=True)
-            journey.settled('DOCUMENTATION_WRITTEN', before + 2)
+            handoff = [{'label': 'Neutral document stage', 'phase': 'handoff', 'status': 'active'}]
+            handoff_gate = files.Gate()
+            try:
+                before = journey.begin('Write project documentation to README.md.', [
+                    files.response_plan(peer, calls=[todo_call('handoff-plan', handoff)]),
+                    paused_plan(peer, files.response_plan(peer, calls=[{
+                        'id': 'documentation-create', 'path': 'README.md', 'content': '# Actual documentation\n'}],
+                        number=1), handoff_gate),
+                    files.response_plan(peer, calls=[todo_call('handoff-done',
+                        [dict(handoff[0], status='done')])], number=2),
+                    files.response_plan(peer, text='DOCUMENTATION_WRITTEN', number=3)])
+                owner = journey.snapshot()['claims']
+                files.until(journey.session, handoff_gate.ready.is_set, 'handoff write round did not arrive')
+                journey.wait_mode(8)
+                journey.assert_round(before + 1, owner=owner)
+                handoff_gate.release.set()
+                files.until(journey.session, lambda: files.file_review_pending(journey.session),
+                            'handoff role lost exact document approval')
+                journey.assert_mode(8, True)
+                assert journey.snapshot()['claims'] == owner and not (journey.project / 'README.md').exists()
+                journey.permission('README.md', allow=True)
+                journey.settled('DOCUMENTATION_WRITTEN', before + 4)
+            finally:
+                handoff_gate.release.set()
             assert (journey.project / 'README.md').read_bytes() == b'# Actual documentation\n'
-            result['cases'].append('Sylveon document creation retained exact file consent and wrote actual documentation')
-
-            journey.session.command('role-plan')
-            journey.workspace()
-            journey.preview('Create forbidden.py', 'Flareon', 'Plan', 'explicit-plan-override')
-            before = journey.begin('Create forbidden.py, but keep my explicitly selected read-only role.', [
-                files.response_plan(peer, calls=[{'id': 'forbidden-readonly', 'path': 'forbidden.py', 'content': 'must not exist\n'}]),
-                files.response_plan(peer, text='READONLY_REFUSAL_OBSERVED', number=1)], writing=False)
-            journey.settled('READONLY_REFUSAL_OBSERVED', before + 2)
-            denial = json.loads(files.tool_results('responses', peer.snapshot('POST')[before + 1]['body'])['forbidden-readonly'])
-            assert denial['status'] == 'refused' and 'Read-only file scope refuses mutation' in denial['message'], denial
-            journey.capture('explicit-plan-hard-write-denial')
-            assert not (journey.project / 'forbidden.py').exists()
-            assert not journey.snapshot()['claims']
-            result['cases'].append('explicit Plan survived automatic routing; a malicious unadvertised write had zero effects and no approval')
+            journey.assert_mode(8, True)
+            result['cases'].append('structured handoff role kept Sylveon during actual documentation creation and retained a separate exact one-shot approval')
 
             journey.session.command('flareon')
             journey.workspace()
             journey.assert_mode(3, False)
-            journey.preview(read_request, 'Flareon', 'Plan', 'manual-appearance')
-            before = journey.begin(read_request, [files.response_plan(peer, text='MANUAL_FORM_KEPT')], writing=False)
-            journey.settled('MANUAL_FORM_KEPT', before + 1)
-            result['cases'].append('pre-send evolution inspection preserved exact draft/caret and emitted no HTTP; automatic, readonly, restrictive and manual predictions matched subsequent actual operations')
-            journey.assert_mode(3, False)
+            manual_gate = files.Gate()
+            manual_steps = [{'label': 'Pinned proposal', 'phase': 'diagnose', 'status': 'active'}]
+            manual_done = [dict(manual_steps[0], status='done')]
+            journey.preview('Read and plan a diagnosis. 초안界e\u0301!', 'Flareon', 'Implement', 'manual-appearance')
+            try:
+                before = journey.begin('Read and plan a diagnosis. 초안界e\u0301!', [
+                    files.response_plan(peer, calls=[todo_call('manual-proposal', manual_steps)]),
+                    paused_plan(peer, files.response_plan(peer,
+                        calls=[todo_call('manual-done', manual_done)], number=1), manual_gate),
+                    files.response_plan(peer, text='MANUAL_FORM_KEPT', number=2)])
+                owner = journey.snapshot()['claims']
+                files.until(journey.session, manual_gate.ready.is_set, 'manual todo proposal did not arrive')
+                files.until(journey.session, lambda: journey.progress()['steps'] == manual_steps,
+                            'manual proposal did not persist')
+                journey.assert_mode(3, False)
+                progress = journey.progress()
+                assert progress['revision'] != progress['adopted_revision'], progress
+                journey.assert_round(before + 1, owner=owner)
+                manual_gate.release.set()
+                journey.settled('MANUAL_FORM_KEPT', before + 3)
+            finally:
+                manual_gate.release.set()
             journey.restart('manual-restart')
             journey.assert_mode(3, False)
             journey.capture('manual-form-survived-restart')
-            result['cases'].append('manual specialist remained fixed across a different request intent and a real restart')
+            result['cases'].append('pinned specialist kept full ordinary tools and its appearance despite provider role proposals; proposals required adoption, and manual appearance survived a real restart')
 
             journey.session.command('eevee')
             journey.workspace()
-            files.until(journey.session, lambda: journey.partner()['form'] == 0 and journey.partner()['auto_form'], 'return to Eevee did not re-enable automatic mode')
-            # Connection storage is deliberately session-only. Re-enter the
-            # same loopback route explicitly; evolution never reconnects it.
+            journey.wait_mode(0)
+            # Connections are session-only. Deliberately restore the same route.
             journey.setup_route()
-            before = journey.begin(read_request, [files.response_plan(peer, text='AUTOMATIC_REENABLED')], writing=False)
-            journey.settled('AUTOMATIC_REENABLED', before + 1)
+            journey.local_todo(discover)
+            read_request = 'Review the patch, diagnose the error and plan its repair. 초안界e\u0301!'
+            journey.preview(read_request, 'Vaporeon', 'Implement', 'adopted-focus')
+            before = journey.begin(read_request, [
+                files.response_plan(peer, calls=[{'id': 'ordinary-list', 'name': 'eevee_list_files',
+                    'arguments': {'directory': '', 'query': 'src/', 'offset': 0}}]),
+                files.response_plan(peer, calls=[{'id': 'ordinary-read', 'name': 'eevee_read_file',
+                    'arguments': {'path': SOURCE, 'start_line': 1, 'end_line': 0}}], number=1),
+                files.response_plan(peer, calls=[todo_call('ordinary-read-done', discover_done)], number=2),
+                files.response_plan(peer, text='ADOPTED_FOCUS_CONTINUED', number=3)])
             journey.assert_mode(1, True)
+            journey.settled('ADOPTED_FOCUS_CONTINUED', before + 4)
+            read_results = files.tool_results('responses', peer.snapshot('POST')[before + 2]['body'])
+            listing = json.loads(read_results['ordinary-list'])
+            assert listing['paths'] == [SOURCE], listing
+            actual = json.loads(read_results['ordinary-read'])
+            assert actual['content'] == CONTENT and actual['sha256'] == hashlib.sha256(CONTENT.encode()).hexdigest(), actual
+            assert source.read_bytes() == CONTENT.encode()
             journey.restart('automatic-restart')
             journey.assert_mode(1, True)
             journey.capture('evolved-automatic-mode-survived-restart')
-            result['cases'].append('Eevee return re-enabled automatic routing; evolved form plus automatic mode survived a real restart')
+            journey.setup_route()
+            result['cases'].append('return to Eevee re-enabled automatic mode; adopted discover focus overrode unrelated request wording and previewed the actual Send form; real CRLF reads retained full tools, and automatic form persisted across restart')
+
+            # Only deliberately selected Plan/Review narrow capability. Even
+            # their provider role updates cannot broaden the running lease.
+            for operation, form, role in (('Plan', 5, 'diagnose'), ('Review', 7, 'implement')):
+                if operation == 'Review':
+                    journey.refresh_repository('fresh-independent-review-evidence')
+                journey.session.command('role-' + operation.lower())
+                journey.workspace()
+                appearance = 'Vaporeon' if operation == 'Plan' else 'Glaceon'
+                journey.preview('Create forbidden.py and fix the code. 초안界e\u0301!',
+                                appearance, operation, 'explicit-' + operation.lower())
+                restriction_gate = files.Gate()
+                restricted = [{'label': 'Restricted stage ' + operation, 'phase': role, 'status': 'active'}]
+                forbidden = 'forbidden-' + operation.lower() + '.py'
+                try:
+                    before = journey.begin('Create ' + forbidden + ' and fix the code.', [
+                        files.response_plan(peer, calls=[todo_call('restricted-plan-' + operation, restricted)]),
+                        paused_plan(peer, files.response_plan(peer, calls=[{
+                            'id': 'forbidden-' + operation, 'path': forbidden, 'content': 'must not exist\n'}],
+                            number=1), restriction_gate),
+                        files.response_plan(peer, calls=[todo_call('restricted-done-' + operation,
+                            [dict(restricted[0], status='done')])], number=2),
+                        files.response_plan(peer, text='EXPLICIT_' + operation.upper() + '_REFUSED', number=3)],
+                        writing=False)
+                    owner = journey.snapshot()['claims']
+                    files.until(journey.session, restriction_gate.ready.is_set,
+                                'explicit restriction role update did not arrive')
+                    journey.wait_mode(form)
+                    journey.assert_round(before + 1, writing=False, owner=owner)
+                    restriction_gate.release.set()
+                    journey.settled('EXPLICIT_' + operation.upper() + '_REFUSED', before + 4)
+                finally:
+                    restriction_gate.release.set()
+                denial = json.loads(files.tool_results('responses',
+                    peer.snapshot('POST')[before + 2]['body'])['forbidden-' + operation])
+                assert denial['status'] == 'refused', denial
+                assert not (journey.project / forbidden).exists()
+                journey.assert_mode(form, True)
+                for index in range(before, before + 4):
+                    journey.assert_round(index, writing=False)
+                journey.capture('explicit-' + operation.lower() + '-hard-write-denial')
+            result['cases'].append('only explicit Plan/Review advertised read-only tools and acquired nonwriting leases; structured roles retained those restrictions, malicious writes were refused without approval/effects, and explicit Review kept Glaceon')
+
             requests = peer.snapshot('POST')
-            assert len(requests) == 17 + len(predictions), 'unrequested inference/classifier HTTP call'
-            assert all(row['body']['model'] == model for row in requests), 'automatic routing switched the model'
-            assert len(peer.snapshot('GET')) == metadata + 1, 'restart/evolution silently browsed metadata'
+            assert len(requests) == journey.expected_posts, 'unrequested inference/classifier HTTP call'
+            assert all(row['body']['model'] == model for row in requests), 'evolution switched the model'
+            assert len(peer.snapshot('GET')) == metadata + 2, 'restart/evolution silently browsed metadata'
             result['evidence'] = {
                 'specialist_forms': list(range(1, 9)),
                 'http_posts': len(requests),
@@ -361,6 +524,7 @@ def run(binary, output, root, size, ascii_mode, ):
                 'active_claims': journey.snapshot()['claims'],
                 'source_sha256': hashlib.sha256(source.read_bytes()).hexdigest(),
                 'created_sha256': hashlib.sha256((journey.project / GENERATED).read_bytes()).hexdigest(),
+                'documentation_sha256': hashlib.sha256((journey.project / 'README.md').read_bytes()).hexdigest(),
                 'real_restarts': 2,
             }
             journey.session.command('quit')

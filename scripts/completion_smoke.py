@@ -40,9 +40,9 @@ def case(binary, output, root, size, blocked):
             journey.setup_route()
             before = task_state(journey)
             step = 'Create both requested files'
-            steps = [{'label': step, 'status': 'active'}]
+            steps = [{'label': step, 'phase': 'implement', 'status': 'active'}]
             if blocked:
-                steps.insert(0, {'label': 'Obtain unavailable prerequisite', 'status': 'blocked'})
+                steps.insert(0, {'label': 'Obtain unavailable prerequisite', 'phase': 'discover', 'status': 'blocked'})
             initial = [{'id': 'plan', 'name': 'todo',
                         'arguments': {'operation': 'init', 'label': '', 'steps': steps}},
                        {'id': 'first', 'path': 'first.txt', 'content': 'first exact bytes\n'}]
@@ -115,7 +115,8 @@ def boundary_case(binary, output, root, size, mode):
             wait_for(journey.session, 'Storage: saved')
             journey.setup_route()
             calls = [{'id': 'plan', 'name': 'todo', 'arguments': {
-                'operation': 'init', 'label': '', 'steps': [{'label': 'Finish requested files', 'status': 'active'}]}}]
+                'operation': 'init', 'label': '', 'steps': [
+                    {'label': 'Finish requested files', 'phase': 'implement', 'status': 'active'}]}}]
             if mode != 'no-progress':
                 calls.append({'id': 'first', 'path': 'first.txt', 'content': 'approved original bytes\n'})
             plans = [response_plan(peer, calls=calls, gate=gate), response_plan(peer, text='Some requested work remains.')]

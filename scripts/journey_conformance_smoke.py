@@ -455,7 +455,7 @@ def row(binary, node, sidecar, output, route, protocol, model, size, account_wir
                             return
                         calls = [dict(id='read-source', name='eevee_read_file', arguments=dict(path='source.txt', start_line=1, end_line=0))]
                         if model == MODELS[0]:
-                            calls.insert(0, dict(id='todo-init', name='todo', arguments=dict(operation='init', label='', steps=[dict(label='Read source / 한글', phase='investigate', status='active')])))
+                            calls.insert(0, dict(id='todo-init', name='todo', arguments=dict(operation='init', label='', steps=[dict(label='Read source / 한글', phase='discover', status='active')])))
                         peer.plans.put(files.response_plan(peer, calls=calls, model=model,
                             text=STREAMING if not (root / 'stream-release').exists() else '',
                             gate=stream_gate if not (root / 'stream-release').exists() else None))

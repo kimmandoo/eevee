@@ -1,5 +1,12 @@
 # Troubleshooting
 
+### [2026-11-03] macOS callback failure injection ran before socket setup
+
+- **Context / Symptom:** Native41429077771 failed `native_callback_http_page_write_failure_does_not_discard_the_code` on macOS ARM64: `left: Err(Failed)`, `right: Ok(Some("private-code"))`. Extended41436022466 then correctly refused the unqualified source.
+- **Root Cause:** The fixture called `shutdown(Write)` before `serve` configured blocking mode and socket deadlines. macOS can reject socket configuration after write shutdown, so the fixture failed before reading the callback rather than testing response-write independence.
+- **Solution:** Retained an owned socket clone and injected write shutdown through the existing control callback, after all socket configuration and before reading. The same real HTTP test still requires the exact code, consumed grant and empty response; production OAuth behavior and qualification gates remain unchanged.
+- **Prevention / Reference:** Failure injection must target the intended I/O stage instead of platform-dependent socket setup. Require complete exact-source native qualification before publishing; do not bypass the dependent regression gate or qualify an older green run.
+
 ### [2026-11-03] OpenAI browser sign-in sent an unregistered numeric loopback redirect
 
 - **Context / Symptom:** Native OpenAI browser login built `redirect_uri=http://127.0.0.1:1455/auth/callback`. Local fixtures passed because they never contacted the real authorize endpoint, so the mismatch was invisible in tests.

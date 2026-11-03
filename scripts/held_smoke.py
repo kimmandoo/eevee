@@ -96,7 +96,7 @@ class Journey(evolution_smoke.Journey):
         gate = files.Gate()
         before = len(self.peer.snapshot('POST'))
         try:
-            self.begin(request, [files.response_plan(self.peer, text=answer, gate=gate)], writing=False)
+            self.begin(request, [files.response_plan(self.peer, text=answer, gate=gate)])
             files.until(self.session, gate.ready.is_set, 'actual held-context request did not reach its terminal gate')
             body = self.peer.snapshot('POST')[before]['body']
             self.capture('frozen-context-before-completion-' + str(before))

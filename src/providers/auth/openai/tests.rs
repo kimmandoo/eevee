@@ -439,10 +439,15 @@ fn callback_http(
         response
     });
     let stream = listener.accept().unwrap().0;
-    if fail_page_write {
-        stream.shutdown(std::net::Shutdown::Write).unwrap();
-    }
-    let result = serve(stream, grant, &mut || Ok(()));
+    // macOS may reject socket timeout configuration after SHUT_WR. Inject
+    // the page failure only after serve has configured its bounded I/O.
+    let mut page_writer = fail_page_write.then(|| stream.try_clone().unwrap());
+    let result = serve(stream, grant, &mut || {
+        if let Some(stream) = page_writer.take() {
+            stream.shutdown(std::net::Shutdown::Write).unwrap();
+        }
+        Ok(())
+    });
     (result, client.join().unwrap())
 }
 

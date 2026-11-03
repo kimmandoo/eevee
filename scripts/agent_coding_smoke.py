@@ -249,7 +249,7 @@ def native_case(binary, compiler, output, size, manual):
                     if index == 0:
                         selected.insert(0, {'id': 'coding-progress', 'name': 'todo', 'arguments': {
                             'operation': 'init', 'label': '', 'steps': [
-                                {'label': 'Build the program', 'phase': 'Implement', 'status': 'active'}
+                                {'label': 'Build the program', 'phase': 'implement', 'status': 'active'}
                             ]}})
                     return files.response_plan(peer, calls=selected,
                         text='Actual compiler/program evidence received.' if not selected else '', number=index)[1](handler, event, row)
