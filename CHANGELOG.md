@@ -2,8 +2,11 @@
 
 ## 2026-11-03
 
-### Unreleased
+### 0.1.47
 
+- chore(release): advanced the package to 0.1.47; SQL schema 20, SDK bridge 11, TM2 and formation 2 were unchanged, and stores of an older SQL schema were now refused instead of migrated.
+- docs(readme): rewrote the README without release-specific sections, captions or pinned version numbers; release history moved entirely to this changelog, and data, backup, sidecar and Windows troubleshooting guidance was consolidated.
+- test(runtime): widened the journal quota test's storage-event hang guard from 5 s to 30 s after one Windows CI fsync exceeded it during 257 sequential writes.
 - feat(storage)!: removed every pre-release SQL schema migration (0→20), the schema-specific inspection branches and the `<data dir>-backups/` pre-migration copy; an empty store was created directly at schema 20 (DDL verified identical to the former migrated result, including partner #1), and any older store was refused before a write with its bytes unchanged and a pointer to `--export-data`, which still read historical task layouts.
 - test(storage): deleted 24 migration-only tests and helpers, kept the current-schema parts of three mixed tests, rebuilt the hot-journal crash fixture around a current-schema write, and added a refusal-plus-export regression for older stores.
 - fix(storage): generated every non-blocking storage queue method from one shared `Worker::offer`, so a full queue retained a context request instead of panicking on `unreachable!`, and removed the 16 hand-copied variants and their three copy tests.

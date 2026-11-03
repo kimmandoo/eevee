@@ -789,7 +789,9 @@ mod tests {
     }
 
     fn store_event(worker: &store::Worker) -> store::Event {
-        let deadline = Instant::now() + Duration::from_secs(5);
+        // A hang guard, not a latency bound: one fsync on a loaded Windows
+        // runner exceeded 5 s during the 257 sequential journal writes.
+        let deadline = Instant::now() + Duration::from_secs(30);
         loop {
             if let Some(event) = worker.try_event() {
                 return event;
