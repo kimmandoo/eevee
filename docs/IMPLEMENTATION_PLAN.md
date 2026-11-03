@@ -1,16 +1,18 @@
 # Eevee Implementation Plan
 
-Updated2026-11-03. Active user priority: reduce redundant CI smoke and low-value tests before completing the requested CI fix and0.1.46 release. Public0.1.45 and all earlier assets remain immutable. No unrelated roadmap closure or live-provider quality claim.
+Updated2026-11-03. Completed the requested CI repair, redundant smoke/test diet and publicv0.1.46 release. Earlier releases remain immutable. No unrelated roadmap closure or live-provider quality claim.
 
 Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPATIBILITY.md). Live-provider conformance remains distinct from implemented transports and deterministic runtime proof.
 
-## Current delivery — CI repair and0.1.46 release (2026-11-03)
+## Completed delivery — CI repair, test diet and0.1.46 release (2026-11-03)
 
 1. Read failed native41429077771 and dependent extended41436022466 evidence. Repair the OAuth page-write test's macOS socket-configuration ordering without changing callback acceptance or weakening CI.
 2. Migrate runtime fixtures from retired text-based form/capability routing to structured roles; require valid native todo phases. Reproduce and fix the activity-only evolution save conflict with an inflight-ack RED→GREEN regression, without weakening revision admission. Run Rust1.90 formatting, locked tests, strict Clippy, Python/SDK checks and actual callback, continuation, progress, evolution and reviewed coding journeys.
 3. Apply the requested diet: remove only low-value test/prose/default/wiring duplicates; omit test debug symbols; run common Rust once plus representative macOS/Windows suites, common application smoke once concurrently, and expanded protocol/contracts weekly/manual on Linux. Preserve every target's native build/offline install/core files and Windows-specific protections/console/installer checks.
 4. Run integrated source gates once after test cleanup, measure remaining tests/test binary/CI cost and execute the changed shared-runner path. Freeze version/docs/checkpoint and require the newest exact-source main Check/all five native jobs/every selected step before tagging.
 5. Publish immutablev0.1.46 through existing qualification/promotion. Verify all public asset digests/checksums/native layouts and bounded actual downloaded-host installation/update/run/uninstall; reuse completed unchanged feature/runtime evidence instead of repeating every long optional suite. Record final IDs/results and commit the handoff.
+
+Completion evidence: source/tag `9a85a56d9c4ab32f021c3e8d653ffaef80e178ff` passed native41581839732 attempt1 (Check/all five targets/every selected step); publication41584897503 promoted its immutable packages without rebuilding. Publicv0.1.46 was confirmed latest; eight asset digests, seven checksum rows, five native layouts and five earlier releases' unchanged assets passed. Actual public0.1.45→0.1.46 Linux120×36 update/resume/edit/uninstall/reinstall preserved Unicode draft/caret/data and dispatched no effects. This bounded proof did not repeat the optional24/34 matrix. Rust2040→2025 total (2023 passed/two existing ignored), Python22 passed/four existing Windows skips, SDK45, fmt/strict Clippy/actionlint passed. Test executable372.4→98.1MiB, full-suite invocations5→3, generic per-push journeys120→32, shared22 journeys97.712s. Observed slowest native row22:34→20:38; new-profile compilation/cache population prevents a controlled warm-cache comparison. All native/security gates remain; exact timings and evidence scope are in the checkpoint.
 
 ## Completed delivery — Minor fixes, learning/evolution acceptance and0.1.45 release (2026-11-02)
 

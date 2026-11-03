@@ -4,6 +4,7 @@
 
 ### 0.1.46
 
+- docs(release): published v0.1.46 from9a85a56 using native41581839732 attempt1 and publication41584897503 without rebuilding; verified latest identity, eight public assets/seven checksums/five native layouts, earlier-release preservation and actual public Linux upgrade/resume/uninstall with draft/caret/data intact.
 - fix(ci): injected OAuth callback page-write failure after socket deadline setup, so macOS socket configuration could not prevent callback validation or discard the received authorization code.
 - fix(storage): assigned a fresh task revision when tool activity changed the automatic form, preserving the evolved snapshot across older save acknowledgements instead of refusing it as stale or conflicting.
 - test(runtime): migrated native todo roles and explicit Plan/Review acceptance, verified live activity appearance separately from durable state, and observed only newline-complete progress log records without hiding malformed committed records.
