@@ -1619,9 +1619,11 @@ fn failed_local_admission_and_unproven_transport_never_emit_dispatch_receipts() 
 }
 
 /// Serves one canned response per connection, in order; returns how many
-/// connections were accepted before `responses` ran out or 3 s passed.
+/// connections were accepted before `responses` ran out, the client set
+/// `finished` or 8 s passed.
 fn http_sequence_fixture(
     responses: Vec<(u16, &'static str, String)>,
+    finished: Arc<AtomicBool>,
 ) -> (String, JoinHandle<usize>) {
     use std::io::{Read, Write};
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
@@ -1635,7 +1637,7 @@ fn http_sequence_fixture(
                 match listener.accept() {
                     Ok((socket, _)) => break socket,
                     Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
-                        if Instant::now() >= deadline {
+                        if finished.load(Ordering::Acquire) || Instant::now() >= deadline {
                             return served;
                         }
                         thread::sleep(Duration::from_millis(2));
@@ -1680,7 +1682,8 @@ fn send_sequence(
     let stopped = AtomicBool::new(false);
     let cancelled = AtomicU64::new(0);
     let control = control(&stopped, &cancelled);
-    let (url, server) = http_sequence_fixture(responses);
+    let finished = Arc::new(AtomicBool::new(false));
+    let (url, server) = http_sequence_fixture(responses, finished.clone());
     let connection = config::test_connection(Protocol::Responses, &url, Some("fixture-model"));
     let (mut dispatched, mut attempts) = (false, Vec::new());
     let result = runtime().block_on(async {
@@ -1711,6 +1714,8 @@ fn send_sequence(
             () = canceller => unreachable!(),
         }
     });
+    // The client settled; unrequested responses are not waited for.
+    finished.store(true, Ordering::Release);
     let events = events.lock().iter().cloned().collect();
     (result, events, attempts, server.join().unwrap())
 }
@@ -1818,6 +1823,8 @@ fn ineligible_or_long_waits_are_not_retried() {
 
 #[test]
 fn cancelling_during_backoff_is_a_cancellation_not_an_unknown() {
+    // Cancellation lands 300 ms in, so the 1 s backoff must run in real time.
+    retry::TEST_TIME_DIVISOR.set(1);
     let (result, _, attempts, served) = send_sequence(
         vec![(429, "", String::new()), (200, "", String::new())],
         retry::Policy::Safe,

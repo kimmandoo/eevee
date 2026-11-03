@@ -660,336 +660,28 @@ impl Worker {
         })
     }
 
-    pub fn try_retained(&self, pending: &mut Option<retained::Request>) -> bool {
+    /// Queues `pending` without blocking. Ownership moves only when the queue
+    /// accepts it; a full or disconnected queue, or a missing worker, keeps the
+    /// request in `pending`. Acceptance is not a storage acknowledgement, and an
+    /// empty pending slot returns false.
+    fn offer<T>(
+        &self,
+        pending: &mut Option<T>,
+        wrap: impl FnOnce(T) -> Command,
+        unwrap: impl FnOnce(Command) -> T,
+    ) -> bool {
         let Some(commands) = &self.commands else {
             return false;
         };
         let Some(request) = pending.take() else {
             return false;
         };
-        match commands.try_send(Command::Retained(request)) {
+        match commands.try_send(wrap(request)) {
             Ok(()) => true,
-            Err(
-                TrySendError::Full(Command::Retained(request))
-                | TrySendError::Disconnected(Command::Retained(request)),
-            ) => {
-                *pending = Some(request);
+            Err(TrySendError::Full(command) | TrySendError::Disconnected(command)) => {
+                *pending = Some(unwrap(command));
                 false
             }
-            Err(_) => unreachable!("try_send returns submitted command"),
-        }
-    }
-
-    /// Queues a pending snapshot, retaining it on backpressure or disconnect.
-    /// Acceptance is not a save acknowledgement; an empty pending slot returns false.
-    pub fn try_save(&self, pending: &mut Option<Snapshot>) -> bool {
-        let Some(commands) = &self.commands else {
-            return false;
-        };
-        let Some(snapshot) = pending.take() else {
-            return false;
-        };
-        match commands.try_send(Command::Save(Box::new(snapshot))) {
-            Ok(()) => true,
-            Err(TrySendError::Full(Command::Save(snapshot)))
-            | Err(TrySendError::Disconnected(Command::Save(snapshot))) => {
-                *pending = Some(*snapshot);
-                false
-            }
-            Err(_) => unreachable!("try_send returns the submitted command"),
-        }
-    }
-
-    /// Transfers ownership only when accepted; full/disconnected queues retain the request.
-    pub fn try_manage(&self, pending: &mut Option<Management>) -> bool {
-        let Some(commands) = &self.commands else {
-            return false;
-        };
-        let Some(request) = pending.take() else {
-            return false;
-        };
-        match commands.try_send(Command::Manage(request)) {
-            Ok(()) => true,
-            Err(TrySendError::Full(Command::Manage(request)))
-            | Err(TrySendError::Disconnected(Command::Manage(request))) => {
-                *pending = Some(request);
-                false
-            }
-            Err(_) => unreachable!("try_send returns the submitted command"),
-        }
-    }
-
-    pub fn try_context(&self, pending: &mut Option<ContextRequest>) -> bool {
-        let Some(commands) = &self.commands else {
-            return false;
-        };
-        let Some(request) = pending.take() else {
-            return false;
-        };
-        match commands.try_send(Command::Context(request)) {
-            Ok(()) => true,
-            Err(
-                TrySendError::Full(Command::Context(request))
-                | TrySendError::Disconnected(Command::Context(request)),
-            ) => {
-                *pending = Some(request);
-                false
-            }
-            Err(_) => unreachable!("try_send returns the submitted command"),
-        }
-    }
-
-    pub fn try_receipts(&self, pending: &mut Option<receipts::Request>) -> bool {
-        let Some(commands) = &self.commands else {
-            return false;
-        };
-        let Some(request) = pending.take() else {
-            return false;
-        };
-        match commands.try_send(Command::Receipts(request)) {
-            Ok(()) => true,
-            Err(
-                TrySendError::Full(Command::Receipts(request))
-                | TrySendError::Disconnected(Command::Receipts(request)),
-            ) => {
-                *pending = Some(request);
-                false
-            }
-            Err(_) => unreachable!("try_send returns the submitted command"),
-        }
-    }
-
-    pub fn try_artifact(&self, pending: &mut Option<artifacts::Request>) -> bool {
-        let Some(commands) = &self.commands else {
-            return false;
-        };
-        let Some(request) = pending.take() else {
-            return false;
-        };
-        match commands.try_send(Command::Artifact(request)) {
-            Ok(()) => true,
-            Err(
-                TrySendError::Full(Command::Artifact(request))
-                | TrySendError::Disconnected(Command::Artifact(request)),
-            ) => {
-                *pending = Some(request);
-                false
-            }
-            Err(_) => unreachable!("try_send returns the submitted command"),
-        }
-    }
-
-    pub fn try_tool_catalog(&self, pending: &mut Option<tool_catalog::Request>) -> bool {
-        let Some(commands) = &self.commands else {
-            return false;
-        };
-        let Some(request) = pending.take() else {
-            return false;
-        };
-        match commands.try_send(Command::ToolCatalog(request)) {
-            Ok(()) => true,
-            Err(
-                TrySendError::Full(Command::ToolCatalog(request))
-                | TrySendError::Disconnected(Command::ToolCatalog(request)),
-            ) => {
-                *pending = Some(request);
-                false
-            }
-            Err(_) => unreachable!("try_send returns the submitted command"),
-        }
-    }
-
-    pub fn try_context_cache(&self, pending: &mut Option<context_cache::Request>) -> bool {
-        let Some(commands) = &self.commands else {
-            return false;
-        };
-        let Some(request) = pending.take() else {
-            return false;
-        };
-        match commands.try_send(Command::ContextCache(request)) {
-            Ok(()) => true,
-            Err(
-                TrySendError::Full(Command::ContextCache(request))
-                | TrySendError::Disconnected(Command::ContextCache(request)),
-            ) => {
-                *pending = Some(request);
-                false
-            }
-            Err(_) => unreachable!("try_send returns the submitted command"),
-        }
-    }
-
-    pub fn try_screenshot(&self, pending: &mut Option<screenshots::Request>) -> bool {
-        let Some(commands) = &self.commands else {
-            return false;
-        };
-        let Some(request) = pending.take() else {
-            return false;
-        };
-        match commands.try_send(Command::Screenshot(request)) {
-            Ok(()) => true,
-            Err(
-                TrySendError::Full(Command::Screenshot(request))
-                | TrySendError::Disconnected(Command::Screenshot(request)),
-            ) => {
-                *pending = Some(request);
-                false
-            }
-            Err(_) => unreachable!("try_send returns the submitted command"),
-        }
-    }
-
-    pub fn try_records(&self, pending: &mut Option<records::Request>) -> bool {
-        let Some(commands) = &self.commands else {
-            return false;
-        };
-        let Some(request) = pending.take() else {
-            return false;
-        };
-        match commands.try_send(Command::Records(Box::new(request))) {
-            Ok(()) => true,
-            Err(
-                TrySendError::Full(Command::Records(request))
-                | TrySendError::Disconnected(Command::Records(request)),
-            ) => {
-                *pending = Some(*request);
-                false
-            }
-            Err(_) => unreachable!("try_send returns submitted command"),
-        }
-    }
-
-    pub fn try_run(&self, pending: &mut Option<RunRequest>) -> bool {
-        let Some(commands) = &self.commands else {
-            return false;
-        };
-        let Some(request) = pending.take() else {
-            return false;
-        };
-        match commands.try_send(Command::Run(Box::new(request))) {
-            Ok(()) => true,
-            Err(
-                TrySendError::Full(Command::Run(request))
-                | TrySendError::Disconnected(Command::Run(request)),
-            ) => {
-                *pending = Some(*request);
-                false
-            }
-            Err(_) => unreachable!("try_send returns the submitted command"),
-        }
-    }
-    pub fn try_journal(&self, pending: &mut Option<JournalRequest>) -> bool {
-        let Some(commands) = &self.commands else {
-            return false;
-        };
-        let Some(request) = pending.take() else {
-            return false;
-        };
-        match commands.try_send(Command::Journal(request)) {
-            Ok(()) => true,
-            Err(
-                TrySendError::Full(Command::Journal(request))
-                | TrySendError::Disconnected(Command::Journal(request)),
-            ) => {
-                *pending = Some(request);
-                false
-            }
-            Err(_) => unreachable!("try_send returns the submitted command"),
-        }
-    }
-
-    /// Uses the existing bounded storage queue, retaining requests on backpressure.
-    pub fn try_moves(&self, pending: &mut Option<moves::Request>) -> bool {
-        let Some(commands) = &self.commands else {
-            return false;
-        };
-        let Some(request) = pending.take() else {
-            return false;
-        };
-        match commands.try_send(Command::Moves(request)) {
-            Ok(()) => true,
-            Err(TrySendError::Full(Command::Moves(request)))
-            | Err(TrySendError::Disconnected(Command::Moves(request))) => {
-                *pending = Some(request);
-                false
-            }
-            Err(_) => unreachable!("try_send returns the submitted command"),
-        }
-    }
-
-    pub fn try_memory(&self, pending: &mut Option<MemoryRequest>) -> bool {
-        let Some(commands) = &self.commands else {
-            return false;
-        };
-        let Some(request) = pending.take() else {
-            return false;
-        };
-        match commands.try_send(Command::Memory(request)) {
-            Ok(()) => true,
-            Err(TrySendError::Full(Command::Memory(request)))
-            | Err(TrySendError::Disconnected(Command::Memory(request))) => {
-                *pending = Some(request);
-                false
-            }
-            Err(_) => unreachable!("try_send returns the submitted command"),
-        }
-    }
-
-    pub fn try_work(&self, pending: &mut Option<WorkRequest>) -> bool {
-        let Some(commands) = &self.commands else {
-            return false;
-        };
-        let Some(request) = pending.take() else {
-            return false;
-        };
-        match commands.try_send(Command::Work(request)) {
-            Ok(()) => true,
-            Err(
-                TrySendError::Full(Command::Work(request))
-                | TrySendError::Disconnected(Command::Work(request)),
-            ) => {
-                *pending = Some(request);
-                false
-            }
-            Err(_) => unreachable!("try_send returns the submitted command"),
-        }
-    }
-
-    /// Queues a party roster mutation; full/disconnected queues retain it.
-    pub fn try_party(&self, pending: &mut Option<PartyRequest>) -> bool {
-        let Some(commands) = &self.commands else {
-            return false;
-        };
-        let Some(request) = pending.take() else {
-            return false;
-        };
-        match commands.try_send(Command::Party(request)) {
-            Ok(()) => true,
-            Err(TrySendError::Full(Command::Party(request)))
-            | Err(TrySendError::Disconnected(Command::Party(request))) => {
-                *pending = Some(request);
-                false
-            }
-            Err(_) => unreachable!("try_send returns the submitted command"),
-        }
-    }
-
-    /// Transfers a nonsecret preference request only after queue acceptance.
-    pub fn try_preferences(&self, pending: &mut Option<PreferenceRequest>) -> bool {
-        let Some(commands) = &self.commands else {
-            return false;
-        };
-        let Some(request) = pending.take() else {
-            return false;
-        };
-        match commands.try_send(Command::Preferences(request)) {
-            Ok(()) => true,
-            Err(TrySendError::Full(Command::Preferences(request)))
-            | Err(TrySendError::Disconnected(Command::Preferences(request))) => {
-                *pending = Some(request);
-                false
-            }
-            Err(_) => unreachable!("try_send returns the submitted command"),
         }
     }
 
@@ -1009,6 +701,47 @@ impl Worker {
             .as_ref()
             .is_some_and(|commands| commands.try_send(Command::Retry).is_ok())
     }
+}
+
+/// One non-blocking queue method per request kind, all sharing `Worker::offer`.
+macro_rules! offers {
+    ($($name:ident($request:ty) => $variant:ident $(as $boxed:ident)?;)*) => {
+        impl Worker {
+            $(pub fn $name(&self, pending: &mut Option<$request>) -> bool {
+                self.offer(
+                    pending,
+                    |request| Command::$variant(offers!(@wrap request $($boxed)?)),
+                    |command| match command {
+                        Command::$variant(request) => offers!(@unwrap request $($boxed)?),
+                        _ => unreachable!("try_send returns the submitted command"),
+                    },
+                )
+            })*
+        }
+    };
+    (@wrap $request:ident) => { $request };
+    (@wrap $request:ident boxed) => { Box::new($request) };
+    (@unwrap $request:ident) => { $request };
+    (@unwrap $request:ident boxed) => { *$request };
+}
+offers! {
+    try_retained(retained::Request) => Retained;
+    try_save(Snapshot) => Save as boxed;
+    try_manage(Management) => Manage;
+    try_context(ContextRequest) => Context;
+    try_receipts(receipts::Request) => Receipts;
+    try_artifact(artifacts::Request) => Artifact;
+    try_tool_catalog(tool_catalog::Request) => ToolCatalog;
+    try_context_cache(context_cache::Request) => ContextCache;
+    try_screenshot(screenshots::Request) => Screenshot;
+    try_records(records::Request) => Records as boxed;
+    try_run(RunRequest) => Run as boxed;
+    try_journal(JournalRequest) => Journal;
+    try_moves(moves::Request) => Moves;
+    try_memory(MemoryRequest) => Memory;
+    try_work(WorkRequest) => Work;
+    try_party(PartyRequest) => Party;
+    try_preferences(PreferenceRequest) => Preferences;
 }
 
 impl Drop for Worker {

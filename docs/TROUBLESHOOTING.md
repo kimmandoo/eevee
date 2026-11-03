@@ -1,5 +1,12 @@
 # Troubleshooting
 
+### [2026-11-03] Test count was not the test-time cost; a storage queue could panic
+
+- **Context / Symptom:** The user asked to cut the 2,027-test Rust suite. Measured with `RUSTC_BOOTSTRAP=1 cargo test --locked --all-targets -- -Z unstable-options --format json --report-time`: 32.8 s wall, 437 s summed, 1,597 tests under 0.1 s, and the 50 slowest tests 261 s. Body-similarity search over all tests found only 19 near-duplicate pairs (≥0.75), almost all distinct scenarios on a shared setup.
+- **Root Cause:** Time went to real waits: retry-sequence fixtures idled 8 s for responses the client never requested, retry backoff slept real 1/2/4 s, round-budget tests ran 129 real rounds, and 42 ACP peer cases ran serially. The one genuine duplication was in production code: 17 hand-copied `Worker::try_*` queue methods with copy tests, one of which (`try_context`) hit `unreachable!` on a full channel (capacity 2).
+- **Solution:** Sequence fixtures stop when the client settles; test backoff sleeps 1/50 of the schedule (`retry::TEST_TIME_DIVISOR`, restored to 1 by the cancel-during-backoff test); test `TOOL_CALL_LIMIT` is 32; ACP routes run in scoped threads. Queue methods are generated over one `Worker::offer`, so there is one queue test.
+- **Prevention / Reference:** Compare summed and per-test times, not test counts. Wall time is now CPU-bound (≈372 s summed over 16 cores); shrinking it further means reducing summed work, not removing sub-0.1 s unit tests. Prefer removing duplicated production code and its copy tests over deleting distinct behavior tests.
+
 ### [2026-11-03] Native provider failures showed only "inference error" with a contradictory suffix
 
 - **Context / Symptom:** A handoff request ended `Failed` with `Provider reported an inference error; private error body omitted; local reader settled; remote completion/cancellation is not confirmed; no automatic retry` and the generic hint `Inspect completed effects; change input or retry explicitly.` The user could not tell whether to wait, shrink context, fix billing or rephrase.

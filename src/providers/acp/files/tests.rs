@@ -492,26 +492,31 @@ fn peer_case(agent: Agent, mode: &str) {
 fn actual_acp_peer_file_callbacks_across_all_three_routes() {
     use std::os::unix::fs::PermissionsExt;
     if std::env::var("EEVEE_ACP_FILE_TEST_CHILD").as_deref() == Ok("1") {
-        for agent in [Agent::OpenCode, Agent::Gemini, Agent::Devin] {
-            for mode in [
-                "happy",
-                "deny",
-                "stale",
-                "outside",
-                "protected",
-                "symlink",
-                "excluded",
-                "parents",
-                "lease",
-                "cancel",
-                "unknown",
-                "reported-failed",
-                "duplicate",
-                "disconnect",
-            ] {
-                peer_case(agent, mode);
+        // Routes are independent peers with their own fixtures; run them side by side.
+        thread::scope(|scope| {
+            for agent in [Agent::OpenCode, Agent::Gemini, Agent::Devin] {
+                scope.spawn(move || {
+                    for mode in [
+                        "happy",
+                        "deny",
+                        "stale",
+                        "outside",
+                        "protected",
+                        "symlink",
+                        "excluded",
+                        "parents",
+                        "lease",
+                        "cancel",
+                        "unknown",
+                        "reported-failed",
+                        "duplicate",
+                        "disconnect",
+                    ] {
+                        peer_case(agent, mode);
+                    }
+                });
             }
-        }
+        });
         return;
     }
     // Child-only environment changes; never replace installed providers or mutate

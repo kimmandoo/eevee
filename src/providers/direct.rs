@@ -109,7 +109,7 @@ const APPROVAL_TIMEOUT: Duration = Duration::from_secs(300);
 #[cfg(not(test))]
 const TOOL_CALL_LIMIT: usize = 1024;
 #[cfg(test)]
-const TOOL_CALL_LIMIT: usize = 128;
+const TOOL_CALL_LIMIT: usize = 32;
 const ROUND_LIMIT: usize = TOOL_CALL_LIMIT + 1;
 
 type Events = Arc<Mutex<VecDeque<Event>>>;

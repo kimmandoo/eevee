@@ -82,6 +82,13 @@ pub(super) fn summary(attempts: &[Attempt]) -> String {
     )
 }
 
+#[cfg(test)]
+thread_local! {
+    /// Tests observe the real schedule in `Attempt`s but sleep a fraction of
+    /// it; a test that must act during a wait restores real time.
+    pub(super) static TEST_TIME_DIVISOR: std::cell::Cell<u32> = const { std::cell::Cell::new(50) };
+}
+
 pub(super) enum Decision {
     Retry(Duration),
     /// Not eligible; carries the reason appended to the final failure.
@@ -125,6 +132,8 @@ pub(super) fn jitter() -> Duration {
 
 /// Waits without consuming cancellation: Esc during backoff stops the run.
 pub(super) async fn backoff(wait: Duration, control: &Control<'_>) -> Result<(), String> {
+    #[cfg(test)]
+    let wait = wait / TEST_TIME_DIVISOR.get();
     let until = Instant::now() + wait;
     while Instant::now() < until {
         if control.cancelled() {

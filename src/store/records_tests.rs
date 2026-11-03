@@ -1162,49 +1162,6 @@ fn usage_keeps_unknown_fields_distinct_boundaries_and_exact_request_owner_after_
 }
 
 #[test]
-fn records_queue_retains_full_authored_bytes_on_backpressure_and_disconnect() {
-    let (commands, receiver) = mpsc::sync_channel(1);
-    let worker = Worker {
-        commands: Some(commands),
-        events: None,
-        thread: None,
-    };
-    let request = Request {
-        task_id: 7,
-        operation: Operation::ObserveInstruction {
-            request_id: "stable-request".into(),
-            owner: Attribution {
-                partner: 1,
-                name: "Acting partner".into(),
-                form: 5,
-            },
-            instruction: "Authored instruction\n  with exact whitespace.".into(),
-        },
-    };
-    let mut first = Some(request.clone());
-    assert!(worker.try_records(&mut first));
-    assert!(first.is_none());
-    let mut blocked = Some(request.clone());
-    assert!(!worker.try_records(&mut blocked));
-    assert_eq!(blocked, Some(request.clone()));
-    match receiver.recv().unwrap() {
-        Command::Records(original) => assert_eq!(*original, request),
-        _ => panic!("Wrong admitted command"),
-    };
-    drop(receiver);
-    assert!(!worker.try_records(&mut blocked));
-    assert_eq!(blocked, Some(request.clone()));
-    drop(worker);
-    let missing = Worker {
-        commands: None,
-        events: None,
-        thread: None,
-    };
-    assert!(!missing.try_records(&mut blocked));
-    assert_eq!(blocked, Some(request));
-}
-
-#[test]
 fn schema14_migration_and_current_admission_are_strict_and_quota_rolls_back_local_writes() {
     let fixture = Fixture::new();
     let mut state = fixture.open();

@@ -1,3 +1,10 @@
+## 2026-11-03 — Test suite cost reduction (completed)
+
+- **Request / baseline:** User asked to reduce the 2,027-test suite ("알아서 개수까지"). Started main0667ad0.
+- **Changes:** `src/store/mod.rs` replaces 17 copied `try_*` queue methods with one `Worker::offer` plus an `offers!` macro (fixes `try_context` panicking on a full queue); three copy queue tests removed and the save-queue test covers boxed and unboxed paths. `src/providers/direct/tests.rs` sequence fixture stops on client settlement; `src/providers/direct/retry.rs` test-only `TEST_TIME_DIVISOR`; `src/providers/direct.rs` test `TOOL_CALL_LIMIT` 128→32; `src/providers/acp/files/tests.rs` runs the three routes concurrently.
+- **Verification:** `cargo fmt`; strict all-target/all-feature Clippy clean; full suite 2024 passed/2 ignored twice (25.9 s, 25.7 s wall; summed 373 s/372 s) versus baseline 2027 tests, 32.8 s wall, 437 s summed. ACP route test 17.5 s→4.8 s over three runs.
+- **Next action:** None. Further count cuts would delete distinct behavior/migration guards; not done without an explicit coverage trade-off from the user.
+
 ## 2026-11-03 — Typed native provider failure causes (completed)
 
 - **Request / baseline:** User reported a handoff request failing with `Provider reported an inference error; private error body omitted; local reader settled; remote completion/cancellation is not confirmed; no automatic retry` and asked for a thorough, general fix. Started clean main2120702.

@@ -357,6 +357,8 @@ fn provider_journal_masks_after_normalization_and_rejects_empty_provenance() {
     );
 }
 
+/// Every `try_*` queue method is generated over `Worker::offer`; this covers
+/// both the boxed (save) and unboxed (manage) wrappings.
 #[test]
 fn save_queue_retains_pending_on_full_disconnected_or_missing_sender() {
     let (commands, incoming) = mpsc::sync_channel(1);
@@ -384,9 +386,18 @@ fn save_queue_retains_pending_on_full_disconnected_or_missing_sender() {
     let mut pending = Some(expected.clone());
     assert!(!worker.try_save(&mut pending));
     assert_eq!(pending.as_ref(), Some(&expected));
+    let request = Management::Delete {
+        ids: vec![17],
+        expired_before: None,
+    };
+    let mut managed = Some(request.clone());
+    assert!(!worker.try_manage(&mut managed));
+    assert_eq!(managed, Some(request.clone()));
     worker.commands.take();
     assert!(!worker.try_save(&mut pending));
     assert_eq!(pending.as_ref(), Some(&expected));
+    assert!(!worker.try_manage(&mut managed));
+    assert_eq!(managed, Some(request));
 }
 
 fn snapshot(project: &str, revision: u64) -> Snapshot {
@@ -1486,33 +1497,6 @@ fn adopted_progress_survives_restart_and_task_purge_without_criteria_completion(
             .unwrap()
             .is_none()
     );
-}
-
-#[test]
-fn management_queue_retains_ownership_on_backpressure_and_disconnect() {
-    let (commands, incoming) = mpsc::sync_channel(1);
-    let mut worker = Worker {
-        commands: Some(commands),
-        events: None,
-        thread: None,
-    };
-    let request = Management::Delete {
-        ids: vec![17],
-        expired_before: None,
-    };
-    let mut pending = Some(request.clone());
-    assert!(worker.try_manage(&mut pending));
-    assert!(pending.is_none());
-    assert!(!worker.try_manage(&mut pending));
-    pending = Some(request.clone());
-    assert!(!worker.try_manage(&mut pending));
-    assert_eq!(pending, Some(request.clone()));
-    drop(incoming);
-    assert!(!worker.try_manage(&mut pending));
-    assert_eq!(pending, Some(request.clone()));
-    worker.commands.take();
-    assert!(!worker.try_manage(&mut pending));
-    assert_eq!(pending, Some(request));
 }
 
 #[test]
@@ -3940,33 +3924,6 @@ fn reserved_long_nicknames_remain_readable_and_can_be_cleared() {
             .nickname
             .is_none()
     );
-}
-
-#[test]
-fn nickname_queue_retains_owned_text_on_backpressure_and_disconnect() {
-    let (commands, incoming) = mpsc::sync_channel(1);
-    let mut worker = Worker {
-        commands: Some(commands),
-        events: None,
-        thread: None,
-    };
-    let request = PartyRequest::Nickname {
-        partner: 1,
-        nickname: Some("Eevee".into()),
-    };
-    let mut pending = Some(request.clone());
-    assert!(worker.try_party(&mut pending));
-    assert!(pending.is_none());
-    assert!(!worker.try_party(&mut pending));
-    pending = Some(request.clone());
-    assert!(!worker.try_party(&mut pending));
-    assert_eq!(pending, Some(request.clone()));
-    drop(incoming);
-    assert!(!worker.try_party(&mut pending));
-    assert_eq!(pending, Some(request.clone()));
-    worker.commands.take();
-    assert!(!worker.try_party(&mut pending));
-    assert_eq!(pending, Some(request));
 }
 
 #[test]

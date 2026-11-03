@@ -4,6 +4,8 @@
 
 ### Unreleased
 
+- fix(storage): generated every non-blocking storage queue method from one shared `Worker::offer`, so a full queue retained a context request instead of panicking on `unreachable!`, and removed the 16 hand-copied variants and their three copy tests.
+- perf(tests): stopped retry-sequence fixtures waiting 8 s for unrequested responses, slept 1/50 of the real retry backoff in tests, lowered the test-only native tool-call budget from 128 to 32 and ran the three ACP file-callback routes concurrently; suite wall time fell from 32.8 s to 25.8 s and summed test time from 437 s to 372 s.
 - fix(providers): classified native provider failures (stream error envelopes, failed/incomplete responses, non-success finish/stop/block reasons and bounded non-success HTTP bodies) from typed codes only across Responses/Codex, Chat Completions, Messages and Gemini, so the reason named the cause (overloaded, rate limit, quota/billing, context limit, output limit, content policy, invalid request, authentication, permission, not found, server error, timeout) with the provider's short code and a concrete next step instead of a bare "inference error"; provider prose and bodies stayed omitted and retry eligibility was unchanged.
 - fix(providers): stopped labelling a provider-reported terminal failure as "remote completion/cancellation is not confirmed"; only unattributed reader failures kept the unknown-outcome wording.
 
