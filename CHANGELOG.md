@@ -5,6 +5,8 @@
 ### 0.1.46
 
 - fix(ci): injected OAuth callback page-write failure after socket deadline setup, so macOS socket configuration could not prevent callback validation or discard the received authorization code.
+- fix(storage): assigned a fresh task revision when tool activity changed the automatic form, preserving the evolved snapshot across older save acknowledgements instead of refusing it as stale or conflicting.
+- test(runtime): migrated native todo roles and explicit Plan/Review acceptance, verified live activity appearance separately from durable state, and observed only newline-complete progress log records without hiding malformed committed records.
 - chore(release): advanced the package to 0.1.46, retaining SQL20, SDK bridge11, TM2 and formation2 and preserving earlier release tags and assets.
 - feat(providers): required a structured role on every Eevee `todo` step (schema without null, refusals returned to the model) and offered the same todo tool to Codex as a client-executed dynamic tool.
 - feat(evolution): evolved the running request from its own tool activity (write → Flareon, command → Jolteon) whenever the plan's focus step named no role, so untagged plans and planless requests still evolved.

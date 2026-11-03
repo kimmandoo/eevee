@@ -312,8 +312,11 @@ class ProgressJourney(SurfaceJourney):
         return self.state()['tasks'][0]['workflows'].get('progress', {})
 
     def starts(self):
-        return [json.loads(line) for line in self.log.read_text(encoding='utf-8').splitlines()
-                if line.strip() and json.loads(line).get('kind') == 'started']
+        # The peer may still be appending a large UTF-8 packet. Only newline-
+        # committed records are observable; malformed complete records still fail.
+        rows = (json.loads(line) for line in self.log.read_bytes().split(b'\n')[:-1]
+                if line.strip())
+        return [row for row in rows if row.get('kind') == 'started']
 
     def dispatch_count(self):
         return len(self.peer.snapshot('POST')) if self.progress_route == 'native' else len(self.starts())

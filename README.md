@@ -52,6 +52,7 @@ It also comes with a companion: a party of Eevee forms that evolve with the kind
 | **Open move library** | Every form can learn request moves, and the menu lists the complete active library after its quick slots. Similarity uses language-agnostic text shapes rather than word tables. |
 | **OpenAI sign-in fixes** | Browser sign-in uses the registered localhost redirect on IPv4/IPv6. Device polling keeps the same code through bounded transient errors and server-requested slow-down. Live-account success is not implied by fixture acceptance. |
 | **Reliable callback CI** | Response-write failure is injected after socket setup, preserving the callback result without macOS shutdown/deadline configuration races. |
+| **Evolution stays saved** | Tool-activity form changes receive a fresh task revision, so an older in-flight save cannot cause a stale/conflicting snapshot refusal. |
 
 <details>
 <summary>Highlights retained from 0.1.44</summary>

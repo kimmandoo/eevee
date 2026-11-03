@@ -1,5 +1,12 @@
 # Troubleshooting
 
+### [2026-11-03] Activity-driven evolution reused a committed task revision
+
+- **Context / Symptom:** Actual120-column evolution and OpenAI file-permission journeys showed Flareon live but `Storage: save failed`. The inspector reported `Refusing a stale or conflicting revision; reload the committed task before saving.` A held file-preview fixture also incorrectly waited for durable form publication before its terminal frame was released.
+- **Root Cause:** `follow_activity` changed the partner form and local route records through `set_form` without `changed_task`. A save acknowledgement could therefore leave different snapshots under the same committed revision. Todo-driven evolution already advanced the revision with its progress mutation, masking the missing activity-only path. Separately, a concurrent peer-log reader could parse a not-yet-newline-complete JSON/UTF-8 packet.
+- **Solution:** Marked only actual activity-driven form changes as task mutations; same-form activity remains a no-op. Added an older-inflight-ack regression that failed before the fix because the evolved snapshot did not exceed the committed revision. The runtime fixture observes live appearance while a frame is held and durable state after settlement. Progress reads only newline-complete records and still refuses malformed complete JSON.
+- **Prevention / Reference:** `set_form` deliberately leaves revision ownership to its caller. Preserve this invariant for new automatic routing paths; do not weaken stale-revision admission, suppress save failures or release held fixture frames by timeout. Retained initial failures and inspector output under `target/release046-proof/`.
+
 ### [2026-11-03] macOS callback failure injection ran before socket setup
 
 - **Context / Symptom:** Native41429077771 failed `native_callback_http_page_write_failure_does_not_discard_the_code` on macOS ARM64: `left: Err(Failed)`, `right: Ok(Some("private-code"))`. Extended41436022466 then correctly refused the unqualified source.

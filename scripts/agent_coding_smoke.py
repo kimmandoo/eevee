@@ -150,7 +150,10 @@ def file_decision(journey, allow=True):
     session.send('d')
     files.until(session, lambda: files.file_review_pending(session), 'file decision summary')
     session.capture('exact-file-' + str(len(runs(journey))))
-    session.send(ESC + ('[C' if allow else '[D') + '\r', settle=False)
+    session.send(ESC + ('[C' if allow else '[D'))
+    if allow:
+        files.expose_file_scope(session)
+    session.send('\r', settle=False)
 
 
 def command_decision(journey, *, decision='allow', retain_draft=False):
@@ -245,16 +248,19 @@ def native_case(binary, compiler, output, size, manual):
                             progress = decode_result(results['coding-progress'])
                             assert progress['status'] == 'success' and progress['path'] == '', progress
                             result['todo_before_reviewed_file'] = progress
-                    selected = [calls[index]] if index < len(calls) else []
+                    selected = ([calls[index]] if index < len(calls) else [{
+                        'id': 'coding-progress-done', 'name': 'todo', 'arguments': {
+                            'operation': 'done', 'label': 'Build the program', 'steps': []}}])
                     if index == 0:
                         selected.insert(0, {'id': 'coding-progress', 'name': 'todo', 'arguments': {
                             'operation': 'init', 'label': '', 'steps': [
                                 {'label': 'Build the program', 'phase': 'implement', 'status': 'active'}
                             ]}})
-                    return files.response_plan(peer, calls=selected,
-                        text='Actual compiler/program evidence received.' if not selected else '', number=index)[1](handler, event, row)
+                    return files.response_plan(peer, calls=selected, number=index)[1](handler, event, row)
                 return ('custom', reply)
-            before = journey.begin(natural_request('COOP_CODING_NATIVE'), [plan(i) for i in range(9)])
+            plans = [plan(i) for i in range(9)]
+            plans.append(files.response_plan(peer, text='Actual compiler/program evidence received.', number=9))
+            before = journey.begin(natural_request('COOP_CODING_NATIVE'), plans)
             for index, call in enumerate(calls):
                 if call['name'] in ('eevee_write_file', 'eevee_edit_file'):
                     file_decision(journey)
@@ -263,7 +269,7 @@ def native_case(binary, compiler, output, size, manual):
                 files.until(journey.session, lambda i=index: len(peer.snapshot('POST')) >= before + i + 2,
                             'actual tool result did not reach next provider round: ' + call['id'], timeout=90)
                 source_effects(journey, index)
-            journey.settled_coding(before + 9)
+            journey.settled_coding(before + 10)
             assert draft_present(journey), 'coding overwrote later owner draft'
             partner = journey.snapshot()['partners'][0]
             if manual:

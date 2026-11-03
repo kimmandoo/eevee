@@ -76,10 +76,10 @@ def run(binary, output, size):
             assert match, 'native sign-in did not display its official manual browser URL'
             values = parse_qs(urlsplit(match.group(0)).query)
             callback = urlsplit(values['redirect_uri'][0])
-            assert callback.hostname == '127.0.0.1' and callback.port in (1455, 1457)
+            assert callback.hostname == 'localhost' and callback.port in (1455, 1457)
             assert values['state'] and values['code_challenge_method'] == ['S256']
             with socket.create_connection((callback.hostname, callback.port), timeout=2) as peer:
-                peer.sendall(b'GET /auth/callback?code=fixture-invalid&state=wrong-state HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n')
+                peer.sendall(b'GET /auth/callback?code=fixture-invalid&state=wrong-state HTTP/1.1\r\nHost: localhost\r\n\r\n')
                 peer.settimeout(2)
                 response = b''
                 while b'\r\n\r\n' not in response and len(response) < 16384:

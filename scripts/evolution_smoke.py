@@ -332,14 +332,17 @@ def run(binary, output, root, size, ascii_mode, ):
                 files.response_plan(peer, calls=[todo_call('clear-untagged-focus', [])], number=1),
                 files.response_plan(peer, text=answer, number=2)])
             files.until(journey.session, gate.ready.is_set, 'file activity did not reach the terminal gate')
-            journey.wait_mode(3)
+            # File previews change live appearance before their terminal frame;
+            # that held frame has not yet committed the partner snapshot.
+            files.until(journey.session, lambda: '(Flareon) [Auto]' in journey.session.display().splitlines()[0],
+                        'file activity did not evolve the live request appearance')
             busy_claims = journey.snapshot()['claims']
             assert busy_claims[0]['partner'] == journey.partner()['id']
             assert not (journey.project / GENERATED).exists()
             future = 'Perform an independent review of the code. 초안界e\u0301!'
             journey.write_request(future)
             journey.session.send('\r')
-            journey.assert_mode(3, True)
+            assert '(Flareon) [Auto]' in journey.session.display().splitlines()[0]
             assert journey.snapshot()['claims'] == busy_claims, 'busy draft changed request ownership'
             assert len(peer.snapshot('POST')) == before + 1, 'busy Enter dispatched another request'
             journey.capture('busy-future-review-keeps-owner-and-form')
@@ -347,6 +350,7 @@ def run(binary, output, root, size, ascii_mode, ):
             gate.release.set()
             journey.permission(GENERATED, allow=True)
             journey.settled(answer, before + 3)
+            journey.assert_mode(3, True)
             assert (journey.project / GENERATED).read_bytes() == GENERATED_CONTENT.encode()
             assert response_smoke.saved_request(journey, future, len(future.encode())), 'file consent lost the later exact draft/caret'
             result['cases'].append('untagged todo wording steered nothing; real file activity evolved Flareon without changing owner; busy future review did not send, and exact one-shot consent alone wrote actual bytes')

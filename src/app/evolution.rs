@@ -167,11 +167,13 @@ impl App {
         if !self.lead.auto_form
             || self.planning.explicit_operation() == Some(Operation::Review)
             || self.todo_focus().is_some()
+            || self.form() == role.form()
         {
             return;
         }
         let target = role_selection(role.form());
         self.evolve_running(target.form, target.reason);
+        self.changed_task();
     }
 
     fn evolve_running(&mut self, form: usize, reason: Message) {
@@ -434,6 +436,27 @@ mod tests {
         // A pinned form keeps its appearance.
         app.lead.auto_form = false;
         assert_eq!(app.request_evolution().unwrap().form, app.form());
+    }
+
+    #[test]
+    fn activity_evolution_survives_an_inflight_snapshot_acknowledgement() {
+        use crate::workspace::progress::Role;
+        let mut app = app();
+        app.changed_task();
+        let before = app.snapshot("/workspace");
+        app.save_submitted();
+        app.follow_activity(Role::Implement);
+        app.store_event(store::Event::Saved(before));
+        assert_eq!(app.form(), 3);
+        assert!(app.save_due(std::time::Instant::now()));
+        let evolved = app.snapshot("/workspace");
+        assert!(evolved.revision > app.saved_revision);
+        assert_eq!(evolved.form, 3);
+        app.save_submitted();
+        app.store_event(store::Event::Saved(evolved));
+        assert_eq!(app.storage, StorageState::Saved);
+        app.follow_activity(Role::Implement);
+        assert!(!app.save_due(std::time::Instant::now()));
     }
 
     #[test]

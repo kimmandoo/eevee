@@ -7,7 +7,7 @@ Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPAT
 ## Current delivery — CI repair and0.1.46 release (2026-11-03)
 
 1. Read failed native41429077771 and dependent extended41436022466 evidence. Repair the OAuth page-write test's macOS socket-configuration ordering without changing callback acceptance or weakening CI.
-2. Migrate runtime fixtures from retired text-based form/capability routing to structured roles; require valid native todo phases. Run Rust1.90 formatting, locked tests, strict Clippy, Python/SDK checks and actual callback, continuation, progress and evolution journeys.
+2. Migrate runtime fixtures from retired text-based form/capability routing to structured roles; require valid native todo phases. Reproduce and fix the activity-only evolution save conflict with an inflight-ack RED→GREEN regression, without weakening revision admission. Run Rust1.90 formatting, locked tests, strict Clippy, Python/SDK checks and actual callback, continuation, progress, evolution and reviewed coding journeys.
 3. Advance Cargo/lock, README and dated version notes. Commit/push the source-gated candidate; require the newest exact-source main push to pass Check and all five native jobs, every step, in one attempt before tagging.
 4. Publish a new immutablev0.1.46 through the existing qualification/promotion workflow; verify public assets/checksums/native layouts and the downloaded host executable and changed runtime paths. Record final IDs/results and commit the handoff. Earlier tags/assets, security guards and unrelated roadmap tasks remain unchanged.
 
