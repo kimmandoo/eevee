@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Actual-binary bounded external stdio disconnect journeys; no live model calls.
 
-Reuses the established correlated Codex/ACP and complete SDKbridge11 consumers.
+Reuses the established correlated Codex/ACP and complete SDKbridge12 consumers.
 Each peer exits before initialization or after a real prompt/partial response;
 local diagnostic remediation must not start another process or resend anything.
 """

@@ -51,10 +51,11 @@ class Journey(CatalogJourney):
 
     def connect_mcp(self):
         self.workspace()
+        before = len([row for row in self.events() if row['event'] == 'tools/list'])
         self.session.command('mcp connect fixture')
         self.review('launch-review')
-        files.until(self.session, lambda: len([row for row in self.events() if row['event'] == 'tools/list']) >= 1,
-                    'reviewed stdio MCP tools/list never completed', timeout=35)
+        files.until(self.session, lambda: len([row for row in self.events() if row['event'] == 'tools/list']) >= before + 2,
+                    'reviewed stdio MCP discovery did not consume its second metadata page', timeout=35)
         self.session.pump(.5)
         self.capture('connected-tools-not-sent')
         self.session.send(ESC)
@@ -236,7 +237,7 @@ def run(binary, output, root, size):
             journey.setup_route()
             journey.session.command('role-plan')
             journey.workspace()
-            registration = {'name': 'fixture', 'program': sys.executable, 'args': [str(Path(__file__).with_name('mcp_stdio_fixture.py').resolve()), '--root', str(journey.project)], 'cwd': '.', 'env': []}
+            registration = {'name': 'fixture', 'program': sys.executable, 'args': [str(Path(__file__).with_name('mcp_stdio_fixture.py').resolve()), '--root', str(journey.project), '--paginate'], 'cwd': '.', 'env': []}
             journey.session.command('mcp add ' + json.dumps(registration, separators=(',', ':')))
             journey.review('registration-review')
             assert not journey.events(), 'registration launched server'
@@ -252,8 +253,14 @@ def run(binary, output, root, size):
             answer = journey.settled_call(before, call_id)
             assert answer['status'] == 'success' and answer['result']['content'][0]['text'] == 'MCP_ECHO_ACTUAL_丁_한글'
             assert len([row for row in journey.events() if row['event'] == 'initialize']) == 1
-            assert len([row for row in journey.events() if row['event'] == 'tools/list']) == 1
-            result['cases'] += ['registration-inert-masked-direct-launch-review', 'selection-explicit-unselected-schema-not-sent', 'reviewed-call-actual-stdio-result', 'initialize-list-once']
+            listed = [row for row in journey.events() if row['event'] == 'tools/list']
+            assert [row['params'] for row in listed] == [{}, {'cursor': 'echo-page'}], listed
+            declaration = next(row['function'] for row in peer.snapshot('POST')[before]['body']['tools']
+                               if row.get('function', {}).get('name') == WIRE)
+            assert declaration['parameters']['properties']['line_choice']['enum'] == [
+                'line one\r\nline two', 'line one\nline two'
+            ], 'executable schema literals were silently rewritten'
+            result['cases'] += ['registration-inert-masked-direct-launch-review', 'selection-explicit-unselected-schema-not-sent', 'reviewed-call-actual-stdio-result', 'complete-paginated-discovery-exact-schema']
             before, call_id = journey.submit_call({'text': 'RULE_CREATED'}, create_rule=True)
             answer = journey.settled_call(before, call_id)
             assert 'rule #1' in answer.get('approval_cause', ''), answer

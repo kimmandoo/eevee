@@ -128,7 +128,7 @@ impl FilePreview {
         self.seen = arguments.len();
         if complete && !self.checked_complete {
             self.checked_complete = true;
-            self.received = decode(arguments)
+            self.received = decode(arguments, false)
                 .ok()
                 .and_then(|args| FileTool::parse(name, args).ok())
                 .is_some();
@@ -962,7 +962,7 @@ impl Calls {
                                 &mut calls,
                                 Some(string(item, "call_id")?),
                                 string(item, "name")?,
-                                decode(string(item, "arguments")?)?,
+                                decode(string(item, "arguments")?, true)?,
                             )?;
                         }
                     }
@@ -978,7 +978,7 @@ impl Calls {
                         &mut calls,
                         Some(&chat_id(*index, call)),
                         &call.name,
-                        decode(&call.arguments)?,
+                        decode(&call.arguments, true)?,
                     )?;
                 }
             }
@@ -992,7 +992,7 @@ impl Calls {
                         let args = if block.arguments.is_empty() {
                             arguments_value(block.value.get("input").ok_or("Missing tool input")?)?
                         } else {
-                            decode(&block.arguments)?
+                            decode(&block.arguments, false)?
                         };
                         push_call(
                             &self.aliases,
@@ -1447,20 +1447,34 @@ fn contiguous(indices: impl Iterator<Item = usize>) -> Result<(), String> {
     Ok(())
 }
 
-fn decode(json: &str) -> Result<Value, String> {
+fn decode(json: &str, recover_syntax: bool) -> Result<Value, String> {
     if json.len() > ARGUMENT_LIMIT {
         return Err("Tool arguments exceed capacity".into());
     }
-    arguments_value(&frame(json)?)
+    match frame(json) {
+        Ok(value) => arguments_value(&value),
+        Err(error) => {
+            // String-argument protocols can retain the exact rejected bytes in
+            // the assistant call and return a correlated zero-effect refusal.
+            // Truncation, duplicate keys and wire inconsistencies stay terminal.
+            if recover_syntax
+                && serde_json::from_str::<Value>(json)
+                    .is_err_and(|error| error.is_syntax() && !error.is_eof())
+            {
+                Ok(Value::Null)
+            } else {
+                Err(error)
+            }
+        }
+    }
 }
 
 fn arguments_value(value: &Value) -> Result<Value, String> {
     if encoded_len(value)? > ARGUMENT_LIMIT {
         return Err("Tool arguments exceed capacity".into());
     }
-    if !value.is_object() {
-        return Err("Tool arguments must be an object".into());
-    }
+    // A complete but wrong-shaped input is a schema refusal, not a broken
+    // transport. FileTool::parse refuses it before permissions or effects.
     Ok(value.clone())
 }
 

@@ -14,6 +14,8 @@ pub enum Status {
     Running,
     Done,
     Failed,
+    Unknown,
+    Stopped,
 }
 
 impl Status {
@@ -23,6 +25,8 @@ impl Status {
             Status::Running => "[..]",
             Status::Done => "[ok]",
             Status::Failed => "[!!]",
+            Status::Unknown => "[?]",
+            Status::Stopped => "[--]",
         }
     }
 }
@@ -45,7 +49,7 @@ impl View {
     /// todo results that were refused or malformed are ordinary tool rows here
     /// instead of raw argument JSON; SDK `TodoWrite` keeps its raw evidence.
     pub fn read(item: &Item) -> Option<Self> {
-        let view = if item.kind == ItemKind::Tool {
+        let mut view = if item.kind == ItemKind::Tool {
             parse(&item.text, item.complete)
         } else if item.kind == ItemKind::Plan && item.item_id.starts_with("todo-") {
             let value = serde_json::from_str::<Value>(&item.text).ok()?;
@@ -63,6 +67,24 @@ impl View {
         } else {
             return None;
         };
+        if view.status == Status::Running
+            && let Some(outcome) = item.status.as_ref().and_then(|status| status.outcome)
+        {
+            // Request settlement is not evidence of a tool result or remote
+            // cancellation. Retire the live indicator without changing source.
+            let stopped = outcome == crate::providers::Outcome::Cancelled;
+            view.status = if stopped {
+                Status::Stopped
+            } else {
+                Status::Unknown
+            };
+            view.note = if stopped {
+                "request stopped · tool result unavailable"
+            } else {
+                "request ended · tool result unavailable"
+            }
+            .into();
+        }
         (view.name != "TodoWrite").then_some(view)
     }
 
@@ -167,10 +189,22 @@ fn result_text(value: &Value) -> String {
 
 fn parse(text: &str, complete: bool) -> View {
     let trimmed = text.trim();
-    if trimmed.starts_with('{')
-        && let Ok(value) = serde_json::from_str::<Value>(trimmed)
-    {
-        return sdk(&value, complete);
+    if trimmed.starts_with('{') {
+        return match serde_json::from_str::<Value>(trimmed) {
+            Ok(value) => sdk(&value, complete),
+            Err(_) => View {
+                status: if complete {
+                    Status::Unknown
+                } else {
+                    Status::Running
+                },
+                name: "Tool".into(),
+                target: String::new(),
+                note: "unreadable observation · /verbose".into(),
+                detail: Vec::new(),
+                hidden: 0,
+            },
+        };
     }
     if trimmed.starts_with("Provider-native ")
         && let Some(start) = trimmed.find(": {")
@@ -185,7 +219,7 @@ fn parse(text: &str, complete: bool) -> View {
     let (detail, hidden) = detail(rest, false);
     View {
         status: if complete {
-            Status::Done
+            Status::Unknown
         } else {
             Status::Running
         },
@@ -195,7 +229,11 @@ fn parse(text: &str, complete: bool) -> View {
             single_line(first)
         },
         target: String::new(),
-        note: String::new(),
+        note: if complete {
+            "outcome unknown".into()
+        } else {
+            "awaiting result".into()
+        },
         detail,
         hidden,
     }
@@ -204,42 +242,142 @@ fn parse(text: &str, complete: bool) -> View {
 /// Claude Agent SDK and native host observations: argument metadata plus an
 /// optional result, which may carry its own status.
 fn sdk(value: &Value, complete: bool) -> View {
-    let outcome = value["result"]["status"].as_str().unwrap_or("");
-    let refused = matches!(outcome, "refused" | "denied");
-    let failed = value["is_error"] == true
-        || value["status"] == "failed"
-        || refused
-        || matches!(outcome, "failed" | "error");
-    let status = if failed {
+    let result = &value["result"];
+    let outcome = result["status"].as_str().unwrap_or("");
+    let state = value["status"].as_str().unwrap_or("");
+    let run = &result["run"];
+    let run_state = run["state"].as_str().unwrap_or("");
+    let tool = value["tool"].as_str().unwrap_or("Tool");
+    let is_command = tool == "eevee_run_command";
+    let refused = matches!(outcome, "refused" | "denied") || matches!(state, "refused" | "denied");
+    // Result/run evidence is authoritative. Transport item completion alone is
+    // never proof of success, nor can an outer "completed" hide an unknown run.
+    let status = if matches!(outcome, "unknown" | "outcome_unknown" | "incomplete")
+        || matches!(state, "unknown" | "outcome_unknown" | "incomplete")
+        || matches!(run_state, "OutcomeUnknown" | "Interrupted")
+        || run["tree"] == "OwnershipUnknown"
+        || complete && matches!(run_state, "AwaitingDispatch" | "Running")
+    {
+        Status::Unknown
+    } else if matches!(outcome, "cancelled" | "canceled" | "stopped")
+        || matches!(state, "cancelled" | "canceled" | "stopped")
+        || matches!(run_state, "Cancelled" | "Cancelling")
+        || run["cancelled"] == true
+    {
+        Status::Stopped
+    } else if refused
+        || value["is_error"] == true
+        || matches!(state, "failed" | "error")
+        || matches!(outcome, "failed" | "error")
+        || run_state == "Failed"
+        || run["exit_code"].as_i64().is_some_and(|code| code != 0)
+    {
         Status::Failed
-    } else if complete || value["status"] == "completed" {
+    } else if outcome == "success"
+        || !tool.starts_with("eevee_")
+            && state == "completed"
+            && outcome.is_empty()
+            && !result.is_null()
+    {
         Status::Done
+    } else if complete
+        || matches!(state, "completed" | "incomplete")
+        || !outcome.is_empty() && !matches!(outcome, "running" | "requested" | "in_progress")
+    {
+        Status::Unknown
     } else {
         Status::Running
     };
-    let (detail, hidden) = detail(&result_text(&value["result"]), false);
-    let tool = value["tool"].as_str().unwrap_or("Tool");
     let arguments = &value["arguments"];
+    let name = match (tool, arguments["operation"].as_str()) {
+        ("eevee_read_file", _) => "Read".into(),
+        ("eevee_list_files", _) => "List files".into(),
+        ("eevee_write_file", _) => match result["kind"].as_str() {
+            Some("Create") => "Create".into(),
+            Some("Replace") => "Write".into(),
+            _ => "Write file".into(),
+        },
+        ("eevee_edit_file", _) => "Edit".into(),
+        ("eevee_delete_file", _) => "Delete".into(),
+        ("eevee_rename_file", _) => "Rename".into(),
+        ("eevee_structural_search", _) => "Search source".into(),
+        ("eevee_run_command", _) => "Run command".into(),
+        ("eevee_artifact_list", _) => "List artifacts".into(),
+        ("eevee_artifact_read", _) => "Read artifact".into(),
+        ("eevee_artifact_search", _) => "Search artifacts".into(),
+        ("eevee_artifact_locations", _) => "Artifact locations".into(),
+        ("eevee_mcp", _) => "Connected tool".into(),
+        ("eevee_delegate", _) => "Delegate".into(),
+        ("todo", Some(operation)) => format!("Todo {}", single_line(operation)),
+        ("todo", None) => "Todo".into(),
+        _ => single_line(tool),
+    };
+    let target = value["input"]["path"]
+        .as_str()
+        .or_else(|| value["input"]["file_path"].as_str())
+        .or_else(|| arguments["label"].as_str())
+        .or_else(|| arguments["path"].as_str())
+        .or_else(|| arguments["directory"].as_str())
+        .or_else(|| arguments["cwd"].as_str())
+        .map(single_line)
+        .filter(|target| !target.is_empty())
+        .unwrap_or_else(|| {
+            if matches!(
+                tool,
+                "eevee_list_files" | "eevee_structural_search" | "eevee_run_command"
+            ) {
+                ".".into()
+            } else {
+                String::new()
+            }
+        });
+    let mut note = match status {
+        Status::Unknown => "outcome unknown".into(),
+        Status::Stopped => "stopped".into(),
+        Status::Failed if refused => "refused".into(),
+        Status::Failed => "failed".into(),
+        Status::Running => "awaiting result".into(),
+        _ => String::new(),
+    };
+    let body = if is_command {
+        if let Some(code) = run["exit_code"].as_i64() {
+            if !note.is_empty() {
+                note.push_str(" · ");
+            }
+            note.push_str(&format!("exit {code}"));
+        }
+        if result["output_unavailable"] == true || run["output_unavailable"] == true {
+            note.push_str(if note.is_empty() {
+                "output unavailable"
+            } else {
+                " · output unavailable"
+            });
+        } else if result["preview_truncated"] == true
+            || result["stdout_display_truncated"] == true
+            || result["stderr_display_truncated"] == true
+        {
+            note.push_str(if note.is_empty() {
+                "output preview"
+            } else {
+                " · output preview"
+            });
+        }
+        let stdout = result["stdout"].as_str().unwrap_or("");
+        let stderr = result["stderr"].as_str().unwrap_or("");
+        if stdout.is_empty() && stderr.is_empty() {
+            result_text(result)
+        } else {
+            format!("{stdout}\n{stderr}")
+        }
+    } else {
+        result_text(result)
+    };
+    let (detail, hidden) = detail(&body, is_command);
     View {
         status,
-        name: match (tool, arguments["operation"].as_str()) {
-            ("todo", Some(operation)) => format!("Todo {operation}"),
-            ("todo", None) => "Todo".into(),
-            _ => tool.to_owned(),
-        },
-        target: value["input"]["path"]
-            .as_str()
-            .or_else(|| arguments["label"].as_str())
-            .or_else(|| arguments["path"].as_str())
-            .map(single_line)
-            .unwrap_or_default(),
-        note: if refused {
-            "refused".into()
-        } else if failed {
-            "failed".into()
-        } else {
-            String::new()
-        },
+        name,
+        target,
+        note,
         detail,
         hidden,
     }
@@ -248,11 +386,20 @@ fn sdk(value: &Value, complete: bool) -> View {
 /// Codex provider-native MCP/dynamic tool calls.
 fn mcp(value: &Value, complete: bool) -> View {
     let error = value["error"].as_str().unwrap_or("");
-    let failed = value["success"] == false || !error.is_empty() || value["status"] == "failed";
-    let status = if failed {
+    let state = value["status"].as_str().unwrap_or("");
+    let failed = value["success"] == false
+        || !value["error"].is_null()
+        || matches!(state, "failed" | "error" | "declined" | "denied");
+    let status = if matches!(state, "cancelled" | "canceled" | "stopped") {
+        Status::Stopped
+    } else if matches!(state, "unknown" | "incomplete") {
+        Status::Unknown
+    } else if failed {
         Status::Failed
-    } else if complete {
+    } else if value["success"] == true {
         Status::Done
+    } else if complete || state == "completed" {
+        Status::Unknown
     } else {
         Status::Running
     };
@@ -270,10 +417,12 @@ fn mcp(value: &Value, complete: bool) -> View {
             None => tool.to_owned(),
         },
         target: String::new(),
-        note: if failed {
-            "failed".into()
-        } else {
-            String::new()
+        note: match status {
+            Status::Failed => "failed".into(),
+            Status::Unknown => "outcome unknown".into(),
+            Status::Stopped => "stopped".into(),
+            Status::Running => "awaiting result".into(),
+            _ => String::new(),
         },
         detail,
         hidden,
@@ -295,10 +444,16 @@ fn command(rest: &str, complete: bool) -> View {
     let code = field("Exit code: ").trim();
     let output = parts.next().unwrap_or("");
     let failed = matches!(state, "failed" | "declined") || !matches!(code, "" | "0" | "null");
-    let status = if failed {
+    let status = if matches!(state, "cancelled" | "canceled" | "stopped") {
+        Status::Stopped
+    } else if matches!(state, "unknown" | "incomplete") {
+        Status::Unknown
+    } else if failed {
         Status::Failed
-    } else if complete && !matches!(state, "inProgress" | "in_progress") {
+    } else if state == "completed" && code == "0" {
         Status::Done
+    } else if complete {
+        Status::Unknown
     } else {
         Status::Running
     };
@@ -307,10 +462,13 @@ fn command(rest: &str, complete: bool) -> View {
         status,
         name: format!("$ {}", single_line(command)),
         target: String::new(),
-        note: match code {
-            "" | "null" if failed => state.to_owned(),
-            "" | "null" | "0" => String::new(),
-            code => format!("exit {code}"),
+        note: match (status, code) {
+            (Status::Stopped, _) => "stopped".into(),
+            (Status::Unknown, _) => "outcome unknown".into(),
+            (Status::Running, _) => "awaiting result".into(),
+            (Status::Failed, "" | "null") => single_line(state),
+            (_, "" | "null" | "0") => String::new(),
+            (_, code) => format!("exit {}", single_line(code)),
         },
         detail,
         hidden,
@@ -341,7 +499,7 @@ mod tests {
             r#"{"tool":"Grep","input":{"bytes":3},"status":"requested"}"#,
             false,
         );
-        assert_eq!(running.display(), "[..] Grep");
+        assert_eq!(running.display(), "[..] Grep  awaiting result");
         let failed = parse(
             r#"{"tool":"Bash","is_error":true,"result":[{"type":"text","text":"denied"}],"status":"failed"}"#,
             true,
@@ -369,7 +527,7 @@ mod tests {
             "Command: sleep 1\nCwd: /w\nStatus: inProgress\nExit code: null\n",
             false,
         );
-        assert_eq!(running.display(), "[..] $ sleep 1");
+        assert_eq!(running.display(), "[..] $ sleep 1  awaiting result");
     }
 
     #[test]
@@ -412,7 +570,100 @@ mod tests {
         let plain = parse("Native file-write activity: declined.", true);
         assert_eq!(
             plain.display(),
-            "[ok] Native file-write activity: declined."
+            "[?] Native file-write activity: declined.  outcome unknown"
+        );
+    }
+
+    #[test]
+    fn native_operations_are_readable_without_argument_bodies() {
+        for (tool, arguments, expected) in [
+            (
+                "eevee_read_file",
+                serde_json::json!({"path":"src/lib.rs"}),
+                "[..] Read  src/lib.rs",
+            ),
+            (
+                "eevee_list_files",
+                serde_json::json!({"directory":"src"}),
+                "[..] List files  src",
+            ),
+            (
+                "eevee_edit_file",
+                serde_json::json!({"path":"src/lib.rs","replacements":[{"old_text":"PRIVATE","new_text":"SECRET"}]}),
+                "[..] Edit  src/lib.rs",
+            ),
+            (
+                "eevee_write_file",
+                serde_json::json!({"path":"new.rs","content":"PRIVATE"}),
+                "[..] Write file  new.rs",
+            ),
+            (
+                "eevee_run_command",
+                serde_json::json!({"cwd":"","command":{"Direct":{"program":"PRIVATE","args":["SECRET"]}}}),
+                "[..] Run command  .",
+            ),
+        ] {
+            let value = serde_json::json!({"tool":tool,"arguments":arguments,"status":"running"});
+            assert_eq!(
+                parse(&value.to_string(), false).display(),
+                format!("{expected}  awaiting result")
+            );
+        }
+        let created = parse(
+            r#"{"tool":"eevee_write_file","arguments":{"path":"new.rs"},"status":"completed","result":{"status":"success","kind":"Create","message":"Applied"}}"#,
+            true,
+        );
+        assert_eq!(created.display(), "[ok] Create  new.rs\n     Applied");
+    }
+
+    #[test]
+    fn item_completion_is_not_success_evidence() {
+        for text in [
+            r#"{"tool":"Read","status":"completed"}"#,
+            r#"{"tool":"Read","result":{"status":"unexpected"},"status":"completed"}"#,
+            r#"{"tool":"eevee_read_file","result":{},"status":"completed"}"#,
+            r#"{"tool":"eevee_read_file","result":{"status":"unknown"},"status":"completed"}"#,
+            r#"{"tool":"eevee_read_file","result":{"status":"success"},"status":"incomplete"}"#,
+            r#"{"tool":"Read","arguments":{"content":"PRIVATE"}"#,
+            "Command: build\nCwd: /w\nStatus: completed\nExit code: null\n",
+            "Command: build\nCwd: /w\nStatus: unexpected\nExit code: 0\n",
+            r#"Provider-native "mcpToolCall": {"tool":"lookup","status":"completed","text":["partial"]}"#,
+        ] {
+            let view = parse(text, true);
+            assert_eq!(view.status, Status::Unknown, "{text}");
+            assert!(!view.display().contains("[ok]"), "{text}");
+            assert!(!view.display().contains("PRIVATE"), "{text}");
+        }
+    }
+
+    #[test]
+    fn command_result_keeps_exit_output_tail_and_non_success_states() {
+        let value = serde_json::json!({
+            "tool":"eevee_run_command","arguments":{"cwd":"src"},"status":"failed",
+            "result":{"status":"error","run":{"state":"Failed","exit_code":2},
+                "stdout":"compiling\nrunning","stderr":"error: invalid type\nbuild failed","preview_truncated":true}
+        });
+        let view = parse(&value.to_string(), true);
+        assert_eq!(view.status, Status::Failed);
+        assert_eq!(view.detail, ["error: invalid type", "build failed"]);
+        assert_eq!(view.hidden, 2);
+        assert!(view.title().contains("exit 2 · output preview"));
+        for (state, expected) in [
+            ("Cancelled", Status::Stopped),
+            ("OutcomeUnknown", Status::Unknown),
+            ("Interrupted", Status::Unknown),
+        ] {
+            let value = serde_json::json!({"tool":"eevee_run_command","status":"completed",
+                "result":{"status":"success","run":{"state":state,"exit_code":0}}});
+            assert_eq!(parse(&value.to_string(), true).status, expected);
+        }
+        assert_eq!(
+            parse(
+                "Command: build\nCwd: /w\nStatus: cancelled\nExit code: 0\n",
+                true
+            )
+            .status,
+            Status::Stopped
         );
     }
 }

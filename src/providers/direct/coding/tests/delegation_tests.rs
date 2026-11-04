@@ -69,7 +69,7 @@ fn delegated_child_refuses_effects_commands_todo_and_recursion_in_all_native_pro
             (
                 "command",
                 "eevee_run_command",
-                json!({"cwd":"","command":{}}),
+                json!({"cwd":"","command":{"Direct":{"program":"rustc","args":["source.txt"]}}}),
             ),
             (
                 "todo",
@@ -88,7 +88,10 @@ fn delegated_child_refuses_effects_commands_todo_and_recursion_in_all_native_pro
         ]);
         let (mut run, connection) = child_run(&fixture, protocol, &url, &[""]);
         let ((outcome, message), events) = run_with_answers(&fixture, &mut run, &connection, true);
-        assert_eq!(outcome, Outcome::Completed, "{protocol:?}: {message}");
+        assert_eq!(outcome, Outcome::Incomplete, "{protocol:?}: {message}");
+        // Policy refusals are ordinary tool blockers, not sticky user denials.
+        // The final forbidden call supplies the truthful unfinished outcome.
+        assert!(message.starts_with("eevee_delegate: refused:"), "{message}");
         assert!(
             !fixture
                 .workspace
@@ -125,6 +128,13 @@ fn delegated_child_refuses_effects_commands_todo_and_recursion_in_all_native_pro
                     "refused"
                 }
             );
+            if capture.call_id != "read" {
+                assert!(
+                    result["message"].as_str().unwrap().contains(
+                        "Delegated child executor permits only frozen-scope source reads"
+                    )
+                );
+            }
         }
         assert!(
             events

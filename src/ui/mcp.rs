@@ -26,6 +26,16 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &App, config: &Config, 
         }
         for tool in &state.tools {
             lines.push(format!("{} {} / {} · {} · {} B schema\nDescription (untrusted): {}\nAnnotations (not authority): {}\nInput schema (untrusted JSON): {}", if state.selected.contains(&tool.wire_name()) { "[SELECTED: eligible native Sends]" } else { "[NOT SENT]" }, tool.server, tool.name, if tool.user_read { "USER-marked read (unmanaged)" } else { "effect capability; Implement only" }, tool.schema.to_string().len(), tool.description, crate::providers::mcp::clean(&tool.annotations.to_string()), tool.schema));
+            lines.push(format!(
+                "/mcp {} {} {}",
+                if state.selected.contains(&tool.wire_name()) {
+                    "unselect"
+                } else {
+                    "select"
+                },
+                tool.server,
+                tool.name
+            ));
         }
         lines.push("/mcp select|unselect <server> <tool> · /mcp read|effect <server> <tool> · /mcp disconnect [server]".into());
         lines.join("\n\n")

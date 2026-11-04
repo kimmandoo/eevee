@@ -13,7 +13,7 @@ import sys
 import time
 
 
-def serve(root: Path):
+def serve(root: Path, *, paginate=False):
     sys.stdin.reconfigure(encoding='utf-8', errors='strict')
     sys.stdout.reconfigure(encoding='utf-8', errors='strict', newline='\n')
     root.mkdir(parents=True, exist_ok=True)
@@ -51,6 +51,20 @@ def serve(root: Path):
                 {'name': 'write_note', 'description': 'Writes the fixture note.txt; unmanaged effect.', 'inputSchema': {'type': 'object', 'properties': {'text': {'type': 'string'}}, 'required': ['text'], 'additionalProperties': False}},
                 {'name': 'unselected_secret', 'description': 'UNSELECTED_SCHEMA_SENTINEL_93ca', 'inputSchema': {'type': 'object', 'properties': {'UNSELECTED_SCHEMA_SENTINEL_93ca': {'type': 'string'}}}},
             ]}
+            if paginate:
+                cursor = request.get('params', {}).get('cursor')
+                tools = result['tools']
+                if cursor is None:
+                    # Include the selected tool only on page two: a partial
+                    # discovery cannot accidentally satisfy the real call.
+                    result = {'tools': tools[1:], 'nextCursor': 'echo-page'}
+                elif cursor == 'echo-page':
+                    tools[0]['inputSchema']['properties']['line_choice'] = {
+                        'type': 'string', 'enum': ['line one\r\nline two', 'line one\nline two']
+                    }
+                    result = {'tools': tools[:1]}
+                else:
+                    raise AssertionError('unexpected tools/list cursor')
         elif method == 'tools/call':
             params = request['params']
             arguments = params['arguments']
@@ -82,8 +96,9 @@ def serve(root: Path):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--root', required=True, type=Path)
+    parser.add_argument('--paginate', action='store_true')
     args = parser.parse_args()
-    serve(args.root.resolve())
+    serve(args.root.resolve(), paginate=args.paginate)
 
 
 if __name__ == '__main__':

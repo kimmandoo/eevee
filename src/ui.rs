@@ -495,12 +495,11 @@ fn render_content(
         };
         let workspace_area = held::strip(frame, workspace_area, app, &paint);
         let review_scroll = file_prompt.map(|_| (app.planning.scroll, app.planning.scroll_max));
-        // Roomy layouts list tool calls beside the transcript; `/verbose`
-        // keeps every raw observation inline.
+        // Roomy layouts add a tool index beside the scrollable observations;
+        // `/verbose` keeps every original observation inline.
         let tools = shell
             .tools
             .filter(|_| app.response_on_home() && !app.verbose);
-        app.planning.set_tools_docked(tools.is_some());
         if app.response_on_home() {
             planning::render_workspace(frame, workspace_area, app, &paint);
         } else {

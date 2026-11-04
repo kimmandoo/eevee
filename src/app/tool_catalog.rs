@@ -15,6 +15,7 @@ use unicode_segmentation::UnicodeSegmentation;
 pub enum Mode {
     #[default]
     Browse,
+    Overview,
     Search,
     Path,
     SetupReview,
@@ -103,7 +104,7 @@ impl State {
             }
         } else {
             self.mode = if argument.is_empty() {
-                Mode::Browse
+                Mode::Overview
             } else {
                 Mode::Search
             };
@@ -383,6 +384,16 @@ impl State {
             return Action::Changed;
         }
         match key.code {
+            KeyCode::Tab | KeyCode::Char('/') if self.mode == Mode::Overview => {
+                self.mode = Mode::Search;
+                self.cursor = self.query.len();
+                self.scroll = 0;
+            }
+            KeyCode::Char('c') if self.mode == Mode::Overview => {
+                self.mode = Mode::Browse;
+                self.scroll = 0;
+            }
+            KeyCode::Char('d') | KeyCode::Enter if self.mode == Mode::Overview => {}
             KeyCode::Char('r') if self.failed.is_some() => {
                 self.pending = self.failed.take();
             }

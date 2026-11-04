@@ -1213,8 +1213,11 @@ impl App {
             Event::RunCommand {
                 generation,
                 task_id,
+                claim,
                 ..
-            } => (*generation, *task_id, Role::Verify),
+            } if self.planning.work.as_ref() == Some(claim) => {
+                (*generation, *task_id, Role::Verify)
+            }
             Event::Item {
                 generation,
                 task_id,
@@ -1593,6 +1596,102 @@ mod tests {
     }
 
     #[test]
+    fn shared_host_command_rows_are_route_scoped_stable_and_never_follow_a_lost_owner() {
+        for agent in providers::Agent::ALL {
+            for lost in 0..3 {
+                let mut app = app();
+                app.planning.agent = agent;
+                start(&mut app, 1, 1);
+                app.execution.take_store_request().unwrap();
+                app.execution
+                    .store_event(7, None, None, Ok(store::RunResponse::Runs(Vec::new())));
+                let mut claim = app.planning.work.clone().unwrap();
+                claim.writing = true;
+                app.planning.work = Some(claim.clone());
+                app.planning.operation = providers::Operation::Implement;
+                let cancelled = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+                let (reply, received) = std::sync::mpsc::sync_channel(1);
+                assert!(app.provider_event(
+                    1,
+                    providers::Event::RunCommand {
+                        generation: 7,
+                        task_id: 7,
+                        claim,
+                        data_dir: "/not-opened-by-admission".into(),
+                        call_id: "private-call-id".into(),
+                        cwd: "src".into(),
+                        command: crate::workspace::runner::CommandSpec::Direct {
+                            program: "private-executable".into(),
+                            args: vec!["private-argument".into()],
+                        },
+                        cancelled: cancelled.clone(),
+                        reply,
+                    }
+                ));
+                let rows: Vec<_> = app
+                    .planning
+                    .items
+                    .iter()
+                    .filter(|item| matches!(item.kind, ItemKind::Tool))
+                    .collect();
+                assert_eq!(rows.len(), usize::from(!agent.is_direct()));
+                let identity = rows.first().map(|item| {
+                    assert!(!item.complete);
+                    assert!(item.thread_id.starts_with("eevee-host-local-request:1:7:"));
+                    assert_eq!(item.thread_id, item.turn_id);
+                    let value: serde_json::Value = serde_json::from_str(&item.text).unwrap();
+                    assert_eq!(value["status"], "running");
+                    assert_eq!(value["arguments"], json!({"cwd":"src"}));
+                    assert!(!item.text.contains("private-"));
+                    (
+                        item.thread_id.clone(),
+                        item.turn_id.clone(),
+                        item.item_id.clone(),
+                        item.text.clone(),
+                    )
+                });
+                match lost {
+                    1 => cancelled.store(true, std::sync::atomic::Ordering::Release),
+                    2 => {
+                        app.planning.work.as_mut().unwrap().request_id =
+                            "replacement-request".into();
+                    }
+                    _ => {}
+                }
+                app.execution.request_cancel();
+                app.drive_executions(
+                    &mut std::collections::BTreeMap::new(),
+                    std::path::Path::new("/workspace"),
+                );
+                assert!(received.try_recv().unwrap().is_err());
+                let rows: Vec<_> = app
+                    .planning
+                    .items
+                    .iter()
+                    .filter(|item| matches!(item.kind, ItemKind::Tool))
+                    .collect();
+                assert_eq!(rows.len(), usize::from(!agent.is_direct()));
+                if let Some((thread, turn, item_id, running)) = identity {
+                    let item = rows[0];
+                    assert_eq!(
+                        (&item.thread_id, &item.turn_id, &item.item_id),
+                        (&thread, &turn, &item_id)
+                    );
+                    if lost == 0 {
+                        assert!(item.complete);
+                        let value: serde_json::Value = serde_json::from_str(&item.text).unwrap();
+                        assert_eq!(value["status"], "failed");
+                        assert_eq!(value["result"]["status"], "refused");
+                    } else {
+                        assert!(!item.complete);
+                        assert_eq!(item.text, running);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn host_command_callback_requires_exact_live_implement_owner_and_fresh_call() {
         let mut app = app();
         start(&mut app, 1, 1);
@@ -1861,6 +1960,66 @@ mod tests {
 
     fn start(app: &mut App, partner: i64, arrival: u64) {
         prepare_owned(app, partner, arrival, false);
+    }
+
+    #[test]
+    fn stale_or_foreign_command_activity_cannot_evolve_or_spend_request_adaptation() {
+        for invalid in 0..7 {
+            let mut app = app();
+            start(&mut app, 1, 1);
+            let command = |claim| {
+                let (reply, _) = std::sync::mpsc::sync_channel(1);
+                providers::Event::RunCommand {
+                    generation: 7,
+                    task_id: 7,
+                    claim,
+                    data_dir: "/not-opened-by-appearance".into(),
+                    call_id: "appearance-only".into(),
+                    cwd: std::path::PathBuf::new(),
+                    command: crate::workspace::runner::CommandSpec::Direct {
+                        program: "not-executed".into(),
+                        args: vec![],
+                    },
+                    cancelled: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                    reply,
+                }
+            };
+            let claim = app.planning.work.clone().unwrap();
+            let mut event = command(claim.clone());
+            let mut partner = 1;
+            if let providers::Event::RunCommand {
+                generation,
+                task_id,
+                claim,
+                ..
+            } = &mut event
+            {
+                match invalid {
+                    0 => *generation += 1,
+                    1 => *task_id += 1,
+                    2 => partner = 2,
+                    3 => claim.request_id.push_str("-stale"),
+                    4 => claim.owner.partner = 2,
+                    5 => claim.task_id += 1,
+                    _ => app.planning.work_acquired = false,
+                }
+            }
+            app.observe_activity(partner, &event);
+            assert_eq!(
+                app.form(),
+                0,
+                "invalid activity {invalid} changed appearance"
+            );
+            app.planning.work_acquired = true;
+            app.observe_activity(1, &command(claim));
+            assert_eq!(app.form(), 2, "invalid activity {invalid} spent adaptation");
+            app.follow_activity(crate::workspace::progress::Role::Implement);
+            assert_eq!(
+                app.form(),
+                2,
+                "write activity did not retain the command's adaptation"
+            );
+        }
     }
 
     fn prepare_owned(app: &mut App, partner: i64, arrival: u64, connection_review: bool) {

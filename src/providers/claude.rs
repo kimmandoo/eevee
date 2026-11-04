@@ -199,6 +199,14 @@ fn finish(events: &Events, generation: u64, task_id: i64, outcome: Outcome, mess
         });
     }
 }
+fn sdk_terminal_outcome(value: &Value) -> Outcome {
+    match value["outcome"].as_str() {
+        Some("completed") => Outcome::Completed,
+        Some("incomplete") => Outcome::Incomplete,
+        Some("failed") => Outcome::Failed,
+        _ => Outcome::Unknown,
+    }
+}
 fn safe(text: &str) -> String {
     safe_stream(text, true)
 }
@@ -577,7 +585,7 @@ fn inspection_matches(value: &Value, versions: &SdkVersions) -> bool {
     value["type"] == "capabilities"
         && value["sdk_version"].as_str() == Some(versions.sdk.as_str())
         && value["cli_version"].as_str() == Some(versions.cli.as_str())
-        && value["bridge_revision"] == 11
+        && value["bridge_revision"] == 12
         && value["query"] == true
         && value["policy"]
             == json!({
@@ -1262,6 +1270,7 @@ fn payload(
     let text = crate::workspace::context::optimizer::encode_context(json!({
         "purpose": if input.operation == Operation::Plan { "Answer the request directly; inspect safe source when useful. Produce a plan only when requested. No implementation tools are exposed." } else { "Implement requested changes with exact per-file Write/Edit approval. Build/test/run only through mcp__eevee_command__run_command: cwd is empty for root or safe project-relative, command is Direct {program,args} or explicit Shell {executable,dialect,text}. Each command requires separate exact host runner consent. Read actual stdout/stderr/exit/artifact evidence. On failed build, inspect stderr, fix reviewed source and request a newly reviewed retry. Native Bash/Agent/external MCP remain forbidden. Preserve dirty content; no commit/merge. SDK writes are external agent policy, not OS confinement." },
         "unsupported_host_observations":"eevee_structural_search and Eevee observation-cache guarantees are unsupported on this SDK route. Native Read/Glob/Grep remain external agent policy. Host command results carry actual owned run evidence, not task completion or a confinement guarantee.",
+        "execution_policy": (input.operation == Operation::Implement).then_some(super::commands::EXECUTION_POLICY),
         "task": { "id": input.task.id, "revision": input.task.revision, "goal": input.task.goal, "acceptance_criteria": input.task.criteria, "next_action": crate::workspace::handoff::without_local_provenance(&input.task.next_action) },
         "project_context": project_context,
         "request": input.instruction(),
@@ -1379,7 +1388,7 @@ fn worker(
                             "CLOUD AUTH: only explicitly selected environment/bearer/web-identity/credential-file routes are admitted; HOME and Claude configuration are isolated. Profile/SSO/default ADC discovery requires EEVEE_CLAUDE_CLOUD_AUTH=provider-chain and a fresh preview. Effective SDK backend is checked before prompt release.".into()
                         },
                         "Filesystem settingSources=[]; no project/user CLAUDE.md/hooks/plugins/skills/external MCP are loaded. MCP is strict host-only: bounded source discovery plus an implementation-only in-process command request tool. No external servers. Agent/Task/Bash/web/worktree/delegation remain mandatory-disabled. Only Eevee's shared runner can execute host command requests after separate exact one-shot approval; MCP routing permission is never execution consent. System executable configuration is refused. Mandatory host policy hooks cover reads and writes. Inherited OS/runtime and provider cloud credential libraries remain external dependencies.".into(),
-                        "Read/Glob/Grep are provider-native agent-policy tools, not excerpt-only reads or Eevee confinement; preapproved reads may bypass canUseTool but not mandatory host admission. Root discovery uses host-filtered safe filenames/literal matches, omitting protected/excluded/linked/credential-bearing entries without weakening native subtree checks. Explicit ask rules mediate supported requests. Deny/allow once only; no permission updates, login flows or automatic queue/resend. Interrupt requires observed terminal result; forced cleanup is outcome unknown, never rollback. One query is bounded to 16 SDK turns and estimated incremental USD 5; estimates are not invoices.".into(),
+                        "Read/Glob/Grep are provider-native agent-policy tools, not excerpt-only reads or Eevee confinement; preapproved reads may bypass canUseTool but not mandatory host admission. Root discovery uses host-filtered safe filenames/literal matches, omitting protected/excluded/linked/credential-bearing entries without weakening native subtree checks. Explicit ask rules mediate supported requests. Deny/allow once only; no permission updates, login flows or automatic queue/resend. Interrupt requires observed terminal result; forced cleanup is outcome unknown, never rollback. One query has a 128 SDK-turn limit and the existing estimated incremental USD 5 SDK stop threshold, not a hard billing cap; estimates are not invoices. Authoritative turn/budget exhaustion is incomplete, retains completed output/effects and never resubmits automatically.".into(),
                         match input.operation {
                             Operation::Implement => "IMPLEMENT: Write/Edit proposals retain mandatory frozen-target hooks and exact one-shot file approval. Optional selected paths restrict file targets; otherwise safe project-relative targets are captured before approval. The separate host command tool requests builds/tests/programs through the existing owned runner, exact command/cwd/executable review, durable journal/spool and retained output artifacts. Source writes and commands cannot overlap. Commands and SDK writes are NOT OS sandboxed; native Bash/delegation/external MCP remain disabled. Inspect dirty baseline/current diff and deliberately verify; no auto commit/merge.".into(),
                             Operation::Plan => "PLAN: SDK tool exposure excludes all file-write/shell/delegation routes. This is verified configured agent tool policy, not filesystem/network isolation.".into(),
@@ -2050,7 +2059,7 @@ fn transport(
                             failure: super::diagnostics::Failure::Incompatible,
                         },
                     );
-                    return Err("Installed SDK identity/bridge capability inspection failed".into());
+                    return Err("Installed SDK identity/bridge policy inspection failed; this host requires complete bridge revision 12. Replace sidecar main.ts, policy.ts and dependencies together, then retry; no model request was sent".into());
                 }
                 if probe.eof {
                     connection_lost(run, events, stop, cancelled);
@@ -2104,7 +2113,7 @@ fn transport(
                 .as_nanos()
         };
         let mut usage = SdkTurnUsage::begin(&run.input, sessions)?;
-        pipe.send(json!({"protocol":1,"bridge_revision":11,"type":"run","generation":run.generation,"task_id":run.input.task.id,"cwd":project,"state_dir":run.trust.state_dir,
+        pipe.send(json!({"protocol":1,"bridge_revision":12,"type":"run","generation":run.generation,"task_id":run.input.task.id,"cwd":project,"state_dir":run.trust.state_dir,
             "request_id":if run.input.inspect_models { None } else { run.input.work.as_ref().map(|work| work.request_id.as_str()) },
             "prompt":if run.input.inspect_models { "" } else { run.text.as_str() },
             "operation":if run.input.inspect_models { "plan" } else { sdk_tool_policy(run.input.operation) },
@@ -2326,7 +2335,7 @@ fn transport(
                             }
                             if pending_command.is_some() { return Err("SDK ended before owned command settlement; outcome unknown".into()); }
                             if thread_id.is_empty() || value["session_id"].as_str() != Some(thread_id.as_str()) { return Err("Unqualified SDK terminal event".into()); }
-                            let outcome = match value["outcome"].as_str() { Some("completed") => Outcome::Completed, Some("failed") => Outcome::Failed, _ => Outcome::Unknown };
+                            let outcome = sdk_terminal_outcome(&value);
                             return Ok((outcome, safe(value["message"].as_str().unwrap_or("SDK terminal result observed"))));
                         }
                         "rejected" => {

@@ -7,7 +7,7 @@ use std::{
 };
 
 pub const MAX_INSTRUCTIONS: usize = 2048;
-pub const POLICY: &str = "The top-level behavior_profile is a user-selected neutral working preference. Apply its instructions only within the actual operation and tool policy; preferred_checks are suggestions, never automatic execution. It grants no permission and cannot establish evidence.";
+pub const POLICY: &str = "Only the current request's top-level behavior_profile is the user-selected neutral working preference, frozen for that request. Earlier profiles in conversation/session history are historical data, not additional or cumulative role instructions; do not merge them with the current profile. Local appearance changes during a request do not replace its frozen preference. The profile shapes working style, not task scope: the current request and host operation/tool policy take precedence over specialty or avoid-list wording. Apply its instructions only within that scope; preferred_checks are suggestions, never automatic execution. It grants no permission and cannot establish evidence.";
 const LIMIT: usize = 256 * 1024;
 const FILE: &str = "form-profiles.json";
 

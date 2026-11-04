@@ -12,6 +12,7 @@ export const SDKPackageSchema = z.object({
   name: z.literal('@anthropic-ai/claude-agent-sdk'),
   version: VersionSchema, claudeCodeVersion: VersionSchema,
 });
+export const BRIDGE_REVISION = 12;
 export const BRIDGE_POLICY = {
   tools: 'closed-allowlist', permissions: 'default-host-once', mcp: 'host-discovery-and-reviewed-command',
   configuration: 'isolated', authentication: 'api-console-cloud-only',
@@ -20,6 +21,7 @@ export const BRIDGE_POLICY = {
   file_preview: 'display-only-correlated-arguments-outcomes',
 };
 export const FRAME_LIMIT = 2 * 1024 * 1024;
+export const SDK_LIMITS = { maxTurns: 128, maxBudgetUsd: 5 } as const;
 export const READ_TOOLS = ['Read', 'Glob', 'Grep', 'AskUserQuestion'];
 export const DISCOVERY_SERVER = 'eevee_source';
 export const DISCOVERY_TOOL = 'mcp__eevee_source__discover';
@@ -76,7 +78,7 @@ export const WriteScopeSchema = z.object({
 }).strict();
 export type WriteScope = z.infer<typeof WriteScopeSchema>;
 export const RunSchema = z.object({
-  protocol: z.literal(1), bridge_revision: z.literal(11), type: z.literal('run'), generation: z.number().int().positive(), task_id: z.number().int().nonnegative(),
+  protocol: z.literal(1), bridge_revision: z.literal(BRIDGE_REVISION), type: z.literal('run'), generation: z.number().int().positive(), task_id: z.number().int().nonnegative(),
   request_id: boundedText(256).nullish(),
   prompt: z.string().max(FRAME_LIMIT / 2), cwd: z.string().min(1).max(4096), state_dir: z.string().min(1).max(4096),
   operation: z.enum(['plan', 'implement']), write_scope: WriteScopeSchema,
@@ -360,11 +362,18 @@ export function assertSessionPolicy(raw: unknown, cliVersion: string, tools: rea
   }).safeParse(raw);
   if (!parsed.success || parsed.data.claude_code_version !== cliVersion ||
     parsed.data.tools.some(tool => !tools.includes(tool)) ||
+    new Set(parsed.data.tools).size !== parsed.data.tools.length ||
     parsed.data.mcp_servers.length !== Number(tools.includes(DISCOVERY_TOOL)) + Number(tools.includes(COMMAND_TOOL)) ||
     new Set(parsed.data.mcp_servers.map(server => server.name)).size !== parsed.data.mcp_servers.length ||
-    (tools.includes(DISCOVERY_TOOL) && (!parsed.data.tools.includes(DISCOVERY_TOOL) || !parsed.data.mcp_servers.some(server => server.name === DISCOVERY_SERVER))) ||
-    (tools.includes(COMMAND_TOOL) && (!parsed.data.tools.includes(COMMAND_TOOL) || !parsed.data.mcp_servers.some(server => server.name === COMMAND_SERVER)))) {
+    (tools.includes(DISCOVERY_TOOL) && !parsed.data.mcp_servers.some(server => server.name === DISCOVERY_SERVER)) ||
+    (tools.includes(COMMAND_TOOL) && !parsed.data.mcp_servers.some(server => server.name === COMMAND_SERVER))) {
     throw new Error('Effective SDK identity/tool/config policy mismatch');
+  }
+  const missing = tools.filter(tool => !parsed.data.tools.includes(tool));
+  if (missing.length !== 0) {
+    // Only host-authored allowed identifiers are disclosed, never provider text.
+    const safeNames = missing.every(tool => /^[A-Za-z0-9_]{1,128}$/.test(tool)) ? missing.join(', ') : 'required operations';
+    throw new SDKPolicyError(`SDK required tools unavailable: ${safeNames}. Inspect/update the installed SDK and its tool configuration, then explicitly submit again; no automatic retry.`);
   }
 }
 
@@ -918,9 +927,22 @@ export function accountMatches(route: string, info: { apiProvider?: string; toke
   return true;
 }
 
+export function sdkLimit(subtype: string): { reason: 'error_max_turns' | 'error_max_budget_usd'; message: string } | undefined {
+  if (subtype === 'error_max_turns') return {
+    reason: subtype,
+    message: `SDK ${subtype}: incomplete at the configured ${SDK_LIMITS.maxTurns}-turn limit; completed output and prior effects remain retained, not rolled back. Inspect before an explicit follow-up; no automatic resubmission.`,
+  };
+  if (subtype === 'error_max_budget_usd') return {
+    reason: subtype,
+    message: `SDK ${subtype}: incomplete at the configured estimated incremental USD ${SDK_LIMITS.maxBudgetUsd} query budget stop threshold, not a hard billing cap; estimates are not invoices. Completed output and prior effects remain retained, not rolled back. Inspect before an explicit follow-up; no automatic resubmission.`,
+  };
+  return undefined;
+}
+
 // Interrupt acknowledgment is not a cancelled-result discriminator in this SDK.
-// Preserve an authoritative success; an error after interruption remains ambiguous.
-export function sdkOutcome(cancelRequested: boolean, isError: boolean, subtype: string): 'completed' | 'failed' | 'unknown' {
+// Preserve success; an error after interruption remains ambiguous, even a limit.
+export function sdkOutcome(cancelRequested: boolean, isError: boolean, subtype: string): 'completed' | 'incomplete' | 'failed' | 'unknown' {
   if (!isError && subtype === 'success') return 'completed';
-  return cancelRequested ? 'unknown' : 'failed';
+  if (cancelRequested) return 'unknown';
+  return isError && (subtype === 'error_max_turns' || subtype === 'error_max_budget_usd') ? 'incomplete' : 'failed';
 }

@@ -124,8 +124,8 @@ def peer():
             mode = prompt.read_text().strip()
             if mode.startswith("["):
                 tool_chain = json.loads(mode)
-                if not 1 <= len(tool_chain) <= 8:
-                    raise ValueError("Fixture tool chain must have one to eight operations")
+                if not 1 <= len(tool_chain) <= 32:
+                    raise ValueError("Fixture tool chain must have one to 32 operations")
                 continue
             request_id = marker + "-request"
             params = dict(threadId=thread, turnId=turn, itemId="question", callId="edit-call")

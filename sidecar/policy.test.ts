@@ -8,7 +8,7 @@ import { spawn } from 'node:child_process';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { once } from 'node:events';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { credentialRoute, consoleProfile, accountMatches, SDKWritePolicy, SDKFilePreviews, questionSchema, sdkOutcome, RunSchema, SelectionSchema, modelCatalogue, prepareModels, assertAppliedModel, SDKPackageSchema, assertInitialization, assertSessionPolicy, SDKDispatchReceipt, SDKUsageLedger, BRIDGE_POLICY, DISCOVERY_TOOL, DISCOVERY_SERVER, COMMAND_TOOL, COMMAND_SERVER, HostCommandSchema, CommandResultSchema } from './policy.ts';
+import { credentialRoute, consoleProfile, accountMatches, SDKWritePolicy, SDKFilePreviews, questionSchema, sdkOutcome, sdkLimit, SDK_LIMITS, READ_TOOLS, RunSchema, SelectionSchema, modelCatalogue, prepareModels, assertAppliedModel, SDKPackageSchema, assertInitialization, assertSessionPolicy, SDKDispatchReceipt, SDKUsageLedger, BRIDGE_POLICY, DISCOVERY_TOOL, DISCOVERY_SERVER, COMMAND_TOOL, COMMAND_SERVER, HostCommandSchema, CommandResultSchema } from './policy.ts';
 import type { WriteScope } from './policy.ts';
 
 const compatibility = { sdkVersion: '0.3.999', cliVersion: '2.1.999', requireHooks: false };
@@ -250,6 +250,23 @@ test('interrupt requests cannot relabel SDK success or ambiguous errors as cance
   assert.equal(sdkOutcome(true, true, 'error_max_turns'), 'unknown');
 });
 
+test('only authoritative turn and USD budget exhaustion are incomplete with precise unchanged bounds', () => {
+  assert.deepEqual(SDK_LIMITS, { maxTurns: 128, maxBudgetUsd: 5 });
+  for (const subtype of ['error_max_turns', 'error_max_budget_usd']) {
+    assert.equal(sdkOutcome(false, true, subtype), 'incomplete');
+    assert.equal(sdkOutcome(true, true, subtype), 'unknown');
+    assert.equal(sdkOutcome(false, false, subtype), 'failed', 'contradictory result is not authoritative exhaustion');
+    const limit = sdkLimit(subtype)!;
+    assert.equal(limit.reason, subtype);
+    assert.match(limit.message, subtype === 'error_max_turns' ? /128-turn limit/ : /USD 5 query budget/);
+    assert.match(limit.message, /no automatic resubmission/);
+  }
+  for (const subtype of ['success', 'error_during_execution', 'error_max_structured_output_retries', 'error_future_limit']) {
+    assert.equal(sdkLimit(subtype), undefined);
+    assert.equal(sdkOutcome(false, true, subtype), 'failed');
+  }
+});
+
 test('frozen creation and dirty-file expectations cannot be recaptured after external changes', () => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'eevee-sdk-stale-')));
   try {
@@ -375,8 +392,8 @@ test('failed results reject partial parents, partial content, replaced ancestors
   }
 });
 
-test('the real bridge creates workspace proposals and preserves fatal failed-write effects', { timeout: 30_000 }, async () => {
-  for (const scenario of ['success', 'nested', 'readonly', 'command-cancel', 'command-unknown', 'protected-root', 'none', 'parent', 'content', 'ambiguous'] as const) {
+test('the real bridge preserves exact effects, required roster admission and bounded coding outcomes', { timeout: 60_000 }, async () => {
+  for (const scenario of ['success', 'nested', 'readonly', 'long-coding', 'turn-limit', 'budget-limit', 'missing-read', 'duplicate-tool', 'command-cancel', 'command-unknown', 'protected-root', 'none', 'parent', 'content', 'ambiguous'] as const) {
     const effect = scenario === 'nested' ? 'success' : scenario;
     const fixture = realpathSync(mkdtempSync(join(tmpdir(), 'eevee-sdk-terminal-')));
     let child: ChildProcessWithoutNullStreams | undefined;
@@ -418,7 +435,11 @@ test('the real bridge creates workspace proposals and preserves fatal failed-wri
         import { setImmediate as nextTurn } from 'node:timers/promises';
         export { createSdkMcpServer, tool } from ${JSON.stringify(new URL('./node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs', import.meta.url).href)};
         import assert from 'node:assert/strict';
+        let queries = 0;
         export function query({ prompt, options }) {
+          assert.equal(++queries, 1, 'No terminal outcome may automatically resubmit the query');
+          assert.equal(options.maxTurns, 128);
+          assert.equal(options.maxBudgetUsd, 5, 'The existing financial stop threshold must not expand');
           return {
             accountInfo: async () => ({ apiProvider: 'firstParty' }),
             initializationResult: async () => ({ claude_code_version: '2.1.999', hooks_applied: true }),
@@ -430,9 +451,24 @@ test('the real bridge creates workspace proposals and preserves fatal failed-wri
               const { value: submission } = await prompt.next();
               const session_id = '00000000-0000-4000-8000-000000000001';
               const input = { file_path: ${JSON.stringify(path)}, content: ${JSON.stringify(effect === 'success' ? generatedContent : 'approved complete bytes')} };
+              const roster = [...options.tools, ${JSON.stringify(DISCOVERY_TOOL)}, ...(options.mcpServers.eevee_command ? [${JSON.stringify(COMMAND_TOOL)}] : [])];
+              if (${JSON.stringify(effect)} === 'missing-read') roster.splice(roster.indexOf('Read'), 1);
+              if (${JSON.stringify(effect)} === 'duplicate-tool') roster.push('Read');
               yield { type: 'system', subtype: 'init', session_id, model: 'synthetic',
-                claude_code_version: '2.1.999', permissionMode: 'default', tools: [...options.tools, ${JSON.stringify(DISCOVERY_TOOL)}, ...(options.mcpServers.eevee_command ? [${JSON.stringify(COMMAND_TOOL)}] : [])],
+                claude_code_version: '2.1.999', permissionMode: 'default', tools: roster,
                 mcp_servers: [{ name: 'eevee_source', status: 'connected' }, ...(options.mcpServers.eevee_command ? [{ name: 'eevee_command', status: 'connected' }] : [])], plugins: [], skills: [], apiKeySource: 'ANTHROPIC_API_KEY' };
+              if (['long-coding', 'turn-limit', 'budget-limit'].includes(${JSON.stringify(effect)})) {
+                const count = ${JSON.stringify(effect)} === 'turn-limit' ? options.maxTurns : 17;
+                for (let turn = 1; turn <= count; turn++) {
+                  assert.ok(turn <= options.maxTurns);
+                  yield { type: 'assistant', session_id, user_message_uuid: submission.uuid,
+                    message: { id: 'coding-' + turn, content: [{ type: 'text', text: 'Retained coding output ' + turn }] } };
+                }
+                const subtype = ${JSON.stringify(effect)} === 'turn-limit' ? 'error_max_turns' :
+                  ${JSON.stringify(effect)} === 'budget-limit' ? 'error_max_budget_usd' : 'success';
+                yield { type: 'result', session_id, is_error: subtype !== 'success', subtype, num_turns: count };
+                throw new Error('Terminal outcomes must end this iterator without replay');
+              }
               const hook = options.hooks.PreToolUse[0].hooks[0];
               const observe = async (name, input, id) => {
                 const checked = await hook({ hook_event_name: 'PreToolUse', tool_use_id: id, tool_name: name, tool_input: input });
@@ -647,7 +683,7 @@ test('the real bridge creates workspace proposals and preserves fatal failed-wri
       });
       const closed = once(child, 'close');
       child.stdin!.write(JSON.stringify({
-        protocol: 1, bridge_revision: 11, type: 'run', generation: 1, task_id: 1, request_id: 'submission',
+        protocol: 1, bridge_revision: 12, type: 'run', generation: 1, task_id: 1, request_id: 'submission',
         prompt: 'Deterministic source and write operations', cwd: root, state_dir: join(fixture, 'state'),
         operation: scenario === 'readonly' ? 'plan' : 'implement',
         write_scope: { ...(scenario === 'readonly' ? reviewedScope(root, []) : workspaceScope(root)), excluded_paths: ['excluded'], protected_paths: [join(root, 'host-state')] }, inspect_models: false,
@@ -661,7 +697,33 @@ test('the real bridge creates workspace proposals and preserves fatal failed-wri
         assert.throws(() => lstatSync(join(root, path)), { code: 'ENOENT' });
         continue;
       }
+      if (scenario === 'missing-read' || scenario === 'duplicate-tool') {
+        assert.equal(code, 1, diagnostics);
+        assert.ok(frames.some(frame => frame.type === 'fatal'));
+        assert.equal(frames.some(frame => ['thread', 'prompt', 'file_preview', 'finished'].includes(String(frame.type))), false);
+        if (scenario === 'missing-read') assert.ok(frames.some(frame => frame.type === 'status' && /tools unavailable: Read\./.test(String(frame.message))));
+        assert.throws(() => lstatSync(join(root, path)), { code: 'ENOENT' });
+        continue;
+      }
       assert.ok(frames.some(frame => frame.type === 'dispatched'), `${effect}: ${diagnostics}; terminal frames: ${JSON.stringify(frames.filter(frame => ['fatal', 'status', 'thread', 'bridge_command'].includes(String(frame.type))))}`);
+      if (scenario === 'long-coding' || scenario === 'turn-limit' || scenario === 'budget-limit') {
+        assert.equal(code, 0, diagnostics);
+        const count = scenario === 'turn-limit' ? 128 : 17;
+        const output = frames.filter(frame => frame.type === 'item' && frame.kind === 'message');
+        assert.equal(output.length, count);
+        assert.equal(output.at(-1)?.text, `Retained coding output ${count}`);
+        assert.ok(output.every(frame => frame.complete === true));
+        const terminal = frames.find(frame => frame.type === 'finished');
+        assert.equal(terminal?.outcome, scenario === 'long-coding' ? 'completed' : 'incomplete');
+        if (scenario !== 'long-coding') {
+          assert.match(String(terminal?.message), scenario === 'turn-limit' ? /error_max_turns.*128-turn limit/ : /error_max_budget_usd.*USD 5 query budget/);
+          assert.match(String(terminal?.message), /no automatic resubmission/);
+        }
+        assert.equal(frames.filter(frame => frame.type === 'finished').length, 1);
+        assert.equal(frames.some(frame => ['fatal', 'prompt', 'file_preview', 'bridge_command'].includes(String(frame.type))), false);
+        assert.throws(() => lstatSync(join(root, path)), { code: 'ENOENT' });
+        continue;
+      }
       if (scenario === 'readonly') {
         assert.equal(code, 0, diagnostics);
         assert.equal(frames.find(frame => frame.type === 'finished')?.outcome, 'completed');
@@ -808,13 +870,13 @@ test('catalogues reject duplicate identifiers, oversized fields and display cont
 });
 
 test('strict inspection commands cannot carry prompts, prior sessions, writes or unreviewed options', () => {
-  const command = { protocol: 1, bridge_revision: 11, type: 'run', generation: 1, task_id: 1, request_id: null, cwd: '/project', state_dir: '/state', prompt: '',
+  const command = { protocol: 1, bridge_revision: 12, type: 'run', generation: 1, task_id: 1, request_id: null, cwd: '/project', state_dir: '/state', prompt: '',
     operation: 'plan', write_scope: { mode: 'Selected', protected_paths: [], excluded_paths: [], root_identity: null, files: [] }, resume: null, inspect_models: true, selection: { model: null, effort: null } };
   assert.equal(RunSchema.safeParse(command).success, true);
   assert.equal(RunSchema.safeParse({ ...command, task_id: 0 }).success, true);
   assert.equal(RunSchema.safeParse({ ...command, task_id: -1 }).success, false);
   for (const changed of [{ request_id: 'claimed-inference' }, { prompt: 'must not send' }, { resume: '01234567-89ab-4cde-8123-456789abcdef' },
-    { bridge_revision: 10 }, { edit_paths: ['file.ts'] }, { operation: 'implement' }, { tools: ['Bash'] }, { selection: { model: null, effort: null, fallback: 'a' } }]) {
+    { bridge_revision: 11 }, { edit_paths: ['file.ts'] }, { operation: 'implement' }, { tools: ['Bash'] }, { selection: { model: null, effort: null, fallback: 'a' } }]) {
     assert.equal(RunSchema.safeParse({ ...command, ...changed }).success, false);
   }
   for (const field of ['mode', 'protected_paths', 'excluded_paths']) {
@@ -911,6 +973,28 @@ test('new session schemas cannot silently widen tools, permissions, MCP, plugins
     { claude_code_version: '2.1.1000' }]) {
     assert.throws(() => assertSessionPolicy({ ...message, ...changed }, compatibility.cliVersion, ['Read']));
   }
+});
+
+test('session admission requires every operation tool exactly once and reports only safe missing names', () => {
+  for (const implementation of [false, true]) {
+    const tools = [...READ_TOOLS, 'TodoWrite', DISCOVERY_TOOL, ...(implementation ? ['Write', 'Edit', COMMAND_TOOL] : [])];
+    const message = { claude_code_version: compatibility.cliVersion, permissionMode: 'default', tools,
+      mcp_servers: [{ name: DISCOVERY_SERVER, status: 'connected' }, ...(implementation ? [{ name: COMMAND_SERVER, status: 'connected' }] : [])],
+      plugins: [], skills: [] };
+    assert.doesNotThrow(() => assertSessionPolicy(message, compatibility.cliVersion, tools));
+    assert.doesNotThrow(() => assertSessionPolicy({ ...message, tools: [...tools].reverse() }, compatibility.cliVersion, tools));
+    for (const missing of tools) {
+      assert.throws(() => assertSessionPolicy({ ...message, tools: tools.filter(tool => tool !== missing) }, compatibility.cliVersion, tools),
+        error => error instanceof Error && error.message.includes(`tools unavailable: ${missing}.`) && error.message.includes('explicitly submit again'));
+      assert.throws(() => assertSessionPolicy({ ...message, tools: [...tools, missing] }, compatibility.cliVersion, tools), /policy mismatch/);
+    }
+    assert.throws(() => assertSessionPolicy({ ...message, tools: [...tools, 'Untrusted\nsecret-provider-text'] }, compatibility.cliVersion, tools),
+      error => error instanceof Error && error.message === 'Effective SDK identity/tool/config policy mismatch');
+  }
+  const unsafe = 'unsafe\nhost-name';
+  assert.throws(() => assertSessionPolicy({ claude_code_version: compatibility.cliVersion, permissionMode: 'default', tools: [],
+    mcp_servers: [], plugins: [], skills: [] }, compatibility.cliVersion, [unsafe]),
+  error => error instanceof Error && !error.message.includes(unsafe) && error.message.includes('required operations'));
 });
 
 test('missing live controls and unacknowledged mandatory hooks fail before model discovery', async () => {
@@ -1113,14 +1197,14 @@ test('unsafe recursive SDK discovery returns actionable actual safe filenames ra
 });
 
 test('noninspection SDK planning requires frozen observational root even without mutation targets', () => {
-  const command = { protocol: 1, bridge_revision: 11, type: 'run', generation: 1, task_id: 1,
+  const command = { protocol: 1, bridge_revision: 12, type: 'run', generation: 1, task_id: 1,
     request_id: 'owned-request', cwd: '/project', state_dir: '/state', prompt: 'Read project context',
     operation: 'plan', write_scope: { mode: 'Selected', protected_paths: ['/state'],
       excluded_paths: ['private'], root_identity: '1:2', files: [] },
     resume: null, inspect_models: false, selection: { model: null, effort: null } };
   assert.equal(RunSchema.safeParse(command).success, true);
   assert.equal(RunSchema.safeParse({ ...command, write_scope: { ...command.write_scope, root_identity: null } }).success, false);
-  assert.equal(RunSchema.safeParse({ ...command, bridge_revision: 10 }).success, false);
+  assert.equal(RunSchema.safeParse({ ...command, bridge_revision: 11 }).success, false);
 });
 
 test('file previews forward only actual correlated tool argument fragments and never grant write authority', () => {

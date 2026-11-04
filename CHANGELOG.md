@@ -1,5 +1,22 @@
 # Changelog
 
+## 2026-11-04
+
+### 0.1.48
+
+- chore(release): advanced the package to0.1.48 while retaining SQL20, TM2 and formation2.
+- fix(agents): kept actionable native coding requests alive after definite compiler/program failures and correctable zero-effect tool-input refusals; preserved original correlated arguments, bounded continuations, denied-permission stops and unknown-effect fail-stop without inventing identical-command rerun obligations.
+- fix(tools): excluded non-executed invalid inputs from progress fingerprints, so a recoverable schema mistake no longer terminated the request with a serialization failure or became a false user denial.
+- feat(agents): directed code creation, editing, builds, program execution and requested downloads through each route's existing reviewed tools, with actual exit/byte/digest checks and no implicit fetched-code execution or separate effect executor.
+- fix(mcp): completed bounded paginated discovery, rejected duplicate/cyclic/partial catalogs and overlong composed names, and retained executable schemas exactly instead of rewriting keys, enums and defaults during display sanitization.
+- fix(sdk): required every operation-specific tool exactly once, raised the coding allowance from16 to128 turns, retained the USD5 estimated stop threshold, and reported authoritative turn/budget exhaustion as Incomplete rather than a generic failure without resubmitting work.
+- fix(sdk)!: advanced the complete SDK bridge to12 so an older sidecar could not pass inspection while still enforcing the obsolete16-turn limit or incomplete tool roster; old/mixed source-policy bundles were refused before model submission with an explicit replacement instruction.
+- feat(ui): exposed route/operation-specific tool and download availability through `/tools`, including read-only restrictions and selected MCP eligibility; kept readable tool calls, actual exits and bounded output inline at every width with explicit failed/stopped/unknown states.
+- fix(ui): projected shared Codex/SDK/ACP command callbacks into the same readable lifecycle without duplicating native rows, and settled missing-result tool projections as stopped-request/unknown instead of leaving them running or inferring success.
+- fix(evolution): limited automatic in-flight appearance changes to one per owned logical request, retained Send-time role selection and progress updates, rejected stale-claim activity, and kept the display-only latch bounded to live lead/parked claims.
+- fix(prompts): clarified that only the current frozen behavior profile applied, earlier session profiles were historical rather than cumulative instructions, and working-style specialties never overrode the requested task or host tool policy.
+- test(agents): extended real native/controlled coding journeys through compiler failure, reviewed repair, execution, HTTP404 correction and exact binary-resource download; added complete paginated MCP and production SDK limit/roster coverage without live credentials.
+
 ## 2026-11-03
 
 ### 0.1.47

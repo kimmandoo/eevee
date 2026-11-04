@@ -1532,6 +1532,7 @@ pub(super) fn tool_style(status: ToolStatus, paint: &Paint) -> Style {
         ToolStatus::Running => Color::Cyan,
         ToolStatus::Done => Color::Green,
         ToolStatus::Failed => Color::Red,
+        ToolStatus::Unknown | ToolStatus::Stopped => Color::Yellow,
     })
 }
 

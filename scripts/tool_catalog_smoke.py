@@ -36,7 +36,7 @@ READ_PARAMETERS = {
     },
     'required': ['path', 'start_line', 'end_line'], 'additionalProperties': False,
 }
-LABELS = {'title': 'Trusted local tool catalog', 'review': 'y trust setup', 'saved': 'Reviewed catalog saved', 'selected': '1 selected', 'query': 'Search:', 'details': 'd return', 'disconnected': 'Connection disconnected'}
+LABELS = {'review': 'y trust setup', 'saved': 'Reviewed catalog saved', 'selected': '1 selected', 'query': 'Search:', 'details': 'd return', 'disconnected': 'Connection disconnected'}
 
 
 def fixture_manifest():
@@ -250,7 +250,7 @@ def run(binary, output, root, size, ):
                                              journey.restart_size, output / 'restart',)
             wait_for(journey.session, 'Storage: saved', timeout=35)
             journey.session.command('tools inspect_bug')
-            wait_for(journey.session, journey.labels['title'], timeout=35)
+            wait_for(journey.session, journey.labels['query'], timeout=35)
             assert journey.catalog() == retained, 'restart changed reviewed metadata or revoked connection state'
             journey.capture('restart-stored-metadata-and-revocation')
             result['cases'].append('restart-preserves-reviewed-metadata-and-revocation')

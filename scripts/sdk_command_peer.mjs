@@ -14,6 +14,13 @@ function record(kind, value) {
   appendFileSync(process.env.EV_SDK_PROOF_LOG, JSON.stringify({ kind, ...value }) + '\n');
 }
 export function query({ prompt, options }) {
+  const limit = process.env.EV_SDK_LIMIT || '';
+  if (limit) {
+    assert.ok(['turns', 'budget'].includes(limit));
+    assert.equal(options.maxTurns, 128);
+    assert.equal(options.maxBudgetUsd, 5);
+    record('query', { scenario: limit, max_turns: options.maxTurns, max_budget_usd: options.maxBudgetUsd });
+  }
   let interrupted = false;
   return {
     accountInfo: async () => ({ apiProvider: 'firstParty' }),
@@ -29,6 +36,17 @@ export function query({ prompt, options }) {
         claude_code_version: version, permissionMode: 'default', apiKeySource: 'ANTHROPIC_API_KEY',
         tools: [...options.tools, 'mcp__eevee_source__discover', ...(implement ? [commandTool] : [])],
         mcp_servers: [{ name: 'eevee_source', status: 'connected' }, ...(implement ? [{ name: 'eevee_command', status: 'connected' }] : [])], plugins: [], skills: [] };
+      if (limit) {
+        assert.equal(implement, true);
+        const text = 'SDK-LIMIT: completed output retained before authoritative exhaustion.';
+        yield { type: 'assistant', session_id, user_message_uuid: submission.uuid,
+          message: { id: 'before-limit', content: [{ type: 'text', text }] } };
+        const subtype = limit === 'turns' ? 'error_max_turns' : 'error_max_budget_usd';
+        record('finished', { subtype, text });
+        yield { type: 'result', session_id, is_error: true, subtype,
+          num_turns: limit === 'turns' ? options.maxTurns : 17 };
+        throw new Error('The host must stop at the authoritative limit without consuming another turn');
+      }
       if (!implement) {
         assert.equal(options.mcpServers.eevee_command, undefined);
         record('readonly', { command_server: false });

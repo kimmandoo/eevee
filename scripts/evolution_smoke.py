@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Role-driven evolution, explicit readonly policy and manual-mode persistence.
+"""Request-stable role evolution, explicit readonly policy and manual persistence.
 
 Runs an explicit native binary in disposable PTYs with deterministic loopback SSE.
 Peers propose operations but never write the tested files. No live model/account.
@@ -277,9 +277,9 @@ def run(binary, output, root, size, ascii_mode, ):
                 journey.settled(answer, before + 1)
             result['cases'].append('ordinary request wording never selected a form or narrowed the full Implement tool set; preview sent nothing and preserved exact Unicode draft/caret')
 
-            # A single live request visits every role. Pause the following HTTP
-            # round, not the todo's terminal SSE: this observes adopted state
-            # after the actual native tool has executed, before it can advance.
+            # One live request visits every structured role, but only its first
+            # actual appearance transition applies. Pause the following HTTP
+            # round to observe each adopted todo without allowing rapid flips.
             role_gates = [files.Gate() for _ in ROLES]
             plans = [files.response_plan(peer, calls=[todo_call('role-0', role_steps(0))])]
             for index in range(1, len(ROLES)):
@@ -296,7 +296,7 @@ def run(binary, output, root, size, ascii_mode, ):
                 for index, (role, form, _) in enumerate(ROLES):
                     files.until(journey.session, role_gates[index].ready.is_set,
                                 'role round did not reach its next HTTP gate: ' + role)
-                    journey.wait_mode(form)
+                    journey.wait_mode(ROLES[0][1])
                     files.until(journey.session, lambda: journey.progress()['steps'] == role_steps(index)
                                 and journey.progress()['revision'] == journey.progress()['adopted_revision'],
                                 'role revision did not durably adopt: ' + role)
@@ -315,10 +315,42 @@ def run(binary, output, root, size, ascii_mode, ):
             finally:
                 for role_gate in role_gates:
                     role_gate.release.set()
-            journey.assert_mode(8, True)
+            journey.assert_mode(1, True)
             for index in range(before, before + 10):
                 journey.assert_round(index)
-            result['cases'].append('one owned running request adopted eight native role revisions and visited every specialist immediately; owner, writer lease, model and full tools stayed frozen without extra inference or execution')
+            result['cases'].append('one owned running request adopted eight native role revisions but adapted appearance only once; owner, writer lease, model and full tools stayed frozen without extra inference or execution')
+
+            # Preserve genuine first-role proof for every form: a fresh explicit
+            # Send may adapt once even after its Send-time focus selection.
+            for role, form, _ in ROLES[1:]:
+                steps = [{'label': 'Fresh neutral stage', 'phase': role, 'status': 'active'}]
+                done = [{**step, 'status': 'done'} for step in steps]
+                answer = 'FRESH_REQUEST_ROLE_' + role.upper()
+                fresh_gate = files.Gate()
+                try:
+                    before = journey.begin('Continue the neutral fixture.', [
+                        files.response_plan(peer, calls=[todo_call('fresh-' + role, steps)]),
+                        paused_plan(peer, files.response_plan(peer,
+                            calls=[todo_call('fresh-done-' + role, done)], number=1), fresh_gate),
+                        files.response_plan(peer, text=answer, number=2)])
+                    files.until(journey.session, fresh_gate.ready.is_set,
+                                'fresh role did not reach its completion gate: ' + role)
+                    journey.wait_mode(form)
+                    files.until(journey.session, lambda: journey.progress()['steps'] == steps,
+                                'fresh active role was not adopted: ' + role)
+                    fresh_gate.release.set()
+                    journey.settled(answer, before + 3)
+                finally:
+                    fresh_gate.release.set()
+                journey.assert_mode(form, True)
+                assert journey.progress()['steps'] == done
+                for index in range(before, before + 3):
+                    journey.assert_round(index)
+                tool = json.loads(files.tool_results('responses',
+                    peer.snapshot('POST')[before + 1]['body'])['fresh-' + role])
+                assert tool['status'] == 'success' and tool['steps'] == steps, tool
+                journey.capture('fresh-request-role-' + role)
+            result['cases'].append('each fresh explicit request retained its first distinct structured-role adaptation; all eight specialist forms remain proven through actual native todo execution')
 
             # A user-authored untagged step must not acquire a role by its words.
             # With no tagged focus, actual file activity is the fallback.
@@ -522,6 +554,7 @@ def run(binary, output, root, size, ascii_mode, ):
             assert len(peer.snapshot('GET')) == metadata + 2, 'restart/evolution silently browsed metadata'
             result['evidence'] = {
                 'specialist_forms': list(range(1, 9)),
+                'automatic_inflight_transition_bound': 1,
                 'http_posts': len(requests),
                 'http_gets': len(peer.snapshot('GET')),
                 'local_executions': journey.snapshot()['executions'],

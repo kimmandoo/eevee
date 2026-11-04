@@ -170,8 +170,6 @@ pub struct State {
     response_max: usize,
     response_height: u16,
     response_body: ratatui::layout::Rect,
-    /// Set by the renderer when the side Tools panel lists tool rows.
-    tools_docked: bool,
     pub reviewed: bool,
     /// Full technical review is optional; summary visibility still gates consent.
     pub review_details: bool,
@@ -347,7 +345,7 @@ impl State {
             following: true, new_output: false, response_cache: response::Layout::default(), file_growth: HashMap::new(),
             activity: "Connecting",
             response_scroll: 0, response_max: 0,
-            response_height: 0, response_body: ratatui::layout::Rect::default(), tools_docked: false,
+            response_height: 0, response_body: ratatui::layout::Rect::default(),
             question: 0, option: 0, answers: Vec::new(), editing: false, submit_review: false,
             quit_ready: false, cancelling: false, omitted: 0,
             task: 0, revision: 0, generation: None, awaiting_preview: false, active: false,

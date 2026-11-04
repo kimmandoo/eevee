@@ -723,7 +723,10 @@ impl App {
                 "Adopt the selected capture as a reviewed memory note",
             ),
             ("receipts", "Inspect retained outgoing request receipts"),
-            ("tools", "Search reviewed local tool metadata"),
+            (
+                "tools",
+                "Inspect tool availability, builds and optional catalog aliases",
+            ),
             ("tool-setup", "Review explicit local tool catalog setup"),
             ("tool-clear", "Clear outgoing tool schema selection"),
             ("tool-plan", "Inspect or author a typed local tool plan"),

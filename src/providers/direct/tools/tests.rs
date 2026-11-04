@@ -567,13 +567,10 @@ fn duplicate_ids_unknown_tools_and_unsupported_tool_types_are_rejected() {
 }
 
 #[test]
-fn malformed_json_is_terminal_but_known_schema_errors_remain_actionable() {
+fn ambiguous_json_is_terminal_but_complete_argument_mistakes_remain_actionable() {
     for invalid in [
-        "[]",
-        "[\"a\",\"b\"]",
-        "null",
         "{\"path\":\"a\",\"path\":\"b\",\"content\":\"c\"}",
-        "{\"path\":\"a\",\"content\":\"b\"} trailing",
+        "{\"path\":\"a\",\"content\":\"unfinished",
     ] {
         let mut calls = Calls::new(Protocol::Responses);
         completed(&mut calls, vec![response_call("one", invalid)]).unwrap();
@@ -584,10 +581,21 @@ fn malformed_json_is_terminal_but_known_schema_errors_remain_actionable() {
         "{\"path\":\"a\"}",
         "{\"path\":\"a\",\"content\":null}",
         "{\"path\":\"a\",\"content\":\"b\",\"extra\":true}",
+        "[]",
+        "[\"a\",\"b\"]",
+        "null",
+        "{\"path\":\"a\",\"content\":\"b\"} trailing",
+        "{\"path\":\"a\",\"content\":}",
     ] {
         let mut calls = Calls::new(Protocol::Responses);
         completed(&mut calls, vec![response_call("one", invalid)]).unwrap();
         assert!(calls.finish(true).unwrap()[0].tool.invalid());
+        let mut body = json!({"input":[]});
+        calls
+            .append_results(&mut body, &[result("refused")])
+            .unwrap();
+        assert_eq!(body["input"][0]["arguments"], invalid);
+        assert_eq!(body["input"][1]["call_id"], "one");
     }
     for (path, content) in [
         ("".to_owned(), "a".to_owned()),

@@ -333,9 +333,8 @@ async fn inference_rounds(
                             | crate::workspace::progress::Status::Active
                     )
                 });
-                let stop = tool_obstacle.take().or_else(|| {
-                    permission_obstacle.take().map(|reason| (Outcome::Incomplete, reason))
-                }).or_else(|| {
+                let stop = permission_obstacle.clone().map(|reason| (Outcome::Incomplete, reason))
+                .or_else(|| tool_obstacle.clone()).or_else(|| {
                     if !actionable {
                         let label = progress.steps.iter()
                             .find(|step| step.status == crate::workspace::progress::Status::Blocked)
@@ -402,6 +401,15 @@ async fn inference_rounds(
                 }).map_err(|error| (Outcome::Failed, error))?;
                 retain_public(&mut stream, &mut public)?;
                 continue;
+            }
+            if let Some(reason) = &permission_obstacle {
+                stream
+                    .publish_final(events, run, &connection.conversation_scope())
+                    .map_err(|error| (Outcome::Failed, error))?;
+                return Err((Outcome::Incomplete, reason.clone()));
+            }
+            if let Some((outcome, reason)) = &tool_obstacle {
+                return Err((*outcome, reason.clone()));
             }
             stream
                 .publish_final(events, run, &connection.conversation_scope())
@@ -494,7 +502,10 @@ async fn inference_rounds(
             .iter()
             .zip(&call_indices)
             .map(|(call, index)| {
+                // Invalid input has no executable identity or progress to
+                // fingerprint; preserve its actual refusal and retention below.
                 let input = if track_progress
+                    && !call.tool.invalid()
                     && !matches!(call.tool, crate::providers::writes::FileTool::Todo { .. })
                 {
                     Some(progress_digest(&call.tool)?)
@@ -538,16 +549,28 @@ async fn inference_rounds(
                     safe(&error, true)
                 );
                 for (index, call) in call_indices.iter().copied().zip(calls) {
+                    publish_tool(events, run, round, index, &call.tool, None)
+                        .map_err(|error| (Outcome::Failed, error))?;
                     if let Some(text) = stream.calls.preview_text(index) {
                         publish_file(events, run, round, index, FilePhase::Refused, text)
                             .map_err(|error| (Outcome::Failed, error))?;
                     }
-                    results.push(
-                        json!({"status":"refused","path":call.tool.path(),"message":message}),
-                    );
+                    let result = json!({"status":"refused","path":call.tool.path(),"message":message,"correctable":true,"effect":"not_started"});
+                    publish_tool(events, run, round, index, &call.tool, Some(&result))
+                        .map_err(|error| (Outcome::Failed, error))?;
+                    results.push(result);
                 }
             }
             Ok(proposals) => {
+                for (call, index) in calls.iter().zip(&call_indices) {
+                    if matches!(
+                        call.tool,
+                        crate::providers::writes::FileTool::Delegate { .. }
+                    ) {
+                        publish_tool(events, run, round, *index, &call.tool, None)
+                            .map_err(|error| (Outcome::Failed, error))?;
+                    }
+                }
                 let mut delegated = delegation::execute_round(
                     run,
                     events,
@@ -558,6 +581,12 @@ async fn inference_rounds(
                     || validate_active(workspace, run, connection, control, revalidate),
                 )
                 .map_err(|error| {
+                    for (call, index) in calls.iter().zip(&call_indices) {
+                        if matches!(call.tool, crate::providers::writes::FileTool::Delegate { .. }) {
+                            let result = json!({"status":if control.cancelled() {"cancelled"} else {"error"},"message":error});
+                            let _ = publish_tool(events, run, round, *index, &call.tool, Some(&result));
+                        }
+                    }
                     (
                         if control.cancelled() {
                             Outcome::Cancelled
@@ -571,6 +600,13 @@ async fn inference_rounds(
                     .into_iter()
                     .zip(calls.into_iter().zip(proposals))
                 {
+                    if !matches!(
+                        call.tool,
+                        crate::providers::writes::FileTool::Delegate { .. }
+                    ) {
+                        publish_tool(events, run, round, index, &call.tool, None)
+                            .map_err(|error| (Outcome::Failed, error))?;
+                    }
                     let result = if !delegation::allowed(&run.input, &call.tool) {
                         Ok(json!({"status":"refused","path":call.tool.path(),"message":"Delegated child executor permits only frozen-scope source reads; no effects, MCP, commands, task mutations, artifacts or recursion"}))
                     } else if matches!(&call.tool, crate::providers::writes::FileTool::Delegate { .. }) {
@@ -594,7 +630,7 @@ async fn inference_rounds(
                                 }
                                 Err(error) => {
                                     emit(events, Event::Progress { generation: run.generation, task_id: run.input.task.id, source: "native todo".into(), steps: Err(error.clone()) })?;
-                                    json!({"status":"refused","path":"","message":error})
+                                    json!({"status":"refused","path":"","message":error,"correctable":true,"effect":"not_started"})
                                 }
                             };
                             // Keep the literal call and actual result in the raw
@@ -658,6 +694,15 @@ async fn inference_rounds(
                         })
                     }
                     .map_err(|error| {
+                        let result = json!({
+                            "status": if control.cancelled() { "cancelled" } else if error.starts_with("Owned command outcome unknown:") || error.starts_with("Local filesystem effects remain uncertain:") { "unknown" } else { "error" },
+                            "message": error,
+                            "path": call.tool.path(),
+                        });
+                        let _ = publish_tool(events, run, round, index, &call.tool, Some(&result));
+                        error
+                    })
+                    .map_err(|error| {
                         (
                             if control.cancelled() {
                                 Outcome::Cancelled
@@ -669,6 +714,8 @@ async fn inference_rounds(
                             error,
                         )
                     })?;
+                    publish_tool(events, run, round, index, &call.tool, Some(&result))
+                        .map_err(|error| (Outcome::Failed, error))?;
                     results.push(result);
                 }
             }
@@ -676,16 +723,30 @@ async fn inference_rounds(
         tool_obstacle = None;
         for ((_, tool, _), result) in artifact_calls.iter().zip(&results) {
             let status = result["status"].as_str().unwrap_or("unknown");
+            // A settled nonzero command is diagnostic evidence, not an
+            // irrevocable blocker or an invented requirement to rerun it.
+            // Current todo claims still own completion; unknown execution
+            // and denied approvals never enter this recoverable branch.
+            if *tool == crate::providers::commands::NAME && correctable_command_failure(result) {
+                continue;
+            }
             if status == "success" {
                 continue;
             }
+            // A child/read-only command refusal never reached approval.
+            // Keep it a tool blocker rather than inventing a sticky user denial.
             let denied = status == "denied"
-                || (*tool == crate::providers::commands::NAME && status == "refused");
+                || (!child
+                    && native_writing(&run.input)
+                    && *tool == crate::providers::commands::NAME
+                    && status == "refused"
+                    && result["correctable"] != true);
             if denied {
                 permission_obstacle.get_or_insert_with(|| tool_stop_reason(tool, result));
-            } else if tool_obstacle
-                .as_ref()
-                .is_none_or(|(outcome, _)| *outcome != Outcome::Failed)
+            } else if result["correctable"] != true
+                && tool_obstacle
+                    .as_ref()
+                    .is_none_or(|(outcome, _)| *outcome != Outcome::Failed)
             {
                 let outcome = if matches!(status, "error" | "failed") {
                     Outcome::Failed
@@ -696,7 +757,8 @@ async fn inference_rounds(
             }
         }
         for ((call_id, tool, input), result) in artifact_calls.into_iter().zip(&mut results) {
-            if let Some(input) = input
+            if track_progress
+                && let Some(input) = input
                 && result["status"] == "success"
             {
                 useful_results.insert((input, progress_result_digest(tool, result)?));
@@ -842,6 +904,94 @@ async fn inference_rounds(
         retain_public(&mut stream, &mut public)?;
     }
     Err((Outcome::Incomplete, "Paused at the model round limit. Send a follow-up to continue; earlier approved effects are kept.".into()))
+}
+
+/// Only a definite owned-tree exit is a recoverable command diagnostic.
+/// Permission refusals, cancellation and unknown ownership are never retried.
+fn correctable_command_failure(result: &Value) -> bool {
+    result["status"] == "error"
+        && result["run"]["state"] == "Failed"
+        && result["run"]["tree"] == "OwnedTreeExited"
+        && result["run"]["cancelled"] == false
+        && result["run"]["exit_code"]
+            .as_i64()
+            .is_some_and(|code| code != 0)
+}
+
+/// Display only bounded, redacted observation metadata. Never serialize the
+/// tool itself here: command argv, replacement contents, queries and MCP
+/// arguments may carry private source or credentials.
+fn tool_observation(tool: &crate::providers::writes::FileTool, result: Option<&Value>) -> Value {
+    use crate::providers::writes::FileTool;
+    if let FileTool::RunCommand { cwd, .. } = tool {
+        return crate::providers::commands::observation(cwd, result);
+    }
+    fn text(value: &str, limit: usize, tail: bool) -> String {
+        let clean = safe(value, true);
+        if tail && clean.len() > limit {
+            let mut start = clean.len() - limit;
+            while !clean.is_char_boundary(start) {
+                start += 1;
+            }
+            clean[start..].to_owned()
+        } else {
+            bounded(&clean, limit).to_owned()
+        }
+    }
+    let path = |path: &std::path::Path| text(&path.to_string_lossy(), 512, false);
+    let arguments = match tool {
+        FileTool::Read { path: value, .. }
+        | FileTool::Write { path: value, .. }
+        | FileTool::Edit { path: value, .. }
+        | FileTool::Delete { path: value, .. }
+        | FileTool::Rename { path: value, .. } => json!({"path":path(value)}),
+        FileTool::List { directory, .. } | FileTool::StructuralSearch { directory, .. } => {
+            json!({"directory":path(directory)})
+        }
+        FileTool::Todo { input } => match input["operation"].as_str() {
+            Some(operation) => json!({"operation":text(operation, 32, false)}),
+            None => json!({}),
+        },
+        _ => json!({}),
+    };
+    let mut observation = json!({
+        "tool":tool.kind().name(),
+        "arguments":arguments,
+        "status":if result.is_none() { "running" } else if result.is_some_and(|value| value["status"] == "success") { "completed" } else { "failed" },
+    });
+    if let Some(result) = result {
+        let mut summary = json!({"status":result["status"],"message":text(result["message"].as_str().unwrap_or("Actual tool result unavailable"), 2048, false)});
+        if let Some(kind) = result["kind"].as_str() {
+            summary["kind"] = json!(text(kind, 32, false));
+        }
+        observation["result"] = summary;
+    }
+    observation
+}
+
+fn publish_tool(
+    events: &Events,
+    run: &Prepared,
+    round: usize,
+    index: usize,
+    tool: &crate::providers::writes::FileTool,
+    result: Option<&Value>,
+) -> Result<(), String> {
+    let text = serde_json::to_string(&tool_observation(tool, result))
+        .map_err(|_| "Cannot encode native tool observation")?;
+    emit(
+        events,
+        Event::Item {
+            generation: run.generation,
+            task_id: run.input.task.id,
+            thread_id: format!("native-{}", run.generation),
+            turn_id: format!("round-{round}"),
+            item_id: format!("native-tool-{round}-{index}"),
+            kind: ItemKind::Tool,
+            text,
+            complete: result.is_some(),
+        },
+    )
 }
 
 fn tool_stop_reason(tool: &str, result: &Value) -> String {

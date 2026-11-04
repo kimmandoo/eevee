@@ -256,7 +256,12 @@ def advertised_tools(protocol, body):
 
 def file_review_pending(session):
     view = session.display()
-    return any(button in view for button in ('[ Allow once ]', ))
+    # A long summary may not expose its decision buttons yet. Detect the
+    # immutable file scope instead of waiting for an off-screen Allow control.
+    return '[ Allow once ]' in view or (
+        'Path:' in view and 'Directories:' in view
+        and ('PERMISSION / EXACT PROVIDER RESPONSE' in view or 'Enter to inspect' in view)
+    )
 
 
 def expose_file_scope(session):

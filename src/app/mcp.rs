@@ -118,7 +118,7 @@ impl State {
                     }
                 }
                 self.status = format!(
-                    "Connected {server}: initialize + tools/list once. No tools selected; schemas NOT SENT until /mcp select <server> <tool>. Annotations never grant permission."
+                    "Connected {server}: complete bounded tool discovery. No tools selected; use /mcp select {server} <tool> for the next native Send. Selection is not call permission."
                 );
             }
             Err(error) => self.status = error,

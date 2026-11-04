@@ -1,8 +1,19 @@
 # Eevee Implementation Plan
 
-Updated2026-11-03. Completed the requested CI repair, redundant smoke/test diet and publicv0.1.46 release. Earlier releases remain immutable. No unrelated roadmap closure or live-provider quality claim.
+Updated2026-11-04. Current delivery: complete agent coding/tools, stable in-flight evolution and a qualified0.1.48 release/update. Earlier published tags/assets remain immutable; live-provider quality is not inferred from controlled acceptance.
 
 Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPATIBILITY.md). Live-provider conformance remains distinct from implemented transports and deterministic runtime proof.
+
+## Active delivery — Agent execution, tool visibility and stable evolution (2026-11-04)
+
+1. Reproduce native unfinished-build settlement and MCP pagination; correct definite-failure/input-refusal handling without replaying unknown effects or denied permissions.
+2. Expose truthful correlated tool/command lifecycle and route capability, complete bounded MCP discovery with exact executable schemas, and require the complete SDK tool roster. Cut over complete bridge12 so older16-turn implementations cannot masquerade as the128-turn policy.
+3. Exercise actual source creation/read/edit, genuine compiler failure/repair/build/run and HTTP404/corrected inert download with exact approval, byte/digest and transcript proof across native/controlled Codex; exercise production SDK and ACP command paths and stop boundaries.
+4. Apply EV21: Send-time role selection plus one actual in-flight automatic adaptation per exact live request; keep frozen current profile/style non-additive and subordinate to task/host policy. Run both-size evolution backtest and all-route captured HTTP/WS/stdio/query profile invariants.
+5. Freeze0.1.48 source/docs/checkpoint, run final formatting/Rust/strict Clippy/SDK/Python/build gates and runtime acceptance, then commit/push. Require newest exact-source main Check/all five native rows/every step and immutable package identities before tagging.
+6. Publish only qualified package IDs through the existing workflow; verify public source/tag/assets/checksums/native layouts and genuine downloaded public upgrade/resume/caret/data/uninstall/reinstall. Record final evidence, remove owned disposable drivers and commit completed handoff; no unrelated roadmap task closes automatically.
+Local implementation/acceptance completed: Rust2030/two ignored, SDK47, Python22/four skips, strict lint/release build; four actual coding/download journeys, SDK3/ACP6, MCP24, completion10, tools2, both-size EV21 backtest and all16 full captured-profile journeys passed. Source commit and exact-source native/public qualification are next; publication is not yet complete. Evidence paths and initial fixture failures are in the checkpoint/troubleshooting.
+
 
 ## Completed delivery — CI repair, test diet and0.1.46 release (2026-11-03)
 

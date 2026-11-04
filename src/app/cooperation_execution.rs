@@ -14,6 +14,12 @@ pub(super) struct CommandCallback {
     artifact:
         Option<std::sync::mpsc::Receiver<Result<crate::workspace::artifacts::Response, String>>>,
     cancelled: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    display: Option<CommandDisplay>,
+}
+
+struct CommandDisplay {
+    cwd: std::path::PathBuf,
+    item_id: String,
 }
 
 impl App {
@@ -33,6 +39,52 @@ impl App {
                     && state.work.as_ref() == Some(claim)
                     && state.operation == crate::providers::Operation::Implement
             })
+    }
+
+    fn publish_command_observation(
+        &mut self,
+        partner: i64,
+        callback: &CommandCallback,
+        result: Option<&Result<serde_json::Value, String>>,
+    ) {
+        let Some(display) = &callback.display else {
+            return;
+        };
+        if !self.command_callback_owned(partner, callback.generation, &callback.claim)
+            || callback
+                .cancelled
+                .load(std::sync::atomic::Ordering::Acquire)
+        {
+            return;
+        }
+        let refused;
+        let value = match result {
+            None => None,
+            Some(Ok(value)) => Some(value),
+            Some(Err(message)) => {
+                refused = serde_json::json!({"status":"refused","message":message});
+                Some(&refused)
+            }
+        };
+        let text = crate::providers::commands::observation(&display.cwd, value).to_string();
+        // These are host-local observations, not invented provider sessions or
+        // provider evidence. Exact callback ownership is checked before append.
+        let request = format!(
+            "eevee-host-local-request:{partner}:{}:{}",
+            callback.generation, callback.claim.request_id
+        );
+        if let Some(state) = self.planning_state_mut(partner) {
+            state.event(crate::providers::Event::Item {
+                generation: callback.generation,
+                task_id: callback.claim.task_id,
+                thread_id: request.clone(),
+                turn_id: request,
+                item_id: display.item_id.clone(),
+                kind: crate::providers::ItemKind::Tool,
+                text,
+                complete: result.is_some(),
+            });
+        }
     }
 
     /// Denial may resolve this lead's exact callback, never borrow another writer.
@@ -97,6 +149,22 @@ impl App {
             let _ = reply.try_send(Err("Command refused before preparation: stale/cancelled/read-only ownership, duplicate call, unsafe cwd or owned work still pending".into()));
             return false;
         }
+        // Native publishes its own lifecycle around this bridge. All other
+        // adapters share one host-local identity and the admitted cwd snapshot.
+        let display = self
+            .planning_state(partner)
+            .filter(|state| !state.agent.is_direct())
+            .map(|_| CommandDisplay {
+                cwd: cwd.clone(),
+                item_id: format!(
+                    "eevee-host-local-command:{}",
+                    self.cooperation
+                        .command_calls
+                        .iter()
+                        .filter(|(request, _)| request == &claim.request_id)
+                        .count()
+                ),
+            });
         if !self.execution_state_mut(partner).prepare_callback_for(
             claim.clone(),
             &command,
@@ -108,20 +176,20 @@ impl App {
             return false;
         }
         self.cooperation.command_calls.insert(identity);
-        self.cooperation.command_callbacks.insert(
-            partner,
-            CommandCallback {
-                generation,
-                claim,
-                reply,
-                run: None,
-                stdout: String::new(),
-                stderr: String::new(),
-                truncated: false,
-                artifact: None,
-                cancelled,
-            },
-        );
+        let callback = CommandCallback {
+            generation,
+            claim,
+            reply,
+            run: None,
+            stdout: String::new(),
+            stderr: String::new(),
+            truncated: false,
+            artifact: None,
+            cancelled,
+            display,
+        };
+        self.publish_command_observation(partner, &callback, None);
+        self.cooperation.command_callbacks.insert(partner, callback);
         true
     }
 
@@ -193,6 +261,7 @@ impl App {
             } else {
                 Err("Command denied, cancelled before start or preparation unavailable; nothing was successfully executed. A new call requires new approval.".into())
             };
+            self.publish_command_observation(id, &callback, Some(&result));
             let _ = callback.reply.try_send(result);
         }
         let planning = &self.planning;

@@ -87,8 +87,6 @@ pub(super) struct Layout {
     verbose: bool,
     attributed: bool,
     comfortable: bool,
-    /// Tool rows live in the side panel instead of the transcript.
-    dock_tools: bool,
     /// A one-row viewport must show source, not only a decorative closing edge.
     close_files: bool,
     anchor: Option<Anchor>,
@@ -187,6 +185,14 @@ impl Layout {
         if let Some(segment) = self.segments.get_mut(index) {
             segment.valid = false;
             segment.header_valid = false;
+            if segment
+                .tool
+                .as_ref()
+                .is_some_and(|tool| tool.status == super::tool_view::Status::Running)
+            {
+                segment.observation_valid = false;
+                segment.display = None;
+            }
             segment.todo_updates = 0;
         }
     }
@@ -213,14 +219,11 @@ impl Layout {
         agent: &str,
         verbose: bool,
         comfortable: bool,
-        dock_tools: bool,
     ) {
         let (width, height) = size;
         let close_files = height > 1;
-        let mut regroup = self.grouping_dirty
-            || self.verbose != verbose
-            || self.dock_tools != dock_tools
-            || self.segments.len() != items.len();
+        let mut regroup =
+            self.grouping_dirty || self.verbose != verbose || self.segments.len() != items.len();
         let attributed = items.len() > 1;
         let reflow = self.width != width
             || self.verbose != verbose
@@ -332,9 +335,8 @@ impl Layout {
                             .iter()
                             .any(|next| super::todo::same_request(item, next)));
                 let tool_shown = !verbose && segment.tool.is_some();
-                // A docked tool is listed in the side panel; a request outcome
-                // attached to it always stays in the transcript.
-                let suppressed = suppressed || tool_shown && dock_tools && !settled;
+                // The side panel is only an index: keep actual tool details in
+                // the scrollable transcript even when the latest calls fit there.
                 if segment.suppressed != suppressed
                     || segment.todo_updates != updates
                     || segment.tool_shown != tool_shown
@@ -359,8 +361,7 @@ impl Layout {
                     segment.styling_valid = false;
                 }
             }
-            // Compare with the previous visible segment: docked tools and
-            // collapsed todo snapshots do not break a run of one request.
+            // Collapsed todo snapshots do not break a run of one request.
             // The first segment is introduced by the response's own Request
             // and status rows above the transcript.
             let continued = !verbose
@@ -661,7 +662,6 @@ impl Layout {
         self.verbose = verbose;
         self.attributed = attributed;
         self.comfortable = comfortable;
-        self.dock_tools = dock_tools;
         self.close_files = close_files;
     }
 
@@ -902,13 +902,6 @@ impl State {
         self.response_key(code)
     }
 
-    /// Called with the actual rendered body, excluding metadata and controls.
-    /// The root renderer clears this before drawing so hidden views cannot hit.
-    /// Whether the side Tools panel lists tool rows instead of the transcript.
-    pub fn set_tools_docked(&mut self, docked: bool) {
-        self.tools_docked = docked;
-    }
-
     /// Readable tool calls, oldest first, from the cached transcript layout.
     /// Todo snapshots stay in the transcript's progress projection.
     pub fn tool_activity(&self) -> Vec<&super::tool_view::View> {
@@ -919,6 +912,8 @@ impl State {
             .collect()
     }
 
+    /// Called with the actual rendered body, excluding metadata and controls.
+    /// The root renderer clears this before drawing so hidden views cannot hit.
     pub fn set_response_body(&mut self, body: ratatui::layout::Rect) {
         self.response_body = body;
     }
@@ -1105,14 +1100,12 @@ impl State {
                 self.selected = latest;
             }
         }
-        let dock_tools = self.tools_docked;
         self.response_cache.update(
             (width, height),
             &self.items,
             self.agent.label(),
             verbose,
             comfortable,
-            dock_tools,
         );
         self.response_max = self
             .response_cache
@@ -1258,7 +1251,7 @@ mod tests {
         };
         let mut items = vec![item("first", &first), item("second", &second)];
         let mut layout = Layout::default();
-        layout.update((60, 18), &items, "test", false, false, false);
+        layout.update((60, 18), &items, "test", false, false);
         assert_eq!(
             layout
                 .segments
@@ -1270,7 +1263,7 @@ mod tests {
         // Another native turn belongs to the first immutable logical request,
         // even when a distinct equal-text request appeared between its items.
         items.push(item("continued", &first));
-        layout.update((60, 18), &items, "test", false, false, false);
+        layout.update((60, 18), &items, "test", false, false);
         assert!(!layout.segments[0].terminal);
         assert!(layout.segments[1].terminal && layout.segments[2].terminal);
         assert_eq!(
@@ -1286,5 +1279,173 @@ mod tests {
             3,
             "projection must retain every actual observation"
         );
+    }
+
+    #[test]
+    fn tool_lifecycle_updates_in_place_and_keeps_scrollable_details() {
+        let mut items = vec![Item {
+            thread_id: "thread".into(),
+            turn_id: "turn".into(),
+            item_id: "native-tool-0-0".into(),
+            kind: ItemKind::Tool,
+            text: r#"{"tool":"eevee_run_command","arguments":{"cwd":"src"},"status":"running"}"#
+                .into(),
+            complete: false,
+            request: "Build project".into(),
+            owner: None,
+            status: None,
+        }];
+        let mut layout = Layout::default();
+        layout.update((80, 10), &items, "test", false, false);
+        assert_eq!(
+            layout.segments[0].tool.as_ref().unwrap().status,
+            super::super::tool_view::Status::Running
+        );
+        items[0].text = r#"{"tool":"eevee_run_command","arguments":{"cwd":"src"},"status":"failed","result":{"status":"error","run":{"state":"Failed","exit_code":1},"stderr":"error: invalid type\nbuild failed"}}"#.into();
+        items[0].complete = true;
+        layout.item_changed(0);
+        layout.update((80, 10), &items, "test", false, false);
+        assert_eq!(layout.segments.len(), 1);
+        assert!(!layout.segments[0].suppressed);
+        let display = layout.segments[0].display.as_deref().unwrap();
+        assert!(display.contains("[!!] Run command  src  failed · exit 1"));
+        assert!(display.contains("error: invalid type\n     build failed"));
+        assert!(layout.total >= 3);
+        layout.update((80, 10), &items, "test", true, false);
+        assert!(layout.segments[0].display.is_none());
+        assert_eq!(
+            items[0].text,
+            r#"{"tool":"eevee_run_command","arguments":{"cwd":"src"},"status":"failed","result":{"status":"error","run":{"state":"Failed","exit_code":1},"stderr":"error: invalid type\nbuild failed"}}"#
+        );
+    }
+
+    fn tool_request(text: &str, complete: bool) -> State {
+        let mut state = State::new();
+        state.submitted_request = "Build project".into();
+        state.following = false;
+        let status = state.request_status(7, 1);
+        state.items.push(Item {
+            thread_id: "thread".into(),
+            turn_id: "turn".into(),
+            item_id: "native-tool-0-0".into(),
+            kind: ItemKind::Tool,
+            text: text.into(),
+            complete,
+            request: Arc::clone(&state.submitted_request),
+            owner: None,
+            status: Some(status),
+        });
+        state
+    }
+
+    #[test]
+    fn request_settlement_retires_missing_tool_result_without_changing_evidence() {
+        use super::super::tool_view::Status;
+
+        let raw = r#"{"tool":"eevee_run_command","arguments":{"cwd":"src"},"status":"running"}"#;
+        for (outcome, expected) in [
+            (Outcome::Cancelled, Status::Stopped),
+            (Outcome::Unknown, Status::Unknown),
+            (Outcome::Completed, Status::Unknown),
+            (Outcome::Failed, Status::Unknown),
+            (Outcome::Incomplete, Status::Unknown),
+        ] {
+            let mut state = tool_request(raw, false);
+            let initial = state
+                .response_display_rows(160, 40, false)
+                .filter_map(|row| row.tool.map(|status| (status, row.text.to_owned())))
+                .collect::<Vec<_>>();
+            assert!(!initial.is_empty());
+            assert!(initial.iter().all(|(status, _)| *status == Status::Running));
+            assert!(initial[0].1.starts_with(Status::Running.marker()));
+            let initial_note = state.tool_activity()[0].note.clone();
+            let content_row = state.response_cache.segments[0]
+                .rows
+                .iter()
+                .position(|row| !row.header && !row.spacer)
+                .unwrap();
+            state.response_cache.pin(content_row);
+            let anchor = state.response_cache.anchor.as_ref().unwrap();
+            let identity = Arc::clone(&anchor.identity);
+            let byte = anchor.byte;
+
+            // The same item receives only request settlement, never a result.
+            state.retain_terminal(7, 1, outcome, "", false);
+            let settled = state
+                .response_display_rows(160, 40, false)
+                .filter_map(|row| row.tool.map(|status| (status, row.text.to_owned())))
+                .collect::<Vec<_>>();
+            assert!(!settled.is_empty());
+            assert!(settled.iter().all(|(status, _)| *status == expected));
+            assert!(settled[0].1.starts_with(expected.marker()));
+            assert!(settled.iter().all(|(_, text)| {
+                !text.contains(Status::Running.marker()) && !text.contains(Status::Done.marker())
+            }));
+            assert!(!state.tool_activity()[0].note.is_empty());
+            assert_ne!(state.tool_activity()[0].note, initial_note);
+            let anchor = state.response_cache.anchor.as_ref().unwrap();
+            assert!(anchor.identity.as_ref() == identity.as_ref());
+            assert_eq!(anchor.byte, byte);
+            assert_eq!(state.items.len(), 1);
+            assert!(!state.items[0].complete);
+            assert_eq!(state.items[0].text, raw);
+
+            let verbose = state
+                .response_display_rows(160, 40, true)
+                .filter(|row| !row.header && !row.text.is_empty())
+                .map(|row| {
+                    assert!(row.tool.is_none());
+                    row.text.to_owned()
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            assert_eq!(verbose, raw);
+            assert_eq!(state.items[0].text, raw);
+        }
+    }
+
+    #[test]
+    fn request_settlement_preserves_observed_tool_results() {
+        use super::super::tool_view::Status;
+
+        for (result, expected) in [
+            ("success", Status::Done),
+            ("error", Status::Failed),
+            ("unknown", Status::Unknown),
+            ("cancelled", Status::Stopped),
+        ] {
+            let raw = serde_json::json!({
+                "tool": "eevee_run_command",
+                "arguments": {"cwd": "src"},
+                "status": "completed",
+                "result": {"status": result, "message": "observed result"},
+            })
+            .to_string();
+            for outcome in [
+                Outcome::Cancelled,
+                Outcome::Unknown,
+                Outcome::Completed,
+                Outcome::Failed,
+                Outcome::Incomplete,
+            ] {
+                let mut state = tool_request(&raw, true);
+                let initial = state
+                    .response_display_rows(160, 40, false)
+                    .filter_map(|row| row.tool.map(|status| (status, row.text.to_owned())))
+                    .collect::<Vec<_>>();
+                assert!(!initial.is_empty());
+                assert!(initial.iter().all(|(status, _)| *status == expected));
+                let view = state.tool_activity()[0].display();
+                state.retain_terminal(7, 1, outcome, "", false);
+                let settled = state
+                    .response_display_rows(160, 40, false)
+                    .filter_map(|row| row.tool.map(|status| (status, row.text.to_owned())))
+                    .collect::<Vec<_>>();
+                assert!(settled.iter().all(|(status, _)| *status == expected));
+                assert_eq!(state.tool_activity()[0].display(), view);
+                assert_eq!(state.items.len(), 1);
+                assert_eq!(state.items[0].text, raw);
+            }
+        }
     }
 }

@@ -4367,12 +4367,13 @@ fn automatic_todo_follows_provider_progress_and_steers_the_next_send() {
                     "manual mode still adopts explicitly"
                 );
             }
-            if automatic {
-                // The running request evolves with its plan's role.
-                assert_eq!(app.form(), [5, 3][active], "follows the running plan");
-            } else {
-                assert_eq!(app.form(), form, "a pinned form stays");
-            }
+            // The write activity already consumed this request's automatic
+            // adaptation. New roles still steer the next Send, not this run.
+            assert_eq!(
+                app.form(),
+                form,
+                "appearance stays stable within the request"
+            );
             assert!(app.planning.pending.is_none(), "progress never sends");
         }
         if automatic {

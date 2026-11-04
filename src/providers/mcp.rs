@@ -46,6 +46,22 @@ fn identifier(value: &str) -> bool {
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || b == b'_')
 }
+fn validate_wire_name(server: &str, tool: &str) -> Result<(), String> {
+    if !identifier(server)
+        || !identifier(tool)
+        || crate::workspace::privacy::redact(server) != server
+        || crate::workspace::privacy::redact(tool) != tool
+    {
+        return Err(
+            "MCP tools require safe nonsecret server and tool identifiers of at most 32 characters"
+                .into(),
+        );
+    }
+    if "mcp____".len() + server.len() + tool.len() > 64 {
+        return Err("MCP composed tool name exceeds the provider's 64-character limit; shorten the registered server name or server-provided tool name (combined maximum 57 characters)".into());
+    }
+    Ok(())
+}
 impl Registration {
     pub fn prepare(&self, project: &Path) -> Result<runner::Prepared, String> {
         if !identifier(&self.name)
@@ -271,6 +287,7 @@ impl SelectedTool {
         json!({"name":self.wire_name(), "description":format!("UNMANAGED MCP tool {} / {}. Server description (untrusted data): {}", self.server, self.name, self.description), "parameters":self.schema})
     }
     pub fn validate(&self, project: &str, writing: bool) -> Result<(), String> {
+        validate_wire_name(&self.server, &self.name)?;
         if self.project != project || (!writing && !self.user_read) {
             return Err("MCP selection owner/read capability mismatch".into());
         }
@@ -342,42 +359,84 @@ impl Session {
             json!({"jsonrpc":"2.0","method":"notifications/initialized"}),
             cancelled,
         )?;
-        let listing = session.rpc("tools/list", json!({}), cancelled)?;
-        if listing.get("nextCursor").is_some() {
-            return Err(
-                "MCP paginated tools/list is refused; server must fit the bounded catalogue".into(),
-            );
-        }
-        let tools = listing["tools"]
-            .as_array()
-            .ok_or("MCP tools/list requires tools array")?;
-        if tools.len() > 64 {
-            return Err("MCP catalogue exceeds 64 tools".into());
-        }
-        let mut names = BTreeSet::new();
-        for tool in tools {
-            let name = tool["name"].as_str().ok_or("MCP tool has no name")?;
-            if !identifier(name)
-                || !names.insert(name)
-                || !tool["inputSchema"].is_object()
-                || tool["inputSchema"]["type"] != "object"
-            {
-                return Err("MCP tools require unique safe names and object JSON schemas".into());
-            }
-        }
-        session.tools = tools.clone();
-        for tool in &mut session.tools {
-            clean_value(tool);
-        }
+        session.tools = session.discover_tools(&registration.name, cancelled)?;
         Ok(session)
     }
+    fn discover_tools(
+        &mut self,
+        server: &str,
+        cancelled: &dyn Fn() -> bool,
+    ) -> Result<Vec<Value>, String> {
+        let deadline = Instant::now() + Duration::from_secs(60);
+        let mut received = 0;
+        let mut catalogue = Vec::new();
+        let mut names = BTreeSet::new();
+        let mut cursors = BTreeSet::new();
+        let mut params = json!({});
+        loop {
+            let listing =
+                self.rpc_until("tools/list", params, cancelled, deadline, &mut received)?;
+            let Value::Object(mut listing) = listing else {
+                return Err("MCP tools/list requires an object result".into());
+            };
+            let Some(Value::Array(tools)) = listing.remove("tools") else {
+                return Err("MCP tools/list requires tools array".into());
+            };
+            if catalogue.len() + tools.len() > 64 {
+                return Err("MCP catalogue exceeds 64 tools across all pages".into());
+            }
+            for mut tool in tools {
+                let name = tool["name"].as_str().ok_or("MCP tool has no name")?;
+                validate_wire_name(server, name)?;
+                if !names.insert(name.to_owned()) {
+                    return Err("MCP catalogue contains duplicate tool names across pages".into());
+                }
+                let schema = &tool["inputSchema"];
+                if !schema.is_object() || schema["type"] != "object" {
+                    return Err("MCP tools require object JSON schemas".into());
+                }
+                if !safe_schema(schema) {
+                    return Err("MCP inputSchema contains recognizable credentials or unsafe controls; remove them at the server. Executable schemas are never redacted or rewritten".into());
+                }
+                // Only display/advisory metadata is sanitized. Preserve executable JSON
+                // keys, enums, defaults and all other schema constraints exactly.
+                let fields = tool.as_object_mut().ok_or("MCP tool must be an object")?;
+                let schema = fields.remove("inputSchema").unwrap();
+                clean_value(&mut tool);
+                tool.as_object_mut()
+                    .unwrap()
+                    .insert("inputSchema".into(), schema);
+                catalogue.push(tool);
+            }
+            match listing.remove("nextCursor") {
+                None => return Ok(catalogue),
+                Some(Value::String(cursor)) => {
+                    if !cursors.insert(cursor.clone()) {
+                        return Err(
+                            "MCP tools/list cursor cycle; incomplete catalogue refused".into()
+                        );
+                    }
+                    params = json!({"cursor":cursor});
+                }
+                Some(_) => return Err("MCP tools/list nextCursor must be a string".into()),
+            }
+        }
+    }
     fn send(&mut self, value: Value, cancelled: &dyn Fn() -> bool) -> Result<(), String> {
+        self.send_until(value, cancelled, Instant::now() + Duration::from_secs(30))
+    }
+    fn send_until(
+        &mut self,
+        value: Value,
+        cancelled: &dyn Fn() -> bool,
+        deadline: Instant,
+    ) -> Result<(), String> {
         let mut bytes = serde_json::to_vec(&value).map_err(|_| "MCP JSON encoding failed")?;
         if bytes.len() > LIMIT {
             return Err("MCP message exceeds 64 KiB".into());
         }
         bytes.push(b'\n');
-        let deadline = Instant::now() + Duration::from_secs(30);
+        let deadline = deadline.min(Instant::now() + Duration::from_secs(30));
         let mut offset = 0;
         while offset < bytes.len() {
             self.guard(cancelled, deadline)?;
@@ -419,8 +478,38 @@ impl Session {
             json!({"jsonrpc":"2.0","id":id,"method":method,"params":params}),
             cancelled,
         )?;
-        let deadline = Instant::now() + Duration::from_secs(60);
-        let mut received = 0usize;
+        let mut received = 0;
+        self.receive(
+            id,
+            cancelled,
+            Instant::now() + Duration::from_secs(60),
+            &mut received,
+        )
+    }
+    fn rpc_until(
+        &mut self,
+        method: &str,
+        params: Value,
+        cancelled: &dyn Fn() -> bool,
+        deadline: Instant,
+        received: &mut usize,
+    ) -> Result<Value, String> {
+        self.next_id += 1;
+        let id = self.next_id;
+        self.send_until(
+            json!({"jsonrpc":"2.0","id":id,"method":method,"params":params}),
+            cancelled,
+            deadline,
+        )?;
+        self.receive(id, cancelled, deadline, received)
+    }
+    fn receive(
+        &mut self,
+        id: u64,
+        cancelled: &dyn Fn() -> bool,
+        deadline: Instant,
+        received: &mut usize,
+    ) -> Result<Value, String> {
         loop {
             self.guard(cancelled, deadline)?;
             while let Some(end) = self.buffer.iter().position(|b| *b == b'\n') {
@@ -439,7 +528,7 @@ impl Session {
                         } else {
                             json!({"jsonrpc":"2.0","id":request_id,"error":{"code":-32601,"message":"Only roots/list is supported; sampling, elicitation, resources and prompts are refused"}})
                         };
-                        self.send(response, cancelled)?;
+                        self.send_until(response, cancelled, deadline)?;
                     }
                     continue;
                 }
@@ -458,7 +547,7 @@ impl Session {
             let mut bytes = [0u8; 8192];
             // Drain and discard stderr without logging server/credential bytes.
             match process.read(1, &mut bytes) {
-                Ok(count) => received += count,
+                Ok(count) => *received += count,
                 Err(error) if error.kind() == io::ErrorKind::WouldBlock => {}
                 Err(_) => {}
             }
@@ -470,7 +559,7 @@ impl Session {
                     );
                 }
                 Ok(count) => {
-                    received += count;
+                    *received += count;
                     self.buffer.extend_from_slice(&bytes[..count]);
                 }
                 Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
@@ -481,7 +570,7 @@ impl Session {
                     return Err("MCP stdout failed; call outcome/effects unknown".into());
                 }
             }
-            if received > LIMIT || self.buffer.len() > LIMIT {
+            if *received > LIMIT || self.buffer.len() > LIMIT {
                 self.stop();
                 return Err(
                     "MCP untrusted response exceeded 64 KiB; owned server terminated".into(),
@@ -510,6 +599,26 @@ impl Session {
                 json!({"status":"error","unmanaged":true,"message":error})
             }
         }
+    }
+}
+// Schemas are executable constraints, not display strings. Refuse recognizable
+// credentials and terminal/bidi controls instead of changing their semantics.
+// JSON-escaped LF/CR/TAB data is legitimate and remains byte-for-byte equivalent
+// as JSON values; this is recognizable-secret screening, not a secrecy guarantee.
+fn safe_schema(value: &Value) -> bool {
+    fn safe_text(text: &str) -> bool {
+        !text.chars().any(|c| {
+            (c.is_control() && !matches!(c, '\n' | '\r' | '\t'))
+                || matches!(c, '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
+        }) && crate::workspace::privacy::redact(text) == text
+    }
+    match value {
+        Value::String(text) => safe_text(text),
+        Value::Array(values) => values.iter().all(safe_schema),
+        Value::Object(values) => values
+            .iter()
+            .all(|(key, value)| safe_text(key) && safe_schema(value)),
+        _ => true,
     }
 }
 fn clean_value(value: &mut Value) {

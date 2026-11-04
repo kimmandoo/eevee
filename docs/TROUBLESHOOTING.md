@@ -1,5 +1,61 @@
 # Troubleshooting
 
+### [2026-11-04] Full profile-wire acceptance exceeded its outer batch deadline
+
+- **Context / Symptom:** The sequential four-route × two-size × two-language progress run hit its1200-second shell deadline after nine full journeys had written passed reports. The tenth was still producing fresh SDK UI/wire captures; no aggregate report was written because the parent was terminated.
+- **Root Cause:** Each unchanged full journey covers proposal/adoption, manual roles, exact-label refusal, restart, eager modes, malformed input and purge in addition to profile invariants. The aggregate deadline was shorter than16 complete journeys, not evidence that an agent request had hung.
+- **Solution:** Retained the nine completed case reports and scheduled only the seven missing SDK/ACP cases independently with fresh private roots and per-case420-second deadlines. Aggregation requires all16 expected route/size/language identities, passed status, the unchanged candidate binary hash and actual frozen-profile observation records; no case or assertion was dropped.
+- **Prevention / Reference:** Size an outer acceptance deadline for its entire matrix or schedule the existing complete `run` cases separately. Do not increase application request limits, replay effects or call partial matrix output a full pass to conceal a test-runner deadline.
+
+### [2026-11-04] Automatic form changes looked like repeated role-prompt injection
+
+- **Context / Symptom:** The user reported excessive evolution during a running session and asked whether role system prompts accumulated inside it.
+- **Root Cause:** EV20 intentionally changed appearance on every adopted focus-role revision or fallback write/command activity. Packet assembly did not reselect or append profiles during those events: the prepared input was frozen. Stateless HTTP resent fixed instructions each round, and external sessions could retain historical user payloads across later explicit Sends; those are different from an in-flight role-prompt stack.
+- **Solution:** EV21 permits Send-time selection plus one actual in-flight adaptation per exact acquired task/partner/request. The display-only latch retains live parked owners and prunes released claims; stale command claims cannot consume it. Later role updates still change progress without repeated appearance/task mutations. Current-profile policy explicitly makes old profiles historical/non-additive and specialty/avoid wording subordinate to the request and host policy. Opaque external history is not deleted.
+- **Prevention / Reference:** Evolution backtesting now exercises all specialist first adaptations through distinct explicit requests, repeated role revisions in one stable request, new-request reset and unchanged capability. Progress-wire acceptance captures selected marker profiles across native/Codex/SDK/ACP; WebSocket regression checks frozen options and anchored input deltas. Older integration expectations of per-step re-evolution were migrated, not restored by weakening ownership.
+
+### [2026-11-04] New SDK limit disclosures required a complete bridge cutover
+
+- **Context / Symptom:** Keeping revision11 would have let an older complete sidecar pass a newer host's inspection while it still enforced16 turns or incomplete required-tool admission, contradicting the new128-turn preview.
+- **Root Cause:** The old inspection fingerprint did not distinguish those coding-policy semantics, even though all SDK source/policy/dependencies must be replaced together.
+- **Solution:** Advanced strict host Run/inspection and sidecar schema/inspection to complete bridge12. The sidecar imports one `BRIDGE_REVISION` from its policy so new main with old policy fails before model work. Old/mixed bundles are refused with an explicit replacement instruction; no shim, fallback or automatic resend was introduced.
+- **Prevention / Reference:** Rust inspection and sidecar strict Run regressions explicitly refuse immediate predecessor11. SDK smoke always copies the complete production bridge/dependencies. SQL20/TM2/formation2 were unchanged.
+
+### [2026-11-04] A definite compiler failure ended an unfinished coding request
+
+- **Context / Symptom:** The actual baseline compiled a reviewed Rust source, observed exit1/E0425 and kept an active todo, but a terminal model answer immediately settled the logical request as Failed before repair. `target/agent-experience-interrupted-before/` retained that failure; the original uninterrupted build-repair journey passed separately.
+- **Root Cause:** Completion gating treated a definite failed command as a continuation obstacle. Semantic malformed command batches could also become sticky permission denials despite no approval having occurred. During integration, malformed-call progress accounting attempted to serialize the intentionally skipped `FileTool::Invalid`, producing `Cannot fingerprint actual tool progress`.
+- **Solution:** Kept nonzero exits as failed command evidence while allowing bounded authorized todo continuation, labelled zero-effect correctable input refusals explicitly, and excluded invalid non-executed inputs from progress fingerprints. Denials and unknown effects still stop completion/replay; diagnostic tasks do not acquire an invented identical-command rerun requirement. Native tool lifecycle rows now expose actual exits and bounded output.
+- **Prevention / Reference:** `scripts/agent_coding_smoke.py` now drives a real compiler failure → terminal unfinished answer → same-request continuation → reviewed edit/rebuild/run, followed by an actual HTTP404 correction and exact inert resource download. Each effect retains separate ordinary command/file approval; model peers never perform the effects.
+
+### [2026-11-04] Controlled commands completed but their transcript showed no real outcomes
+
+- **Context / Symptom:** The controlled Codex journey completed all ten source/command operations, including actual compiler failure/repair and HTTP404/success downloads, but both terminal sizes failed visible-outcome inspection. Existing command results and durable runs had correct nonzero/zero exits; the response showed only the provider's unrelated observation.
+- **Root Cause:** Native command calls emitted compact tool lifecycle items, while shared host-command callbacks for Codex/SDK/ACP only returned runner results to their adapters. Separately, a missing tool result could remain visually running after its request ended because settlement invalidated headers but not cached tool projections.
+- **Solution:** Reused one safe command observation projection and emitted request/call-owned host-local running/final rows from non-native callbacks before replying. Native rows were not duplicated. Typed request settlement now reprojects only still-running tool rows as stopped-request/result-unavailable or Unknown, preserving raw observations, real tool results and scroll anchors.
+- **Prevention / Reference:** Keep actual effect proof and response-surface proof separate: successful bytes/processes alone do not establish usable tool visibility. The coding driver now checks real failed/successful exits, program output and downloaded digest in the scrollable transcript.
+
+### [2026-11-04] MCP discovery rejected pagination and rewrote executable schemas
+
+- **Context / Symptom:** A real stdio server exposing a selected tool only on its second page could not connect on the baseline (`target/agent-experience-mcp-before/`). Locally valid32-character server/tool names could compose a71-character provider function name.
+- **Root Cause:** Discovery rejected every `nextCursor`; recursive display cleaning also modified `inputSchema` keys and literal constraints. Name validation bounded components but not the provider-facing composed name.
+- **Solution:** Followed complete cursor pagination within64 tools/64KiB/60 seconds, refusing duplicates, cycles, failed partial discovery and names above64 bytes. Preserved executable schema JSON exactly, rejecting recognizable credentials/unsafe controls instead of rewriting constraints; sanitized display metadata separately.
+- **Prevention / Reference:** `scripts/mcp_smoke.py` uses two actual metadata pages and checks distinct CRLF/LF enum values in the sent selected declaration. Registration/launch/selection/call consent and sticky unknown-effect rules remain separate.
+
+### [2026-11-04] SDK limits and missing tool rosters obscured coding capability
+
+- **Context / Symptom:** The SDK route had an undisclosed16-turn ceiling and mapped authoritative budget/turn exhaustion to generic failure. Admission could accept a reported roster missing Read/Write/Edit/TodoWrite. Completed tool items could appear successful without result evidence, and the wide Tools index hid inline output.
+- **Root Cause:** Admission rejected unexpected tools but only required host MCP entries; generic result classification lost typed limit reasons. Tool projection inferred success from item completion and suppressed transcript rows when docked.
+- **Solution:** Required every operation tool exactly once, allowed128 SDK turns, retained the USD5 estimated stop threshold (not a hard billing cap), and mapped only `error_max_turns`/`error_max_budget_usd` to Incomplete without resubmission. Kept tool output inline and distinguished failed/stopped/unknown results. `/tools` now separates built-in capability from optional aliases and explains explicit Plan/Review restrictions.
+- **Prevention / Reference:** Production bridge/compiler smoke and `sdk_command_smoke.py --limit turns|budget` exercise actual host settlement with controlled SDK results. They do not establish live SDK engine turn counting, billing or authenticated provider behavior.
+
+### [2026-11-04] Runtime fixtures mistook off-screen controls and stale limits for product failures
+
+- **Context / Symptom:** Initial coding acceptance waited for an off-screen Allow button even though the immutable review was open. Added downloads exceeded the controlled peer's old eight-operation cap, causing EOF. The SDK limit driver expected verbose wording in compact output; the availability probe retained explicit Plan. The first final evolution backtest passed the eight-role stability case but fresh-role requests ended with an active todo, provoking a legitimate continuation and then fixture HTTP409 (`unplanned inference`).
+- **Root Cause:** Fixture assumptions depended on optional controls, copied bounds, presentation wording or missing setup/finish steps rather than the intended contract. The fresh-role fixture had omitted its own todo completion, not discovered an automatic replay: the forward continuation correctly honored unresolved actionable work.
+- **Solution:** Recognized immutable review scope without requiring the Allow button, raised the bounded peer chain to32, inspected full SDK detail through `/verbose` with actual query counts, and selected Implement explicitly. Fresh-role backtesting now pauses after active-role adoption to prove appearance, then supplies a real done mutation before the terminal answer. Initial failed captures remain separate; completion bounds/ownership were not weakened.
+- **Prevention / Reference:** Keep fixture setup mode explicit, derive workflow counts from requested calls and inspect actual effects/protocol records. Never suppress EOF/unknown outcomes or weaken approval to make acceptance pass.
+
 ### [2026-11-03] Removing pre-release migrations without changing the schema 20 shape
 
 - **Context / Symptom:** The user asked to drop all SQL migrations before the first stable release and keep only the latest schema. Fresh stores had always been built by replaying migrations 0→20 (table rebuilds, `ALTER TABLE ADD COLUMN`, a derived partner #1), so the final DDL existed nowhere in one place, and existing v20 stores created by that chain still had to open.

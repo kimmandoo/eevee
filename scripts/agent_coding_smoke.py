@@ -3,22 +3,25 @@
 
 Deterministic loopback/JSONL peers ONLY request tools. Eevee creates/edits the
 source, launches a real Rust compiler, receives its real failure, repairs the
-source, compiles an executable and runs that executable. No model, credential,
-SQL write or compiler invocation by the peer is used. Default representative
-coverage is four journeys, not a provider x terminal cross product.
+source, compiles/runs an executable and downloads an inert local HTTP resource
+after observing a real 404. No model, credential, SQL write, compiler invocation
+or download by the peer is used. Default coverage is four representative journeys.
 """
 from __future__ import annotations
 
 import argparse
 from contextlib import closing
 import hashlib
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
 from pathlib import Path
 import shutil
 import sqlite3
 import subprocess
+import sys
 import tempfile
+import threading
 import traceback
 
 import file_creation_smoke as files
@@ -36,6 +39,24 @@ FIXED = BROKEN.replace('still_missing', '42')
 OUTPUT = 'AGENT-CODING:42'
 FUTURE = 'Unsent owner draft / 아직 보내지 않은 초안 界'
 COMMAND = 'eevee_run_command'
+RESOURCE = 'downloaded-resource-界.bin'
+RESOURCE_BYTES = b'\x00\x01\xfe\xff\r\n' + 'Inert resource / 한글 界 café\n'.encode('utf-8')
+RESOURCE_SHA = hashlib.sha256(RESOURCE_BYTES).hexdigest()
+DOWNLOAD_OUTPUT = 'DOWNLOAD-SHA256:' + RESOURCE_SHA
+DOWNLOAD_SCRIPT = (
+    'import hashlib, pathlib, sys, urllib.error, urllib.request\n'
+    'opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))\n'
+    'try:\n'
+    '    with opener.open(sys.argv[1], timeout=5) as response:\n'
+    '        data = response.read(1048577)\n'
+    'except urllib.error.HTTPError as error:\n'
+    '    print("HTTP Error " + str(error.code), file=sys.stderr)\n'
+    '    raise SystemExit(1)\n'
+    'assert len(data) <= 1048576, "resource exceeds download bound"\n'
+    'with pathlib.Path(sys.argv[2]).open("xb") as destination:\n'
+    '    destination.write(data)\n'
+    'print("DOWNLOAD-SHA256:" + hashlib.sha256(data).hexdigest())\n'
+)
 PROFILES = {
     'representative': (('native', (120, 36), True),
                        ('native', (60, 18), False),
@@ -54,7 +75,67 @@ def direct(program, *arguments):
     return {'cwd': '', 'command': {'Direct': {'program': str(program), 'args': list(arguments)}}}
 
 
-def chain(compiler, project):
+class ResourceFixture:
+    """Owned, bounded loopback HTTP server; never fetches or executes anything."""
+    def __init__(self):
+        self.server = None
+        self.thread = None
+        self.requests = []
+        self.lock = threading.Lock()
+
+    def start(self):
+        fixture = self
+
+        class Handler(BaseHTTPRequestHandler):
+            def setup(self):
+                super().setup()
+                self.connection.settimeout(5)
+
+            def do_GET(self):
+                status = 200 if self.path == '/resource.bin' else 404
+                body = RESOURCE_BYTES if status == 200 else b'resource not found\n'
+                with fixture.lock:
+                    fixture.requests.append({'method': 'GET', 'path': self.path, 'status': status})
+                self.send_response(status)
+                self.send_header('Content-Type', 'application/octet-stream')
+                self.send_header('Content-Length', str(len(body)))
+                self.send_header('Connection', 'close')
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *arguments):
+                pass
+
+        self.server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+        self.server.daemon_threads = False
+        self.thread = threading.Thread(target=self.server.serve_forever,
+                                       kwargs={'poll_interval': .05}, name='agent-resource-http')
+        self.thread.start()
+
+    def url(self, path):
+        return 'http://127.0.0.1:{}{}'.format(self.server.server_port, path)
+
+    def snapshot(self):
+        with self.lock:
+            return list(self.requests)
+
+    def assert_complete(self):
+        assert self.snapshot() == [
+            {'method': 'GET', 'path': '/missing-resource.bin', 'status': 404},
+            {'method': 'GET', 'path': '/resource.bin', 'status': 200},
+        ], self.snapshot()
+
+    def close(self):
+        if self.server:
+            if self.thread and self.thread.is_alive():
+                self.server.shutdown()
+            self.server.server_close()
+        if self.thread and self.thread.ident is not None:
+            self.thread.join(timeout=6)
+            assert not self.thread.is_alive(), 'loopback resource server did not stop'
+
+
+def chain(compiler, project, resource):
     build = direct(compiler, '--edition=2021', '--color=never', SOURCE, '-o', PRODUCT)
     return [
         {'id': 'create', 'name': 'eevee_write_file', 'arguments': {'path': SOURCE, 'content': INITIAL}},
@@ -68,6 +149,10 @@ def chain(compiler, project):
             {'old_text': 'still_missing', 'new_text': '42'}]}},
         {'id': 'compile-success', 'name': COMMAND, 'arguments': build},
         {'id': 'run-program', 'name': COMMAND, 'arguments': direct(project / PRODUCT)},
+        {'id': 'download-failure', 'name': COMMAND, 'arguments': direct(
+            sys.executable, '-I', '-c', DOWNLOAD_SCRIPT, resource.url('/missing-resource.bin'), RESOURCE)},
+        {'id': 'download-success', 'name': COMMAND, 'arguments': direct(
+            sys.executable, '-I', '-c', DOWNLOAD_SCRIPT, resource.url('/resource.bin'), RESOURCE)},
     ]
 
 
@@ -98,6 +183,12 @@ def assert_result(call, value, project):
         assert value['run']['exit_code'] not in (None, 0), value
         assert 'still_missing' in value['stderr'] and 'error' in value['stderr'], value
         assert not (project / PRODUCT).exists(), 'failed compiler fabricated a build product'
+    elif identity == 'download-failure':
+        assert value['status'] == 'error', value
+        assert value['run']['exit_code'] not in (None, 0), value
+        assert 'HTTP Error 404' in value['stderr'], value
+        assert not value['stdout'].strip(), value
+        assert not (project / RESOURCE).exists(), '404 created a destination before a successful response'
     else:
         assert value['status'] == 'success', value
     if identity == 'read-original':
@@ -108,7 +199,24 @@ def assert_result(call, value, project):
         assert value['run']['exit_code'] == 0 and (project / PRODUCT).is_file(), value
     elif identity == 'run-program':
         assert value['run']['exit_code'] == 0 and OUTPUT in value['stdout'], value
+    elif identity == 'download-success':
+        assert value['run']['exit_code'] == 0, value
+        assert value['stdout'].strip() == DOWNLOAD_OUTPUT and not value['stderr'].strip(), value
+        content = (project / RESOURCE).read_bytes()
+        assert content == RESOURCE_BYTES, 'downloaded resource bytes changed'
+        assert hashlib.sha256(content).hexdigest() == RESOURCE_SHA
     return value
+
+
+def final_artifacts(project):
+    assert (project / SOURCE).read_bytes() == FIXED.encode(), 'download changed authored source'
+    assert (project / PRODUCT).is_file(), 'compiled program disappeared'
+    content = (project / RESOURCE).read_bytes()
+    assert content == RESOURCE_BYTES, 'downloaded resource bytes changed'
+    digest = hashlib.sha256(content).hexdigest()
+    assert digest == RESOURCE_SHA, 'downloaded resource digest changed'
+    return {'path': RESOURCE, 'bytes': len(content), 'sha256': digest,
+            'origin': 'owned-loopback-http', 'executed': False}
 
 
 def database(journey):
@@ -204,7 +312,31 @@ def source_effects(journey, step):
 
 
 def natural_request(marker):
-    return 'Create main.rs, read and edit the code, then build the project. Read the real error, fix it, rebuild and run the program. ' + marker
+    return ('Create main.rs, read and edit the code, then build the project. Read the real error, fix it, '
+            'rebuild and run the program. Download an inert resource over HTTP to ' + RESOURCE
+            + '; observe the first 404, correct the URL and download the exact bytes without executing them. ' + marker)
+
+
+def visible_outcomes(journey, calls):
+    journey.session.command('response')
+    journey.session.send(ESC + '[1;3H')
+    observed = []
+    for page in range(8 * len(calls)):
+        view = journey.session.display()
+        observed.append(view)
+        if page in (0, 3, 7, 15):
+            journey.session.capture('actual-tool-evidence-' + str(page))
+        journey.session.send(ESC + '[6~')
+        if journey.session.display() == view:
+            break
+    visible = '\n'.join(observed)
+    rows = visible.splitlines()
+    assert any('[!!]' in row and 'exit 1' in row for row in rows), 'failed command outcome was not visible in the transcript'
+    assert any('[ok]' in row and 'exit 0' in row for row in rows), 'successful command outcome was not visible in the transcript'
+    assert OUTPUT in visible, 'actual program output was hidden by the tools side index'
+    assert 'HTTP Error 404' in visible, 'actual HTTP failure was hidden by the tools side index'
+    assert DOWNLOAD_OUTPUT[:32] in visible, 'actual download digest output was hidden by the tools side index'
+    journey.workspace()
 
 
 class NativeJourney(files.CreationJourney):
@@ -219,9 +351,11 @@ class NativeJourney(files.CreationJourney):
 def native_case(binary, compiler, output, size, manual):
     result = {'status': 'failed', 'route': 'native-chat-completions', 'size': size, 'manual_appearance': manual, 'tool_results': []}
     journey = None
+    resource = ResourceFixture()
     with tempfile.TemporaryDirectory(prefix='ev-agent-coding-界-') as temporary, Peer(
             'chat_completions', 'public-unused-fixture', True, retain_body_bytes=True) as peer:
         try:
+            resource.start()
             journey = NativeJourney(binary, output, Path(temporary).resolve(), size, size[0] == 60,
                                     'compatible', 'chat_completions', True, False, peer, )
             # Native connection fixtures deliberately start with an empty PATH.
@@ -236,10 +370,13 @@ def native_case(binary, compiler, output, size, manual):
             if manual:
                 journey.session.command('vaporeon')
                 journey.workspace()
-            calls = chain(compiler, journey.project)
-            def plan(index):
+            calls = chain(compiler, journey.project, resource)
+            run_count = sum(call['name'] == COMMAND for call in calls)
+            continuation = next(index + 1 for index, call in enumerate(calls) if call['id'] == 'compile-failure')
+            todo_label = 'Build program and download resource'
+            def plan(index, *, pause=False, resumed=False):
                 def reply(handler, event, row):
-                    if index:
+                    if index and not resumed:
                         previous = calls[index - 1]
                         results = files.tool_results('chat_completions', row['body'])
                         value = assert_result(previous, results[previous['id']], journey.project)
@@ -248,35 +385,53 @@ def native_case(binary, compiler, output, size, manual):
                             progress = decode_result(results['coding-progress'])
                             assert progress['status'] == 'success' and progress['path'] == '', progress
                             result['todo_before_reviewed_file'] = progress
+                    if pause:
+                        # A valid model stop after a definite failed compiler
+                        # must not abandon this request's still-active build.
+                        return files.response_plan(peer, text='The compiler failed; the build is still unfinished.',
+                                                   number=index)[1](handler, event, row)
                     selected = ([calls[index]] if index < len(calls) else [{
                         'id': 'coding-progress-done', 'name': 'todo', 'arguments': {
-                            'operation': 'done', 'label': 'Build the program', 'steps': []}}])
+                            'operation': 'done', 'label': todo_label, 'steps': []}}])
                     if index == 0:
                         selected.insert(0, {'id': 'coding-progress', 'name': 'todo', 'arguments': {
                             'operation': 'init', 'label': '', 'steps': [
-                                {'label': 'Build the program', 'phase': 'implement', 'status': 'active'}
+                                {'label': todo_label, 'phase': 'implement', 'status': 'active'}
                             ]}})
                     return files.response_plan(peer, calls=selected, number=index)[1](handler, event, row)
                 return ('custom', reply)
-            plans = [plan(i) for i in range(9)]
-            plans.append(files.response_plan(peer, text='Actual compiler/program evidence received.', number=9))
+            def final_reply(handler, event, row):
+                progress = decode_result(files.tool_results('chat_completions', row['body'])['coding-progress-done'])
+                assert progress['status'] == 'success', progress
+                result['todo_after_download'] = progress
+                return files.response_plan(peer, text='Actual compiler/program and downloaded resource evidence received.',
+                                           number=len(calls) + 2)[1](handler, event, row)
+            plans = [plan(i) for i in range(continuation)]
+            plans += [plan(continuation, pause=True), plan(continuation, resumed=True)]
+            plans += [plan(i) for i in range(continuation + 1, len(calls) + 1)]
+            plans.append(('custom', final_reply))
             before = journey.begin(natural_request('COOP_CODING_NATIVE'), plans)
             for index, call in enumerate(calls):
                 if call['name'] in ('eevee_write_file', 'eevee_edit_file'):
                     file_decision(journey)
                 elif call['name'] == COMMAND:
                     command_decision(journey, retain_draft=call['id'] == 'compile-failure')
-                files.until(journey.session, lambda i=index: len(peer.snapshot('POST')) >= before + i + 2,
+                files.until(journey.session, lambda i=index: len(peer.snapshot('POST')) >= before + i + 2 + int(i >= continuation - 1),
                             'actual tool result did not reach next provider round: ' + call['id'], timeout=90)
                 source_effects(journey, index)
-            journey.settled_coding(before + 10)
+            journey.settled_coding(before + len(calls) + 3)
+            assert [row['call'] for row in result['tool_results']] == [call['id'] for call in calls]
+            result['continued_after_failed_build_answer'] = True
             assert draft_present(journey), 'coding overwrote later owner draft'
             partner = journey.snapshot()['partners'][0]
             if manual:
                 assert partner['form'] == 1 and not partner['auto_form'], partner
-            assert len(runs(journey)) == 3
+            assert len(runs(journey)) == run_count
             assert (journey.project / SOURCE).read_bytes() == FIXED.encode()
             assert (journey.project / PRODUCT).is_file()
+            resource.assert_complete()
+            visible_outcomes(journey, calls)
+            result['actual_tool_outcomes_and_output_visible'] = True
             # Every additional command requires a fresh approval; denial/cancel
             # cannot create the proposed compiler output or reserve a real run.
             for decision in ('deny', 'cancel'):
@@ -291,7 +446,7 @@ def native_case(binary, compiler, output, size, manual):
                 journey.settled_coding(before + 2)
                 value = decode_result(files.tool_results('chat_completions', peer.snapshot('POST')[-1]['body'])[decision])
                 assert value['status'] != 'success', value
-                assert not (journey.project / destination).exists() and len(runs(journey)) == 3
+                assert not (journey.project / destination).exists() and len(runs(journey)) == run_count
             journey.session.command('role-plan')
             journey.workspace()
             gate = files.Gate()
@@ -305,7 +460,9 @@ def native_case(binary, compiler, output, size, manual):
             journey.settled_coding(before + 2)
             value = decode_result(files.tool_results('chat_completions', peer.snapshot('POST')[-1]['body'])['plan-command'])
             assert value['status'] != 'success', value
-            assert not (journey.project / 'plan-must-not-build').exists() and len(runs(journey)) == 3
+            assert not (journey.project / 'plan-must-not-build').exists() and len(runs(journey)) == run_count
+            resource.assert_complete()
+            result['download'] = final_artifacts(journey.project)
             journey.session.command('quit')
             confirm_exit(journey.session)
             assert journey.session.wait_exit() == 0
@@ -317,6 +474,8 @@ def native_case(binary, compiler, output, size, manual):
             if journey:
                 journey.session.capture('failed')
         finally:
+            resource.close()
+            files.save(output / 'resource-http-requests.json', resource.snapshot())
             files.save(output / 'http-requests.json', peer.snapshot())
             if journey:
                 journey.session.close()
@@ -327,7 +486,9 @@ def native_case(binary, compiler, output, size, manual):
 def codex_case(binary, compiler, output, size, manual):
     result = {'status': 'failed', 'route': 'controlled-codex', 'size': size, 'manual_appearance': manual, 'tool_results': []}
     journey = None
+    resource = ResourceFixture()
     try:
+        resource.start()
         journey = files.CodexCreationJourney(binary, output, size, )
         journey.setup(count=1)
         journey.session.command('role-implement')  # Remove setup's explicit Plan; not a sticky grant.
@@ -341,7 +502,8 @@ def codex_case(binary, compiler, output, size, manual):
         assert json.loads(journey.peers('started', marker)[-1]['text'])['request'] == text
         assert all(row['writing'] for row in journey.snapshot()[2])
         assert COMMAND in journey.peers('session')[-1]['tools']
-        calls = chain(compiler, journey.project)
+        calls = chain(compiler, journey.project, resource)
+        run_count = sum(call['name'] == COMMAND for call in calls)
         journey.publish(marker + '.prompt', json.dumps(calls))
         for index, call in enumerate(calls):
             if call['name'] in ('eevee_write_file', 'eevee_edit_file'):
@@ -362,7 +524,11 @@ def codex_case(binary, compiler, output, size, manual):
         if manual:
             partner = journey.snapshot()[1][0]
             assert partner['form'] == 1 and not partner['auto_form'], partner
-        assert len(runs(journey)) == 3 and (journey.project / PRODUCT).is_file()
+        assert len(journey.peers('answer', marker)) == len(calls), 'controlled tools repeated an effect'
+        assert len(runs(journey)) == run_count and (journey.project / PRODUCT).is_file()
+        resource.assert_complete()
+        visible_outcomes(journey, calls)
+        result['actual_tool_outcomes_and_output_visible'] = True
         for decision in ('deny', 'cancel'):
             marker = 'COOP_CODING_' + decision.upper()
             destination = 'never-built-' + decision
@@ -379,7 +545,7 @@ def codex_case(binary, compiler, output, size, manual):
             journey.finish(marker)
             journey.until(lambda: not journey.claims(), 'denied/cancelled controlled owner settlement')
             journey.workspace()
-            assert not (journey.project / destination).exists() and len(runs(journey)) == 3
+            assert not (journey.project / destination).exists() and len(runs(journey)) == run_count
         journey.until(lambda: '/cancel' not in journey.session.display().rstrip().splitlines()[-1],
                       'controlled provider terminal event did not reach the policy owner')
         journey.session.command('role-plan')
@@ -391,7 +557,9 @@ def codex_case(binary, compiler, output, size, manual):
         assert all(not row['writing'] for row in journey.snapshot()[2])
         journey.finish(marker)
         journey.until(lambda: not journey.claims(), 'controlled Plan settlement')
-        assert len(runs(journey)) == 3 and not (journey.project / 'plan-must-not-build').exists()
+        assert len(runs(journey)) == run_count and not (journey.project / 'plan-must-not-build').exists()
+        resource.assert_complete()
+        result['download'] = final_artifacts(journey.project)
         result['runs'] = runs(journey)
         journey.quit()
         result['status'] = 'passed'
@@ -400,6 +568,8 @@ def codex_case(binary, compiler, output, size, manual):
         if journey:
             journey.session.capture('failed')
     finally:
+        resource.close()
+        files.save(output / 'resource-http-requests.json', resource.snapshot())
         if journey:
             files.save(output / 'controlled-peer.json', journey.peers())
             journey.close()
@@ -434,7 +604,8 @@ def main(argv=None):
               'compiler': str(compiler), 'profile': args.profile, 'journeys': [],
               'limits': ['Deterministic peers are not live model/billing conformance.',
                          'No paid models, private credentials or SQL writes.',
-                         'Actual compiler and built program run only through Eevee host command approval.',
+                         'Compiler, built program and Python downloader run only through Eevee host command approval.',
+                         'HTTP download acceptance uses owned loopback HTTP, not public-network conformance; fetched bytes are never executed.',
                          'PTY evidence is not physical GUI/mouse certification.']}
     for route, size, manual in PROFILES[args.profile]:
         destination = output / '{}-{}'.format(route, size[0])

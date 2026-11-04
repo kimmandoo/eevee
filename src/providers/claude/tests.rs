@@ -1,6 +1,24 @@
 use super::*;
 
 #[test]
+fn sdk_terminal_limits_remain_incomplete_without_reclassifying_errors_or_interrupts() {
+    for (reported, expected) in [
+        ("completed", Outcome::Completed),
+        ("incomplete", Outcome::Incomplete),
+        ("failed", Outcome::Failed),
+        ("unknown", Outcome::Unknown),
+        ("cancelled", Outcome::Unknown),
+        ("future_outcome", Outcome::Unknown),
+    ] {
+        assert_eq!(
+            sdk_terminal_outcome(&json!({"outcome": reported})),
+            expected
+        );
+    }
+    assert_eq!(sdk_terminal_outcome(&json!({})), Outcome::Unknown);
+}
+
+#[test]
 fn sdk_launch_identity_is_stable_across_approval_arrivals_but_binds_process_inputs() {
     let dir = SdkTestDirectory::new();
     let runtime = dir.path().join("node");
@@ -64,7 +82,7 @@ fn sdk_inspection_requires_reviewed_identity_query_and_complete_bridge_policy() 
     };
     let inspection = json!({
         "type":"capabilities", "sdk_version":"1.5.0", "cli_version":"4.0.0",
-        "bridge_revision":11, "query":true,
+        "bridge_revision":12, "query":true,
         "policy":{"tools":"closed-allowlist","permissions":"default-host-once","mcp":"host-discovery-and-reviewed-command",
             "configuration":"isolated","authentication":"api-console-cloud-only",
             "dispatch":"correlated-sdk-submission","usage":"correlated-sdk-snapshots",
@@ -74,7 +92,7 @@ fn sdk_inspection_requires_reviewed_identity_query_and_complete_bridge_policy() 
     for (field, value) in [
         ("sdk_version", json!("1.5.1")),
         ("cli_version", json!("4.0.1")),
-        ("bridge_revision", json!(10)),
+        ("bridge_revision", json!(11)),
         ("query", json!(false)),
         ("policy", Value::Null),
     ] {

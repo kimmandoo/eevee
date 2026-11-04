@@ -1,6 +1,7 @@
-//! EV18: local intent at an explicit ordinary send, never a model classifier.
+//! Request-owned automatic appearance changes; never a model classifier.
 use super::App;
 use crate::{messages::Message, providers::Operation};
+use std::collections::HashMap;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Selection {
@@ -38,6 +39,9 @@ pub struct State {
     pub popup_shown: bool,
     pub(super) motion: Option<super::evolution_motion::Motion>,
     preview: Option<Preview>,
+    // Display-only, process-local latch per acquired owner, including parked
+    // requests. Released owners are pruned before the next adaptation attempt.
+    adapted_requests: HashMap<(i64, i64), String>,
 }
 
 /// The appearance a role leads to. Capability is never chosen by the form:
@@ -120,7 +124,7 @@ impl App {
     ///
     /// The request text never picks a form or a capability. A Send starts in the
     /// adopted focus step's role form (otherwise the current form) and the
-    /// model's role-tagged plan evolves it while it runs. Capability is the
+    /// model's role-tagged plan may adapt it once while it runs. Capability is the
     /// ordinary approved tool set (every file effect and command still needs
     /// exact one-shot approval), narrowed only by an explicit Plan/Review mode.
     pub(super) fn request_evolution(&self) -> Option<Selection> {
@@ -151,9 +155,9 @@ impl App {
         Some(choice)
     }
 
-    /// Follow the adopted plan while the lead's request runs: the focus step's
-    /// role changes appearance only. The running request keeps its frozen
-    /// owner, operation and approvals; nothing is sent, granted or cancelled.
+    /// Follow the adopted plan at most once per owned logical request. The
+    /// focus step's role changes appearance only; owner, frozen profile,
+    /// operation and approvals stay unchanged. Nothing is sent or granted.
     pub(super) fn follow_todo_role(&mut self) {
         if let Some(target) = self.todo_focus() {
             self.evolve_running(target.form, Message::CoreEvolutionTodo);
@@ -172,15 +176,51 @@ impl App {
             return;
         }
         let target = role_selection(role.form());
-        self.evolve_running(target.form, target.reason);
-        self.changed_task();
+        if self.evolve_running(target.form, target.reason) {
+            self.changed_task();
+        }
     }
 
-    fn evolve_running(&mut self, form: usize, reason: Message) {
+    fn evolve_running(&mut self, form: usize, reason: Message) -> bool {
         let from = self.form();
-        if form == from {
-            return;
+        if form == from || !self.planning.work_acquired || self.planning.cancelling {
+            return false;
         }
+        let Some(claim) = self.planning.work.as_ref() else {
+            return false;
+        };
+        let owner = (claim.task_id, claim.owner.partner);
+        if owner != (self.task_id, self.lead.id) {
+            return false;
+        }
+        if self
+            .evolution
+            .adapted_requests
+            .get(&owner)
+            .is_some_and(|request| request == &claim.request_id)
+        {
+            return false;
+        }
+        // Only live claims can need a latch. In particular, completed tasks
+        // must not accumulate display history for the lifetime of the app.
+        let planning = &self.planning;
+        let parked = &self.cooperation.parked;
+        self.evolution.adapted_requests.retain(|owner, request| {
+            std::iter::once(planning)
+                .chain(parked.values())
+                .any(|state| {
+                    state.work_acquired
+                        && state.work.as_ref().is_some_and(|claim| {
+                            *owner == (claim.task_id, claim.owner.partner)
+                                && *request == claim.request_id
+                        })
+                })
+        });
+        // Spend only an actual automatic transition. Send-time selection and
+        // deliberate choices do not spend or reset this request's adaptation.
+        self.evolution
+            .adapted_requests
+            .insert(owner, claim.request_id.clone());
         self.set_form(form);
         // A carry-over snapshot is for deliberate switches between requests.
         self.carry_over.pending = None;
@@ -192,6 +232,7 @@ impl App {
             fresh: false,
         });
         self.evolution.popup_shown = false;
+        true
     }
 
     pub(super) fn open_evolution_preview(&mut self) {
@@ -316,6 +357,17 @@ mod tests {
         app.planning.reset(7);
         app.planning.preference_event(Ok(None));
         app
+    }
+    fn own_request(app: &mut App, request_id: &str) -> store::WorkClaim {
+        let claim = store::WorkClaim {
+            task_id: app.task_id,
+            owner: app.attribution(),
+            request_id: request_id.into(),
+            writing: true,
+        };
+        app.planning.work = Some(claim.clone());
+        app.planning.work_acquired = true;
+        claim
     }
     fn role_plan(
         steps: &[(&str, &str, crate::workspace::progress::Status)],
@@ -442,6 +494,7 @@ mod tests {
     fn activity_evolution_survives_an_inflight_snapshot_acknowledgement() {
         use crate::workspace::progress::Role;
         let mut app = app();
+        own_request(&mut app, "snapshot-request");
         app.changed_task();
         let before = app.snapshot("/workspace");
         app.save_submitted();
@@ -460,74 +513,210 @@ mod tests {
     }
 
     #[test]
-    fn tool_activity_steers_only_when_the_plan_names_no_role() {
+    fn tool_activity_adapts_once_and_only_without_a_structured_role() {
         use crate::workspace::progress::{Role, Status};
         let mut app = app();
+        own_request(&mut app, "activity-request");
+        // A role-tagged focus step wins without spending the activity fallback.
+        app.workflows.progress = Some(role_plan(&[("검토", "review", Status::Active)]));
+        app.follow_activity(Role::Verify);
+        assert_eq!(app.form(), 0);
+        app.workflows.progress = None;
         app.follow_activity(Role::Verify);
         assert_eq!(app.form(), 2);
         assert_eq!(app.evolution.transition.unwrap().to, 2);
-        app.follow_activity(Role::Implement);
-        assert_eq!(app.form(), 3);
-        // A role-tagged focus step wins over activity.
+        let revision = app.snapshot("/workspace").revision;
+        for role in [Role::Implement, Role::Verify, Role::Implement] {
+            app.follow_activity(role);
+            assert_eq!(app.form(), 2, "write/command oscillation stays stable");
+            assert_eq!(app.snapshot("/workspace").revision, revision);
+        }
+        // Role and activity updates share the same request-owned bound.
         app.workflows.progress = Some(role_plan(&[("검토", "review", Status::Active)]));
-        app.follow_activity(Role::Verify);
-        assert_eq!(app.form(), 3);
-        // Pinned forms and explicit Review never follow activity.
-        app.workflows.progress = None;
-        app.lead.auto_form = false;
-        app.follow_activity(Role::Verify);
-        assert_eq!(app.form(), 3);
-        app.lead.auto_form = true;
-        app.planning.set_operation(Operation::Review);
-        app.follow_activity(Role::Verify);
-        assert_eq!(app.form(), 3);
+        app.follow_todo_role();
+        assert_eq!(app.form(), 2);
     }
 
     #[test]
-    fn running_request_evolves_with_its_plan_without_changing_owner_or_tools() {
+    fn running_request_adapts_once_without_changing_owner_tools_or_frozen_profile() {
         use crate::workspace::progress::Status;
         for (width, height) in [(120, 36), (60, 18)] {
             let mut app = app();
             app.width = width;
             app.height = height;
-            let steps = [
-                ("오류 위치 확인", "discover"),
-                ("원인 진단", "diagnose"),
-                ("수정", "implement"),
-                ("테스트", "verify"),
-            ];
-            for active in 0..steps.len() {
-                let list: Vec<_> = steps
-                    .iter()
-                    .enumerate()
-                    .map(|(index, (label, phase))| {
-                        (
-                            *label,
-                            *phase,
-                            match index.cmp(&active) {
-                                std::cmp::Ordering::Less => Status::Done,
-                                std::cmp::Ordering::Equal => Status::Active,
-                                std::cmp::Ordering::Greater => Status::Pending,
-                            },
-                        )
-                    })
-                    .collect();
-                app.workflows.progress = Some(role_plan(&list));
-                let operation = app.planning.operation;
-                app.follow_todo_role();
-                assert_eq!(app.form(), [1, 5, 3, 2][active]);
-                let transition = app.evolution.transition.unwrap();
-                assert_eq!(transition.to, app.form());
-                assert_eq!(transition.reason, Message::CoreEvolutionTodo);
-                assert_eq!(app.planning.operation, operation, "tools stay frozen");
-                assert!(app.pending_request.is_none() && app.planning.pending.is_none());
+            let owner = own_request(&mut app, "role-request");
+            let profile = crate::workspace::form_profiles::built_in(0);
+            app.planning.behavior_profile = Some(profile.clone());
+            for operation in [Operation::Implement, Operation::Plan] {
+                app.planning.operation = operation;
+                for role in ["discover", "diagnose", "implement", "verify", "discover"] {
+                    app.workflows.progress =
+                        Some(role_plan(&[("중립 단계", role, Status::Active)]));
+                    app.follow_todo_role();
+                    assert_eq!(app.form(), 1, "role oscillation stays on first adaptation");
+                    let transition = app.evolution.transition.unwrap();
+                    assert_eq!(transition.to, 1);
+                    assert_eq!(transition.reason, Message::CoreEvolutionTodo);
+                    assert_eq!(app.planning.work.as_ref(), Some(&owner));
+                    assert_eq!(app.planning.operation, operation, "tools stay frozen");
+                    assert_eq!(app.planning.behavior_profile.as_ref(), Some(&profile));
+                    assert!(app.pending_request.is_none() && app.planning.pending.is_none());
+                }
             }
-            // Explicit independent Review keeps its reviewer.
+            app.update(Event::Resize(60, 18));
+            app.follow_todo_role();
+            assert_eq!(app.form(), 1, "resize does not re-arm adaptation");
             app.planning.set_operation(Operation::Review);
             app.evolution.transition = None;
             app.follow_todo_role();
-            assert_eq!(app.form(), 2);
+            assert_eq!(app.form(), 1);
             assert!(app.evolution.transition.is_none());
+        }
+    }
+
+    #[test]
+    fn same_form_does_not_spend_adaptation_and_a_new_send_gets_its_own_bound() {
+        use crate::workspace::progress::{Role, Status};
+        let mut app = app();
+        app.set_form(1);
+        own_request(&mut app, "first-send");
+        app.workflows.progress = Some(role_plan(&[("첫 단계", "discover", Status::Active)]));
+        app.follow_todo_role();
+        app.workflows.progress = Some(role_plan(&[("다음 단계", "diagnose", Status::Active)]));
+        app.follow_todo_role();
+        assert_eq!(app.form(), 5, "same-form role did not consume adaptation");
+        app.workflows.progress = None;
+        app.follow_activity(Role::Verify);
+        assert_eq!(app.form(), 5);
+        app.planning.work = None;
+        app.planning.work_acquired = false;
+        app.workflows.progress = Some(role_plan(&[("새 요청", "implement", Status::Active)]));
+        app.input = "Continue this task.".into();
+        app.submit_request();
+        assert_eq!(app.form(), 3, "new explicit Send selects its adopted focus");
+        app.pending_request = None;
+        own_request(&mut app, "second-send");
+        app.workflows.progress = Some(role_plan(&[("검증", "verify", Status::Active)]));
+        app.follow_todo_role();
+        assert_eq!(
+            app.form(),
+            2,
+            "new Send still gets its first in-flight adaptation"
+        );
+        app.workflows.progress = None;
+        app.follow_activity(Role::Implement);
+        assert_eq!(app.form(), 2);
+        assert!(
+            app.evolution
+                .adapted_requests
+                .values()
+                .all(|request| request != "first-send"),
+            "released requests are pruned before the next adaptation"
+        );
+    }
+
+    #[test]
+    fn parked_live_owners_keep_their_latch_and_released_owners_are_pruned() {
+        use crate::workspace::progress::Role;
+        let mut app = app();
+        own_request(&mut app, "first-owner");
+        app.follow_activity(Role::Verify);
+        let mut second = app.planning.new_partner(app.attribution(), app.task_id);
+        second.work = Some(store::WorkClaim {
+            task_id: app.task_id,
+            owner: store::Attribution {
+                partner: 2,
+                ..app.attribution()
+            },
+            request_id: "second-owner".into(),
+            writing: true,
+        });
+        second.work_acquired = true;
+        let first = std::mem::replace(&mut app.planning, second);
+        app.cooperation.parked.insert(1, first);
+        app.lead.id = 2;
+        app.follow_activity(Role::Implement);
+        assert_eq!(app.form(), 3);
+        assert_eq!(app.evolution.adapted_requests.len(), 2);
+        let first = app.cooperation.parked.remove(&1).unwrap();
+        let second = std::mem::replace(&mut app.planning, first);
+        app.cooperation.parked.insert(2, second);
+        app.lead.id = 1;
+        app.follow_activity(Role::Verify);
+        assert_eq!(
+            app.form(),
+            3,
+            "returning to a parked owner does not re-arm it"
+        );
+        app.cooperation.parked.clear();
+        own_request(&mut app, "replacement-owner");
+        app.follow_activity(Role::Verify);
+        assert_eq!(app.form(), 2);
+        assert_eq!(app.evolution.adapted_requests.len(), 1);
+    }
+
+    #[test]
+    fn deliberate_form_choice_and_pin_are_not_blocked_or_spent_by_the_latch() {
+        use crate::workspace::progress::{Role, Status};
+        let mut app = app();
+        let owner = own_request(&mut app, "manual-request");
+        app.follow_activity(Role::Verify);
+        app.planning.work = None;
+        app.planning.work_acquired = false;
+        app.command("flareon");
+        assert_eq!((app.form(), app.lead.auto_form), (3, false));
+        app.planning.work = Some(owner);
+        app.planning.work_acquired = true;
+        app.workflows.progress = Some(role_plan(&[("진단", "diagnose", Status::Active)]));
+        app.follow_todo_role();
+        assert_eq!(app.form(), 3);
+        app.lead.auto_form = true;
+        app.follow_todo_role();
+        assert_eq!(
+            app.form(),
+            3,
+            "manual choice did not reset the spent request"
+        );
+        own_request(&mut app, "pinned-new-request");
+        app.lead.auto_form = false;
+        app.follow_todo_role();
+        app.lead.auto_form = true;
+        app.follow_todo_role();
+        assert_eq!(
+            app.form(),
+            5,
+            "pinned suppression did not spend a new request"
+        );
+    }
+
+    #[test]
+    fn absent_unacquired_cancelled_or_foreign_owners_cannot_adapt_or_spend() {
+        use crate::workspace::progress::{Role, Status};
+        for invalid in 0..5 {
+            let mut app = app();
+            let owner = own_request(&mut app, "owned-request");
+            match invalid {
+                0 => app.planning.work = None,
+                1 => app.planning.work_acquired = false,
+                2 => app.planning.cancelling = true,
+                3 => app.planning.work.as_mut().unwrap().task_id += 1,
+                _ => app.planning.work.as_mut().unwrap().owner.partner += 1,
+            }
+            app.follow_activity(Role::Implement);
+            app.workflows.progress = Some(role_plan(&[("진단", "diagnose", Status::Active)]));
+            app.follow_todo_role();
+            assert_eq!(app.form(), 0);
+            assert!(app.evolution.transition.is_none());
+            assert!(app.evolution.adapted_requests.is_empty());
+            app.planning.work = Some(owner);
+            app.planning.work_acquired = true;
+            app.planning.cancelling = false;
+            app.follow_todo_role();
+            assert_eq!(
+                app.form(),
+                5,
+                "invalid owner did not spend the actual owner's adaptation"
+            );
         }
     }
     #[test]

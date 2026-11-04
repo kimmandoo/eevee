@@ -348,7 +348,19 @@ fn run_with_handler(
     fixture: &Fixture,
     run: &mut Prepared,
     connection: &Connection,
+    answer: impl FnMut(u64, &Prompt, &SyncSender<Request>) + Send + 'static,
+) -> ((Outcome, String), Vec<Event>) {
+    run_with_command_handler(fixture, run, connection, answer, |_| {
+        panic!("Unexpected command execution in fixture")
+    })
+}
+
+fn run_with_command_handler(
+    fixture: &Fixture,
+    run: &mut Prepared,
+    connection: &Connection,
     mut answer: impl FnMut(u64, &Prompt, &SyncSender<Request>) + Send + 'static,
+    mut command_reply: impl FnMut(&str) -> Result<Value, String> + Send + 'static,
 ) -> ((Outcome, String), Vec<Event>) {
     let events = Arc::new(Mutex::new(VecDeque::new()));
     let (sender, incoming) = mpsc::sync_channel(8);
@@ -369,6 +381,9 @@ fn run_with_handler(
                 } = &event
                 {
                     answer(*generation, request, &sender);
+                }
+                if let Event::RunCommand { call_id, reply, .. } = &event {
+                    reply.send(command_reply(call_id)).unwrap();
                 }
                 let lookup = match &event {
                     Event::ToolArtifact {
@@ -1279,9 +1294,21 @@ fn denial_returns_real_tool_result_without_creating_reviewed_parents() {
         ]);
         let (mut run, connection) = fixture.prepare(protocol, &url);
         let ((outcome, message), events) = run_with_answers(&fixture, &mut run, &connection, false);
-        assert_eq!(outcome, Outcome::Completed, "{message}");
+        assert_eq!(outcome, Outcome::Incomplete, "{message}");
+        assert!(
+            message.starts_with("eevee_write_file: denied:"),
+            "{message}"
+        );
         assert!(!fixture.workspace.project.join("missing").exists());
         let requests = server.join().unwrap();
+        assert_eq!(requests.len(), 2, "Denied effect must not be replayed");
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| matches!(event, Event::Prompt { .. }))
+                .count(),
+            1
+        );
         assert!(requests[1].to_string().contains("denied"));
         assert!(
             events
@@ -3092,5 +3119,454 @@ fn gp10_account_wire_matrix() {
         println!(
             "GP10_ACCOUNT_WIRE model={model} actual_reviewed_write=true production_override=false"
         );
+    }
+}
+
+fn observed_command_exit(code: i32) -> Value {
+    json!({
+        "status":if code == 0 {"success"} else {"error"},
+        "path":"",
+        "message":"Actual fixture command observation; not task completion",
+        "run":{"state":if code == 0 {"Succeeded"} else {"Failed"},"tree":"OwnedTreeExited","exit_code":code,"cancelled":false},
+        "stdout":if code == 0 {"build succeeded"} else {""},
+        "stderr":if code == 0 {""} else {"compiler: unknown option --wrong-flag"},
+        "preview_truncated":false,
+        "output_unavailable":false,
+    })
+}
+
+#[test]
+fn failed_build_can_continue_to_corrected_command_and_reconciled_todo() {
+    for protocol in [
+        Protocol::Responses,
+        Protocol::ChatCompletions,
+        Protocol::Messages,
+        Protocol::Gemini,
+    ] {
+        let fixture = Fixture::new(&[]);
+        let (url, server) = peer(vec![
+            wire_tools(
+                protocol,
+                &[
+                    (
+                        "plan",
+                        "todo",
+                        json!({"operation":"init","label":"","steps":[{"label":"Build requested program","phase":"verify","status":"active"}]}),
+                    ),
+                    (
+                        "build-before",
+                        "eevee_run_command",
+                        json!({"cwd":"","command":{"Direct":{"program":"rustc","args":["main.rs","--wrong-flag"]}}}),
+                    ),
+                ],
+                "Building",
+            ),
+            wire(
+                protocol,
+                &[],
+                "The compiler rejected an option; the build is not finished.",
+            ),
+            wire_tools(
+                protocol,
+                &[
+                    (
+                        "build-corrected",
+                        "eevee_run_command",
+                        json!({"cwd":"","command":{"Direct":{"program":"rustc","args":["main.rs"]}}}),
+                    ),
+                    (
+                        "done",
+                        "todo",
+                        json!({"operation":"done","label":"Build requested program","steps":[]}),
+                    ),
+                ],
+                "Correcting the compiler option",
+            ),
+            wire(protocol, &[], "The corrected command succeeded."),
+        ]);
+        let (mut run, connection) = fixture.prepare(protocol, &url);
+        let ((outcome, message), events) = run_with_command_handler(
+            &fixture,
+            &mut run,
+            &connection,
+            |_, _, _| panic!("File approval is not part of this fixture"),
+            |id| {
+                Ok(observed_command_exit(if id == "build-before" {
+                    1
+                } else {
+                    0
+                }))
+            },
+        );
+        assert_eq!(outcome, Outcome::Completed, "{protocol:?}: {message}");
+        let requests = server.join().unwrap();
+        assert_eq!(requests.len(), 4);
+        assert!(requests[1].to_string().contains("compiler: unknown option"));
+        assert!(requests[2].to_string().contains("current todo claims"));
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| matches!(event, Event::RunCommand { .. }))
+                .count(),
+            2
+        );
+        let command_events = events
+            .iter()
+            .enumerate()
+            .filter_map(|(position, event)| {
+                if let Event::Item {
+                    item_id,
+                    kind: ItemKind::Tool,
+                    text,
+                    complete,
+                    ..
+                } = event
+                {
+                    let value: Value = serde_json::from_str(text).unwrap();
+                    (value["tool"] == "eevee_run_command")
+                        .then_some((position, item_id, *complete, value))
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(command_events.len(), 4);
+        for pair in command_events.chunks_exact(2) {
+            assert_eq!(pair[0].1, pair[1].1);
+            assert!(!pair[0].2 && pair[1].2);
+            assert_eq!(pair[0].3["status"], "running");
+            assert!(
+                events[pair[0].0 + 1..pair[1].0]
+                    .iter()
+                    .any(|event| matches!(event, Event::RunCommand { .. }))
+            );
+            assert!(pair[0].3["arguments"].get("command").is_none());
+        }
+        assert_eq!(command_events[1].3["status"], "failed");
+        assert_eq!(command_events[1].3["result"]["run"]["exit_code"], 1);
+        assert_eq!(command_events[3].3["status"], "completed");
+        assert_eq!(command_events[3].3["result"]["run"]["exit_code"], 0);
+    }
+}
+
+#[test]
+fn malformed_command_batch_is_correctable_without_becoming_a_denied_permission() {
+    for protocol in [
+        Protocol::Responses,
+        Protocol::ChatCompletions,
+        Protocol::Messages,
+        Protocol::Gemini,
+    ] {
+        let fixture = Fixture::new(&["must-not-land.txt"]);
+        let (url, server) = peer(vec![
+            wire_tools(
+                protocol,
+                &[(
+                    "plan",
+                    "todo",
+                    json!({"operation":"init","label":"","steps":[{"label":"Run requested check","phase":"verify","status":"active"}]}),
+                )],
+                "",
+            ),
+            wire_tools(
+                protocol,
+                &[
+                    ("malformed", "eevee_run_command", json!([])),
+                    (
+                        "valid-sibling",
+                        "eevee_write_file",
+                        json!({"path":"must-not-land.txt","content":"must not land"}),
+                    ),
+                ],
+                "",
+            ),
+            wire(
+                protocol,
+                &[],
+                "The malformed request did not run; the check remains unfinished.",
+            ),
+            wire_tools(
+                protocol,
+                &[
+                    (
+                        "corrected",
+                        "eevee_run_command",
+                        json!({"cwd":"","command":{"Direct":{"program":"rustc","args":["main.rs"]}}}),
+                    ),
+                    (
+                        "done",
+                        "todo",
+                        json!({"operation":"done","label":"Run requested check","steps":[]}),
+                    ),
+                ],
+                "",
+            ),
+            wire(protocol, &[], "The corrected check succeeded."),
+        ]);
+        let (mut run, connection) = fixture.prepare(protocol, &url);
+        let ((outcome, message), events) = run_with_command_handler(
+            &fixture,
+            &mut run,
+            &connection,
+            |_, _, _| panic!("The entire invalid batch must be refused before approval"),
+            |id| {
+                assert_eq!(id, "corrected");
+                Ok(observed_command_exit(0))
+            },
+        );
+        assert_eq!(outcome, Outcome::Completed, "{protocol:?}: {message}");
+        let requests = server.join().unwrap();
+        assert_eq!(requests.len(), 5);
+        assert!(requests[2].to_string().contains("correctable"));
+        assert!(requests[2].to_string().contains("not_started"));
+        assert!(requests[3].to_string().contains("current todo claims"));
+        assert!(!fixture.workspace.project.join("must-not-land.txt").exists());
+        let refused_tools = events
+            .iter()
+            .filter_map(|event| match event {
+                Event::Item {
+                    kind: ItemKind::Tool,
+                    text,
+                    complete: true,
+                    ..
+                } => Some(serde_json::from_str::<Value>(text).unwrap()),
+                _ => None,
+            })
+            .filter(|observation| observation["result"]["status"] == "refused")
+            .collect::<Vec<_>>();
+        assert_eq!(refused_tools.len(), 2);
+        assert!(
+            refused_tools
+                .iter()
+                .any(|tool| tool["tool"] == "eevee_run_command")
+        );
+        assert!(
+            refused_tools
+                .iter()
+                .any(|tool| tool["tool"] == "eevee_write_file")
+        );
+        let sibling = events
+            .iter()
+            .find_map(|event| match event {
+                Event::ToolArtifact { capture, .. } if capture.call_id == "valid-sibling" => {
+                    Some(serde_json::from_str::<Value>(&capture.text).unwrap())
+                }
+                _ => None,
+            })
+            .expect("The actual refused sibling result must remain retained");
+        assert_eq!(sibling["status"], "refused");
+        assert_eq!(sibling["correctable"], true);
+        assert_eq!(sibling["effect"], "not_started");
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| matches!(event, Event::RunCommand { .. }))
+                .count(),
+            1
+        );
+        assert!(
+            !events
+                .iter()
+                .any(|event| matches!(event, Event::Prompt { .. }))
+        );
+    }
+}
+
+#[test]
+fn denied_command_stays_incomplete_after_todo_reconciliation_and_unknown_never_continues() {
+    for unknown in [false, true] {
+        let fixture = Fixture::new(&[]);
+        let protocol = Protocol::Responses;
+        let mut responses = vec![wire_tools(
+            protocol,
+            &[
+                (
+                    "plan",
+                    "todo",
+                    json!({"operation":"init","label":"","steps":[{"label":"Run check","phase":"verify","status":"active"}]}),
+                ),
+                (
+                    "command",
+                    "eevee_run_command",
+                    json!({"cwd":"","command":{"Direct":{"program":"rustc","args":["main.rs"]}}}),
+                ),
+            ],
+            "",
+        )];
+        if !unknown {
+            responses.push(wire_tools(
+                protocol,
+                &[(
+                    "done",
+                    "todo",
+                    json!({"operation":"done","label":"Run check","steps":[]}),
+                )],
+                "",
+            ));
+            responses.push(wire(protocol, &[], "The command was denied."));
+        }
+        let expected = responses.len();
+        let (url, server) = peer(responses);
+        let (mut run, connection) = fixture.prepare(protocol, &url);
+        let ((outcome, message), events) = run_with_command_handler(
+            &fixture,
+            &mut run,
+            &connection,
+            |_, _, _| panic!("No file approvals expected"),
+            move |_| {
+                if unknown {
+                    let mut result = observed_command_exit(1);
+                    result["run"]["state"] = json!("OutcomeUnknown");
+                    result["run"]["tree"] = json!("OwnershipUnknown");
+                    Ok(result)
+                } else {
+                    Err("Exact command permission denied".into())
+                }
+            },
+        );
+        assert_eq!(
+            outcome,
+            if unknown {
+                Outcome::Unknown
+            } else {
+                Outcome::Incomplete
+            },
+            "{message}"
+        );
+        assert_eq!(server.join().unwrap().len(), expected);
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| matches!(event, Event::RunCommand { .. }))
+                .count(),
+            1
+        );
+        let final_tool = events
+            .iter()
+            .rev()
+            .find_map(|event| match event {
+                Event::Item {
+                    kind: ItemKind::Tool,
+                    text,
+                    complete: true,
+                    ..
+                } => {
+                    let value: Value = serde_json::from_str(text).unwrap();
+                    (value["tool"] == "eevee_run_command").then_some(value)
+                }
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(final_tool["status"], "failed");
+        assert_eq!(
+            final_tool["result"]["status"],
+            if unknown { "unknown" } else { "refused" }
+        );
+    }
+}
+
+#[test]
+fn tool_display_metadata_omits_private_arguments_and_bounds_actual_results() {
+    use crate::providers::writes::FileTool;
+    let tool = FileTool::parse(
+        "eevee_run_command",
+        json!({
+            "cwd":"",
+            "command":{"Direct":{"program":"private-executable","args":["private-argument"]}},
+        }),
+    )
+    .unwrap();
+    let mut result = observed_command_exit(1);
+    result["stderr"] = json!(format!(
+        "password=private-output\n{}\nfinal diagnostic",
+        "é".repeat(5000)
+    ));
+    let observation = tool_observation(&tool, Some(&result));
+    let raw = observation.to_string();
+    assert!(!raw.contains("private-executable"));
+    assert!(!raw.contains("private-argument"));
+    assert!(!raw.contains("private-output"));
+    assert!(
+        observation["result"]["stderr"]
+            .as_str()
+            .unwrap()
+            .ends_with("final diagnostic")
+    );
+    assert!(observation["result"]["stderr"].as_str().unwrap().len() <= 4096);
+    assert_eq!(observation["result"]["stderr_display_truncated"], true);
+    let write = FileTool::Write {
+        path: "src/main.rs".into(),
+        content: "private-source".into(),
+    };
+    let writing = tool_observation(&write, None);
+    assert_eq!(writing["arguments"]["path"], "src/main.rs");
+    assert!(!writing.to_string().contains("private-source"));
+    let mcp = FileTool::Mcp {
+        name: "private-tool-name".into(),
+        arguments: json!({"credential":"private-credential"}),
+    };
+    assert!(
+        !tool_observation(&mcp, None)
+            .to_string()
+            .contains("private-")
+    );
+}
+
+#[test]
+fn diagnostic_nonzero_command_does_not_invent_a_successful_rerun_obligation() {
+    for tracked in [false, true] {
+        let fixture = Fixture::new(&[]);
+        let protocol = Protocol::Responses;
+        let mut calls = Vec::new();
+        if tracked {
+            calls.push(("plan", "todo", json!({"operation":"init","label":"","steps":[{"label":"Diagnose compiler failure","phase":"diagnose","status":"active"}]})));
+        }
+        calls.push(("diagnostic", "eevee_run_command", json!({"cwd":"","command":{"Direct":{"program":"rustc","args":["main.rs","--wrong-flag"]}}})));
+        let mut responses = vec![wire_tools(protocol, &calls, "")];
+        if tracked {
+            responses.push(wire_tools(
+                protocol,
+                &[(
+                    "done",
+                    "todo",
+                    json!({"operation":"done","label":"Diagnose compiler failure","steps":[]}),
+                )],
+                "",
+            ));
+        }
+        responses.push(wire(protocol, &[], "The command failed because the supplied compiler option is unsupported. No successful build was observed."));
+        let expected = responses.len();
+        let (url, server) = peer(responses);
+        let (mut run, connection) = fixture.prepare(protocol, &url);
+        let ((outcome, message), events) = run_with_command_handler(
+            &fixture,
+            &mut run,
+            &connection,
+            |_, _, _| panic!("No file approvals expected"),
+            |_| Ok(observed_command_exit(1)),
+        );
+        assert_eq!(outcome, Outcome::Completed, "{message}");
+        assert_eq!(server.join().unwrap().len(), expected);
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| matches!(event, Event::RunCommand { .. }))
+                .count(),
+            1
+        );
+        assert!(events.iter().any(|event| match event {
+            Event::Item {
+                kind: ItemKind::Tool,
+                text,
+                complete: true,
+                ..
+            } => {
+                let value: Value = serde_json::from_str(text).unwrap();
+                value["tool"] == "eevee_run_command"
+                    && value["status"] == "failed"
+                    && value["result"]["run"]["exit_code"] == 1
+            }
+            _ => false,
+        }));
     }
 }

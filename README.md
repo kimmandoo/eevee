@@ -131,6 +131,14 @@ ev
 
 The folder you launch from is the project boundary. Git is optional; `/init` drafts an `AGENTS.md` guide if you want one.
 
+### Coding, running and downloading
+
+Ordinary coding requests expose file and command tools automatically; importing a tool catalog is optional. Ask for the whole result—for example, “create the program, build it, fix the real errors, run it and download the required resource.” Builds, programs and requested downloads use the same reviewed command runner. A download needs an installed downloader or runtime; fetching bytes does not authorize executing them.
+
+`/tools` shows the selected route's source, editing, execution and download capabilities, plus eligible selected MCP tools. Explicit Plan/Review disables file changes and commands; `/role-implement` restores ordinary coding for the next Send. MCP connections still require separate launch review and explicit tool selection.
+
+Tool calls stay in the response transcript, including on wide terminals: `[..]` awaits a result, `[ok]` reports success, `[!!]` reports failure, `[--]` reports a stopped request/tool and `[?]` an unknown result. A request ending without a tool result never becomes success or keeps running indefinitely; the note distinguishes a stopped request from proof of remote tool cancellation. Command rows retain the actual exit and bounded output; `/verbose` exposes complete retained detail. A definite compiler failure can be corrected within the same request while its todo remains actionable. Denied permissions and unknown effects never authorize replay.
+
 ### Sessions
 
 ```sh
@@ -164,6 +172,7 @@ Hidden or undersized reviews, skipped scope, typing, paste and held keys cannot 
 | Auto-approve this task / this session / stop | `/auto-approve` · `/auto-approve-session` · `/auto-approve-off` |
 | Reopen a deferred review | **Alt+A** or `/approvals` |
 | Read earlier output | wheel or **PgUp/PgDn**; **Alt+End** follows live output |
+| Inspect available tools / why execution is disabled | `/tools` |
 | See raw tool output and IDs | `/verbose` |
 | Run your own command | `/command-edit` → `/execute`; history in `/run` |
 | Restrict which files may be written | `/paths` (`[]` clears it) |
@@ -184,7 +193,7 @@ ev --help
 
 ## Meet the party
 
-In automatic mode (`[Auto]`), the form follows the role of the current step in the model's plan, and can change while a request runs. Pin a form with `/forms`; `/evolution-preview` shows the choice before you send. Forms are reversible and never grant permissions.
+In automatic mode (`[Auto]`), Send selects the adopted plan's focus role. The running request can adapt its form once, then stays visually stable until the next Send; changing todo roles still updates progress without repeatedly evolving. The selected behavior profile is frozen for that request, not stacked or replaced on each appearance change. Pin a form with `/forms`; `/evolution-preview` shows the next Send's choice. Forms are reversible and never grant permissions.
 
 | Form | Role | Good for |
 | --- | --- | --- |
@@ -219,7 +228,7 @@ The method you choose decides the transport: `ev` never silently falls back to a
 
 On remote and WSL sessions, prefer **Device login** for an OpenAI account. If a browser callback cannot reach the terminal, paste the complete redirect URL into the hidden prompt.
 
-**Claude Agent SDK sidecar (optional, Node 24+).** Install the pinned bridge from a checkout with `npm run setup --prefix sidecar` (or `npm ci --prefix sidecar` to reproduce the lockfile), then point `EEVEE_CLAUDE_SIDECAR` at the absolute path of `sidecar/main.ts`. Always replace the sidecar's source, policy and dependencies together. It uses Anthropic API, Console or Bedrock/Vertex credentials; claude.ai subscription logins cannot be reused.
+**Claude Agent SDK sidecar (optional, Node 24+).** Install the bridge from a matching checkout with `npm run setup --prefix sidecar` (or `npm ci --prefix sidecar` to reproduce the lockfile), then point `EEVEE_CLAUDE_SIDECAR` at the absolute path of `sidecar/main.ts`. Replace main, policy and dependencies together; outdated or mixed bridges are refused before model submission rather than silently keeping older tool/turn limits. It uses Anthropic API, Console or Bedrock/Vertex credentials; claude.ai subscription logins cannot be reused.
 
 Native HTTP requests the provider provably did not process (connection refused, HTTP 429/503/529) are resent unchanged up to three times with a visible, cancellable wait; `ev --retry off` turns this off. Nothing is resent once a response has started. Details, limits and per-route enforcement: [Agent compatibility](docs/AGENT_COMPATIBILITY.md).
 

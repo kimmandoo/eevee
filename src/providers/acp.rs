@@ -417,6 +417,7 @@ fn payload(
             "Answer the current request directly. Inspect actual admitted project files through fs/read_text_file when needed; plan only when asked. Do not implement or write files. Agent-owned tools remain external provider policy; this instruction is not an enforced sandbox."
         },
         "unsupported_host_observations":"eevee_structural_search and Eevee observation-cache guarantees are unsupported on this mediated ACP route. Do not emulate structural search with shell/network tools or label provider-native search as Eevee structural/cache evidence.",
+        "execution_policy": (input.operation == Operation::Implement).then_some(super::commands::EXECUTION_POLICY),
         "client_write_restrictions":input.edit_paths,
         "task":{"id":input.task.id,"revision":input.task.revision,"goal":input.task.goal,"acceptance_criteria":input.task.criteria,"next_action":crate::workspace::handoff::without_local_provenance(&input.task.next_action)},
         "project_context": super::project_context(files.ok_or("ACP project scope missing")?, input.agent),

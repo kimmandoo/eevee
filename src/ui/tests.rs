@@ -3187,7 +3187,7 @@ fn tool_transcript_app(width: u16, height: u16) -> App {
 }
 
 #[test]
-fn tool_calls_render_as_readable_rows_inline_or_in_the_side_panel() {
+fn tool_calls_keep_output_inline_with_an_optional_side_index() {
     use ratatui::{Terminal, backend::TestBackend};
     let config = home_config();
     for (width, height, docked) in [(120, 36, true), (100, 30, false), (60, 18, false)] {
@@ -3211,6 +3211,8 @@ fn tool_calls_render_as_readable_rows_inline_or_in_the_side_panel() {
             assert!(text.contains("[ok] Read parser.rs"), "{text}");
             assert!(text.contains("[!!] $ cargo test -q"), "{text}");
             assert!(!text.contains("Tool output"), "{text}");
+            assert!(text.contains("fn parse() {}"), "{text}");
+            assert!(text.contains("test result: FAILED. 1 failed"), "{text}");
         } else {
             assert!(!text.contains("TOOLS"), "{width}x{height}: {text}");
             assert!(
@@ -3232,4 +3234,77 @@ fn tool_calls_render_as_readable_rows_inline_or_in_the_side_panel() {
         !text.contains("TOOLS") && text.contains("Cwd: /workspace"),
         "{text}"
     );
+}
+
+#[test]
+fn native_tool_targets_and_honest_states_are_visible_in_compact_and_wide_layouts() {
+    use ratatui::{Terminal, backend::TestBackend};
+    let config = home_config();
+    for (width, height) in [(60, 18), (120, 36)] {
+        for (state, result, marker, note) in [
+            (
+                "running",
+                serde_json::Value::Null,
+                "[..]",
+                "awaiting result",
+            ),
+            (
+                "completed",
+                serde_json::json!({"status":"success","message":"File observed"}),
+                "[ok]",
+                "",
+            ),
+            (
+                "failed",
+                serde_json::json!({"status":"error","message":"Read refused"}),
+                "[!!]",
+                "failed",
+            ),
+            (
+                "completed",
+                serde_json::json!({"status":"unknown"}),
+                "[?]",
+                "outcome unknown",
+            ),
+            ("cancelled", serde_json::Value::Null, "[--]", "stopped"),
+            (
+                "completed",
+                serde_json::Value::Null,
+                "[?]",
+                "outcome unknown",
+            ),
+        ] {
+            let mut app = tool_transcript_app(width, height);
+            let mut tool = app.planning.items.remove(1);
+            tool.text = serde_json::json!({
+                "tool":"eevee_read_file","arguments":{"path":"src/parser.rs","content":"PRIVATE ARGUMENT"},
+                "result":result,"status":state
+            }).to_string();
+            tool.complete = state != "running";
+            app.planning.items.clear();
+            app.planning.items.push(tool);
+            let mut artwork = Artwork::load(&config);
+            let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+            terminal
+                .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
+                .unwrap();
+            let text = screen_text(&terminal);
+            assert!(
+                text.contains(&format!("{marker} Read")),
+                "{width}x{height} {state}: {text}"
+            );
+            assert!(
+                text.contains("src/parser.rs"),
+                "{width}x{height} {state}: {text}"
+            );
+            assert!(text.contains(note), "{width}x{height} {state}: {text}");
+            assert!(
+                !text.contains("PRIVATE ARGUMENT") && !text.contains("eevee_read_file"),
+                "{text}"
+            );
+            if marker != "[ok]" {
+                assert!(!text.contains("[ok]"), "{text}");
+            }
+        }
+    }
 }

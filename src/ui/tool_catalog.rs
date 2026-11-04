@@ -29,6 +29,99 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &App, config: &Config, 
     let mut complete_review = false;
     let mut review_scroll = 0u16;
     match state.mode {
+        Mode::Overview => {
+            let agent = app.planning.agent;
+            let writing = app.planning.operation == crate::providers::Operation::Implement;
+            lines.push(Line::styled(
+                format!(
+                    "{} · {:?} · next Send",
+                    agent.label(),
+                    app.planning.operation
+                ),
+                paint.accent,
+            ));
+            lines.push(Line::from("Built-in tools need no catalog import."));
+            if agent.is_direct() || agent == Agent::Codex {
+                lines.push(Line::from(
+                    "Source: eevee_list_files · eevee_read_file · eevee_structural_search (Rust)",
+                ));
+                lines.push(Line::from(
+                    "Progress: todo · retained output: eevee_artifact_list/read/search/locations",
+                ));
+                if writing {
+                    lines.push(Line::from(
+                        "Files: exact create / write / edit / delete / rename",
+                    ));
+                    lines.push(Line::from(
+                        "Build / test / run / download: eevee_run_command",
+                    ));
+                }
+            } else if agent == Agent::Claude {
+                lines.push(Line::from(
+                    "Source: host discovery · Read / Glob / Grep; progress: TodoWrite",
+                ));
+                if writing {
+                    lines.push(Line::from(
+                        "Files: Write / Edit · run / download: mcp__eevee_command__run_command",
+                    ));
+                }
+            } else {
+                lines.push(Line::from("Source: ACP fs/read_text_file · provider plan and tools depend on the connected agent."));
+                if writing {
+                    lines.push(Line::from("Files: ACP fs/write_text_file · run / download: terminal/create → wait_for_exit/output"));
+                }
+            }
+            if writing {
+                lines.push(Line::from("Downloads use an installed downloader/runtime through the same reviewed command tool. Downloading does not authorize running fetched code."));
+            }
+            if !writing {
+                lines.push(Line::styled(
+                    "Builds and file changes are disabled in explicit Plan/Review. /role-implement restores ordinary coding on the next Send.",
+                    paint.accent,
+                ));
+            }
+            lines.push(Line::from("File changes and commands still need exact approval or your explicit approval rule. /approvals shows waiting calls."));
+            lines.push(Line::from(""));
+            if agent.is_direct() {
+                let connected = app
+                    .mcp
+                    .tools
+                    .iter()
+                    .filter(|tool| tool.project == app.cwd)
+                    .count();
+                let selected = app
+                    .mcp
+                    .tools
+                    .iter()
+                    .filter(|tool| {
+                        tool.project == app.cwd
+                            && app.mcp.selected.contains(&tool.wire_name())
+                            && (writing || tool.user_read)
+                    })
+                    .count();
+                lines.push(Line::from(format!(
+                    "MCP: {connected} connected tools · {selected} eligible selected tools."
+                )));
+                lines.push(Line::from("/mcp connect <server> reviews launch; /mcp select <server> <tool> exposes its schema. Selection never grants a call."));
+            } else {
+                lines.push(Line::from("User-registered MCP tools are native-route only; this route's built-ins are independent of /mcp."));
+            }
+            lines.push(Line::from(""));
+            lines.push(Line::from(format!(
+                "Optional catalog aliases: {} stored · {} selected. c opens the catalog; Tab searches it.",
+                state.document.as_ref().map_or(0, |doc| doc.manifest.tools.len()),
+                state.selected.len(),
+            )));
+            lines.push(Line::from("Availability is host configuration, not proof that the model has used a tool. Calls and real results appear in /response; /verbose retains details."));
+            let total = Paragraph::new(lines.clone())
+                .wrap(Wrap { trim: false })
+                .line_count(inner.width);
+            review_scroll = state.scroll.min(
+                total
+                    .saturating_sub(usize::from(content_height))
+                    .min(u16::MAX as usize) as u16,
+            );
+        }
         Mode::Path => {
             lines.push(Line::from(paint.hint(Message::ToolCatalogPath)));
             lines.push(Line::from(
@@ -180,6 +273,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &App, config: &Config, 
         );
     }
     let hint = match state.mode {
+        Mode::Overview => Message::ToolCatalogOverviewHint,
         Mode::Path => Message::ToolCatalogPathHint,
         Mode::Search => Message::ToolCatalogSearchHint,
         Mode::Browse => Message::ToolCatalogBrowseHint,

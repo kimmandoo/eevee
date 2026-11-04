@@ -318,7 +318,7 @@ impl App {
                     State::summary,
                 ),
             if self.lead.auto_form {
-                "Auto: provider updates are adopted automatically; the current step's role evolves the form, even while work runs."
+                "Auto: provider progress is adopted automatically. Send selects the focus role; one in-flight adaptation is allowed, then appearance stays stable until the next Send."
             } else {
                 "Manual form: inspect provider updates, then /todo-adopt. Your own edits apply immediately."
             }

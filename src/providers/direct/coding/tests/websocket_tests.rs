@@ -331,6 +331,13 @@ fn native_websocket_ambient_tls_roots_apply_only_to_secure_transport() {
 #[test]
 fn native_websocket_retains_one_handshake_with_frozen_initial_and_actual_anchored_tool_deltas() {
     let mut fixture = fixture(&["first.txt", "nested/日本語.txt"]);
+    const PROFILE: &str = "FROZEN_WORKING_PREFERENCE: Prefer concise evidence-backed explanations.";
+    fixture.input.behavior_profile = Some(crate::workspace::form_profiles::Packet {
+        schema_version: 1,
+        instructions: PROFILE.into(),
+        preferred_checks: Vec::new(),
+        extra: Default::default(),
+    });
     let (url, server) = websocket_peer(|socket| {
         let first = packet(socket);
         round(
@@ -354,6 +361,12 @@ fn native_websocket_retains_one_handshake_with_frozen_initial_and_actual_anchore
     let (mut run, connection) = fixture.prepare(Protocol::Responses, &url);
     let frozen = run.payload.clone();
     let prior = run.input.conversation.clone().unwrap();
+    fixture
+        .input
+        .behavior_profile
+        .as_mut()
+        .unwrap()
+        .instructions = "LATER_WORKING_PREFERENCE: Prefer detailed source maps.".into();
     let partner = fixture.input.task.lead_partner;
     let draft = &mut fixture
         .input
@@ -422,6 +435,21 @@ fn native_websocket_retains_one_handshake_with_frozen_initial_and_actual_anchore
     assert!(initial.get("previous_response_id").is_none());
     let second: Value = serde_json::from_str(&trace.packets[1]).unwrap();
     let third: Value = serde_json::from_str(&trace.packets[2]).unwrap();
+    for body in [&initial, &second, &third] {
+        let serialized = body.to_string();
+        assert_eq!(serialized.matches(PROFILE).count(), 1);
+        assert_eq!(
+            body["instructions"]
+                .as_str()
+                .unwrap()
+                .matches(crate::workspace::form_profiles::POLICY)
+                .count(),
+            1,
+            "Current-profile policy must remain one frozen instruction, not a role stack"
+        );
+        assert!(!serialized.contains("LATER_WORKING_PREFERENCE"));
+        assert!(!body["input"].to_string().contains("WORKING_PREFERENCE"));
+    }
     only_output(
         &second,
         "response-first",
@@ -470,6 +498,7 @@ fn native_websocket_retains_one_handshake_with_frozen_initial_and_actual_anchore
             || message.text.contains("function_call")
             || message.text.contains("call-first")
             || message.text.contains("first bytes")
+            || message.text.contains("WORKING_PREFERENCE")
     }));
 }
 
@@ -491,9 +520,14 @@ fn native_websocket_denied_effect_sends_only_the_actual_denial() {
     });
     let (mut run, connection) = fixture.prepare(Protocol::Responses, &url);
     let ((outcome, message), events) = run_with_answers(&fixture, &mut run, &connection, false);
-    assert_eq!(outcome, Outcome::Completed, "{message}");
+    assert_eq!(outcome, Outcome::Incomplete, "{message}");
+    assert!(
+        message.starts_with("eevee_write_file: denied:"),
+        "{message}"
+    );
     assert!(!fixture.workspace.project.join("not-created.txt").exists());
     let trace = server.join().unwrap();
+    assert_eq!(trace.packets.len(), 2, "Denied effect must not be replayed");
     only_output(
         &serde_json::from_str(&trace.packets[1]).unwrap(),
         "response-denied",
@@ -1502,7 +1536,7 @@ fn delegated_child_websocket_refuses_write_and_continues_on_its_owned_response_c
             socket,
             "child-final",
             &[],
-            "Read-only child refused an effect and completed",
+            "Read-only child refused an unauthorized effect",
         );
         closed_without_replay(socket);
         vec![first, second]
@@ -1510,7 +1544,11 @@ fn delegated_child_websocket_refuses_write_and_continues_on_its_owned_response_c
     let (mut run, connection) =
         super::delegation_tests::child_run(&fixture, Protocol::Responses, &url, &[""]);
     let ((outcome, message), events) = run_with_answers(&fixture, &mut run, &connection, true);
-    assert_eq!(outcome, Outcome::Completed, "{message}");
+    assert_eq!(outcome, Outcome::Incomplete, "{message}");
+    assert!(
+        message.starts_with("eevee_write_file: refused:"),
+        "{message}"
+    );
     assert!(
         !fixture
             .workspace

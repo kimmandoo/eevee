@@ -50,6 +50,12 @@ REQUESTS = {
     'ko': ('계속해 주세요.', '계속해 주세요.', '계속해 주세요.'),
 }
 MALFORMED = 'Malformed progress marker'
+PROFILE_MARKER = 'FROZEN_WORKING_PREFERENCE_'
+
+
+def profile_packet(form):
+    return {'schema_version': 1,
+            'instructions': PROFILE_MARKER + str(form) + ': Prefer concise evidence-backed explanations.'}
 
 
 def record(path, **value):
@@ -192,6 +198,7 @@ const version=JSON.parse(readFileSync(new URL('./package.json',import.meta.url))
 function log(value){appendFileSync(process.env.EV_PROGRESS_LOG,JSON.stringify(value)+'\n');}
 export function query({prompt,options}) {
   const session_id=options.resume??randomUUID();
+  log({kind:'query-created',systemPrompt:options.systemPrompt,resume:options.resume??null});
   let interrupted=false;
   return {
     accountInfo:async()=>({apiProvider:'firstParty'}),
@@ -250,6 +257,14 @@ class ProgressJourney(SurfaceJourney):
         self.progress_route = route
         self.control, self.log = root / 'control', root / 'peer.jsonl'
         self.control.mkdir()
+        # Startup settings are fixture input, not mutations of the running app.
+        # Distinct preferences make selecting a later appearance's profile
+        # observable on the actual wire, even when both preferences are neutral.
+        data = root / 'data'
+        data.mkdir()
+        save(data / 'form-profiles.json',
+             {'projects': {str((root / 'project').resolve()):
+                           {'profiles': {str(form): profile_packet(form) for form in range(9)}}}})
         self.log.touch()
         original = response_smoke.SurfaceSession
 
@@ -311,12 +326,71 @@ class ProgressJourney(SurfaceJourney):
     def progress(self):
         return self.state()['tasks'][0]['workflows'].get('progress', {})
 
+    def wire_records(self):
+        # A peer may still be appending a large UTF-8 packet. Only newline-
+        # committed records are observable; malformed complete records fail.
+        return [json.loads(line) for line in self.log.read_bytes().split(b'\n')[:-1]
+                if line.strip()]
+
     def starts(self):
-        # The peer may still be appending a large UTF-8 packet. Only newline-
-        # committed records are observable; malformed complete records still fail.
-        rows = (json.loads(line) for line in self.log.read_bytes().split(b'\n')[:-1]
-                if line.strip())
-        return [row for row in rows if row.get('kind') == 'started']
+        return [row for row in self.wire_records() if row.get('kind') == 'started']
+
+    def frozen_profile_wire(self, label, form, posts, records):
+        """Inspect consumer packets, not a reconstructed expected request."""
+        expected = profile_packet(form)
+        if self.progress_route == 'native':
+            bodies = [row['body'] for row in self.peer.snapshot('POST')[posts:]]
+            assert len(bodies) > 1, 'profile regression needs actual tool continuation'
+            policy = bodies[0]['instructions']
+            assert json.loads(policy.split('UNTRUSTED CURRENT TASK/SOURCE DATA (JSON):\n', 1)[1])['behavior_profile'] == expected
+            fixed = {key: value for key, value in bodies[0].items() if key != 'input'}
+            for index, body in enumerate(bodies):
+                assert {key: value for key, value in body.items() if key != 'input'} == fixed, 'running progress changed frozen request options'
+                assert json.dumps(body).count(PROFILE_MARKER) == 1, 'profile was appended inside the tool transcript'
+                assert not any(item.get('role') in ('system', 'developer') for item in body['input']), 'tool round appended role policy'
+                if index:
+                    previous = bodies[index - 1]['input']
+                    assert body['input'][:len(previous)] == previous, 'tool continuation rewrote prior input'
+                    assert len(body['input']) > len(previous), 'continuation did not add actual transcript'
+            evidence = {'http_rounds': len(bodies), 'fixed_instruction_bytes': len(policy.encode()),
+                        'input_items': [len(body['input']) for body in bodies],
+                        'transport': 'stateless HTTP repeats the same instruction field; no conversation copies'}
+        else:
+            rows = self.wire_records()[records:]
+            starts = [row for row in rows if row.get('kind') == 'started']
+            assert len(starts) == 1, 'running form/progress dispatched another logical request'
+            if self.progress_route == 'sdk':
+                queries = [row for row in rows if row.get('kind') == 'query-created']
+                assert len(queries) == 1, 'running form/progress created another SDK query'
+                assert PROFILE_MARKER not in json.dumps(queries[0]['systemPrompt']), 'profile leaked into static SDK system policy'
+                text = starts[0]['submission']['message']['content']
+                assert isinstance(text, str), text
+            else:
+                method = 'turn/start' if self.progress_route == 'codex' else 'session/prompt'
+                client = [row['packet'] for row in rows if row.get('direction') == 'client']
+                prompts = [packet for packet in client if packet.get('method') == method]
+                assert len(prompts) == 1, 'running form/progress appended another provider prompt'
+                setup = [packet for packet in client if packet.get('method') in
+                         ('thread/start', 'thread/resume', 'session/new', 'session/load')]
+                assert len(setup) == 1, 'running form/progress reopened the provider session'
+                assert all(PROFILE_MARKER not in json.dumps(packet['params'].get('developerInstructions', ''))
+                           for packet in setup), 'profile leaked into thread developer policy'
+                field = 'input' if self.progress_route == 'codex' else 'prompt'
+                text = '\n'.join(block.get('text', '') for block in prompts[0]['params'][field])
+            envelope = json.loads(text)
+            assert envelope['behavior_profile'] == expected
+            policy = envelope['behavior_profile_policy']
+            assert isinstance(policy, str) and policy
+            assert text.count(json.dumps(policy, ensure_ascii=False)[1:-1]) == 1, 'current-profile policy was duplicated'
+            if hasattr(self, 'wire_profile_policy'):
+                assert policy == self.wire_profile_policy, 'progress or next Send changed the profile policy'
+            self.wire_profile_policy = policy
+            assert text.count(PROFILE_MARKER) == 1, 'selected payload contains multiple profiles'
+            evidence = {'logical_prompts': 1, 'profile_instruction_bytes': len(expected['instructions'].encode()),
+                        'transport': self.progress_route, 'behavior_profile_policy': policy,
+                        'history_limit': 'resumed provider-owned history may retain earlier explicit Send payloads'}
+        save(self.output / (label + '-frozen-profile-wire.json'), evidence)
+        self.evidence.append({'action': 'frozen-profile-through-progress', **evidence})
 
     def dispatch_count(self):
         return len(self.peer.snapshot('POST')) if self.progress_route == 'native' else len(self.starts())
@@ -398,6 +472,7 @@ class ProgressJourney(SurfaceJourney):
                          if valid and focus and partner_before['auto_form']
                          and prediction['operation'] != 'review' else prediction['form'])
         posts = len(self.peer.snapshot('POST'))
+        wire_records = len(self.wire_records())
         # These peers report progress only; they do not perform the unfinished
         # work. A native non-Plan request must try one forward reminder, then
         # stop incomplete on the deliberately unchanged second answer.
@@ -516,6 +591,7 @@ class ProgressJourney(SurfaceJourney):
             wire = self.starts()[-1]
             assert wire['operation'].lower() == prediction['operation'], (wire, prediction)
             save(self.output / (label + '-wire.json'), wire)
+        self.frozen_profile_wire(label, prediction['form'], posts, wire_records)
         assert state['executions'] == 0, 'provider progress fabricated local test execution'
         self.session.command('response')
         self.session.send(ESC + '[1;3F')
@@ -548,6 +624,7 @@ class ProgressJourney(SurfaceJourney):
         ]
         gate = Gate()
         answer = 'TODO_PRESENTATION_FINAL: provider claims are not verification.'
+        wire_records = len(self.wire_records())
         posts = len(self.peer.snapshot('POST'))
         for index, arguments_value in enumerate(arguments):
             self.peer.plans.put(response_plan(self.peer, calls=[{
@@ -558,6 +635,7 @@ class ProgressJourney(SurfaceJourney):
         # The unchanged final answer stops after one owned-work reminder.
         self.peer.plans.put(response_plan(self.peer, text=answer))
         self.write_request(request)
+        prediction = self.preview(request, 'presentation-frozen-profile')
         self.session.send('\r', settle=False)
         approved = False
 
@@ -604,6 +682,7 @@ class ProgressJourney(SurfaceJourney):
         assert values['presentation-7']['status'] == 'refused', values
         assert all(value['status'] == 'success' for key, value in values.items() if key != 'presentation-7'), values
         save(self.output / 'presentation-native-tool-results.json', values)
+        self.frozen_profile_wire('presentation', prediction['form'], posts, wire_records)
         self.session.command('verbose')
         self.session.command('response')
         self.session.send(ESC + '[1;3H')
