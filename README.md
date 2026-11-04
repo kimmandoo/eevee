@@ -228,6 +228,8 @@ The method you choose decides the transport: `ev` never silently falls back to a
 
 On remote and WSL sessions, prefer **Device login** for an OpenAI account. If a browser callback cannot reach the terminal, paste the complete redirect URL into the hidden prompt.
 
+On Windows, a safely protected user home may be owned by `SYSTEM` or Administrators; the app's credential directory and files still require current-user ownership and private access. A successful provider sign-in cannot repair an unsafe local path. If a storage safety check refuses, use the selected provider's setup to choose **Session only** with a newly entered credential rather than repeatedly signing in or blindly changing ACLs. Eevee never changes existing home/provider permissions for you.
+
 **Claude Agent SDK sidecar (optional, Node 24+).** Install the bridge from a matching checkout with `npm run setup --prefix sidecar` (or `npm ci --prefix sidecar` to reproduce the lockfile), then point `EEVEE_CLAUDE_SIDECAR` at the absolute path of `sidecar/main.ts`. Replace main, policy and dependencies together; outdated or mixed bridges are refused before model submission rather than silently keeping older tool/turn limits. It uses Anthropic API, Console or Bedrock/Vertex credentials; claude.ai subscription logins cannot be reused.
 
 Native HTTP requests the provider provably did not process (connection refused, HTTP 429/503/529) are resent unchanged up to three times with a visible, cancellable wait; `ev --retry off` turns this off. Nothing is resent once a response has started. Details, limits and per-route enforcement: [Agent compatibility](docs/AGENT_COMPATIBILITY.md).

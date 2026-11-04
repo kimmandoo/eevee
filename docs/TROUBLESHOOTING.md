@@ -1,5 +1,33 @@
 # Troubleshooting
 
+### [2026-11-04] Windows credential acceptance needed DACL-only fixture setup and settled privacy reads
+
+- **Context / Symptom:** A fixture's copied-descriptor `Set-Acl` requested missing `SeSecurityPrivilege`. After functional save/replacement/session/restart checks succeeded, scanning the live data directory raised `PermissionError` on Windows ownership locking.
+- **Root Cause:** Fixture setup unintentionally carried security sections beyond the DACL; Windows byte-range writer locks deliberately reject reads through a second handle (`store/snapshot.rs`). Neither condition was a reason to relax production ACLs or locks.
+- **Solution:** Applied a fresh `DirectorySecurity` DACL through `.NET Directory.SetAccessControl` only to newly created empty fixture roots and verified unchanged ownership. No elevation/SACL change/global permission repair. Scanned the entire coherent store after a clean writer exit without ignoring unreadable files. The native bridge explicitly uses UTF-8 for subprocess diagnostics.
+- **Verification:** Actual Windows36 credential regressions and all nine ConPTY credential UI journeys passed; the matching Linux nine journeys passed. All positive flows authenticated loopback metadata from the expected saved/session source; no inference or real account was used.
+
+### [2026-11-04] Standard OWNER RIGHTS ACLs were mistaken for another credential reader
+
+- **Context / Symptom:** After correcting home ownership and using known-private fixture roots, actual Windows connection UI still refused every native provider's save. Controlled metadata of a new Python3.13 `mkdir(mode=0o700)` directory showed a current-user owner with only OWNER RIGHTS, SYSTEM and Administrators full-control ACEs.
+- **Root Cause:** `check_acl` recognized explicit current-user/SYSTEM/Administrators SIDs but treated OWNER RIGHTS (`S-1-3-4`) as an untrusted independent principal. That special SID instead applies to the object's actual owner, whose identity had already passed the stricter private/import/home ownership policy.
+- **Solution:** Accepted OWNER RIGHTS grants only after actual-owner admission; did not add the special SID to valid owners, broaden account/group trust, rewrite ACLs or relax foreign credential reads. Added an actual owner-bound private-file read that retained its identity and sole OWNER RIGHTS grant, alongside the existing rejected-owner/broad-grant cases.
+- **Prevention / Reference:** Evaluate owner-relative ACE semantics, not only account-name equality. Standard private ACLs must not require user permission repair or another login.
+
+### [2026-11-04] Successful Windows login was refused by the home ownership check
+
+- **Context / Symptom:** The user reported normal completed login followed by `Selected provider file failed Windows identity/ACL safety checks...`. The same persistent native credential path serves ChatGPT, OpenAI, Anthropic, Google and compatible APIs. Issuer success and safe local persistence are separate; selected own/session precedence and cache invalidation were already correct.
+- **Root Cause:** `private_directory` treated the existing Windows user-home anchor as an app-created credential object and required its owner to equal TokenUser. Read-only, nonsecret metadata on the reachable Windows host showed a legitimate SYSTEM-owned profile; its other grants were read/execute/traverse, not untrusted modification. The old check rejected ownership before considering those safe ACLs and displayed misleading provider-file/ChatGPT-only advice.
+- **Solution:** Allowed current-user/SYSTEM/Administrators ownership for the anchored existing home only, retaining identical ACL/no-follow/resolved-path checks. Private app directories/leaves still require the current user and private credential access; no existing ACL is repaired, unsafe destination overwritten, source fallback or session downgrade introduced. Distinguished home failures and made source/storage diagnostics provider-neutral. Ported real account replacement and five-provider persistence/restart regressions to Windows; added unsafe-home no-store refusal and actual UI acceptance with synthetic credentials.
+- **Prevention / Reference:** New Windows objects keep protected user-private ACLs. Existing provider imports keep their separate elevated-owner policy; external Codex/SDK/ACP credentials are not read by this checker. Available native Windows Python/ConPTY and the Windows GNU Rust target allow actual execution without real provider credentials or changing user-global settings.
+
+### [2026-11-04] Ordinary Windows TEMP inheritance was not a safe login-home fixture
+
+- **Context / Symptom:** The first actual Windows execution passed33 credential/config regressions but the two newly portable saved-login tests refused the synthetic home. Metadata showed the host's shared TEMP descendants inherited multiple unrelated account modify grants, unlike its safely protected profile.
+- **Root Cause:** Porting a Unix fixture with bare `create_dir` retained those unsafe Windows ACLs. The production rejection was correct; accepting them would weaken the requested security boundary.
+- **Solution:** Constructed only new test homes with a protected current-user DACL while leaving the owner unspecified, preserving the token's normal default owner (including elevated Administrators) instead of forcing user ownership. No real HOME/TEMP/provider ACL was altered or production check relaxed. Native Python lacked pyte; reused the existing pure-Python test packages through an explicit child import path instead of installing globally.
+- **Prevention / Reference:** Distinguish default ownership from inherited permissions. Positive fixtures need known safe ACLs; the separate unsafe-home regression must still fail before creating `.eevee-connections`.
+
 ### [2026-11-04] Windows native artifact tests exhausted fixture-only wait guards
 
 - **Context / Symptom:** Exact-source native41783485275 passed Check/Linux/macOS but refused qualification on Windows:1968 passed/three failed/two ignored. `failed_build_can_continue_to_corrected_command_and_reconciled_todo` and `gp10_account_wire_matrix` reported `Artifact fixture storage acknowledgment timed out`; `call_limit_is_aggregate_and_refuses_whole_over_budget_batch` lost the next peer round and observed Unknown instead of the required atomic-budget Failed. No release tag was created.

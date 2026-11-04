@@ -15,7 +15,7 @@ use windows_sys::Win32::Security::{
     ACE_HEADER, ACL, DACL_SECURITY_INFORMATION, EqualSid, GetAce, GetTokenInformation,
     INHERIT_ONLY_ACE, IsValidAcl, IsValidSid, IsWellKnownSid, OWNER_SECURITY_INFORMATION,
     PSECURITY_DESCRIPTOR, PSID, TOKEN_QUERY, TOKEN_USER, TokenUser as TOKEN_USER_CLASS,
-    WinBuiltinAdministratorsSid, WinLocalSystemSid,
+    WinBuiltinAdministratorsSid, WinCreatorOwnerRightsSid, WinLocalSystemSid,
 };
 use windows_sys::Win32::Storage::FileSystem::{
     BY_HANDLE_FILE_INFORMATION, FILE_ATTRIBUTE_DEVICE, FILE_ATTRIBUTE_DIRECTORY,
@@ -30,7 +30,7 @@ use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken}
 // unsupported: object-specific and conditional grants cannot be treated as simple SIDs.
 const ALLOW_ACE: u8 = 0;
 const DENY_ACE: u8 = 1;
-const ERROR: &str = "Selected provider file failed Windows identity/ACL safety checks: require a regular file with a trusted owner, private credential access and an unchanged resolved path. For account access use /connect chatgpt for browser/device sign-in or explicitly load a safe CLI source. No provider file or permissions were changed.";
+const ERROR: &str = "Windows connection path failed identity/ACL safety checks: require the expected non-reparse object, trusted ownership, private credential access and an unchanged resolved path. A successful login does not repair unsafe local storage. Use the selected provider's setup to enter a new credential with session-only storage if private storage is unavailable. No source file or permissions were changed.";
 
 struct SecurityDescriptor(PSECURITY_DESCRIPTOR);
 
@@ -123,7 +123,7 @@ fn trusted_acl(handle: HANDLE, credential: bool) -> Result<(), String> {
 fn trusted_acl_with_owner(
     handle: HANDLE,
     credential: bool,
-    provider_owned: bool,
+    trusted_system_owner: bool,
 ) -> Result<(), String> {
     let user = TokenUser::current()?;
     let mut owner = null_mut();
@@ -146,7 +146,7 @@ fn trusted_acl_with_owner(
         || owner.is_null()
         || acl.is_null()
         || unsafe { IsValidSid(owner) } == 0
-        || !trusted_owner(owner, user.sid(), provider_owned)
+        || !trusted_owner(owner, user.sid(), trusted_system_owner)
         || unsafe { IsValidAcl(acl) } == 0
     {
         return Err(ERROR.into());
@@ -155,13 +155,13 @@ fn trusted_acl_with_owner(
     check_acl(acl, user.sid(), credential)
 }
 
-fn trusted_owner(owner: PSID, user: PSID, provider_owned: bool) -> bool {
-    // Elevated provider logins may create an Administrators-owned file. Those
-    // principals already have trusted ACL grants; accepting their ownership does
-    // not admit another user's SID or any additional read/write grants.
+fn trusted_owner(owner: PSID, user: PSID, trusted_system_owner: bool) -> bool {
+    // Provider sources and the existing home anchor may belong to SYSTEM or
+    // Administrators. Their ACL grants are already trusted; this admits no new
+    // principal or access right. App-owned credential objects stay user-owned.
     unsafe {
         EqualSid(owner, user) != 0
-            || provider_owned
+            || trusted_system_owner
                 && (IsWellKnownSid(owner, WinLocalSystemSid) != 0
                     || IsWellKnownSid(owner, WinBuiltinAdministratorsSid) != 0)
     }
@@ -169,6 +169,8 @@ fn trusted_owner(owner: PSID, user: PSID, provider_owned: bool) -> bool {
 
 fn check_acl(acl: *const ACL, owner: PSID, credential: bool) -> Result<(), String> {
     // Only called with a valid ACL owned by a live security descriptor (or test buffer).
+    // The descriptor's actual owner was admitted before this call. OWNER RIGHTS
+    // grants apply to that same trusted owner, never to an additional principal.
     let header = unsafe { read_unaligned(acl) };
     let base = acl as usize;
     let end = base.checked_add(header.AclSize as usize).ok_or(ERROR)?;
@@ -213,6 +215,7 @@ fn check_acl(acl: *const ACL, owner: PSID, credential: bool) -> Result<(), Strin
             EqualSid(sid, owner) != 0
                 || IsWellKnownSid(sid, WinLocalSystemSid) != 0
                 || IsWellKnownSid(sid, WinBuiltinAdministratorsSid) != 0
+                || IsWellKnownSid(sid, WinCreatorOwnerRightsSid) != 0
         } {
             continue;
         }
@@ -336,6 +339,25 @@ fn private_attributes<T>(
     })
 }
 
+#[cfg(test)]
+pub(super) fn create_test_home_with_default_owner(path: &Path) -> Result<(), String> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Security::SetSecurityDescriptorOwner;
+    use windows_sys::Win32::Storage::FileSystem::CreateDirectoryW;
+    let wide: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+    private_attributes(|attributes| {
+        // Keep the token's default owner (including elevated Administrators),
+        // but not unrelated write grants inherited from a shared TEMP folder.
+        if unsafe { SetSecurityDescriptorOwner(attributes.lpSecurityDescriptor, null_mut(), 0) }
+            == 0
+            || unsafe { CreateDirectoryW(wide.as_ptr(), attributes) } == 0
+        {
+            return Err(ERROR.into());
+        }
+        Ok(())
+    })
+}
+
 /// Retain no-delete handles to every ancestor, refusing reparse directories.
 pub(super) fn private_directory(home: &Path, create: bool) -> Result<(File, Vec<File>), String> {
     use std::os::windows::ffi::OsStrExt;
@@ -367,7 +389,15 @@ pub(super) fn private_directory(home: &Path, create: bool) -> Result<(File, Vec<
         }
         ancestors.push(open(ancestor)?);
     }
-    trusted_acl(ancestors.last().ok_or(ERROR)?.as_raw_handle(), false)?;
+    // Ordinary Windows profiles can be SYSTEM/Administrators-owned. Only the
+    // existing home anchor permits this; the private directory/leaves below
+    // still require current-user ownership and protected credential ACLs.
+    trusted_acl_with_owner(
+        ancestors.last().ok_or(ERROR)?.as_raw_handle(),
+        false,
+        true,
+    )
+    .map_err(|_| "Windows user home failed trusted-owner/ACL safety checks. Choose session-only storage in the selected provider's setup if a private home is unavailable. No home permissions were changed.".to_string())?;
     let path = home.join(".eevee-connections");
     if create {
         let wide: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
@@ -643,7 +673,12 @@ mod tests {
         use windows_sys::Win32::Security::INHERITED_ACE;
         let user = TokenUser::current().unwrap();
         assert!(trusted_owner(user.sid(), user.sid(), false));
-        for kind in [WinLocalSystemSid, WinBuiltinAdministratorsSid, WinWorldSid] {
+        for kind in [
+            WinLocalSystemSid,
+            WinBuiltinAdministratorsSid,
+            WinWorldSid,
+            WinCreatorOwnerRightsSid,
+        ] {
             let mut sid = [0u32; (SECURITY_MAX_SID_SIZE as usize).div_ceil(4)];
             let mut length = size_of_val(&sid) as u32;
             assert_ne!(
@@ -652,7 +687,7 @@ mod tests {
                 },
                 0
             );
-            let trusted = kind != WinWorldSid;
+            let trusted = kind == WinLocalSystemSid || kind == WinBuiltinAdministratorsSid;
             assert_eq!(
                 trusted_owner(sid.as_mut_ptr().cast(), user.sid(), true),
                 trusted
@@ -679,8 +714,125 @@ mod tests {
                 },
                 0
             );
-            assert_eq!(check_acl(acl, user.sid(), true).is_ok(), trusted);
+            assert_eq!(
+                check_acl(acl, user.sid(), true).is_ok(),
+                kind != WinWorldSid
+            );
         }
+    }
+
+    #[test]
+    fn owner_rights_private_credentials_are_read_without_rewriting_their_acl() {
+        use std::io::Read;
+        use windows_sys::Win32::Security::GetSecurityDescriptorDacl;
+        let temp = Temp::new();
+        let path = temp.0.join("owner-rights.json");
+        let wide: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+        let mut owner_rights = [0u32; (SECURITY_MAX_SID_SIZE as usize).div_ceil(4)];
+        let mut sid_length = size_of_val(&owner_rights) as u32;
+        assert_ne!(
+            unsafe {
+                CreateWellKnownSid(
+                    WinCreatorOwnerRightsSid,
+                    null_mut(),
+                    owner_rights.as_mut_ptr().cast(),
+                    &mut sid_length,
+                )
+            },
+            0
+        );
+        let mut file = private_attributes(|attributes| {
+            let mut present = 0;
+            let mut defaulted = 0;
+            let mut acl = null_mut();
+            assert_ne!(
+                unsafe {
+                    GetSecurityDescriptorDacl(
+                        attributes.lpSecurityDescriptor,
+                        &mut present,
+                        &mut acl,
+                        &mut defaulted,
+                    )
+                },
+                0
+            );
+            assert_ne!(present, 0);
+            assert!(!acl.is_null());
+            let capacity = u32::from(unsafe { read_unaligned(acl) }.AclSize);
+            assert_ne!(unsafe { InitializeAcl(acl, capacity, ACL_REVISION) }, 0);
+            assert_ne!(
+                unsafe {
+                    AddAccessAllowedAceEx(
+                        acl,
+                        ACL_REVISION,
+                        0,
+                        FILE_ALL_ACCESS,
+                        owner_rights.as_mut_ptr().cast(),
+                    )
+                },
+                0
+            );
+            let raw = unsafe {
+                CreateFileW(
+                    wide.as_ptr(),
+                    FILE_GENERIC_READ | FILE_GENERIC_WRITE,
+                    FILE_SHARE_READ,
+                    attributes,
+                    CREATE_NEW,
+                    FILE_ATTRIBUTE_NORMAL,
+                    null_mut(),
+                )
+            };
+            if raw == INVALID_HANDLE_VALUE {
+                return Err(ERROR.into());
+            }
+            Ok(unsafe { File::from_raw_handle(raw) })
+        })
+        .unwrap();
+        file.write_all(b"owner-bound-private-credential").unwrap();
+        let created_identity = file_identity(&file).unwrap();
+        drop(file);
+        let mut file = open_user_file(&path, &path.canonicalize().unwrap(), true).unwrap();
+        check_private_file(&file).unwrap();
+        let mut content = String::new();
+        file.read_to_string(&mut content).unwrap();
+        assert_eq!(content, "owner-bound-private-credential");
+        // The same object remains protected solely by OWNER RIGHTS; admission
+        // must not silently replace it with a different security descriptor.
+        assert_eq!(file_identity(&file).unwrap(), created_identity);
+        let mut retained = SecurityDescriptor(null_mut());
+        let mut acl = null_mut();
+        assert_eq!(
+            unsafe {
+                GetSecurityInfo(
+                    file.as_raw_handle(),
+                    SE_FILE_OBJECT,
+                    DACL_SECURITY_INFORMATION,
+                    null_mut(),
+                    null_mut(),
+                    &mut acl,
+                    null_mut(),
+                    &mut retained.0,
+                )
+            },
+            ERROR_SUCCESS
+        );
+        assert!(!acl.is_null());
+        assert_eq!(unsafe { read_unaligned(acl) }.AceCount, 1);
+        let mut ace = null_mut();
+        assert_ne!(unsafe { GetAce(acl, 0, &mut ace) }, 0);
+        assert_eq!(
+            unsafe { read_unaligned(ace.cast::<ACE_HEADER>()) }.AceType,
+            ALLOW_ACE
+        );
+        assert_eq!(
+            unsafe { read_unaligned(ace.cast::<u8>().add(4).cast::<u32>()) },
+            FILE_ALL_ACCESS
+        );
+        assert_ne!(
+            unsafe { IsWellKnownSid(ace.cast::<u8>().add(8).cast(), WinCreatorOwnerRightsSid) },
+            0
+        );
     }
 
     #[test]
@@ -820,6 +972,65 @@ mod tests {
         symlink_dir(&project.0, &link).unwrap();
         assert!(open_user_file(&requested, &expected, false).is_err());
         fs::remove_dir(&link).unwrap();
+    }
+
+    #[test]
+    fn untrusted_home_write_acl_refuses_before_creating_any_credential_store() {
+        use windows_sys::Win32::Security::GetSecurityDescriptorDacl;
+        use windows_sys::Win32::Storage::FileSystem::{CreateDirectoryW, FILE_ADD_FILE};
+        let temp = Temp::new();
+        let home = temp.0.join("unsafe-home");
+        let wide: Vec<u16> = home.as_os_str().encode_wide().chain(Some(0)).collect();
+        let mut world = [0u32; (SECURITY_MAX_SID_SIZE as usize).div_ceil(4)];
+        let mut length = size_of_val(&world) as u32;
+        assert_ne!(
+            unsafe {
+                CreateWellKnownSid(
+                    WinWorldSid,
+                    null_mut(),
+                    world.as_mut_ptr().cast(),
+                    &mut length,
+                )
+            },
+            0
+        );
+        private_attributes(|attributes| {
+            let mut present = 0;
+            let mut defaulted = 0;
+            let mut acl = null_mut();
+            assert_ne!(
+                unsafe {
+                    GetSecurityDescriptorDacl(
+                        attributes.lpSecurityDescriptor,
+                        &mut present,
+                        &mut acl,
+                        &mut defaulted,
+                    )
+                },
+                0
+            );
+            assert_ne!(present, 0);
+            assert!(!acl.is_null());
+            assert_ne!(
+                unsafe {
+                    AddAccessAllowedAceEx(
+                        acl,
+                        ACL_REVISION,
+                        0,
+                        FILE_ADD_FILE,
+                        world.as_mut_ptr().cast(),
+                    )
+                },
+                0
+            );
+            if unsafe { CreateDirectoryW(wide.as_ptr(), attributes) } == 0 {
+                return Err(ERROR.into());
+            }
+            Ok(())
+        })
+        .unwrap();
+        assert!(private_directory(&home.canonicalize().unwrap(), true).is_err());
+        assert!(!home.join(".eevee-connections").exists());
     }
 
     #[test]

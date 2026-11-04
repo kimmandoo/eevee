@@ -2,6 +2,14 @@
 
 ## 2026-11-04
 
+### 0.1.49
+
+- chore(release): advanced the package to0.1.49 with SQL20, complete SDK bridge12, TM2 and formation2 unchanged.
+- fix(auth): admitted safely protected SYSTEM/Administrators-owned Windows home anchors so successful native logins could persist across all native providers, while retaining current-user-only ownership for app credential directories/files, no-follow identity checks and refusal of untrusted write grants.
+- fix(auth): recognized Windows OWNER RIGHTS grants as permissions of the already-admitted actual owner, not an extra credential reader or a valid owner SID; accepted standard private folders without rewriting ACLs while keeping foreign/broad grants refused.
+- fix(auth): separated Windows home admission failures from credential/source failures and removed misleading ChatGPT-only re-login advice; kept explicit session-only choice and never changed user/provider ACLs or silently selected another credential source.
+- test(auth): extended native account replacement and five-provider persistent/session/restart regressions to Windows with default token ownership and known private home ACLs; added actual connection-UI save/replacement/session/restart acceptance and refusal of a writable home before credential storage.
+
 ### 0.1.48
 
 - chore(release): advanced the package to0.1.48 while retaining SQL20, TM2 and formation2.

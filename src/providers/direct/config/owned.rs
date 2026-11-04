@@ -689,7 +689,7 @@ fn apply_openai_login_from<F: Fn(&str) -> Option<String>>(
 mod tests {
     use super::*;
 
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     #[test]
     fn native_login_replaces_old_overrides_in_the_selected_storage_without_touching_sources() {
         let fixture = Fixture::new();
@@ -775,7 +775,7 @@ mod tests {
         assert_eq!(unchanged.secret, saved.secret);
     }
 
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     #[test]
     fn private_setup_survives_a_new_process_while_session_only_never_replaces_saved_credentials() {
         const CHILD: &str = "EV_TEST_PRIVATE_SETUP_RESTART_HOME";
@@ -1138,26 +1138,35 @@ mod tests {
         assert!(connection(Agent::ChatGPT, entry, 100).is_err());
     }
 
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     struct Fixture(PathBuf);
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     impl Fixture {
         fn new() -> Self {
-            use std::os::unix::fs::PermissionsExt;
             let mut random = [0; 16];
             getrandom::getrandom(&mut random).unwrap();
             let path = env::temp_dir().join(format!(
                 "eevee-own-source-{:x}",
                 u128::from_le_bytes(random)
             ));
+            #[cfg(windows)]
+            super::super::windows::create_test_home_with_default_owner(&path).unwrap();
+            #[cfg(unix)]
             fs::create_dir(&path).unwrap();
-            fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).unwrap();
+            // Windows keeps its ordinary token owner, including Administrators,
+            // with a known private ACL rather than shared TEMP write grants.
             let path = path.canonicalize().unwrap();
-            let root = super::super::posix::open_directory(&path).unwrap();
-            super::super::posix::clear_new_acl(&root).unwrap();
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).unwrap();
+                let root = super::super::posix::open_directory(&path).unwrap();
+                super::super::posix::clear_new_acl(&root).unwrap();
+            }
             Self(path)
         }
         fn provider_file(&self, name: &str, contents: &str) -> PathBuf {
+            #[cfg(unix)]
             use std::os::unix::fs::PermissionsExt;
             let directory = self.0.join(".codex");
             if !directory.exists() {
@@ -1165,11 +1174,12 @@ mod tests {
             }
             let file = directory.join(name);
             fs::write(&file, contents).unwrap();
+            #[cfg(unix)]
             fs::set_permissions(&file, fs::Permissions::from_mode(0o600)).unwrap();
             file
         }
     }
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     impl Drop for Fixture {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0);

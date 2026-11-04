@@ -336,7 +336,7 @@ class Journey:
         self.secrets = [peer.secret, 'sk-fixture-native-replacement-8f43c20a']
         environment = terminal_environment('mono')
         for key in list(environment):
-            if key.startswith(('EV_', 'OPENAI_', 'CODEX_', 'ANTHROPIC_', 'CLAUDE_', 'GEMINI_',
+            if key.startswith(('EV_', 'EEVEE_', 'OPENAI_', 'CODEX_', 'ANTHROPIC_', 'CLAUDE_', 'GEMINI_',
                                'GOOGLE_', 'AWS_', 'OPENCODE_')) or key.lower().endswith('_proxy'):
                 environment.pop(key, None)
         environment.update(HOME=str(self.home), USERPROFILE=str(self.home),
@@ -345,9 +345,11 @@ class Journey:
                            LOCALAPPDATA=str(self.home / 'cache'), CODEX_HOME=str(self.home / 'codex'),
                            GEMINI_CLI_HOME=str(self.home / 'gemini'), PATH=str(root / 'empty-bin'),
                            NO_PROXY='127.0.0.1,localhost', no_proxy='127.0.0.1,localhost', BROWSER='/bin/true')
-        self.session = Session([str(binary), '--data-dir', str(self.data), '--images', 'off',
-                                '--color', 'mono', *(['--ascii'] if ascii_mode else [])],
-                               self.project, environment, size, output / 'tui', controlling_tty=controlling_tty)
+        self.argv = [str(binary), '--data-dir', str(self.data), '--images', 'off',
+                     '--color', 'mono', *(['--ascii'] if ascii_mode else [])]
+        self.environment = environment
+        self.session = Session(self.argv, self.project, environment, size, output / 'tui',
+                               controlling_tty=controlling_tty)
         self.cases, self.assertions = [], []
 
     def redacted(self, text):
