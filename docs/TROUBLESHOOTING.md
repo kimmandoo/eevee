@@ -1,5 +1,12 @@
 # Troubleshooting
 
+### [2026-11-04] Public verification confused platform text representation with changed release data
+
+- **Context / Symptom:** The disposable public-package verifier rejected the Windows archive's license, although all eight downloaded asset digests/sizes and seven manifest rows matched. The genuine0.1.49→0.1.50 update then succeeded, but a draft-display wait missed visually correct `界é` because the saved draft used decomposed`e`+combining acute.
+- **Root Cause:** Native Windows checkout packaged201 CRLF license lines (`11507`bytes) while the Linux source had LF (`11306`bytes); removing CRLF alone produced exact source content. Terminal display composes combining glyphs, whereas durable draft/caret checks must retain original UTF-8 bytes. Neither condition indicated changed executable, credentials or user data.
+- **Solution:** Reused the already-downloaded bytes only after strict public digest/size revalidation; normalized CRLF solely for legal text comparison, never archives/executables/checksums. Compared UI glyphs in NFC while retaining exact saved draft bytes, byte-caret insertion, database and private-credential checks. Resumed after recorded successful update/UI checkpoints rather than rerunning or relabelling the already-completed actual update.
+- **Prevention / Reference:** Public release433910901 passed all eight assets/five layouts/annotated source/latest/previous0.1.49 identity checks. The genuine public updater retained byte-identical data and saved credentials during update, restored the exact Unicode caret, selected/saved Ask, and preserved data/credentials/Ask through uninstall/reinstall with zero effect records. Public assets and real permissions were never modified.
+
 ### [2026-11-04] Evolution receipts hid completed replies and retained-response paging cycled
 
 - **Context / Symptom:** Expanded compact file/context acceptance could not see an authoritative final reply after35 seconds: an `Evolution!` receipt still covered it. Settled conversation inspection repeatedly cycled `9-10/41 → 10-11/41 → 11-12/41 → 12-13/41 → 9-10/41` instead of reaching retained terminal evidence.

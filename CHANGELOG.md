@@ -4,6 +4,8 @@
 
 ### 0.1.50
 
+- chore(release): publishedv0.1.50 from exact source7c3163f after native41829455289/all six jobs and immutable promotion41832144350; verified all eight public assets, downloaded Windows/Linux coding/login/mode/tool behavior and genuine0.1.49→0.1.50 update/data/credential/Unicode-caret/Ask/uninstall/reinstall preservation without changing previous releases.
+
 - feat(permissions)!: made ordinary agent file changes, builds, tests, programs, requested downloads, connected tools and bounded read-only helpers automatic by default across partners; retained explicit rules, read-only modes, exact scope validation and cancellation/unknown-effect stops.
 - feat(permissions): saved Automatic or Ask through the existing global preference writer so `/auto-approve` and `/auto-approve-off` survived new tasks, partner changes and restarts; replaced ephemeral task/session grants and removed `/auto-approve-session`.
 - fix(permissions): kept failed initial preference restoration from enabling Automatic, preserved newer explicit choices over delayed loads/acknowledgments and parked saves, and retained separate questions, connection/login/trust setup and selected-local-commit reviews.
