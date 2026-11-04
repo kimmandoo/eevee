@@ -16,6 +16,7 @@
 - fix(evolution): limited automatic in-flight appearance changes to one per owned logical request, retained Send-time role selection and progress updates, rejected stale-claim activity, and kept the display-only latch bounded to live lead/parked claims.
 - fix(prompts): clarified that only the current frozen behavior profile applied, earlier session profiles were historical rather than cumulative instructions, and working-style specialties never overrode the requested task or host tool policy.
 - test(agents): extended real native/controlled coding journeys through compiler failure, reviewed repair, execution, HTTP404 correction and exact binary-resource download; added complete paginated MCP and production SDK limit/roster coverage without live credentials.
+- test(ci): aligned native HTTP/artifact fixture hang guards to30 seconds after parallel Windows durable acknowledgments exceeded the old5-second store/8-second next-round limits; preserved every effect, atomic-budget, ownership and outcome assertion without changing product deadlines.
 
 ## 2026-11-03
 

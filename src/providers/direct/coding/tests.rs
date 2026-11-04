@@ -6,6 +6,11 @@ use std::net::TcpListener;
 mod delegation_tests;
 mod websocket_tests;
 
+// These are deadlock guards, not storage/network performance assertions.
+// One batch can persist sixteen artifacts before its next HTTP round; parallel
+// Windows fsyncs must not make the peer disconnect while that work progresses.
+const FIXTURE_WAIT: Duration = Duration::from_secs(30);
+
 struct Fixture {
     root: PathBuf,
     workspace: Workspace,
@@ -39,7 +44,7 @@ impl Fixture {
         )
         .unwrap();
         let next = || {
-            let deadline = Instant::now() + Duration::from_secs(5);
+            let deadline = Instant::now() + FIXTURE_WAIT;
             loop {
                 if let Some(event) = store.try_event() {
                     break event;
@@ -252,7 +257,7 @@ fn peer(responses: Vec<String>) -> (String, thread::JoinHandle<Vec<Value>>) {
     let server = thread::spawn(move || {
         let mut requests = Vec::new();
         for response in responses {
-            let deadline = Instant::now() + Duration::from_secs(8);
+            let deadline = Instant::now() + FIXTURE_WAIT;
             let mut socket = loop {
                 match listener.accept() {
                     Ok((socket, _)) => break socket,
@@ -404,7 +409,7 @@ fn run_with_command_handler(
                         task_id,
                         operation,
                     });
-                    let deadline = Instant::now() + Duration::from_secs(5);
+                    let deadline = Instant::now() + FIXTURE_WAIT;
                     while !store.lock().try_artifact(&mut request) {
                         assert!(
                             Instant::now() < deadline,
@@ -1000,7 +1005,7 @@ fn screenshot_real_png_survives_responses_tools_and_revalidates_source_and_selec
     ));
     let store = fixture.store.as_ref().unwrap().clone();
     let next = || {
-        let deadline = Instant::now() + Duration::from_secs(5);
+        let deadline = Instant::now() + FIXTURE_WAIT;
         loop {
             if let Some(event) = store.lock().try_event() {
                 break event;
@@ -2869,7 +2874,7 @@ fn reviewed_catalog_selected_schema_executes_owned_read_over_real_compatible_htt
     let document = Document::import(&path, Agent::Compatible, connection.fingerprint()).unwrap();
     let store = fixture.store.as_ref().unwrap().clone();
     let next = || {
-        let deadline = Instant::now() + Duration::from_secs(5);
+        let deadline = Instant::now() + FIXTURE_WAIT;
         loop {
             if let Some(event) = store.lock().try_event() {
                 break event;

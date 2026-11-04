@@ -1,5 +1,19 @@
 # Troubleshooting
 
+### [2026-11-04] Windows native artifact tests exhausted fixture-only wait guards
+
+- **Context / Symptom:** Exact-source native41783485275 passed Check/Linux/macOS but refused qualification on Windows:1968 passed/three failed/two ignored. `failed_build_can_continue_to_corrected_command_and_reconciled_todo` and `gp10_account_wire_matrix` reported `Artifact fixture storage acknowledgment timed out`; `call_limit_is_aggregate_and_refuses_whole_over_budget_batch` lost the next peer round and observed Unknown instead of the required atomic-budget Failed. No release tag was created.
+- **Root Cause:** Native integration fixtures allowed only5 seconds for durable store admission plus acknowledgment and8 seconds for a whole batch before the next HTTP accept. A batch can persist16 distinct tool artifacts serially; the full parallel Windows run exceeded these test-only guards. Peer disconnection then tested transport loss instead of the intended over-budget refusal. This was not evidence of a production request timeout or successful effects.
+- **Solution:** Unified fixture durable-store and next-round waits under a30-second deadlock guard. Kept every actual persisted result, round count, file-byte, atomic refusal and completion assertion. Socket/explicit approval-expiry tests and production request/permission/storage deadlines were not increased; no OS test was skipped.
+- **Prevention / Reference:** Main source76cc187 remains ineligible despite five green jobs. Require a new exact-source six-job run before tagging. The public check-run annotation retained full failure details when the unauthenticated job-log endpoint returnedHTTP403; no private credential was needed to diagnose it.
+
+### [2026-11-04] Publishing environment had SSH access but no local GitHub CLI
+
+- **Context / Symptom:** Local `gh` was unavailable while the authenticated SSH remote accepted the maintainer identity. The existing release qualifier normally uses `gh api`, and release still required exact-source native package/job qualification rather than a local rebuild.
+- **Root Cause:** Git SSH identity and GitHub CLI installation/API authorization are separate environment capabilities.
+- **Solution:** Used the existing SSH identity for source publication and kept tag creation gated on exact-source qualification. The bounded public HTTPS observer supplies only API transport to the unchanged repository qualifier, retaining SHA/run-attempt/every-required-step/package-ID checks. The existing GitHub workflow owns its scoped artifact-promotion/publication token; no local credential store or workflow gate was changed.
+- **Prevention / Reference:** `scripts/release_qualification.py` remains authoritative. Public observation is not an artifact-promotion bypass or proof of a published release; tag only after qualification, then verify immutable public assets and upgrade separately.
+
 ### [2026-11-04] Full profile-wire acceptance exceeded its outer batch deadline
 
 - **Context / Symptom:** The sequential four-route × two-size × two-language progress run hit its1200-second shell deadline after nine full journeys had written passed reports. The tenth was still producing fresh SDK UI/wire captures; no aggregate report was written because the parent was terminated.
