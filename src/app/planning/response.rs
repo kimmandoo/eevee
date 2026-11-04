@@ -9,10 +9,21 @@ use crate::messages::{Message, Template};
 #[derive(Clone, PartialEq, Eq)]
 struct Identity(String, String, String);
 
+/// Distinct synthetic rows can share the same source byte. Their purpose must
+/// survive pinning so a settlement gap never resolves to a segment's first gap.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Spacer {
+    Segment,
+    Content,
+    Summary,
+    Line,
+    FileEnd,
+}
+
 struct Row {
     range: Range<usize>,
     header: bool,
-    spacer: bool,
+    spacer: Option<Spacer>,
 }
 
 /// A visible row borrows the cached header or original observation. File styling
@@ -75,7 +86,7 @@ struct Anchor {
     identity: Arc<Identity>,
     byte: usize,
     header: bool,
-    spacer: bool,
+    spacer: Option<Spacer>,
 }
 
 /// One bounded transcript; text rows borrow their original observations. Only
@@ -112,13 +123,13 @@ fn wrap(
             rows.push(Row {
                 range: range.start..range.start,
                 header,
-                spacer: true,
+                spacer: Some(Spacer::Line),
             });
         }
         rows.push(Row {
             range,
             header,
-            spacer: false,
+            spacer: None,
         });
     };
     for line in text.split_terminator('\n') {
@@ -581,7 +592,7 @@ impl Layout {
                     segment.rows.push(Row {
                         range: 0..0,
                         header: false,
-                        spacer: true,
+                        spacer: Some(Spacer::Segment),
                     });
                 }
                 // Reserve both box edges, interior spacing and the live caret;
@@ -611,7 +622,7 @@ impl Layout {
                     segment.rows.push(Row {
                         range: 0..0,
                         header: false,
-                        spacer: true,
+                        spacer: Some(Spacer::Content),
                     });
                 }
                 let source_start = if file {
@@ -634,7 +645,7 @@ impl Layout {
                         segment.rows.push(Row {
                             range: 0..0,
                             header: false,
-                            spacer: true,
+                            spacer: Some(Spacer::Summary),
                         });
                     }
                     wrap(
@@ -650,7 +661,7 @@ impl Layout {
                     segment.rows.push(Row {
                         range: content.len()..content.len(),
                         header: false,
-                        spacer: true,
+                        spacer: Some(Spacer::FileEnd),
                     });
                 }
                 segment.valid = true;
@@ -701,9 +712,10 @@ impl Layout {
                 // anchor rather than jumping to the start of the observation.
                 anchor
                     .spacer
+                    .is_some()
                     .then(|| {
                         segment.rows.iter().enumerate().find_map(|(index, row)| {
-                            (!row.spacer
+                            (row.spacer.is_none()
                                 && row.header == anchor.header
                                 && (row.range.end > anchor.byte || row.range.start >= anchor.byte))
                                 .then_some(segment.start + index)
@@ -714,11 +726,12 @@ impl Layout {
             .or_else(|| {
                 anchor
                     .spacer
+                    .is_some()
                     .then(|| {
                         segment
                             .rows
                             .iter()
-                            .rposition(|row| !row.spacer && row.header == anchor.header)
+                            .rposition(|row| row.spacer.is_none() && row.header == anchor.header)
                             .map(|index| segment.start + index)
                     })
                     .flatten()
@@ -761,7 +774,7 @@ impl Layout {
             identity,
             byte: 0,
             header: false,
-            spacer: false,
+            spacer: None,
         });
     }
 }
@@ -1162,7 +1175,7 @@ impl State {
                         segment.display.as_deref().unwrap_or(&items[index].text)
                     };
                     ResponseRow {
-                        tokens: if row.header || row.spacer {
+                        tokens: if row.header || row.spacer.is_some() {
                             &[]
                         } else {
                             let first = segment
@@ -1188,7 +1201,8 @@ impl State {
                         file_top: matches!(segment.kind, ItemKind::File(_))
                             && row.header
                             && row.range.start == 0,
-                        file_bottom: matches!(segment.kind, ItemKind::File(_)) && row.spacer,
+                        file_bottom: matches!(segment.kind, ItemKind::File(_))
+                            && row.spacer.is_some(),
                         todo: !row.header && segment.display.is_some() && !segment.tool_shown,
                         tool: segment
                             .tool
@@ -1198,12 +1212,12 @@ impl State {
                         writing_edge: segment.kind
                             == ItemKind::File(crate::providers::FilePhase::Generating)
                             && !row.header
-                            && !row.spacer
+                            && row.spacer.is_none()
                             && text.contains('\n')
                             && row.range.end == text.trim_end_matches('\n').len(),
                         fresh: matches!(segment.kind, ItemKind::File(_))
                             && !row.header
-                            && !row.spacer
+                            && row.spacer.is_none()
                             && growth.get(&items[index].item_id).is_some_and(|(from, at)| {
                                 row.range.end > *from && now.duration_since(*at) < FRESH
                             }),
@@ -1222,6 +1236,102 @@ mod tests {
         app::planning::RequestStatus,
         providers::{Agent, Operation, Outcome},
     };
+
+    fn settled_conversation() -> State {
+        let mut state = State::new();
+        for (index, outcome) in [Outcome::Completed, Outcome::Failed, Outcome::Unknown]
+            .into_iter()
+            .enumerate()
+        {
+            let request: Arc<str> = format!("Request {index}").into();
+            state.items.push(Item {
+                thread_id: "thread".into(),
+                turn_id: index.to_string(),
+                item_id: index.to_string(),
+                kind: ItemKind::Message,
+                text: format!("Actual answer {index}\nRetained second line 界e\u{301}"),
+                complete: true,
+                request: Arc::clone(&request),
+                owner: None,
+                status: Some(Arc::new(RequestStatus {
+                    generation: index as u64 + 1,
+                    task_id: 1,
+                    agent: Agent::Compatible,
+                    operation: Operation::Plan,
+                    model: None,
+                    transport: None,
+                    outcome: Some(outcome),
+                    reason: format!("Terminal evidence {index}"),
+                    public_context: Some(outcome == Outcome::Completed),
+                })),
+            });
+            state.submitted_request = request;
+        }
+        state
+    }
+
+    #[test]
+    fn synthetic_gaps_round_trip_to_their_exact_retained_row() {
+        let state = settled_conversation();
+        for verbose in [false, true] {
+            for comfortable in [false, true] {
+                let mut layout = Layout::default();
+                layout.update((60, 18), &state.items, "test", verbose, comfortable);
+                let total = layout.total;
+                assert!(layout.segments.iter().any(|segment| {
+                    segment
+                        .rows
+                        .iter()
+                        .any(|row| row.spacer == Some(Spacer::Segment))
+                }));
+                for row in 0..total {
+                    layout.pin(row);
+                    assert_eq!(
+                        layout.anchor_row(),
+                        Some(row),
+                        "pinning row {row}, verbose={verbose}, comfortable={comfortable}"
+                    );
+                    layout.invalidate();
+                    layout.update((60, 18), &state.items, "test", verbose, comfortable);
+                    assert_eq!(layout.anchor_row(), Some(row));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn paging_settled_requests_reaches_the_end_without_resuming_follow() {
+        use super::super::KeyCode;
+        for (width, height) in [(60, 1), (60, 2), (120, 18)] {
+            for verbose in [false, true] {
+                let mut state = settled_conversation();
+                state.response_rows(width, height, verbose).count();
+                state.home_response_key(KeyCode::Home);
+                state.response_rows(width, height, verbose).count();
+                let (mut first, mut last, total) = state.response_position();
+                assert_eq!(first, 1);
+                for _ in 0..total {
+                    assert!(!state.following);
+                    if last == total {
+                        break;
+                    }
+                    state.home_response_key(KeyCode::PageDown);
+                    state.response_rows(width, height, verbose).count();
+                    let next = state.response_position();
+                    assert!(next.0 > first, "PageDown rewound {first}-{last}/{total}");
+                    assert!(next.0 <= last + 1, "PageDown skipped retained rows");
+                    assert_eq!(next.2, total);
+                    (first, last) = (next.0, next.1);
+                }
+                assert_eq!(last, total);
+                assert!(!state.following);
+                state.home_response_key(KeyCode::End);
+                state.response_rows(width, height, verbose).count();
+                assert!(state.following);
+                assert_eq!(state.response_position().1, total);
+            }
+        }
+    }
 
     #[test]
     fn repeated_literal_requests_keep_distinct_single_settlement_summaries() {
@@ -1362,7 +1472,7 @@ mod tests {
             let content_row = state.response_cache.segments[0]
                 .rows
                 .iter()
-                .position(|row| !row.header && !row.spacer)
+                .position(|row| !row.header && row.spacer.is_none())
                 .unwrap();
             state.response_cache.pin(content_row);
             let anchor = state.response_cache.anchor.as_ref().unwrap();

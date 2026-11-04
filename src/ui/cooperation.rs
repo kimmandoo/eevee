@@ -183,7 +183,9 @@ pub(super) fn evolution_popup(
         .wrap(Wrap { trim: true }),
         row(content, 1, content.height.saturating_sub(1)),
     );
-    app.evolution.popup_shown = true;
+    if !app.evolution.popup_shown {
+        app.mark_evolution_popup_shown(std::time::Instant::now());
+    }
 }
 
 pub(super) fn approval_owner(app: &App) -> String {

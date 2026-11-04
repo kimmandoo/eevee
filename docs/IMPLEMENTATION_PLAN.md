@@ -14,6 +14,8 @@ Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPAT
 
 Current checkpoint: implementation, source gates and affected local real runtime acceptance passed, including both-size genuine Windows compile/repair/PE execution/download/mode and two owned-launch regressions. Remain on step5: qualify the exact committed source across Check/all five native jobs, promote immutable artifacts, verify downloaded public binaries and genuine update, and only then mark this delivery completed. `WORK_CHECKPOINT.md` contains evidence paths and the exact next action.
 
+Expanded clearance completed before publication: first-render3-second notification expiry and semantic response-gap anchoring repaired the two product defects; complete verbose/request-bound inspection and truthful stale-handle Incomplete replaced outdated driver assumptions. Rust2043/two ignored/strict lint/build/SDK47/Python22, full24/evolution2, coding4/SDK and final Windows2×2 passed. Remain on step5: commit and qualify this fresh exact source, promote immutable packages and prove public execution/update before marking the user delivery completed.
+
 ## Completed delivery — Windows login safety compatibility (2026-11-04)
 
 1. Trace the reported Windows refusal through successful issuer login, local save and shared native provider resolution; treat the user report as fact. Inspect only nonsecret Windows ownership metadata.

@@ -37,6 +37,7 @@ pub struct Preview {
 pub struct State {
     pub transition: Option<Transition>,
     pub popup_shown: bool,
+    pub(super) popup_deadline: Option<std::time::Instant>,
     pub(super) motion: Option<super::evolution_motion::Motion>,
     preview: Option<Preview>,
     // Display-only, process-local latch per acquired owner, including parked

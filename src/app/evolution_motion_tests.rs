@@ -199,3 +199,96 @@ fn rapid_changes_replace_the_single_timer_and_priority_loss_never_replays_it() {
     assert!(!app.tick_evolution(now + END * 2));
     assert!(app.evolution_wait(now + END * 2).is_none());
 }
+
+#[test]
+fn static_receipt_deadline_starts_on_first_render_and_does_not_extend_or_replay() {
+    for reduced_motion in [false, true] {
+        let mut app = app((60, 18));
+        app.planning.set_reduced_motion(reduced_motion);
+        app.motion_visuals = !reduced_motion;
+        app.set_form(3);
+        let now = Instant::now();
+        assert_eq!(app.evolution_wait(now), None, "unseen receipt has no timer");
+        assert!(!app.tick_evolution(now + POPUP_LIFETIME));
+        assert!(app.evolution.transition.is_some());
+
+        let shown = now + POPUP_LIFETIME;
+        app.mark_evolution_popup_shown(shown);
+        assert_eq!(app.evolution_wait(shown), Some(POPUP_LIFETIME));
+        app.mark_evolution_popup_shown(shown + STEP);
+        assert_eq!(
+            app.evolution_wait(shown + STEP),
+            Some(POPUP_LIFETIME - STEP),
+            "redraw extended the receipt's lifetime"
+        );
+        assert!(!app.tick_evolution(shown + POPUP_LIFETIME - STEP));
+        assert!(app.tick_evolution(shown + POPUP_LIFETIME));
+        assert!(app.evolution.transition.is_none());
+        assert!(!app.evolution.popup_shown);
+        assert_eq!(app.evolution_wait(shown + POPUP_LIFETIME), None);
+        assert!(!app.tick_evolution(shown + POPUP_LIFETIME * 2));
+    }
+}
+
+#[test]
+fn receipt_expiry_retains_idle_wake_after_picker_motion_finishes() {
+    let mut app = app((60, 18));
+    let now = Instant::now();
+    app.set_form(3);
+    app.arm_picker_motion(now);
+    app.mark_evolution_popup_shown(now);
+    assert_eq!(app.evolution_wait(now), Some(STEP));
+    assert!(app.tick_evolution(now + END));
+    assert_eq!(app.evolution_frame(), None);
+    assert_eq!(
+        app.evolution_wait(now + END),
+        Some(POPUP_LIFETIME - END),
+        "static result lost its idle expiration wake"
+    );
+    assert!(app.tick_evolution(now + POPUP_LIFETIME));
+    assert!(app.evolution.transition.is_none());
+}
+
+#[test]
+fn replacement_receipt_gets_a_new_lifetime_only_after_it_is_rendered() {
+    let mut app = app((60, 18));
+    let now = Instant::now();
+    app.set_form(3);
+    app.mark_evolution_popup_shown(now);
+    app.set_form(4);
+    assert_eq!(app.evolution_wait(now), None);
+    assert!(!app.tick_evolution(now + POPUP_LIFETIME));
+    assert_eq!(app.evolution.transition.unwrap().to, 4);
+    let shown = now + POPUP_LIFETIME * 2;
+    app.mark_evolution_popup_shown(shown);
+    assert_eq!(app.evolution_wait(shown), Some(POPUP_LIFETIME));
+    assert!(app.tick_evolution(shown + POPUP_LIFETIME));
+    assert!(app.evolution.transition.is_none());
+}
+
+#[test]
+fn receipt_expiry_while_consent_is_pending_cannot_answer_or_replay() {
+    let mut app = app((60, 18));
+    let now = Instant::now();
+    app.set_form(3);
+    app.input = "future 界draft".into();
+    app.cursor = 7;
+    app.mark_evolution_popup_shown(now);
+    app.planning.request = Some(crate::providers::Prompt {
+        arrival: crate::providers::approval_arrival(),
+        request_id: serde_json::json!("owned"),
+        thread_id: "thread".into(),
+        turn_id: "turn".into(),
+        item_id: "item".into(),
+        kind: crate::providers::PromptKind::Questions(Vec::new()),
+    });
+    assert!(!app.evolution_popup_ready());
+    assert!(app.tick_evolution(now + POPUP_LIFETIME));
+    assert!(app.planning.request.is_some());
+    assert!(app.planning.pending.is_none());
+    assert!(app.planning.decision.is_none());
+    assert_eq!((app.input.as_str(), app.cursor), ("future 界draft", 7));
+    app.planning.request = None;
+    assert!(!app.evolution_popup_ready());
+    assert_eq!(app.evolution_wait(now + POPUP_LIFETIME), None);
+}

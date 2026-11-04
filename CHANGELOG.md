@@ -12,6 +12,8 @@
 - fix(execution): retained the actual pre-start runtime, dispatch or OS refusal in durable command evidence and agent results instead of replacing it with a generic invalidated-approval message; kept no-start and no-replay semantics.
 - fix(windows): launched frozen local executables through an identity-equivalent Win32 spelling so installed legacy runtimes could initialize, while rejecting path-normalization substitution and retaining suspended owned-tree admission.
 - feat(ui): displayed Automatic or Ask prominently at compact and wide sizes, with explicit read-only modes taking precedence and visible unsaved-preference diagnostics.
+- fix(ui): expired evolution receipts three seconds after first rendering and repainted idle completed responses without a dismissal key, including static/reduced-motion notices, without changing form selection or frozen role instructions.
+- fix(ui): distinguished synthetic response-gap anchors so compact retained-response paging advanced to the real end instead of cycling back to an earlier settled request.
 - test(agents): exercised default automatic coding through real compiler failure/repair/build/program execution and corrected HTTP download, preserved manual denial/cancellation coverage under explicit Ask, and added durable mode and connected-tool/helper acceptance.
 - chore(release): advanced the package to0.1.50 while retaining SQL20, complete SDK bridge12, TM2 and formation2; made the explicit approval field part of strict durable-reader admission.
 

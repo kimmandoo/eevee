@@ -195,7 +195,9 @@ ev --help
 
 ## Meet the party
 
-In automatic mode (`[Auto]`), Send selects the adopted plan's focus role. The running request can adapt its form once, then stays visually stable until the next Send; changing todo roles still updates progress without repeatedly evolving. The selected behavior profile is frozen for that request, not stacked or replaced on each appearance change. Pin a form with `/forms`; `/evolution-preview` shows the next Send's choice. Forms are reversible and never grant permissions.
+In automatic form selection (`[Auto]`), Send selects the adopted plan's focus role. The running request can adapt its form once, then stays visually stable until the next Send; changing todo roles still updates progress without repeatedly evolving. The selected behavior profile is frozen for that request, not stacked or replaced on each appearance change. Pin a form with `/forms`; `/evolution-preview` shows the next Send's choice. Forms are reversible and never grant permissions.
+
+An evolution notice clears three seconds after it first appears, without requiring typing or hiding the final response indefinitely. This also applies with reduced motion. Form selection is separate from the saved Automatic/Ask execution policy.
 
 | Form | Role | Good for |
 | --- | --- | --- |

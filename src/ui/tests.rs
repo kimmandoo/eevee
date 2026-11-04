@@ -2354,6 +2354,95 @@ fn evolution_popup_is_one_shot_and_preserves_real_editor_input() {
 }
 
 #[test]
+fn idle_evolution_expiry_repaints_completed_answer_after_earlier_tools() {
+    use crate::app::planning::{Item, RequestStatus};
+    use crate::providers::{Agent, ItemKind, Operation, Outcome};
+    use ratatui::{Terminal, backend::TestBackend};
+    use std::{sync::Arc, time::Instant};
+
+    for (width, height, linear) in [(60, 18, false), (60, 18, true), (120, 36, false)] {
+        for reduced_motion in [false, true] {
+            let config = home_config();
+            let mut app = App::new("/workspace".into(), width, height);
+            app.task_id = 7;
+            app.storage = crate::app::StorageState::Saved;
+            app.linear = linear;
+            app.planning.set_reduced_motion(reduced_motion);
+            app.command("jolteon");
+            app.command("espeon");
+            app.input = "future 界draft".into();
+            app.cursor = 7;
+            app.editing = true;
+            app.editor_field = EditorField::Request;
+            app.planning.submitted_request = Arc::from("Create and inspect the file");
+            for index in 0..=12 {
+                app.planning.items.push(Item {
+                    thread_id: "thread".into(),
+                    turn_id: "turn".into(),
+                    item_id: format!("item-{index}"),
+                    kind: if index == 12 {
+                        ItemKind::Message
+                    } else {
+                        ItemKind::Tool
+                    },
+                    text: if index == 12 {
+                        "result detail one\nresult detail two\nresult detail three\nresult detail four\nFINAL_ANSWER_MARKER".into()
+                    } else {
+                        format!("EARLIER_TOOL_OBSERVATION_{index}")
+                    },
+                    complete: true,
+                    request: Arc::clone(&app.planning.submitted_request),
+                    owner: None,
+                    status: Some(Arc::new(RequestStatus {
+                        generation: 11,
+                        task_id: 7,
+                        agent: Agent::Codex,
+                        operation: Operation::Implement,
+                        model: None,
+                        transport: None,
+                        outcome: Some(Outcome::Completed),
+                        reason: String::new(),
+                        public_context: Some(false),
+                    })),
+                });
+            }
+            app.planning.selected = 12;
+            let mut artwork = Artwork::load(&config);
+            let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+            terminal
+                .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
+                .unwrap();
+            assert!(app.evolution.popup_shown);
+            let shown = screen_text(&terminal);
+            if width == 60 {
+                assert!(!shown.contains("FINAL_ANSWER_MARKER"), "{shown}");
+            }
+            let now = Instant::now();
+            let deadline = now
+                + app
+                    .evolution_wait(now)
+                    .expect("shown receipt needs an idle wake");
+            assert!(
+                app.tick_evolution(deadline),
+                "expiration must request repaint"
+            );
+            terminal
+                .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
+                .unwrap();
+            let screen = screen_text(&terminal);
+            assert!(screen.contains("FINAL_ANSWER_MARKER"), "{screen}");
+            assert!(evolution_popup_area(Rect::new(0, 0, width, height), &app).is_none());
+            assert_eq!(app.evolution_wait(deadline), None);
+            assert!(!app.tick_evolution(deadline));
+            assert_eq!(app.planning.selected, 12);
+            assert_eq!((app.input.as_str(), app.cursor), ("future 界draft", 7));
+            assert!(app.planning.pending.is_none());
+            assert!(app.planning.decision.is_none());
+        }
+    }
+}
+
+#[test]
 fn evolution_popup_waits_for_safe_surface_and_live_file_code_without_being_consumed() {
     use crate::providers::{FilePhase, ItemKind};
     use ratatui::{Terminal, backend::TestBackend};

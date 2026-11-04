@@ -127,41 +127,67 @@ def native_case(binary, output, size, ):
                 assert 'UNSENT_FRESH_PREPARATION_947' not in encoded
                 history = send('E_AFTER_NEW_739', history, 'E_PUBLIC_ANSWER_853',
                                'ordinary-enter-after-new-retains-only-D')
+                # Compact transcript summaries deliberately omit exact reasons
+                # and public-context admission. Inspect the real full surface,
+                # not a guessed expansion of its clipped summary.
+                session.command('verbose')
+                journey.workspace()
+
                 def inspect_history(label):
+                    before_state = journey.snapshot()
+                    assert not before_state['claims'], 'history inspection started before settlement'
                     session.send(ALT_HOME)
                     views = {}
-                    for _ in range(1024):
+                    total = response_view(session)['range'][2]
+                    previous_first = 0
+                    # A page advances at least one retained row. Neither a
+                    # blinking caret nor changing chrome defines transcript EOF.
+                    for _ in range(total + 1):
                         current = response_view(session)
-                        first, last, total = current['range']
+                        first, last, current_total = current['range']
+                        assert current_total == total, ('settled transcript reflowed', total, current)
+                        assert first > previous_first, ('transcript navigation did not advance', current)
                         assert len(current['body']) == last - first + 1
                         for index, line in enumerate(current['body'], first):
                             if index in views:
                                 assert views[index] == line, 'settled transcript changed during inspection'
                             views[index] = line
-                        before = session.display()
-                        session.send(PAGE_DOWN)
-                        if session.display() == before:
+                        if last == total:
                             break
+                        previous_first = first
+                        session.send(PAGE_DOWN)
                     else:
                         raise AssertionError('bounded outcome inspection did not reach transcript end')
                     journey.capture(label)
+                    save(output / (label + '-transcript.json'),
+                         {'total': total, 'rows': [views.get(index) for index in range(1, total + 1)]})
                     assert set(views) == set(range(1, total + 1)), 'inspection omitted retained transcript rows'
+                    journey.assert_owned_unchanged(before_state)
                     return ''.join(''.join(views[index] for index in range(1, total + 1)).split())
 
                 def request_terminal(observed, request):
-                    # Scope outcome/reason/admission to this exact originating
-                    # request, not another completed/failed card in the history.
-                    tail = observed.split('Request:' + request, 1)[1]
-                    outcome, tail = tail.split('Requestoutcome:', 1)[1].split('Reason:', 1)
-                    reason, tail = tail.split('Publiccontext:', 1)
-                    # Compact headers end the context at Model:, verbose ones at Origin:.
-                    context = tail.split('Origin:', 1)[0].split('Model:', 1)[0]
-                    return outcome, reason, context
+                    # Every verbose item has an immutable originating Request.
+                    # Never borrow a later card's outcome when a field is absent.
+                    terminals = []
+                    request = ''.join(unicodedata.normalize('NFC', request).split())
+                    for segment in observed.split('Request:')[1:]:
+                        originating, separator, terminal = segment.partition('Requestoutcome:')
+                        if originating != request:
+                            continue
+                        assert separator, ('request has no full terminal evidence', request, segment)
+                        outcome, separator, tail = terminal.partition('Reason:')
+                        assert separator and outcome, ('request outcome missing', request, segment)
+                        reason, separator, tail = tail.partition('Publiccontext:')
+                        assert separator and reason, ('request reason/context missing', request, segment)
+                        context, separator, _ = tail.partition('Origin:')
+                        assert separator and context, ('request context/origin missing', request, segment)
+                        terminals.append((outcome, reason, context))
+                    assert terminals, ('originating request terminal evidence missing', request, observed)
+                    assert all(value == terminals[0] for value in terminals), \
+                        ('conflicting terminal evidence for originating request', request, terminals)
+                    return terminals[0]
 
-                for mode, outcome, reason in (
-                        ('failed', 'Failed', 'Provider reported an inference error'),
-                        ('unknown', 'Unknown', 'local reader settled'),
-                        ('cancel', 'Unknown', 'local reader settled')):
+                for mode in ('failed', 'unknown', 'cancel'):
                     request = 'Interrupted-' + mode + '-original-request'
                     partial = 'PARTIAL_' + mode + '_界e\u0301_NOT_CANONICAL\n'
                     shown_partial = 'Fixture partial output,' if mode == 'cancel' else partial
@@ -211,12 +237,10 @@ def native_case(binary, output, size, ):
                     else:
                         release.set()
                     until(session, lambda: not journey.snapshot()['claims']
-                          and outcome + ' · ' in session.display(),
-                          'request-bound terminal outcome remained visible')
+                          and '/cancel' not in session.display().rstrip().splitlines()[-1],
+                          'interrupted request did not release its durable/local owner')
                     observed = inspect_history(mode + '-original-terminal')
                     original_outcome, original_reason, original_context = request_terminal(observed, request)
-                    assert original_outcome == outcome, (original_outcome, outcome)
-                    assert reason.replace(' ', '') in original_reason, original_reason
                     assert original_context == 'excludedfromfollow-up', original_context
                     assert shown_partial in observed, 'admissible partial display was lost at settlement'
                     session.send('!')
@@ -244,7 +268,10 @@ def native_case(binary, output, size, ):
                     assert (retained_outcome, retained_reason, retained_context) == (
                         original_outcome, original_reason, original_context), 'new request rewrote old terminal evidence'
                     assert shown_partial in observed, 'explicit follow-up erased the retained partial display'
-                    assert 'Publiccontext:admittedatsettlement' in observed
+                    followup_outcome, _, followup_context = request_terminal(observed, expected)
+                    assert followup_outcome != original_outcome, \
+                        'a partial excluded request was presented as the completed admitted follow-up'
+                    assert followup_context.startswith('admittedatsettlement'), followup_context
                     assert partial not in json.dumps(peer.snapshot('POST')[-1]['body'], ensure_ascii=False)
                     assert len(peer.snapshot('POST')) == before + 2, 'hidden retry or automatic follow-up'
                     result['cases'].append(mode + '-retained-terminal-exact-exclusions-future-caret-no-replay')

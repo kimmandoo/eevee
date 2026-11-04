@@ -4,6 +4,7 @@ use std::time::{Duration, Instant};
 
 const STEP: Duration = Duration::from_millis(80);
 const END: Duration = Duration::from_millis(240);
+const POPUP_LIFETIME: Duration = Duration::from_secs(3);
 
 #[derive(Clone, Copy)]
 pub(super) struct Motion {
@@ -62,14 +63,47 @@ impl App {
         self.evolution.motion.map(|motion| motion.frame)
     }
 
+    /// Start the receipt's lifetime only when it actually reaches the screen.
+    /// Redraws and priority changes must not extend a one-shot notification.
+    pub(crate) fn mark_evolution_popup_shown(&mut self, now: Instant) {
+        if !self.evolution.popup_shown {
+            self.evolution.popup_deadline = Some(now + POPUP_LIFETIME);
+            self.evolution.popup_shown = true;
+        }
+    }
+
     pub fn evolution_wait(&self, now: Instant) -> Option<Duration> {
-        self.evolution.motion.map(|motion| {
+        let motion = self.evolution.motion.map(|motion| {
             let next = motion.started + STEP * u32::from(motion.frame + 1);
             next.saturating_duration_since(now)
-        })
+        });
+        let popup = self
+            .evolution
+            .popup_deadline
+            .filter(|_| self.evolution.popup_shown && self.evolution.transition.is_some())
+            .map(|deadline| deadline.saturating_duration_since(now));
+        match (motion, popup) {
+            (Some(motion), Some(popup)) => Some(motion.min(popup)),
+            (motion, popup) => motion.or(popup),
+        }
     }
 
     pub fn tick_evolution(&mut self, now: Instant) -> bool {
+        // Expiration must request a repaint even for static/reduced-motion
+        // receipts: otherwise their cleared cells remain until the next input.
+        if self.evolution.popup_shown
+            && self.evolution.transition.is_some()
+            && self
+                .evolution
+                .popup_deadline
+                .is_some_and(|deadline| now >= deadline)
+        {
+            self.evolution.transition = None;
+            self.evolution.popup_shown = false;
+            self.evolution.popup_deadline = None;
+            self.evolution.motion = None;
+            return true;
+        }
         let Some(motion) = self.evolution.motion else {
             return false;
         };

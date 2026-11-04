@@ -12,6 +12,8 @@ Command refusal before process start preserves the actual runtime/dispatch/OS ca
 
 Windows local executable launch uses ordinary Win32 spelling only after it resolves back to the exact frozen image. This repairs installed legacy CLR runtime initialization without changing canonical cwd, argv, image hash, suspended-before-owned-Job admission or cancellation. Ambiguous normalization to a neighboring image refuses before process creation.
 
+Evolution receipts expire three seconds after first actual rendering, with an idle repaint even for static/reduced-motion settings. They do not renew or replay on redraw. Retained response anchors distinguish synthetic gap purposes, so compact paging reaches terminal evidence without cycling or implicitly following the tail. Request-bound failed/unknown/cancelled evidence stays visible and excluded from completed public context; artifact refusals cannot be overwritten by later model prose.
+
 ### Published v0.1.49 — Windows login storage
 
 The canonical Windows home anchor admits current-user, SYSTEM or Administrators ownership only with unchanged safe ACL/path checks. OWNER RIGHTS ACEs apply only to that already-admitted actual owner; the special SID never becomes an admitted owner or another reader. App-owned `.eevee-connections` and credential leaves remain current-user-owned/private; foreign ownership, untrusted modification, null/unsupported ACLs, reparse and changed identities still refuse without repair or silent session fallback. This persistence path serves native ChatGPT/OpenAI/Anthropic/Google/compatible connections. Explicit provider imports retain their safe-owner policy; Codex/SDK/ACP credentials are provider-managed and do not call this checker. SQL20/bridge12/TM2/formation2 are unchanged.
