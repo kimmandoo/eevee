@@ -81,11 +81,11 @@ class Fixture:
             cell = screen.buffer[y][x]
             assert cell.bg in ('000000', 'black'), (x, y, cell)
 
-    def fresh(self):
+    def fresh(self, mode='AUTO-APPROVE'):
         view = self.session.display()
         assert GOAL not in view and DRAFT not in view, view
         wait_for(self.session, 'What would you like to do?')
-        assert 'AUTO-APPROVE' not in view
+        wait_for(self.session, mode)
         self.canvas()
 
     def seed(self):
@@ -115,20 +115,28 @@ class Fixture:
         session = self.launch('continue', '--continue')
         wait_for(session, 'draft 941')
         assert self.draft() == saved
-        session.command('auto-approve-session'); wait_for(session, 'AUTO-APPROVE')
+        session.command('auto-approve-off'); wait_for(session, 'ASK')
         wait_for(session, 'Storage: saved')
-        session.command('new'); self.fresh()
+        session.command('new'); self.fresh('ASK')
         assert self.draft() == saved
-        session.capture('new-clears-old-work-and-session-grant')
+        session.capture('new-clears-old-work-preserves-ask')
         session.command('resume'); wait_for(session, PICKER)
         session.send(ESC + '[H' + '\r')
         wait_for(session, 'draft 941')
-        assert 'AUTO-APPROVE' not in session.display(), 'resuming restored an old grant'
+        wait_for(session, 'ASK')
         assert self.draft() == saved
         self.quit()
 
         session = self.launch('resume-id', '--resume', str(task_id))
         wait_for(session, 'draft 941')
+        wait_for(session, 'ASK')
+        session.command('auto-approve'); wait_for(session, 'AUTO-APPROVE')
+        wait_for(session, 'Storage: saved')
+        session.command('new'); self.fresh()
+        session.command('resume'); wait_for(session, PICKER)
+        session.send(ESC + '[H' + '\r')
+        wait_for(session, 'draft 941')
+        wait_for(session, 'AUTO-APPROVE')
         session.capture('exact-saved-id-restored-without-send')
         self.quit()
         session = self.launch('launch-picker', '--resume')
@@ -160,7 +168,7 @@ class Fixture:
         assert all(value == 0 for value in self.state()['effects'].values()), self.state()
         return {'status': 'passed', 'size': list(self.size), 'task_id': task_id,
                 'cases': ['fresh-launch-preserved-retained-draft', 'neutral-picker-no-materialization',
-                    'explicit-continue-and-id', 'new-and-resume-no-send-no-inherited-approval',
+                    'explicit-continue-and-id', 'ask-and-auto-persist-through-new-resume-and-relaunch',
                     'missing-and-foreign-id-no-substitution', 'new-waits-for-pending-draft-save',
                     'black-canvas', 'zero-provider-or-command-effects']}
 

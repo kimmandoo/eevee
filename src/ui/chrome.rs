@@ -73,7 +73,30 @@ pub(super) fn header(frame: &mut Frame, area: Rect, app: &App, config: &Config, 
         Message::CoreEvolutionManual
     });
     let brand = if area.width >= 90 { " EEVEE " } else { "" };
-    let usable_width = usize::from(area.width).saturating_sub(brand.len());
+    let policy = match app.planning.explicit_operation() {
+        Some(crate::providers::Operation::Plan) => paint.hint(Message::CorePolicyReadonly),
+        Some(crate::providers::Operation::Review) => paint.hint(Message::CorePolicyReview),
+        // The execution policy must stay visible even when its chip has no room.
+        _ if !app.planning.approval_ready() => paint.hint(Message::AutoApproveLoadingPolicy),
+        _ if app.approval_mode() == crate::store::ApprovalMode::Automatic => {
+            paint.hint(Message::AutoApprovePolicy)
+        }
+        _ => paint.hint(Message::AutoApproveAskPolicy),
+    };
+    let uncertainty = if app.mcp.effects_unknown() {
+        "MCP effects unknown · manual review | "
+    } else {
+        ""
+    };
+    let policy_width = Span::raw(policy).width();
+    let policy_in_title =
+        policy_width + 3 + Span::raw(app.storage_label()).width() + Span::raw(uncertainty).width()
+            > usize::from(area.width).saturating_sub(2);
+    let title_policy = if policy_in_title { policy } else { "" };
+    let title_separator = if policy_in_title { " · " } else { "" };
+    let usable_width = usize::from(area.width)
+        .saturating_sub(brand.len())
+        .saturating_sub(if policy_in_title { policy_width + 3 } else { 0 });
     {
         // An unconnected default route must not read as a ready connection;
         // Enter (or /connect) opens setup.
@@ -140,6 +163,8 @@ pub(super) fn header(frame: &mut Frame, area: Rect, app: &App, config: &Config, 
         frame.render_widget(
             Paragraph::new(Line::from(vec![
                 Span::styled(brand, paint.selected),
+                Span::styled(title_policy, paint.accent),
+                Span::raw(title_separator),
                 context,
                 model,
                 effort,
@@ -148,7 +173,9 @@ pub(super) fn header(frame: &mut Frame, area: Rect, app: &App, config: &Config, 
         );
     }
     let waiting = app.approval_count() > 0;
-    let activity = if waiting {
+    let activity = if app.rules.error.is_some() {
+        "Rules unavailable | /rules"
+    } else if waiting {
         paint.hint(Message::CoreWaitingForUser)
     } else if app.planning.cancelling {
         "Cancelling provider | /response Status"
@@ -159,7 +186,7 @@ pub(super) fn header(frame: &mut Frame, area: Rect, app: &App, config: &Config, 
             "Request blocked | /approvals Details"
         }
     } else if app.planning.preference_error().is_some() {
-        "Model preference not saved | /storage-retry"
+        "Preference not saved | /storage-retry"
     } else if let Some(activity) = app.planning.activity_label() {
         activity
     } else if app.planning.outcome_unknown() {
@@ -171,14 +198,6 @@ pub(super) fn header(frame: &mut Frame, area: Rect, app: &App, config: &Config, 
     } else {
         app.execution.activity_label()
     };
-    let policy = match app.planning.explicit_operation() {
-        Some(crate::providers::Operation::Plan) => paint.hint(Message::CorePolicyReadonly),
-        Some(crate::providers::Operation::Review) => paint.hint(Message::CorePolicyReview),
-        // A standing grant must stay visible even when the chip has no room.
-        _ if app.auto_approve_session => paint.hint(Message::AutoApproveSessionPolicy),
-        _ if app.planning.auto_approve => paint.hint(Message::AutoApprovePolicy),
-        _ => "",
-    };
     let marker = if !waiting && app.planning.activity_label().is_some() {
         format!(
             "{} ",
@@ -187,9 +206,10 @@ pub(super) fn header(frame: &mut Frame, area: Rect, app: &App, config: &Config, 
     } else {
         String::new()
     };
+    let status_policy = if policy_in_title { "" } else { policy };
     let mut status = format!(
-        "{policy}{}{} · {marker}{activity}",
-        if policy.is_empty() { "" } else { " · " },
+        "{status_policy}{}{} · {marker}{activity}",
+        if status_policy.is_empty() { "" } else { " · " },
         app.storage_label(),
     );
     // Without the companion pane, keep the todo step and next form visible
@@ -203,7 +223,7 @@ pub(super) fn header(frame: &mut Frame, area: Rect, app: &App, config: &Config, 
         status = format!("{status} · Next Send queued | /queue-cancel");
     }
     if app.mcp.effects_unknown() {
-        status = format!("MCP effects unknown · manual review | {status}");
+        status = format!("{uncertainty}{status}");
     }
     let line = row(area, 1, 1);
     text(
@@ -229,9 +249,10 @@ pub(super) fn header(frame: &mut Frame, area: Rect, app: &App, config: &Config, 
             crate::providers::Operation::Implement => Message::CoreCapabilityReviewedCoding,
         })
     );
-    let chip = if app.auto_approve_session && operation == crate::providers::Operation::Implement {
-        format!("[{}] ", paint.hint(Message::AutoApproveSessionChip))
-    } else if app.planning.auto_approve && operation == crate::providers::Operation::Implement {
+    let chip = if app.planning.approval_ready()
+        && app.approval_mode() == crate::store::ApprovalMode::Automatic
+        && operation == crate::providers::Operation::Implement
+    {
         format!("[{}] ", paint.hint(Message::AutoApproveChip))
     } else {
         chip

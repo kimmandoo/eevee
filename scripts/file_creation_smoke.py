@@ -656,6 +656,7 @@ def native_case(binary, output, root, size, ascii_mode, variant, advanced, *, mu
             wait_for(journey.session, 'Storage: saved')
             assert not any(journey.project.iterdir()), 'creation fixture did not start with an empty project'
             journey.setup_route()
+            journey.session.command('auto-approve-off')
             request = 'Generate three project files; propose their paths and preserve literal CRLF/Unicode and an empty file.'
             calls = [{'id': 'create-first', 'path': FIRST, 'content': CONTENT},
                      {'id': 'create-empty', 'path': EMPTY, 'content': ''},
@@ -967,6 +968,7 @@ def codex_case(binary, output, size, *, mutations=False):
     try:
         journey = CodexCreationJourney(binary, output, size, )
         journey.setup(count=1)
+        journey.session.command('auto-approve-off')
         journey.session.command('eevee')
         journey.session.command('role-implement')
         journey.workspace()

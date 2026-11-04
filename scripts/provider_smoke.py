@@ -59,6 +59,7 @@ def main():
                               project, environment, (120, 36), output / 'journey')
             sessions.append(session)
             wait_for(session, 'Storage: saved')
+            session.command('auto-approve-off')
             session.command('verbose')  # Expose actual item/session identities for assertions.
 
             def task():

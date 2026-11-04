@@ -57,7 +57,7 @@ impl Effects {
     pub fn begin(self: &Arc<Self>, automatic: bool) -> Result<Lease, String> {
         let mut counts = self.counts.lock();
         if automatic && (counts.uncertain || counts.active != 0) {
-            return Err("MCP automatic rule grant invalidated by unknown/pending unmanaged effects; no call dispatched. Fresh explicit review is required.".into());
+            return Err("MCP automatic grant invalidated by unknown/pending unmanaged effects; no call dispatched. Fresh explicit review is required.".into());
         }
         counts.active += 1;
         self.unknown.store(true, Ordering::Release);

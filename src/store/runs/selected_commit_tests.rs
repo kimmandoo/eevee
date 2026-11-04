@@ -170,6 +170,7 @@ fn project_exclusive_reservation_blocks_existing_and_later_cross_task_writers() 
         .run_request(RunRequest {
             task_id: task.id,
             operation: RunOperation::Abandon {
+                reason: None,
                 request_id: p.request_id,
                 run_id: p.run_id,
             },
@@ -287,6 +288,7 @@ fn serialized_public_review_and_resource_permit_cannot_restore_worker_dispatch_a
         .run_request(RunRequest {
             task_id: task.id,
             operation: RunOperation::Abandon {
+                reason: None,
                 request_id: p.request_id,
                 run_id: p.run_id,
             },

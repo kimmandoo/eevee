@@ -44,6 +44,7 @@ def run_case(binary, output, root, size, route, protocol, form):
             (journey.project / '.env').write_text('TEST_ONLY_PRIVATE_BODY\n')
             (root / 'outside-sibling.rs').write_text('outside the current project\n')
             journey.setup_route()
+            journey.session.command('auto-approve-off')
             journey.session.command(form)
             journey.workspace()
 

@@ -1,8 +1,18 @@
 # Eevee Implementation Plan
 
-Updated2026-11-04. Completed: shared Windows post-login credential admission and published0.1.49, including actual downloaded Windows/Linux credential journeys and genuine public update preservation. Completed0.1.48 tags/assets remain immutable; live-provider quality is not inferred from controlled acceptance.
+Updated2026-11-04. Active: user-authorized automatic-by-default execution and durable approval mode. Published0.1.49 remains immutable; this delivery changes the approval contract without treating restored tasks as restored effects or sessions.
 
 Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPATIBILITY.md). Live-provider conformance remains distinct from implemented transports and deterministic runtime proof.
+
+## Active delivery — Automatic coding without repeated approval (2026-11-04)
+
+1. Make store-global Automatic/Ask the single approval policy, defaulting to Automatic for fresh and legacy preferences. Reuse existing preference hydration/writer/latest-intent/retry/quit guards; never enable default Auto after failed initial restore.
+2. Replace ephemeral task/session switches with persistent `/auto-approve` and `/auto-approve-off`; remove `/auto-approve-session`. Show the active policy at both supported terminal sizes and preserve explicit Ask across new tasks, partner changes and process restart.
+3. Apply the policy to exact current-owner mediated file effects, agent commands, already-connected MCP calls and bounded read-only helper requests across routes/partners. Preserve explicit rules, questions, new connection/login/trust review, selected-local-commit review, Plan/Review, scope/identity, cancellation and unknown-effect/no-replay boundaries.
+4. Update meaningful manual-consent acceptance to explicitly select Ask; prove default automatic actual create/read/edit/compiler-failure/repair/build/run/download and durable mode transitions with isolated real programs/TUIs, plus provider command integrations.
+5. Run integrated formatting/Rust/strict lint/SDK/Python/build and actual affected surfaces; update README/design/compatibility/changelog/task/checkpoint and commit the complete result. User additionally requested a new release: qualify exact0.1.50 source across Check/all five native jobs, promote immutable packages, verify public assets/runtime/previous-release preservation and genuine0.1.49→0.1.50 update, then commit completed handoff. No strategy/default selection change is implied.
+
+Current checkpoint: implementation, source gates and affected local real runtime acceptance passed, including both-size genuine Windows compile/repair/PE execution/download/mode and two owned-launch regressions. Remain on step5: qualify the exact committed source across Check/all five native jobs, promote immutable artifacts, verify downloaded public binaries and genuine update, and only then mark this delivery completed. `WORK_CHECKPOINT.md` contains evidence paths and the exact next action.
 
 ## Completed delivery — Windows login safety compatibility (2026-11-04)
 

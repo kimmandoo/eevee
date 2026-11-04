@@ -647,7 +647,7 @@ fn provider_response_and_request_share_home_at_supported_sizes() {
 }
 
 #[test]
-fn task_auto_approval_stays_visible_in_the_header_at_every_supported_size() {
+fn approval_policy_stays_visible_and_explicit_readonly_takes_precedence() {
     use ratatui::{Terminal, backend::TestBackend};
     let config = home_config();
     for (width, height) in [(120, 36), (60, 18)] {
@@ -660,8 +660,7 @@ fn task_auto_approval_stays_visible_in_the_header_at_every_supported_size() {
                 .unwrap();
             screen_text(terminal)
         };
-        assert!(!draw(&mut app, &mut terminal, &mut artwork).contains("AUTO-APPROVE"));
-        app.planning.auto_approve = true;
+        app.planning.preference_event(Ok(None));
         let rendered = draw(&mut app, &mut terminal, &mut artwork);
         assert!(
             rendered.contains("AUTO-APPROVE"),
@@ -670,6 +669,16 @@ fn task_auto_approval_stays_visible_in_the_header_at_every_supported_size() {
         if width == 120 {
             assert!(rendered.contains("[code · auto-approve]"), "{rendered}");
         }
+        app.planning.set_approval_mode(store::ApprovalMode::Ask);
+        let rendered = draw(&mut app, &mut terminal, &mut artwork);
+        assert!(rendered.contains("ASK"), "{rendered}");
+        assert!(!rendered.contains("AUTO-APPROVE"), "{rendered}");
+        app.planning
+            .set_approval_mode(store::ApprovalMode::Automatic);
+        app.planning
+            .set_operation(crate::providers::Operation::Plan);
+        let rendered = draw(&mut app, &mut terminal, &mut artwork);
+        assert!(!rendered.contains("AUTO-APPROVE"), "{rendered}");
     }
 }
 

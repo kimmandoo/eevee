@@ -227,6 +227,7 @@ def run(binary, output, root, size, ascii_mode, ):
                               True, False, peer, )
             wait_for(journey.session, 'Storage: saved')
             journey.setup_route()
+            journey.session.command('auto-approve-off')
             future = 'Popup future 한글界e\u0301'
             journey.write_request(future)
             before_popup_posts = len(peer.snapshot('POST'))

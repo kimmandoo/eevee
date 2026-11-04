@@ -381,6 +381,7 @@ impl App {
         self.cooperation.drive_cursor = (self.cooperation.drive_cursor + 1) % len;
         let motion_choice = self.motion_choice;
         let density_choice = self.density_choice;
+        let approval_choice = self.approval_choice;
         for id in ids {
             let preference_free = self.cooperation.preference_owners.is_empty();
             let move_receipt_pending = self.move_dispatch_pending(id);
@@ -399,6 +400,9 @@ impl App {
             }
             if let Some(density) = density_choice {
                 state.sync_density_choice(density);
+            }
+            if let Some(mode) = approval_choice {
+                state.sync_approval_choice(mode);
             }
             state.settle_work();
             if sent == 0
@@ -585,6 +589,7 @@ impl App {
         }
         self.sync_motion_choices();
         self.sync_density_choices();
+        self.sync_approval_choices();
         let ids: Vec<_> = self.party.iter().map(|partner| partner.id).collect();
         self.cooperation.parked.retain(|partner, state| {
             ids.contains(partner) || state.owns_work() || state.preferences_pending()
@@ -730,63 +735,59 @@ impl App {
         self.cooperation.approvals = pending;
     }
 
-    /// Task- or session-scoped auto-approval: answers the lead's current
-    /// file/tool permission or agent command without presenting it, from any
-    /// surface. Questions, other partners and settling/cancelling work are
-    /// excluded.
+    /// Apply rules and the saved approval policy without changing foreground.
+    /// Every partner keeps its own exact callback, generation and write lease.
     fn drive_auto_approval(&mut self) -> bool {
-        // Preserve the session grant across per-request planning-state resets.
-        if self.auto_approve_session {
-            self.planning.auto_approve = true;
-        }
         if self.quit
             || self.cooperation.cancelling
             || self.cooperation.quitting
-            || self.planning.cancelling
-            || self.planning.task_id() != self.task_id
-            || self
-                .planning
-                .owner()
-                .is_none_or(|owner| owner.partner != self.lead.id)
+            || self.cooperation.journal_discard.is_some()
+            || self.rules.error.is_some()
+            || self.planning_any_unknown_effects()
+            || self.execution_any_unknown()
+            || self.mcp.effects_unknown()
         {
             return false;
         }
-        // User-created rules (XC01) answer before the broad task-scoped switch.
-        if self.drive_rules() {
-            return true;
-        }
-        if self.mcp.effects_unknown() {
-            return false;
-        }
-        if !self.planning.auto_approve {
-            return false;
-        }
-        if self.planning.auto_accept() {
-            self.notice = self.planning.notice.clone();
-            if self.overlay == Some(Overlay::Planning) && self.planning.request.is_none() {
-                self.planning.auto_permission_review = false;
+        for index in 0..self.cooperation.approvals.len() {
+            let partner = match &self.cooperation.approvals[index].1 {
+                Pending::Provider { partner, .. } | Pending::Command { partner, .. } => *partner,
+            };
+            let ready = self.planning_state(partner).is_some_and(|state| {
+                state.approval_ready()
+                    && !state.cancelling
+                    && state.task_id() == self.task_id
+                    && state.owner().is_some_and(|owner| owner.partner == partner)
+            });
+            if !ready {
+                continue;
             }
-            return true;
-        }
-        let command = self
-            .execution
-            .approval_identity()
-            .is_some_and(|(task, partner, _, _)| task == self.task_id && partner == self.lead.id)
-            && self
-                .cooperation
-                .command_callbacks
-                .contains_key(&self.lead.id)
-            && self.execution.confirmation.is_none();
-        if command && self.execution.auto_approve() {
-            self.notice = format!(
-                "Auto-approved command: {} · /auto-approve-off to review each command",
-                self.execution
-                    .prepared
-                    .as_ref()
-                    .map(execution::approval_command_summary)
-                    .unwrap_or_default()
-            );
-            return true;
+            // Explicit project rules, including denials, outrank Automatic.
+            if self.drive_rules(partner) {
+                return true;
+            }
+            let automatic = self
+                .planning_state(partner)
+                .is_some_and(|state| state.approval_mode() == store::ApprovalMode::Automatic);
+            if !automatic {
+                continue;
+            }
+            if let Some(state) = self.planning_state_mut(partner)
+                && state.auto_accept()
+            {
+                self.notice = state.notice.clone();
+                return true;
+            }
+            if self.auto_approve_agent_command(partner) {
+                self.notice = format!(
+                    "Auto-approved command: {} · /auto-approve-off to ask",
+                    self.execution_state(partner)
+                        .and_then(|state| state.prepared.as_ref())
+                        .map(execution::approval_command_summary)
+                        .unwrap_or_default()
+                );
+                return true;
+            }
         }
         false
     }
@@ -2233,77 +2234,100 @@ mod tests {
     }
 
     #[test]
-    fn task_auto_approval_answers_file_permissions_without_review_but_not_other_partners() {
+    fn automatic_permissions_keep_each_owner_without_answering_questions() {
         let mut app = app();
+        app.planning.preference_event(Ok(None));
         start(&mut app, 1, 1);
         start(&mut app, 2, 2);
+        for partner in [1, 2] {
+            app.planning_state_mut(partner).unwrap().operation = providers::Operation::Implement;
+        }
         app.open_editor(store::EditorField::Request);
         app.input = "Unsent draft".into();
         app.cursor = 3;
-        assert!(app.command("auto-approve"));
-        assert!(app.planning.auto_approve);
-        // Another partner's request is neither answered nor presented.
-        file_prompt(&mut app, 2, 10);
-        assert!(app.cooperation.parked[&2].pending.is_none());
-        file_prompt(&mut app, 1, 20);
-        assert!(
-            app.overlay.is_none(),
-            "auto-approval does not open a review"
+        for partner in [2, 1] {
+            file_prompt(&mut app, partner, 10 + partner as u64);
+            assert!(matches!(
+                app.planning_state_mut(partner).unwrap().pending.take(),
+                Some(providers::Request::Answer { answer, generation: 7, .. })
+                    if answer == json!("once")
+            ));
+            assert!(app.overlay.is_none());
+        }
+        assert_eq!((app.input.as_str(), app.cursor), ("Unsent draft", 3));
+        question_prompt(&mut app, 1, 30);
+        assert!(app.planning.pending.is_none());
+        assert!(app.planning.request.is_some());
+        assert!(app.command("auto-approve-off"));
+        assert_eq!(app.approval_mode(), store::ApprovalMode::Ask);
+        assert_eq!(
+            app.cooperation.parked[&2].approval_mode(),
+            store::ApprovalMode::Ask
         );
+    }
+
+    #[test]
+    fn automatic_policy_waits_for_hydration_and_preserves_explicit_ask() {
+        let mut app = app();
+        start(&mut app, 1, 1);
+        app.planning.operation = providers::Operation::Implement;
+        file_prompt(&mut app, 1, 10);
+        assert!(
+            app.planning.pending.is_none(),
+            "unloaded preferences grant nothing"
+        );
+        app.planning
+            .preference_event(Err("unreadable policy".into()));
+        app.refresh_approvals();
+        assert!(app.planning.pending.is_none());
+        assert!(app.command("auto-approve-off"));
+        app.planning.preference_event(Ok(None));
+        app.refresh_approvals();
+        assert!(
+            app.planning.pending.is_none(),
+            "late load must not replace explicit Ask"
+        );
+        app.planning.auto_permission_review = false;
+        app.overlay = None;
+        assert!(app.command("auto-approve"));
         assert!(matches!(
             app.planning.pending.take(),
             Some(providers::Request::Answer { answer, .. }) if answer == json!("once")
         ));
-        assert_eq!((app.input.as_str(), app.cursor), ("Unsent draft", 3));
-        assert!(app.notice.contains("src/new.rs"), "{}", app.notice);
-        // Questions are never answered automatically.
-        prompt_kind(
-            &mut app,
-            1,
-            30,
-            providers::PromptKind::Questions(vec![providers::Question {
-                id: "q".into(),
-                header: "Choice".into(),
-                question: "Which?".into(),
-                options: Vec::new(),
-                other: true,
-                secret: false,
-            }]),
-        );
-        assert!(app.planning.pending.is_none());
-        // Turning it off restores ordinary review.
-        assert!(app.command("auto-approve-off"));
-        assert!(!app.planning.auto_approve);
     }
 
     #[test]
-    fn session_auto_approval_survives_request_state_reset_but_not_another_session() {
-        for (command, kept) in [("auto-approve", false), ("auto-approve-session", true)] {
-            let mut app = app();
-            start(&mut app, 1, 1);
-            assert!(app.command(command));
-            assert_eq!(app.auto_approve_session, kept);
-            // Resetting a request within the same local session keeps its grant.
-            let task = app.task_id;
-            app.planning.reset(task);
-            start(&mut app, 1, 1);
-            file_prompt(&mut app, 1, 20);
-            assert_eq!(
-                matches!(
-                    app.planning.pending.take(),
-                    Some(providers::Request::Answer { answer, .. }) if answer == json!("once")
-                ),
-                kept,
-                "{command}"
-            );
-            assert!(app.command("auto-approve-off"));
-            assert!(!app.auto_approve_session && !app.planning.auto_approve);
-            app.auto_approve_session = true;
-            let mut other = store::Snapshot::empty("/workspace".into());
-            other.id = app.task_id + 1;
-            app.load_task(other);
-            assert!(!app.auto_approve_session && !app.planning.auto_approve);
-        }
+    fn unreadable_rules_never_become_an_empty_automatic_allow_policy() {
+        let mut app = app();
+        app.planning.preference_event(Ok(None));
+        let directory = std::env::temp_dir().join(format!(
+            "ev-rule-admission-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir(&directory).unwrap();
+        let path = directory.join(crate::workspace::rules::FILE_NAME);
+        std::fs::write(&path, b"unreadable existing deny policy").unwrap();
+        app.load_rules(&directory);
+        assert!(app.rules.error.is_some());
+        start(&mut app, 1, 1);
+        app.planning.operation = providers::Operation::Implement;
+        file_prompt(&mut app, 1, 10);
+        assert!(app.planning.pending.is_none());
+        assert!(app.planning.request.is_some());
+        assert!(app.command("auto-approve"));
+        assert!(
+            app.planning.pending.is_none(),
+            "a mode toggle cannot erase a rule failure"
+        );
+        assert_eq!(
+            std::fs::read(&path).unwrap(),
+            b"unreadable existing deny policy"
+        );
+        std::fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
@@ -2391,6 +2415,8 @@ mod tests {
     #[test]
     fn approval_rules_answer_matching_file_requests_and_deny_wins() {
         let mut app = app();
+        app.planning.preference_event(Ok(None));
+        app.planning.set_approval_mode(store::ApprovalMode::Ask);
         let dir = std::env::temp_dir().join(format!("ev-rule-app-{}", std::process::id()));
         app.rules.path = dir.join(crate::workspace::rules::FILE_NAME);
         start(&mut app, 1, 1);
@@ -2407,10 +2433,13 @@ mod tests {
             Some(providers::Request::Answer { answer, .. }) if answer == json!("once")
         ));
         assert!(app.notice.contains("Allowed by rule #1"), "{}", app.notice);
-        // Another partner's request is not answered by the lead's rules.
+        // Project rules apply to the same exact call from another live owner.
         start(&mut app, 2, 2);
         file_prompt(&mut app, 2, 21);
-        assert!(app.cooperation.parked[&2].pending.is_none());
+        assert!(matches!(
+            app.cooperation.parked.get_mut(&2).unwrap().pending.take(),
+            Some(providers::Request::Answer { answer, .. }) if answer == json!("once")
+        ));
         // A deny rule wins over the broader allow.
         let mut deny = app.rules.rules[0].clone();
         deny.effect = crate::workspace::rules::Effect::Deny;
@@ -2419,12 +2448,15 @@ mod tests {
             paths: vec!["src/new.rs".into()],
         };
         app.rules.add(deny).unwrap();
+        assert!(app.command("auto-approve"));
+        app.planning.operation = providers::Operation::Implement;
         file_prompt(&mut app, 1, 22);
         assert!(matches!(
             app.planning.pending.take(),
             Some(providers::Request::Answer { answer, .. }) if answer == json!("deny")
         ));
         // Revoking restores review before the next request.
+        assert!(app.command("auto-approve-off"));
         assert!(app.command_with_argument("rule-revoke 1"));
         assert!(app.command_with_argument("rule-revoke 2"));
         file_prompt(&mut app, 1, 23);
@@ -2437,13 +2469,17 @@ mod tests {
         let mut app = app();
         start(&mut app, 1, 1);
         file_prompt(&mut app, 1, 20);
+        app.planning.preference_event(Ok(None));
+        app.planning.set_approval_mode(store::ApprovalMode::Ask);
+        app.planning.operation = providers::Operation::Implement;
         assert!(app.planning.auto_permission_review);
         // Unengaged arrival ignores Shift+A like every other key.
         app.update(Event::Key(KeyEvent::new(
             KeyCode::Char('A'),
             KeyModifiers::SHIFT,
         )));
-        assert!(!app.planning.auto_approve && app.planning.pending.is_none());
+        assert_eq!(app.approval_mode(), store::ApprovalMode::Ask);
+        assert!(app.planning.pending.is_none());
         app.update(Event::Key(KeyEvent::new(
             KeyCode::Enter,
             KeyModifiers::NONE,
@@ -2453,7 +2489,7 @@ mod tests {
             KeyCode::Char('A'),
             KeyModifiers::SHIFT,
         )));
-        assert!(app.planning.auto_approve);
+        assert_eq!(app.approval_mode(), store::ApprovalMode::Automatic);
         assert!(matches!(
             app.planning.pending.take(),
             Some(providers::Request::Answer { answer, .. }) if answer == json!("once")
@@ -3570,6 +3606,7 @@ mod tests {
             selections: Default::default(),
             reduced_motion: false,
             text_density: store::TextDensity::Compact,
+            approval_mode: store::ApprovalMode::Automatic,
         };
         app.cooperation_preference_event(Ok(Some(original)));
         app.motion_command("motion-off");
@@ -3629,6 +3666,7 @@ mod tests {
             selections: Default::default(),
             reduced_motion: false,
             text_density: store::TextDensity::Compact,
+            approval_mode: store::ApprovalMode::Automatic,
         };
         app.cooperation_preference_event(Ok(Some(original)));
         app.density_command("density-comfortable");

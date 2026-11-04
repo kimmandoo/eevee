@@ -852,15 +852,11 @@ impl App {
             ("reduced-motion", "Toggle persistent reduced motion"),
             (
                 "auto-approve",
-                "Auto-approve file changes and commands until the task changes",
-            ),
-            (
-                "auto-approve-session",
-                "Auto-approve file changes and commands for this local session",
+                "Run agent file changes and commands automatically (saved preference)",
             ),
             (
                 "auto-approve-off",
-                "Review each file change and command again",
+                "Ask before agent file changes and commands (saved preference)",
             ),
             ("motion-off", "Keep all motion static, persistently"),
             ("motion-on", "Allow optional motion, persistently"),
@@ -1050,7 +1046,6 @@ impl App {
                     | "quit"
                     | "verbose"
                     | "auto-approve"
-                    | "auto-approve-session"
                     | "auto-approve-off"
             )
         {
@@ -1171,7 +1166,6 @@ impl App {
                     | "reduced-motion"
                     | "motion-off"
                     | "auto-approve"
-                    | "auto-approve-session"
                     | "auto-approve-off"
                     | "motion-on"
                     | "density"

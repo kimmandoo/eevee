@@ -36,8 +36,8 @@ It also comes with a companion: a party of Eevee forms that evolve with the kind
 
 - **Any model.** OpenAI (account or API), Anthropic, Google Gemini and any OpenAI-compatible endpoint, including local Ollama, vLLM and LM Studio. External agents work too: Codex, the Claude Agent SDK, and OpenCode / Gemini / Devin over ACP.
 - **A real coding loop.** Discover, read, create, edit, rename and delete files; run builds, tests and programs; feed the actual output back to the model. Code streams into the transcript as it is written.
-- **You review every effect.** Each file change and command opens a compact review with the exact diff or argv. Trust a run with `/auto-approve` (this task) or `/auto-approve-session` (**Shift+A**, this session).
-- **Rules, not forgotten grants.** Turn a reviewed `cargo test` or `tests/**` edit into a project rule with `/rule-allow`. Deletes, shells and unknown effects always ask again.
+- **Automatic coding by default.** File changes, builds, tests, programs, requested downloads and already-connected tool calls proceed without repeated approval prompts. `/auto-approve-off` selects Ask; `/auto-approve` restores Automatic. Your choice survives tasks and restarts.
+- **Explicit rules still win.** Project deny rules override Automatic. In Ask, turn a reviewed `cargo test` or `tests/**` edit into a reusable project rule with `/rule-allow`; inspect and revoke rules with `/rules`.
 - **Steer without cancelling.** Press Enter while the model works to add a correction at the next tool boundary, or queue your next request.
 - **Clear outcomes.** Failures name their cause and a next step; unfinished work shows as Incomplete, and uncertain results stay Unknown instead of looking successful.
 - **Local-first.** Tasks, drafts, transcripts and run history live in local SQLite. No account, server or Node runtime needed.
@@ -148,9 +148,11 @@ ev --resume         # choose saved work; Esc returns to a blank session
 ev --resume 12      # exact project-local task number
 ```
 
-Inside `ev`, `/new` opens fresh work and `/resume` opens the saved-work picker; neither sends anything. Saved facts, drafts and carets come back. Provider threads, process-local chat history and approvals never resume after a restart.
+Inside `ev`, `/new` opens fresh work and `/resume` opens the saved-work picker; neither sends anything. Saved facts, drafts and carets come back. The Automatic/Ask preference survives; provider threads, process-local chat history, pending effects and one-shot permissions never resume after a restart.
 
 ### Reviews
+
+Ordinary agent work starts in **Automatic**. The header shows `AUTO-APPROVE`; select `/auto-approve-off` for the persistent **Ask** mode. Ask uses the reviews below unless an explicit project rule matches. Questions, new connection/login/trust setup, manually authored local commands and selected local commits retain separate review in either mode.
 
 | In the review | What to do |
 | --- | --- |
@@ -158,9 +160,9 @@ Inside `ev`, `/new` opens fresh work and `/resume` opens the saved-work picker; 
 | Decide | **Left/Right** chooses Deny / Allow once, then **Enter** confirms. |
 | Inspect a command | Argv, working directory, resolved executable and effects; **d** opens full details, **PgUp/PgDn** scroll. |
 | Defer | **Esc** keeps the request pending and your draft intact; **Alt+A** or `/approvals` reopens it. |
-| Grant broader trust | **Shift+A** in a review grants this session; `/auto-approve` grants this task. |
+| Return to Automatic | `/auto-approve`, or **Shift+A** inside an engaged file/command review, saves Automatic as your execution preference. |
 
-Hidden or undersized reviews, skipped scope, typing, paste and held keys cannot approve an effect. Highlighted code and diagnostics help reading; they are not proof that code ran or passed.
+When manual review is required, hidden or undersized reviews, skipped scope, typing, paste and held keys cannot approve it. Automatic still freezes and revalidates each exact operation; neither mode turns highlighted code or diagnostics into proof that code ran or passed.
 
 ### Everyday controls
 
@@ -169,7 +171,7 @@ Hidden or undersized reviews, skipped scope, typing, paste and held keys cannot 
 | Find any action | `/` or **Ctrl+K** |
 | Connect / switch model / reasoning effort | `/connect` · `/model` · `/effort` |
 | Attach a file or line range as context | `@` → pick → **Enter** (**r** for a range) |
-| Auto-approve this task / this session / stop | `/auto-approve` · `/auto-approve-session` · `/auto-approve-off` |
+| Choose Automatic / Ask and remember it | `/auto-approve` · `/auto-approve-off` |
 | Reopen a deferred review | **Alt+A** or `/approvals` |
 | Read earlier output | wheel or **PgUp/PgDn**; **Alt+End** follows live output |
 | Inspect available tools / why execution is disabled | `/tools` |
@@ -238,14 +240,16 @@ Native HTTP requests the provider provably did not process (connection refused, 
 
 `ev` mediates the native tools it gives the model.
 
-- **Files** — every create/edit/rename/delete is frozen against the exact bytes and paths it will touch, then reviewed; edits show just the changed region. Stale content, links, protected paths and your exclusions are refused.
-- **Commands** — shown as readable argv with working directory and resolved executable before they run. Nonzero, cancelled or unknown outcomes are never reported as success, and nothing is replayed automatically.
-- **Auto-approve** — an explicit, visible, in-memory grant for the lead partner that ends on `/new`, switching tasks, `/auto-approve-off` or quit. It is never saved. Questions, other partners, helpers and MCP calls still ask.
-- **Rules** — created from a request under review; each pins the project, executable and argument prefix (or write paths), is listed in `/rules` and can be revoked instantly. Deletes, renames, shells and unknown effects never match.
-- **Ownership** — approvals belong to the request that asked. Evolution, restarts and saved settings never restore a grant.
+- **Files** — every create/edit/rename/delete is frozen against the exact bytes and paths it will touch. Automatic supplies ordinary tool consent; Ask shows the exact change for a one-shot decision. Stale content, links, protected paths and exclusions still refuse.
+- **Commands** — agent commands use the same owned runner and retain readable argv, working directory, executable, output and exit evidence. Pre-start refusals retain their actual runtime/OS cause rather than a generic approval error. Nonzero, cancelled or unknown outcomes are never reported as success; completed or uncertain effects are not replayed automatically.
+- **Execution mode** — Automatic is the default for ordinary agent work across partners, connected MCP calls and bounded read-only helpers. Ask is a saved alternative, not a switch that expires every task. A failed initial preference restore cannot enable Automatic. Questions and new external connection/login/trust setup remain separate.
+- **Rules** — explicit matching deny rules override Automatic; allow rules can reduce Ask prompts. Rules pin their declared project/executable/argument or write/MCP scope, are listed in `/rules` and can be revoked. Delete/rename/shell calls do not match reusable rules; they follow the selected execution mode.
+- **Unavailable policy** — a rule-file read/parse failure disables automatic grants instead of treating missing deny rules as an empty allow policy. `/rules` shows the error; repair the file and restart. Neither toggling Automatic nor storage retry discards the failed rule file.
+- **Ownership** — every tool effect still binds its current request, generation, task, partner and exact scope. A saved execution preference never restores a previous operation permit, provider session or effect. Explicit Plan/Review stays read-only.
+- **Data compatibility** — the approval choice is an explicit field in strict saved preferences. Older builds may refuse newer data even with the same SQLite schema; back up the whole data directory before downgrading.
 
 > [!WARNING]
-> Commands run with your user's permissions and environment. `ev` is **not an OS sandbox**: an approved command can touch anything you can. External agents' own tools follow their own policies. Cancellation stops work but does not roll back completed effects.
+> Commands run with your user's permissions and environment. `ev` is **not an OS sandbox**: in Automatic, an agent command can touch anything your account can, including files outside its working directory. Choose Ask for untrusted work. External agents' own tools retain their disclosed provider-policy limits. Cancellation stops work but does not roll back completed effects.
 
 Full contracts: [Design rules](docs/DESIGN_RULES.md).
 

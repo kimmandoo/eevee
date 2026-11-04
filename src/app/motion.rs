@@ -30,27 +30,33 @@ impl App {
         }
     }
 
-    /// In-memory consent for the lead partner's file changes and commands,
-    /// scoped to the current local session, never a later new/resumed session.
-    /// Enabling also settles the currently pending one.
-    pub(super) fn auto_approve_command(&mut self, command: &str) -> bool {
-        let (enabled, session) = match command {
-            "auto-approve" => (true, false),
-            "auto-approve-session" => (true, true),
-            "auto-approve-off" => (false, false),
-            _ => return false,
-        };
-        self.planning.auto_approve = enabled;
-        self.auto_approve_session = session;
-        if !enabled {
-            // A grant synced into a partner's state never outlives `off`.
+    pub fn approval_mode(&self) -> crate::store::ApprovalMode {
+        self.approval_choice
+            .unwrap_or_else(|| self.planning.approval_mode())
+    }
+
+    pub(super) fn sync_approval_choices(&mut self) {
+        if let Some(mode) = self.approval_choice {
+            self.planning.sync_approval_choice(mode);
             for state in self.cooperation.parked.values_mut() {
-                state.auto_approve = false;
+                state.sync_approval_choice(mode);
             }
         }
-        self.notice = (if session {
-            Message::AutoApproveSessionEnabled
-        } else if enabled {
+    }
+
+    /// Choose the durable execution policy; a changed policy never replays work.
+    pub(super) fn auto_approve_command(&mut self, command: &str) -> bool {
+        use crate::store::ApprovalMode;
+        let mode = match command {
+            "auto-approve" => ApprovalMode::Automatic,
+            "auto-approve-off" => ApprovalMode::Ask,
+            _ => return false,
+        };
+        self.approval_choice = Some(mode);
+        self.planning.set_approval_mode(mode);
+        self.sync_approval_choices();
+        let enabled = mode == ApprovalMode::Automatic;
+        self.notice = (if enabled {
             Message::AutoApproveEnabled
         } else {
             Message::AutoApproveDisabled

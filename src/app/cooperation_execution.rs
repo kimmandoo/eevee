@@ -41,6 +41,30 @@ impl App {
             })
     }
 
+    pub(super) fn agent_command_ready(&self, partner: i64) -> bool {
+        self.cooperation
+            .command_callbacks
+            .get(&partner)
+            .is_some_and(|callback| {
+                self.command_callback_owned(partner, callback.generation, &callback.claim)
+                    && !callback
+                        .cancelled
+                        .load(std::sync::atomic::Ordering::Acquire)
+                    && self.execution_state(partner).is_some_and(|state| {
+                        state.confirmation.is_none()
+                            && state
+                                .approval_identity()
+                                .is_some_and(|(task, owner, _, _)| {
+                                    task == self.task_id && owner == partner
+                                })
+                    })
+            })
+    }
+
+    pub(super) fn auto_approve_agent_command(&mut self, partner: i64) -> bool {
+        self.agent_command_ready(partner) && self.execution_state_mut(partner).auto_approve()
+    }
+
     fn publish_command_observation(
         &mut self,
         partner: i64,
@@ -259,7 +283,7 @@ impl App {
                 }
                 Ok(value)
             } else {
-                Err("Command denied, cancelled before start or preparation unavailable; nothing was successfully executed. A new call requires new approval.".into())
+                Err("Command denied, cancelled before start or preparation unavailable; nothing was successfully executed. Do not replay it; any newly requested operation follows the current host execution policy.".into())
             };
             self.publish_command_observation(id, &callback, Some(&result));
             let _ = callback.reply.try_send(result);

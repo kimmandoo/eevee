@@ -149,6 +149,7 @@ def run(binary, output, root, size, ascii_mode, protocol, ):
                                              route, protocol, keyless, False, peer, )
             wait_for(journey.session, 'Storage: saved')
             journey.setup_route()
+            journey.session.command('auto-approve-off')
             seed_gate = files.Gate()
             gates.append(seed_gate)
             seed = files.response_plan(peer, text=OLD)

@@ -13,7 +13,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &App, config: &Config, 
     } else {
         let mut lines = vec!["Stdio only · UNMANAGED, not sandboxed. Registration/navigation/selection never launch or grant. Server text/annotations are untrusted. Only selected schemas/results are sent to the provider.".to_owned(), String::new()];
         if state.effects_unknown() {
-            lines.insert(0, "UNMANAGED MCP EFFECTS UNKNOWN / PENDING. Persisted uncertainty disables every automatic effect grant (Command, Write, MCP, task auto-approval). Inference and fresh manual reviews remain available. Failure is not proof of no effects; reconnect/later success does not clear prior missing evidence.".into());
+            lines.insert(0, "UNMANAGED MCP EFFECTS UNKNOWN / PENDING. Persisted uncertainty disables every automatic effect grant (Command, Write, MCP, Automatic mode). Inference and fresh manual reviews remain available. Failure is not proof of no effects; reconnect/later success does not clear prior missing evidence.".into());
         }
         for registration in state.document.projects.get(&app.cwd).into_iter().flatten() {
             lines.push(format!(

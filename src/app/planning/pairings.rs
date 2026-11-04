@@ -161,6 +161,7 @@ mod tests {
             selections: [(Agent::Compatible, latest.clone())].into_iter().collect(),
             reduced_motion: false,
             text_density: crate::store::TextDensity::Compact,
+            approval_mode: crate::store::ApprovalMode::Automatic,
         });
         assert_eq!(state.agent, passive_agent);
         assert_eq!(state.selection, passive_selection);
@@ -190,6 +191,7 @@ mod tests {
             provider,
             reduced_motion: false,
             text_density: crate::store::TextDensity::Compact,
+            approval_mode: crate::store::ApprovalMode::Automatic,
             selections: [(
                 provider,
                 ModelSelection {
@@ -208,6 +210,7 @@ mod tests {
             provider,
             reduced_motion: false,
             text_density: crate::store::TextDensity::Compact,
+            approval_mode: crate::store::ApprovalMode::Automatic,
             selections: [(provider, latest.clone())].into_iter().collect(),
         });
         assert_eq!(
@@ -245,6 +248,7 @@ mod tests {
             .collect(),
             reduced_motion: false,
             text_density: crate::store::TextDensity::Compact,
+            approval_mode: crate::store::ApprovalMode::Automatic,
         };
         let mut state = State::new();
         state.preference_event(Ok(Some(global.clone())));
@@ -264,6 +268,7 @@ mod tests {
             .collect(),
             reduced_motion: false,
             text_density: crate::store::TextDensity::Compact,
+            approval_mode: crate::store::ApprovalMode::Automatic,
         };
         state.merge_preferences(&newer);
         assert_eq!(state.selection.model.as_deref(), Some("exact/Mizu"));

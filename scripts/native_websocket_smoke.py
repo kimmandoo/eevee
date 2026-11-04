@@ -524,6 +524,7 @@ class WebsocketJourney(CreationJourney):
         # never clear its diagnostic or sticky uncertainty to reach another case.
         wait_for(self.session, 'Storage: saved')
         self.setup_route()
+        self.session.command('auto-approve-off')
         self.session.command('role-implement')
         self.workspace()
         answer = 'WS_BASELINE_' + mode + '_界'
@@ -552,6 +553,7 @@ class WebsocketJourney(CreationJourney):
         # never a substitute for ordinary Request continuity in run_ws().
         wait_for(self.session, 'Storage: saved')
         self.setup_route()
+        self.session.command('auto-approve-off')
         goal = 'Neutral local fact for exact WebSocket preview qualification.'
         request = 'Reply with the neutral preview marker only; do not use tools.'
         answer = 'WS_ADVANCED_PREFLIGHT_界'
@@ -586,6 +588,7 @@ class WebsocketJourney(CreationJourney):
     def run_ws(self):
         wait_for(self.session, 'Storage: saved')
         self.setup_route()
+        self.session.command('auto-approve-off')
         self.session.command('role-implement')
         self.workspace()
         assert not self.peer.connections, 'setup opened inference WebSocket'

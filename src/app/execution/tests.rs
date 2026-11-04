@@ -1643,7 +1643,7 @@ fn command_summary_is_a_readable_unambiguous_argv_line() {
 }
 
 #[test]
-fn task_auto_approval_reserves_agent_commands_without_review() {
+fn automatic_policy_reserves_only_the_owned_agent_command_without_review() {
     use crate::providers::{self, Agent, Operation, Preview, Request};
     let mut app = crate::app::App::new("/project".into(), 120, 36);
     app.task_id = 1;
@@ -1705,7 +1705,7 @@ fn task_auto_approval_reserves_agent_commands_without_review() {
     app.execution.prepared = Some(prepared);
     app.overlay = None;
 
-    app.planning.auto_approve = true;
+    app.planning.preference_event(Ok(None));
     app.refresh_approvals();
     assert_eq!(app.overlay, None, "no review is shown under auto-approval");
     assert!(app.execution.reserving, "exact prepared command proceeds");

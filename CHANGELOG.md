@@ -2,6 +2,19 @@
 
 ## 2026-11-04
 
+### 0.1.50
+
+- feat(permissions)!: made ordinary agent file changes, builds, tests, programs, requested downloads, connected tools and bounded read-only helpers automatic by default across partners; retained explicit rules, read-only modes, exact scope validation and cancellation/unknown-effect stops.
+- feat(permissions): saved Automatic or Ask through the existing global preference writer so `/auto-approve` and `/auto-approve-off` survived new tasks, partner changes and restarts; replaced ephemeral task/session grants and removed `/auto-approve-session`.
+- fix(permissions): kept failed initial preference restoration from enabling Automatic, preserved newer explicit choices over delayed loads/acknowledgments and parked saves, and retained separate questions, connection/login/trust setup and selected-local-commit reviews.
+- fix(permissions): disabled automatic decisions when existing rules could not be loaded, exposed the error without replacing the file, and kept legitimate bounded read-only helper/tool decisions automatic without granting Plan/Review writes or commands.
+- fix(mcp): attributed default automatic calls to the actual execution policy and rechecked their automatic effect lease at dispatch, rather than recording a manual user review or bypassing the unknown/pending-effects floor.
+- fix(execution): retained the actual pre-start runtime, dispatch or OS refusal in durable command evidence and agent results instead of replacing it with a generic invalidated-approval message; kept no-start and no-replay semantics.
+- fix(windows): launched frozen local executables through an identity-equivalent Win32 spelling so installed legacy runtimes could initialize, while rejecting path-normalization substitution and retaining suspended owned-tree admission.
+- feat(ui): displayed Automatic or Ask prominently at compact and wide sizes, with explicit read-only modes taking precedence and visible unsaved-preference diagnostics.
+- test(agents): exercised default automatic coding through real compiler failure/repair/build/program execution and corrected HTTP download, preserved manual denial/cancellation coverage under explicit Ask, and added durable mode and connected-tool/helper acceptance.
+- chore(release): advanced the package to0.1.50 while retaining SQL20, complete SDK bridge12, TM2 and formation2; made the explicit approval field part of strict durable-reader admission.
+
 ### 0.1.49
 
 - chore(release): advanced the package to0.1.49 with SQL20, complete SDK bridge12, TM2 and formation2 unchanged.

@@ -1,5 +1,33 @@
 # Troubleshooting
 
+### [2026-11-04] Canonical Windows image spelling broke installed runtimes and hid launch causes
+
+- **Context / Symptom:** Genuine Windows/ConPTY coding created/read/edited files and ran the installed Rust compiler/program, but a Store Python image refused owned launch and Windows PowerShell exited`-65536` before any HTTP request. The pre-start tool result lost the actual OS cause behind a generic invalidated-approval message; PowerShell's initialization boilerplate was omitted from retained output.
+- **Root Cause:** The Windows backend passed the canonical `\\?\` executable spelling to `CreateProcessW`. An independent four-way native probe isolated the image spelling, not cwd: ordinary PowerShell image spelling returned the requested exit23/marker with either cwd spelling; the verbatim image returned`0xffff0000` with `The type initializer for 'System.Net.ServicePointManager' threw an exception`. Setting UTF-8 inside the command could not repair a runtime that never reached that command. Separately, correlated abandonment discarded `runner::Event::Rejected`'s actual cause.
+- **Solution:** Used a borrowed ordinary local Win32 image spelling only after it canonicalized to the exact frozen executable; rejected normalization to a different image, while retaining canonical cwd, exact argv, hashing, suspended-before-Job admission and owned-tree cancellation. Carried actual runtime/dispatch/OS refusal through abandonment into durable evidence and agent results. Kept explicit UTF-8 command output and fixture privacy guards instead of relaxing sanitization, ACLs or process containment.
+- **Prevention / Reference:** Both genuine Windows startup/exit/output/owned-tree and ambiguous trailing-dot-neighbor no-dispatch regressions passed. Both-size ConPTY then passed actual malformed-image refusal with preserved OS cause/`NotStarted`, compiler failure/repair/PE build/program, real404/corrected download/exact bytes, queued Ask→Automatic and new/resume/restart/caret/durable mode. Public MSVC/package qualification remains separate. No real credentials, existing ACL changes, global install or process-control fallback was used.
+
+### [2026-11-04] Runtime acceptance could not promote read-only refusals to completed work
+
+- **Context / Symptom:** Initial drivers expected an independent Review task to switch itself to Implement, asserted no durable claim before cancelling its blocked preview, and expected completed helper/parent prose after deliberately injecting a forbidden child write. An ACP peer also requested terminal output before durable settlement.
+- **Root Cause:** Those expectations contradicted existing read-only, ownership-release, truthful incomplete-outcome and terminal-output contracts. Compact UI clipping and neutral-details navigation also made a complete-patch blocker unavailable on the home surface.
+- **Solution:** Kept the production guards: inspected the complete neutral blocker, explicitly cancelled and waited for durable release, proved Review could not elevate itself, and checked no dispatch/effects/replay. Required the refused child and parent to remain incomplete while siblings retained distinct completed summaries, identities, receipts and exact usage. Removed the invalid early ACP output probe and border-character assertions, not the real compiler/file/consent checks.
+- **Prevention / Reference:** All four native/Codex coding journeys and both-size bounded-helper journeys passed with zero ordinary coding approval keys; ACP filesystem happy/deny12, ACP Automatic2/Ask6 and SDK Automatic/Ask passed. Keep fixture labels and manually reviewed setup distinct from ordinary Automatic tools; never relax product scope to satisfy a driver.
+
+### [2026-11-04] Automatic MCP decisions needed dispatch-time policy identity
+
+- **Context / Symptom:** Introducing saved Automatic mode required the native MCP worker to distinguish a mode-supplied answer from a fresh manual review. Selecting a pending request in the UI alone did not carry that distinction through dispatch.
+- **Root Cause:** The worker previously recognized automatic provenance only for explicit project-rule answers. Treating a mode answer as manual would misattribute its receipt and bypass the automatic-specific late unknown-effect check.
+- **Solution:** Added and validated a private automatic-policy answer marker, kept rule and mode attribution unambiguous, and passed the automatic flag into the existing effects lease. Also stopped all automatic decisions when a saved rule file fails to load, rather than interpreting a lost deny policy as an empty allow policy.
+- **Prevention / Reference:** The integrated Rust suite passed2036 tests/two ignored, including the malformed-rule no-dispatch regression. Actual MCP journeys at120×36 and60×18 recorded `Automatic execution policy`, invoked the selected stdio tool, and proved retained uncertainty blocks later automatic/rule native writes and commands, including after restart. This was a dispatch-safety correction; no live provider or credential was used.
+
+### [2026-11-04] Approval policy labels clipped compact storage recovery and streaming status
+
+- **Context / Symptom:** The new persistent policy header caused compact-size regressions: the complete storage failure/recovery label disappeared behind truncation, and a streaming activity had no fully visible owner label.
+- **Root Cause:** Prepending a new mandatory policy string consumed width that had previously belonged to critical storage/activity text. Merely shortening the loading label repaired streaming but still clipped the longer save-failure recovery actions.
+- **Solution:** Kept the policy visible but moved it to the title row whenever the complete storage label and policy could not share the status row. Reserved title space before composing project/provider/model identity; no storage recovery text, draft or CJK caret was removed. Shortened the transient unhydrated policy indicator.
+- **Prevention / Reference:** The integrated Rust suite passed2035 tests/two ignored, including both Compact/Comfortable densities and60×18/120×36 critical-status/editor checks. New header metadata must budget against full recovery labels, not just the normal saved state.
+
 ### [2026-11-04] Windows credential acceptance needed DACL-only fixture setup and settled privacy reads
 
 - **Context / Symptom:** A fixture's copied-descriptor `Set-Acl` requested missing `SeSecurityPrivilege`. After functional save/replacement/session/restart checks succeeded, scanning the live data directory raised `PermissionError` on Windows ownership locking.

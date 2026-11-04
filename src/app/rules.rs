@@ -1,6 +1,6 @@
-//! Approval rules (XC01) at the lead's approval boundary. A rule is created
-//! only by an explicit `/rule-allow` or `/rule-deny` on a request the user is
-//! reviewing; it then answers later matching requests and says so.
+//! Explicit approval rules outrank the saved execution policy for every partner.
+//! Rules are authored from a foreground review and apply to exact matching
+//! project calls, without transferring request ownership.
 use super::*;
 use crate::providers::PromptKind;
 use crate::workspace::rules::{self, Call, Effect, Expiry, Kind, Rule, WriteOp};
@@ -47,14 +47,18 @@ impl App {
     pub fn load_rules(&mut self, data_dir: &std::path::Path) {
         self.rules = rules::Store::load(data_dir);
         self.mcp.restore(data_dir, &self.cwd);
+        if self.rules.error.is_some() {
+            self.notice = "Approval rules could not be loaded; automatic grants are disabled. /rules shows the error. Repair the rule file and restart; no rules were discarded or replaced.".into();
+        }
         if self.mcp.effects_unknown() {
             self.notice = "Unmanaged MCP effects unknown; automatic effect grants disabled. Fresh manual reviews remain available; /mcp shows retained uncertainty.".into();
         }
     }
 
-    fn pending_rule_call(&self) -> Option<Pending> {
-        if self.planning.agent.is_direct()
-            && let Some(request) = self.planning.request.as_ref()
+    fn pending_rule_call(&self, partner: i64) -> Option<Pending> {
+        let state = self.planning_state(partner)?;
+        if state.agent.is_direct()
+            && let Some(request) = state.request.as_ref()
             && matches!(&request.kind, PromptKind::Permission { file: None, options, .. } if options.len() == 2)
             && let Some(mcp) = request.request_id.get("eevee-mcp")
         {
@@ -67,14 +71,14 @@ impl App {
             file: Some(file),
             options,
             ..
-        }) = self.planning.request.as_ref().map(|request| &request.kind)
+        }) = state.request.as_ref().map(|request| &request.kind)
             && options.len() >= 2
             && !file.external
         {
             let op = match file.kind {
                 crate::providers::FileReviewKind::Create => WriteOp::Create,
                 crate::providers::FileReviewKind::Modify => WriteOp::Edit,
-                // Delete and rename always need a fresh review.
+                // Delete and rename do not match reusable write rules.
                 _ => return None,
             };
             return Some(Pending::Write {
@@ -82,11 +86,12 @@ impl App {
                 path: file.path.clone(),
             });
         }
-        let (task, partner, _, run) = self.execution.approval_identity()?;
-        if task != self.task_id || partner != self.lead.id {
+        let execution = self.execution_state(partner)?;
+        let (task, owner, _, run) = execution.approval_identity()?;
+        if task != self.task_id || owner != partner {
             return None;
         }
-        let prepared = self.execution.prepared.as_ref()?;
+        let prepared = execution.prepared.as_ref()?;
         let crate::workspace::runner::CommandSpec::Direct { args, .. } = &prepared.spec else {
             return None;
         };
@@ -119,9 +124,8 @@ impl App {
         rules::decide(&self.rules.rules, &self.cwd, &call).cloned()
     }
 
-    /// Answers the lead's current request from a matching rule. Never acts
-    /// while local effects are unknown, and never on questions.
-    pub(super) fn drive_rules(&mut self) -> bool {
+    /// Apply an explicit rule to its original partner, never unknown effects.
+    pub(super) fn drive_rules(&mut self, partner: i64) -> bool {
         if self.rules.rules.is_empty()
             || self.planning_any_unknown_effects()
             || self.execution_any_unknown()
@@ -129,27 +133,22 @@ impl App {
         {
             return false;
         }
-        let Some(pending) = self.pending_rule_call() else {
+        let Some(pending) = self.pending_rule_call(partner) else {
             return false;
         };
-        let command_ready = matches!(pending, Pending::Command { .. })
-            && self
-                .cooperation
-                .command_callbacks
-                .contains_key(&self.lead.id)
-            && self.execution.confirmation.is_none();
-        if matches!(pending, Pending::Command { .. }) && !command_ready {
+        if matches!(pending, Pending::Command { .. }) && !self.agent_command_ready(partner) {
             return false;
         }
         let Some(rule) = self.rule_for(&pending) else {
-            self.rule_hint(&pending);
+            if partner == self.lead.id {
+                self.rule_hint(&pending);
+            }
             return false;
         };
         let subject = match &pending {
             Pending::Command { .. } => self
-                .execution
-                .prepared
-                .as_ref()
+                .execution_state(partner)
+                .and_then(|state| state.prepared.as_ref())
                 .map(execution::approval_command_summary)
                 .unwrap_or_default(),
             Pending::Write { path, .. } => path.clone(),
@@ -159,19 +158,25 @@ impl App {
             return false;
         } // Recheck immediately at the grant boundary.
         let answered = match (&pending, rule.effect) {
-            (Pending::Write { .. }, Effect::Allow) => self.planning.answer_permission(1),
-            (Pending::Write { .. }, Effect::Deny) => self.planning.answer_permission(0),
-            (Pending::Mcp { .. }, Effect::Allow) => self.planning.answer_permission(1),
-            (Pending::Mcp { .. }, Effect::Deny) => self.planning.answer_permission(0),
-            (Pending::Command { .. }, Effect::Allow) => self.execution.auto_approve(),
+            (Pending::Write { .. } | Pending::Mcp { .. }, effect) => self
+                .planning_state_mut(partner)
+                .is_some_and(|state| state.answer_permission(usize::from(effect == Effect::Allow))),
+            (Pending::Command { .. }, Effect::Allow) => self.auto_approve_agent_command(partner),
             (Pending::Command { .. }, Effect::Deny) => {
-                self.execution.open_rule_review() && self.command("deny")
+                let state = self.execution_state_mut(partner);
+                if state.open_rule_review() {
+                    state.command("deny");
+                    true
+                } else {
+                    false
+                }
             }
         };
         if answered {
             if matches!(pending, Pending::Mcp { .. })
-                && let Some(crate::providers::Request::Answer { answer, .. }) =
-                    &mut self.planning.pending
+                && let Some(crate::providers::Request::Answer { answer, .. }) = self
+                    .planning_state_mut(partner)
+                    .and_then(|state| state.pending.as_mut())
             {
                 answer["mcp_rule"] = serde_json::json!({"id":rule.id,"sentence":rule.sentence()});
             }
@@ -213,7 +218,7 @@ impl App {
     }
 
     fn draft_rule(&self, effect: Effect, argument: &str) -> Result<Rule, String> {
-        let pending = self.pending_rule_call().ok_or(
+        let pending = self.pending_rule_call(self.lead.id).ok_or(
             "Open a lead file create/edit or direct command review first; deletes, renames, shells and selected commits never get rules",
         )?;
         let mut expires = Expiry::Never;
@@ -398,11 +403,10 @@ mod tests {
         assert!(app.notice.contains("/rule-revoke <id>"));
     }
     #[test]
-    fn unmanaged_mcp_needs_explicit_rule_and_ignores_task_auto_approval() {
+    fn mcp_rules_preserve_scope_and_unknown_effect_floor() {
         use crate::providers::{PermissionOption, Prompt};
         let mut app = App::new("/p".into(), 120, 36);
         app.planning.agent = crate::providers::Agent::Compatible;
-        app.planning.auto_approve = true;
         app.planning.request = Some(Prompt {
             arrival: 1,
             request_id: serde_json::json!({"eevee-mcp":{"server":"fixture","tool":"echo"}}),
@@ -426,9 +430,7 @@ mod tests {
                 ],
             },
         });
-        assert!(!app.planning.auto_accept());
-        assert!(app.planning.pending.is_none());
-        let pending = app.pending_rule_call().unwrap();
+        let pending = app.pending_rule_call(app.lead.id).unwrap();
         assert!(app.rule_for(&pending).is_none());
         let rule = app.draft_rule(Effect::Allow, "launch").unwrap();
         assert!(
@@ -439,7 +441,7 @@ mod tests {
         assert!(app.draft_rule(Effect::Allow, "*").is_err());
         app.planning.agent = crate::providers::Agent::Claude;
         assert!(
-            app.pending_rule_call().is_none(),
+            app.pending_rule_call(app.lead.id).is_none(),
             "external metadata must not manufacture a native MCP rule"
         );
         let data = std::env::temp_dir().join(format!("ev-mcp-rule-floor-{}", std::process::id()));
@@ -460,7 +462,7 @@ mod tests {
             "the rule still matches its identity"
         );
         assert!(
-            !app.drive_rules(),
+            !app.drive_rules(app.lead.id),
             "unknown effects must suppress automatic grants, not erase rules"
         );
         assert!(app.planning.pending.is_none());

@@ -282,6 +282,7 @@ def main():
         for size in ((120, 36), (60, 18)):
             active = j = Journey(binary, output, size, "queue")
             j.setup()
+            j.session.command("auto-approve-off")
             # Only the permission owner needs Implement; readers cannot authorize commands.
             j.implementation(2)
             for partner, marker in ((1, "COOP_A"), (2, "COOP_B"), (3, "COOP_C")):
@@ -372,6 +373,7 @@ def main():
 
             active = j = Journey(binary, output, size, "idle-first")
             j.setup(count=4)
+            j.session.command("auto-approve-off")
             j.implementation(4)
             for partner in (2, 3, 4):
                 j.request(partner, f"COOP_IDLE_FIRST_{partner}")
@@ -404,6 +406,7 @@ def main():
 
             active = j = Journey(binary, output, size, "lease")
             j.setup()
+            j.session.command("auto-approve-off")
             j.request(1, "COOP_READER_FIRST")
             j.finish("COOP_READER_FIRST")
             j.until(lambda: not j.claims(), "first readonly turn did not settle")
@@ -475,6 +478,7 @@ def main():
 
             active = j = Journey(binary, output, size, "local-slots")
             j.setup(count=4)
+            j.session.command("auto-approve-off")
             for partner in (1, 2, 3):
                 j.approve_command(j.control / f"local-{partner}", partner)
             j.until(lambda: j.claims() == {1, 2, 3}, "three real local commands did not coexist")
@@ -519,6 +523,7 @@ def main():
 
             active = j = Journey(binary, output, size, "journal-limit")
             j.setup(count=1)
+            j.session.command("auto-approve-off")
             # Stay below the transport's per-turn 128-item decision-retention bound.
             # Three genuine resumed turns still hit the task's real 257th journal Put.
             for batch, count in enumerate((100, 100, 57), 1):
@@ -579,6 +584,7 @@ def main():
 
             active = j = Journey(binary, output, size, "crash")
             j.setup(count=1)
+            j.session.command("auto-approve-off")
             j.implementation(1)
             j.request(1, "COOP_CRASH")
             j.until(lambda: bool(j.snapshot()[2]) and j.snapshot()[2][0]["writing"], "crash fixture never held a write lease")

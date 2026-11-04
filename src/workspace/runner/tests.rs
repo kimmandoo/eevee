@@ -126,6 +126,60 @@ fn execute(
     (record, output, events)
 }
 
+#[cfg(windows)]
+#[test]
+fn canonical_windows_image_runs_legacy_powershell_without_losing_owned_tree() {
+    let temp = Temp::new();
+    let shell = PathBuf::from(std::env::var_os("SystemRoot").expect("Windows SystemRoot"))
+        .join("System32/WindowsPowerShell/v1.0/powershell.exe");
+    let command = prepared(
+        &temp,
+        CommandSpec::Direct {
+            program: shell.to_str().unwrap().into(),
+            args: vec![
+                "-NoProfile".into(),
+                "-NonInteractive".into(),
+                "-Command".into(),
+                "Write-Output 'WIN32 PATH OK'; exit 23".into(),
+            ],
+        },
+    );
+    let (record, output, _) = execute(&temp, command, 65536, None);
+    assert_eq!(record.exit_code, Some(23));
+    assert_eq!(record.state, RunState::Failed);
+    assert_eq!(record.tree, TreeOutcome::OwnedTreeExited);
+    assert!(output.contains("WIN32 PATH OK"));
+    assert!(!record.truncated && !record.output_unavailable);
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_launch_never_normalizes_a_frozen_image_to_its_trailing_dot_neighbor() {
+    let temp = Temp::new();
+    let neighbor = temp.0.join("ambiguous.exe");
+    fs::copy(std::env::current_exe().unwrap(), &neighbor).unwrap();
+    let frozen = temp.0.join("ambiguous.exe.");
+    fs::write(&frozen, b"not a Windows image").unwrap();
+    let command = prepared(
+        &temp,
+        CommandSpec::Direct {
+            program: frozen.to_str().unwrap().into(),
+            args: vec!["--exact".into(), "not_a_test".into()],
+        },
+    );
+    let error = match native::Process::spawn(&command) {
+        Ok(_) => panic!("launch replaced the frozen image with its Win32 neighbor"),
+        Err(error) => error,
+    };
+    assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+    assert!(
+        error
+            .to_string()
+            .contains("identity-equivalent Win32 launch path")
+    );
+    assert_eq!(fs::read(&frozen).unwrap(), b"not a Windows image");
+}
+
 #[test]
 fn piped_native_transport_roundtrips_and_backpressure_does_not_block() {
     let temp = Temp::new();

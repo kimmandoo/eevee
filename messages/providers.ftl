@@ -193,7 +193,7 @@ providers-planning-you-can-keep-editing-your-next-request = { "You can keep edit
 
 providers-planning-enter-sends-an-independent-review-request-no = { "Enter sends an independent review request. No source writes or resumed implementation history." }
 
-providers-planning-type-a-request-below-enter-sends-commands = { "Type a request below. Enter sends; commands and file changes require separate approval." }
+providers-planning-type-a-request-below-enter-sends-commands = { "Type a request below. Enter sends. Tools follow the active execution policy." }
 
 providers-planning-decision-reviews-a-complete-proposal-locally = { "/decision: complete messages/plans only, not file previews" }
 

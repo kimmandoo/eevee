@@ -651,27 +651,24 @@ impl State {
         true
     }
 
-    /// Answers the current owned permission with its allow-once option while
-    /// task-scoped auto-approval is on. Questions are never answered.
+    /// Apply the current automatic policy to this exact tool permission.
+    /// Questions and setup/connection reviews are not tool permissions.
     pub(in crate::app) fn auto_accept(&mut self) -> bool {
-        if !self.auto_approve || self.pending.is_some() || self.cancelling {
+        let readonly_tool = self.agent.is_direct()
+            && self.request.as_ref().is_some_and(|request| {
+                matches!(&request.kind, PromptKind::Permission { file: None, .. })
+                    && (request.request_id.get("eevee-native-delegate").is_some()
+                        || request.request_id.get("eevee-mcp").is_some())
+            });
+        if !self.approval_ready()
+            || self.approval_mode() != crate::store::ApprovalMode::Automatic
+            || (self.operation != Operation::Implement && !readonly_tool)
+            || self.pending.is_some()
+            || self.cancelling
+        {
             return false;
         }
-        if self
-            .request
-            .as_ref()
-            .is_some_and(|request| request.request_id.get("eevee-native-delegate").is_some())
-        {
-            return false; // Every delegated round needs its exact instruction review.
-        }
-        if self
-            .request
-            .as_ref()
-            .is_some_and(|request| request.request_id.get("eevee-mcp").is_some())
-        {
-            return false; // Unmanaged calls require a fresh review or an explicit MCP rule.
-        }
-        let (answer, subject) = match self.request.as_ref().map(|request| &request.kind) {
+        let (mut answer, subject) = match self.request.as_ref().map(|request| &request.kind) {
             Some(PromptKind::Permission { options, file, .. }) if options.len() >= 2 => (
                 options[1].answer.clone(),
                 file.as_ref()
@@ -684,6 +681,16 @@ impl State {
             }) => (json!({"decision": "accept"}), command.clone()),
             _ => return false,
         };
+        if self
+            .request
+            .as_ref()
+            .is_some_and(|request| request.request_id.get("eevee-mcp").is_some())
+        {
+            let Some(fields) = answer.as_object_mut() else {
+                return false;
+            };
+            fields.insert("mcp_automatic".into(), json!(true));
+        }
         self.auto_permission_review = false;
         self.send_answer(answer);
         self.notice = format!("Auto-approved: {subject} · /auto-approve-off to review each change");

@@ -216,7 +216,7 @@ async fn inference_rounds(
             task_id: run.input.task.id,
             message: format!("Native {} round {round}/{round_limit}; requested model {model}; {}",
                 if websocket { "WebSocket" } else { "HTTP" },
-                if native_writing(&run.input) { "file effects and eevee_run_command require separate exact one-shot approval" } else { "read/list only; no mutations or commands" }),
+                if native_writing(&run.input) { "file effects and eevee_run_command follow saved Automatic/Ask mode with exact one-shot host decisions" } else { "read/list only; no mutations or commands" }),
         }).map_err(|error| (Outcome::Failed, error))?;
         let mut stream = Stream::new(connection.protocol);
         stream.calls.select_catalog(run.input.tool_catalog.as_ref());

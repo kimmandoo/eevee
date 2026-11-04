@@ -294,7 +294,6 @@ mod tests {
             assert!(app.switch_task.is_none());
             assert!(app.confirmation.is_none());
             assert!(app.planning.pending.is_none());
-            assert!(!app.planning.auto_approve);
             assert!(app.execution.active.is_none());
             assert!(!app.records.mutation_pending());
         };
@@ -361,7 +360,6 @@ mod tests {
         assert!(app.switch_task.is_none());
         assert!(app.confirmation.is_none());
         assert!(app.planning.pending.is_none());
-        assert!(!app.planning.auto_approve);
         assert!(app.execution.active.is_none());
         assert!(!app.records.mutation_pending());
     }

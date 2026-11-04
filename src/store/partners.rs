@@ -671,6 +671,7 @@ mod release_tests {
             .run_request(RunRequest {
                 task_id: current.id,
                 operation: RunOperation::Abandon {
+                    reason: None,
                     request_id: prepared.request_id,
                     run_id: prepared.run_id,
                 },

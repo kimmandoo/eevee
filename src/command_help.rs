@@ -35,7 +35,6 @@ pub fn key(command: &str) -> Option<Message> {
         "reduced-motion" => Message::MotionCommandToggle,
         "motion-off" => Message::MotionCommandOff,
         "auto-approve" => Message::AutoApproveCommandOn,
-        "auto-approve-session" => Message::AutoApproveCommandSession,
         "auto-approve-off" => Message::AutoApproveCommandOff,
         "motion-on" => Message::MotionCommandOn,
         "density" => Message::DensityCommandToggle,

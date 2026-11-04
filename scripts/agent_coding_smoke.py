@@ -5,7 +5,9 @@ Deterministic loopback/JSONL peers ONLY request tools. Eevee creates/edits the
 source, launches a real Rust compiler, receives its real failure, repairs the
 source, compiles/runs an executable and downloads an inert local HTTP resource
 after observing a real 404. No model, credential, SQL write, compiler invocation
-or download by the peer is used. Default coverage is four representative journeys.
+or download by the peer is used. Default coverage is four automatic journeys:
+native and controlled Codex, each at 120x36 and 60x18. Approval keys are never
+sent during the coding chain; separate negative consent cases explicitly use Ask.
 """
 from __future__ import annotations
 
@@ -26,7 +28,7 @@ import traceback
 
 import file_creation_smoke as files
 from native_connection_smoke import Peer
-from response_smoke import saved_request
+from response_smoke import SurfaceSession, saved_request
 from terminal_smoke import confirm_exit
 from workbench_smoke import wait_for
 
@@ -264,12 +266,22 @@ def file_decision(journey, allow=True):
     session.send('\r', settle=False)
 
 
-def command_decision(journey, *, decision='allow', retain_draft=False):
+def command_decision(journey, *, decision='allow', retain_draft=False, deny_rule=False):
     session = journey.session
     titles = ('Review one-shot execution permission', )
     def ready():
         if any(title in session.display() for title in titles):
             return True
+        view = session.display()
+        if '/ Commands / type to search' in view:
+            session.send(ESC)
+            return False
+        if 'Enter to review (not approve)' in view:
+            # Engage a newly arriving neutral review before using the palette;
+            # otherwise /approvals itself is correctly unavailable and obscures it.
+            session.send('\r')
+            session.send(ESC + '[H')
+            return any(title in session.display() for title in titles)
         # Commands join the shared FIFO instead of stealing focus. Select the
         # pending exact command once preparation has produced its immutable ID.
         session.command('approvals')
@@ -298,6 +310,11 @@ def command_decision(journey, *, decision='allow', retain_draft=False):
         journey.workspace()
         session.command('cancel')
     elif decision == 'deny':
+        if deny_rule:
+            if 'Enter to review (not approve)' in session.display():
+                session.send('\r')
+            session.command('rule-deny launch')
+            wait_for(session, 'Rule #1:')
         session.command('deny')
     else:
         # An automatically presented review must be engaged before choosing.
@@ -340,6 +357,18 @@ def visible_outcomes(journey, calls):
 
 
 class NativeJourney(files.CreationJourney):
+    def begin_automatic(self, request, plans):
+        self.write_request(request)
+        before = len(self.peer.snapshot('POST'))
+        for plan in plans:
+            self.peer.plans.put(plan)
+        self.session.send('\r', settle=False)
+        files.until(self.session, lambda: len(self.peer.snapshot('POST')) > before,
+                    'default Automatic did not dispatch without approval keys', timeout=40)
+        claims = self.snapshot()['claims']
+        assert len(claims) == 1 and claims[0]['writing'], claims
+        return before
+
     def settled_coding(self, count):
         files.until(self.session, lambda: len(self.peer.snapshot('POST')) == count
                     and not self.snapshot()['claims'] and 'Storage: saved' in self.session.display()
@@ -366,6 +395,8 @@ def native_case(binary, compiler, output, size, manual):
                 if executable:
                     (journey.root / 'empty-bin' / name).symlink_to(Path(executable).resolve())
             wait_for(journey.session, 'Storage: saved')
+            wait_for(journey.session, 'AUTO-APPROVE')
+            result['fresh_default_automatic'] = True
             journey.setup_route()
             if manual:
                 journey.session.command('vaporeon')
@@ -374,6 +405,7 @@ def native_case(binary, compiler, output, size, manual):
             run_count = sum(call['name'] == COMMAND for call in calls)
             continuation = next(index + 1 for index, call in enumerate(calls) if call['id'] == 'compile-failure')
             todo_label = 'Build program and download resource'
+            initial_gate = files.Gate()
             def plan(index, *, pause=False, resumed=False):
                 def reply(handler, event, row):
                     if index and not resumed:
@@ -381,6 +413,7 @@ def native_case(binary, compiler, output, size, manual):
                         results = files.tool_results('chat_completions', row['body'])
                         value = assert_result(previous, results[previous['id']], journey.project)
                         result['tool_results'].append({'call': previous['id'], 'result': value})
+                        source_effects(journey, index - 1)
                         if index == 1:
                             progress = decode_result(results['coding-progress'])
                             assert progress['status'] == 'success' and progress['path'] == '', progress
@@ -398,7 +431,8 @@ def native_case(binary, compiler, output, size, manual):
                             'operation': 'init', 'label': '', 'steps': [
                                 {'label': todo_label, 'phase': 'implement', 'status': 'active'}
                             ]}})
-                    return files.response_plan(peer, calls=selected, number=index)[1](handler, event, row)
+                    return files.response_plan(peer, calls=selected, number=index,
+                                               gate=initial_gate if index == 0 else None)[1](handler, event, row)
                 return ('custom', reply)
             def final_reply(handler, event, row):
                 progress = decode_result(files.tool_results('chat_completions', row['body'])['coding-progress-done'])
@@ -410,16 +444,13 @@ def native_case(binary, compiler, output, size, manual):
             plans += [plan(continuation, pause=True), plan(continuation, resumed=True)]
             plans += [plan(i) for i in range(continuation + 1, len(calls) + 1)]
             plans.append(('custom', final_reply))
-            before = journey.begin(natural_request('COOP_CODING_NATIVE'), plans)
-            for index, call in enumerate(calls):
-                if call['name'] in ('eevee_write_file', 'eevee_edit_file'):
-                    file_decision(journey)
-                elif call['name'] == COMMAND:
-                    command_decision(journey, retain_draft=call['id'] == 'compile-failure')
-                files.until(journey.session, lambda i=index: len(peer.snapshot('POST')) >= before + i + 2 + int(i >= continuation - 1),
-                            'actual tool result did not reach next provider round: ' + call['id'], timeout=90)
-                source_effects(journey, index)
+            try:
+                before = journey.begin_automatic(natural_request('COOP_CODING_NATIVE'), plans)
+                save_future(journey)
+            finally:
+                initial_gate.release.set()
             journey.settled_coding(before + len(calls) + 3)
+            result['coding_approval_keys_sent'] = 0
             assert [row['call'] for row in result['tool_results']] == [call['id'] for call in calls]
             result['continued_after_failed_build_answer'] = True
             assert draft_present(journey), 'coding overwrote later owner draft'
@@ -432,8 +463,10 @@ def native_case(binary, compiler, output, size, manual):
             resource.assert_complete()
             visible_outcomes(journey, calls)
             result['actual_tool_outcomes_and_output_visible'] = True
-            # Every additional command requires a fresh approval; denial/cancel
-            # cannot create the proposed compiler output or reserve a real run.
+            # Negative consent cases explicitly choose Ask; Automatic above
+            # must never have been rescued by a file/command approval key.
+            journey.session.command('auto-approve-off')
+            wait_for(journey.session, 'ASK')
             for decision in ('deny', 'cancel'):
                 destination = 'never-built-' + decision
                 call = {'id': decision, 'name': COMMAND, 'arguments': direct(compiler,
@@ -442,27 +475,104 @@ def native_case(binary, compiler, output, size, manual):
                 request = 'Run ' + literal + '.'
                 before = journey.begin(request, [
                     files.response_plan(peer, calls=[call]), files.response_plan(peer, text='No execution approved.')])
-                command_decision(journey, decision=decision)
+                command_decision(journey, decision=decision, deny_rule=decision == 'deny')
                 journey.settled_coding(before + 2)
                 value = decode_result(files.tool_results('chat_completions', peer.snapshot('POST')[-1]['body'])[decision])
                 assert value['status'] != 'success', value
                 assert not (journey.project / destination).exists() and len(runs(journey)) == run_count
-            journey.session.command('role-plan')
-            journey.workspace()
+            journey.session.command('auto-approve')
+            wait_for(journey.session, 'AUTO-APPROVE')
+            # Reissue precisely the denied command under Automatic: an explicit
+            # project deny rule must win without asking or launching a process.
+            destination = 'never-built-deny'
+            call = {'id': 'deny-rule-auto', 'name': COMMAND, 'arguments': direct(
+                compiler, '--edition=2021', '--color=never', SOURCE, '-o', destination)}
             gate = files.Gate()
             try:
-                before = journey.begin('Build the project and run the program.', [
-                    files.response_plan(peer, calls=[{'id': 'plan-command', 'name': COMMAND,
-                        'arguments': direct(compiler, SOURCE, '-o', 'plan-must-not-build')}], gate=gate),
-                    files.response_plan(peer, text='Plan has no execution authority.')], writing=False)
+                before = journey.begin_automatic('Run the previously denied compiler command.', [
+                    files.response_plan(peer, calls=[call], gate=gate),
+                    files.response_plan(peer, text='Explicit deny rule remains authoritative.')])
             finally:
                 gate.release.set()
             journey.settled_coding(before + 2)
-            value = decode_result(files.tool_results('chat_completions', peer.snapshot('POST')[-1]['body'])['plan-command'])
+            value = decode_result(files.tool_results('chat_completions', peer.snapshot('POST')[-1]['body'])['deny-rule-auto'])
             assert value['status'] != 'success', value
-            assert not (journey.project / 'plan-must-not-build').exists() and len(runs(journey)) == run_count
+            assert not (journey.project / destination).exists() and len(runs(journey)) == run_count
+            result['deny_rule_outranks_automatic'] = True
+            for role in ('plan', 'review'):
+                journey.session.command('role-' + role)
+                journey.workspace()
+                if role == 'review':
+                    # The genuine build product makes the complete independent
+                    # patch unavailable in this non-Git fixture. Review must
+                    # refuse before dispatch, not silently drop its patch guard.
+                    before = len(peer.snapshot('POST'))
+                    journey.write_request('Independently review the complete project changes.')
+                    journey.session.send('\r', settle=False)
+                    journey.session.command('approvals')
+                    journey.session.send('d')
+                    pages = []
+                    for page in range(32):
+                        pages.append(' '.join(journey.session.display().split()))
+                        journey.session.capture('review-complete-patch-details-' + str(page))
+                        disclosure = ' '.join(pages)
+                        if ('Independent review requires the complete' in disclosure
+                                and 'available patch' in disclosure):
+                            break
+                        journey.session.send(ESC + '[6~')
+                    assert ('Independent review requires the complete' in disclosure
+                            and 'available patch' in disclosure), 'Review omitted its complete-patch blocker'
+                    assert len(peer.snapshot('POST')) == before, 'blocked Review dispatched a provider request'
+                    assert len(runs(journey)) == run_count
+                    assert not (journey.project / 'review-must-not-build').exists()
+                    journey.session.capture('review-complete-patch-blocked-no-dispatch')
+                    journey.session.command('cancel')
+                    files.until(journey.session, lambda: not journey.snapshot()['claims']
+                                and 'Storage: saved' in journey.session.display()
+                                and '/cancel' not in journey.session.display().rstrip().splitlines()[-1],
+                                'blocked Review cancellation did not durably release ownership')
+                    journey.workspace()
+                    assert len(peer.snapshot('POST')) == before and len(runs(journey)) == run_count
+                    assert not (journey.project / 'review-must-not-build').exists()
+                    result['review_blocked_before_dispatch'] = True
+                    continue
+                gate = files.Gate()
+                destination = role + '-must-not-build'
+                try:
+                    before = journey.begin('Build the project and run the program.', [
+                        files.response_plan(peer, calls=[{'id': role + '-command', 'name': COMMAND,
+                            'arguments': direct(compiler, SOURCE, '-o', destination)}], gate=gate),
+                        files.response_plan(peer, text=role + ' has no execution authority.')], writing=False)
+                finally:
+                    gate.release.set()
+                journey.settled_coding(before + 2)
+                value = decode_result(files.tool_results('chat_completions', peer.snapshot('POST')[-1]['body'])[role + '-command'])
+                assert value['status'] != 'success', value
+                assert not (journey.project / destination).exists() and len(runs(journey)) == run_count
+            result['plan_and_review_remain_read_only'] = True
+            journey.session.command('role-implement')
+            journey.workspace()
+            # An independent Review task cannot promote itself to Implement,
+            # even when the saved execution policy is Automatic.
+            wait_for(journey.session, 'Review /role')
+            result['review_cannot_elevate_to_implementation'] = True
             resource.assert_complete()
             result['download'] = final_artifacts(journey.project)
+            journey.session.command('quit')
+            confirm_exit(journey.session)
+            assert journey.session.wait_exit() == 0
+            journey.session.close()
+            posts = len(peer.snapshot('POST'))
+            journey.session = SurfaceSession(
+                [*journey.argv, '--continue'], journey.project, journey.environment, size,
+                output / 'restart-no-replay')
+            wait_for(journey.session, 'Storage: saved')
+            wait_for(journey.session, 'AUTO-APPROVE')
+            assert not journey.snapshot()['claims'] and len(runs(journey)) == run_count
+            assert len(peer.snapshot('POST')) == posts, 'restart dispatched an old provider request'
+            assert not any(journey.project.glob('never-built-*')), 'restart replayed a cancelled or denied command'
+            final_artifacts(journey.project)
+            result['automatic_restart_no_effect_replay'] = True
             journey.session.command('quit')
             confirm_exit(journey.session)
             assert journey.session.wait_exit() == 0
@@ -490,6 +600,8 @@ def codex_case(binary, compiler, output, size, manual):
     try:
         resource.start()
         journey = files.CodexCreationJourney(binary, output, size, )
+        wait_for(journey.session, 'AUTO-APPROVE')
+        result['fresh_default_automatic'] = True
         journey.setup(count=1)
         journey.session.command('role-implement')  # Remove setup's explicit Plan; not a sticky grant.
         if not manual:
@@ -498,25 +610,30 @@ def codex_case(binary, compiler, output, size, manual):
         marker = 'COOP_CODING_CODEX'
         text = natural_request(marker)
         journey.request(1, text, started=False)
-        journey.until(lambda: bool(journey.peers('started', marker)), 'ordinary coding request did not start', approve_preview=True)
+        # New external session/exact-payload trust remains explicitly reviewed.
+        # This helper stops at provider startup; it never approves tool effects.
+        journey.until(lambda: bool(journey.peers('started', marker)),
+                      'reviewed external session did not start', approve_preview=True)
+        result['external_session_setup_explicitly_reviewed'] = True
         assert json.loads(journey.peers('started', marker)[-1]['text'])['request'] == text
         assert all(row['writing'] for row in journey.snapshot()[2])
         assert COMMAND in journey.peers('session')[-1]['tools']
         calls = chain(compiler, journey.project, resource)
         run_count = sum(call['name'] == COMMAND for call in calls)
+        save_future(journey)
+        # Pause only the deterministic peer's next request, never the product's
+        # approval/effect machinery, so intermediate real effects can be checked.
+        journey.publish(marker + '.tool-next', '1')
         journey.publish(marker + '.prompt', json.dumps(calls))
         for index, call in enumerate(calls):
-            if call['name'] in ('eevee_write_file', 'eevee_edit_file'):
-                file_decision(journey)
-            elif call['name'] == COMMAND:
-                command_decision(journey, retain_draft=call['id'] == 'compile-failure')
             journey.until(lambda i=index: len(journey.peers('answer', marker)) >= i + 1,
-                          'actual controlled tool result: ' + call['id'], timeout=90)
+                          'Automatic controlled tool result: ' + call['id'], timeout=90)
             answer = journey.peers('answer', marker)[index]
             assert not answer.get('error'), answer
             value = assert_result(call, answer['result'], journey.project)
             result['tool_results'].append({'call': call['id'], 'result': value})
             source_effects(journey, index)
+            journey.publish(marker + '.tool-next', str(index + 2))
         journey.finish(marker)
         journey.until(lambda: not journey.claims(), 'controlled coding owner settlement')
         journey.workspace()
@@ -529,6 +646,9 @@ def codex_case(binary, compiler, output, size, manual):
         resource.assert_complete()
         visible_outcomes(journey, calls)
         result['actual_tool_outcomes_and_output_visible'] = True
+        result['coding_approval_keys_sent'] = 0
+        journey.session.command('auto-approve-off')
+        wait_for(journey.session, 'ASK')
         for decision in ('deny', 'cancel'):
             marker = 'COOP_CODING_' + decision.upper()
             destination = 'never-built-' + decision
@@ -548,19 +668,63 @@ def codex_case(binary, compiler, output, size, manual):
             assert not (journey.project / destination).exists() and len(runs(journey)) == run_count
         journey.until(lambda: '/cancel' not in journey.session.display().rstrip().splitlines()[-1],
                       'controlled provider terminal event did not reach the policy owner')
-        journey.session.command('role-plan')
+        journey.session.command('auto-approve')
+        wait_for(journey.session, 'AUTO-APPROVE')
+        for role in ('plan', 'review'):
+            journey.until(lambda: not journey.claims()
+                          and 'Storage: saved' in journey.session.display()
+                          and '/cancel' not in journey.session.display().rstrip().splitlines()[-1],
+                          'previous controlled turn was not eligible for a role transition')
+            journey.session.command('role-' + role)
+            journey.workspace()
+            marker = 'COOP_CODING_' + role.upper()
+            journey.request(1, 'Build the project and run the program. ' + marker, started=False)
+            journey.until(lambda: bool(journey.peers('started', marker)) or (
+                'Independent review requires the complete' in journey.session.display()
+                and 'available patch' in journey.session.display()),
+                'controlled ' + role + ' neither started nor disclosed complete-patch block',
+                approve_preview=True)
+            if not journey.peers('started', marker):
+                assert role == 'review', 'only complete-patch Review may be blocked here'
+                assert len(runs(journey)) == run_count
+                journey.session.capture('review-complete-patch-blocked-no-dispatch')
+                journey.session.command('cancel')
+                journey.until(lambda: not journey.claims()
+                              and 'Storage: saved' in journey.session.display()
+                              and '/cancel' not in journey.session.display().rstrip().splitlines()[-1],
+                              'blocked controlled Review did not durably release ownership')
+                journey.workspace()
+                assert not journey.peers('started', marker) and len(runs(journey)) == run_count
+                result['review_blocked_before_dispatch'] = True
+                continue
+            assert COMMAND not in journey.peers('session')[-1]['tools']
+            assert all(not row['writing'] for row in journey.snapshot()[2])
+            journey.finish(marker)
+            journey.until(lambda: not journey.claims(), 'controlled ' + role + ' settlement')
+            assert len(runs(journey)) == run_count
+        result['plan_and_review_remain_read_only'] = True
         journey.workspace()
-        marker = 'COOP_CODING_PLAN'
-        journey.request(1, 'Build the project and run the program. ' + marker, started=False)
-        journey.until(lambda: bool(journey.peers('started', marker)), 'controlled Plan request', approve_preview=True)
-        assert COMMAND not in journey.peers('session')[-1]['tools']
-        assert all(not row['writing'] for row in journey.snapshot()[2])
-        journey.finish(marker)
-        journey.until(lambda: not journey.claims(), 'controlled Plan settlement')
-        assert len(runs(journey)) == run_count and not (journey.project / 'plan-must-not-build').exists()
+        journey.until(lambda: not journey.claims()
+                      and 'Storage: saved' in journey.session.display()
+                      and '/cancel' not in journey.session.display().rstrip().splitlines()[-1],
+                      'controlled Review did not durably settle')
+        journey.session.command('role-implement')
+        journey.workspace()
+        wait_for(journey.session, 'Review /role')
+        result['review_cannot_elevate_to_implementation'] = True
         resource.assert_complete()
         result['download'] = final_artifacts(journey.project)
         result['runs'] = runs(journey)
+        journey.quit()
+        started = len(journey.peers('started'))
+        journey.session = journey.launch('restart-no-replay')
+        journey.sessions.append(journey.session)
+        wait_for(journey.session, 'AUTO-APPROVE')
+        assert not journey.claims() and len(runs(journey)) == run_count
+        assert len(journey.peers('started')) == started, 'restart dispatched an old controlled request'
+        assert not any(journey.project.glob('never-built-*')), 'restart replayed a cancelled or denied command'
+        final_artifacts(journey.project)
+        result['automatic_restart_no_effect_replay'] = True
         journey.quit()
         result['status'] = 'passed'
     except Exception as error:
@@ -604,7 +768,7 @@ def main(argv=None):
               'compiler': str(compiler), 'profile': args.profile, 'journeys': [],
               'limits': ['Deterministic peers are not live model/billing conformance.',
                          'No paid models, private credentials or SQL writes.',
-                         'Compiler, built program and Python downloader run only through Eevee host command approval.',
+                         'Compiler, built program and Python downloader run only through Eevee mediated host commands.',
                          'HTTP download acceptance uses owned loopback HTTP, not public-network conformance; fetched bytes are never executed.',
                          'PTY evidence is not physical GUI/mouse certification.']}
     for route, size, manual in PROFILES[args.profile]:

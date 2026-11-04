@@ -170,7 +170,7 @@ class Journey(CatalogJourney):
         self.session.pump(.5)
         assert not (self.project / path).exists(), 'unknown MCP effects allowed an automatic native effect'
         assert len(self.peer.snapshot('POST')) == before + 1, 'unknown MCP effects bypassed fresh native review'
-        self.capture('unknown-blocks-native-' + ('command' if command else 'write') + '-rule-and-task-auto')
+        self.capture('unknown-blocks-native-' + ('command' if command else 'write') + '-rule-and-auto')
         if command:
             from agent_coding_smoke import command_decision
             command_decision(self)
@@ -230,6 +230,8 @@ def run(binary, output, root, size):
         try:
             journey = Journey(binary, output, root, size, True, 'compatible', 'chat_completions', True, False, peer)
             wait_for(journey.session, 'Storage: saved', timeout=35)
+            journey.session.command('auto-approve-off')
+            wait_for(journey.session, 'ASK', timeout=35)
             journey.session.command('goal')
             journey.session.paste('XC05 unmanaged MCP fixture acceptance')
             journey.session.send('\r')
@@ -261,6 +263,25 @@ def run(binary, output, root, size):
                 'line one\r\nline two', 'line one\nline two'
             ], 'executable schema literals were silently rewritten'
             result['cases'] += ['registration-inert-masked-direct-launch-review', 'selection-explicit-unselected-schema-not-sent', 'reviewed-call-actual-stdio-result', 'complete-paginated-discovery-exact-schema']
+            # Trust setup was explicitly reviewed above. No rule exists yet:
+            # Automatic must dispatch this connected call without a tools/call
+            # approval key, while still returning the actual stdio result.
+            journey.session.command('role-implement')
+            journey.workspace()
+            journey.session.command('auto-approve')
+            wait_for(journey.session, 'AUTO-APPROVE', timeout=35)
+            before, call_id = journey.submit_call({'text': 'MCP_AUTOMATIC_CONNECTED_丁_한글'}, rule=True)
+            answer = journey.settled_call(before, call_id)
+            assert answer['status'] == 'success'
+            assert answer['approval_cause'] == 'Automatic execution policy', answer
+            assert answer['result']['content'][0]['text'] == 'MCP_AUTOMATIC_CONNECTED_丁_한글'
+            assert any(row['event'] == 'tools/call'
+                       and row.get('params', {}).get('arguments') == {'text': 'MCP_AUTOMATIC_CONNECTED_丁_한글'}
+                       for row in journey.events()), 'Automatic returned without an actual connected MCP invocation'
+            result['cases'].append('automatic-connected-selected-call-no-manual-consent-actual-result')
+            journey.session.command('auto-approve-off')
+            wait_for(journey.session, 'ASK', timeout=35)
+            journey.workspace()
             before, call_id = journey.submit_call({'text': 'RULE_CREATED'}, create_rule=True)
             answer = journey.settled_call(before, call_id)
             assert 'rule #1' in answer.get('approval_cause', ''), answer
@@ -321,7 +342,7 @@ def run(binary, output, root, size):
             result['cases'].append('reviewed-unmanaged-write-note-actual-bytes')
             journey.native_effect_floor()
             journey.native_effect_floor(command=True)
-            result['cases'] += ['unknown-blocks-native-write-rule-and-task-auto', 'unknown-blocks-native-command-rule-and-task-auto']
+            result['cases'] += ['unknown-blocks-native-write-rule-and-auto', 'unknown-blocks-native-command-rule-and-auto']
             journey.finish()
             from response_smoke import SurfaceSession
             journey.session = SurfaceSession([*journey.restart_argv, '--continue'], journey.project, journey.restart_environment,

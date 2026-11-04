@@ -143,6 +143,11 @@ def peer():
             emit(dict(id=request_id, method=method, params=params))
             record("prompt", request_id=request_id, mode=mode)
         if tool_chain is not None and not tool_waiting and tool_step < len(tool_chain):
+            # Optional driver-owned pacing lets acceptance inspect each real
+            # effect before another request; absent means the usual full chain.
+            next_step = control / (marker + ".tool-next")
+            if next_step.exists() and tool_step >= int(next_step.read_text()):
+                continue
             call = tool_chain[tool_step]
             request_id = f"{marker}-tool-{tool_step}"
             emit(dict(id=request_id, method="item/tool/call",

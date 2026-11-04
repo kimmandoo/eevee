@@ -1,4 +1,4 @@
-//! Durable preferences are separate from request/session ownership and consent.
+//! Durable approval/display/route preferences are separate from request/session ownership.
 use super::{Agent, State, store};
 
 #[derive(Default)]
@@ -19,6 +19,9 @@ pub(super) struct Preferences {
     motion_dirty: bool,
     text_density: store::TextDensity,
     density_dirty: bool,
+    approval_mode: store::ApprovalMode,
+    // Latest app-global intent remains authoritative even after its save ack.
+    approval_explicit: bool,
     stored_provider: Option<Agent>,
 }
 
@@ -30,6 +33,39 @@ impl State {
 
     pub fn text_density(&self) -> store::TextDensity {
         self.preferences.text_density
+    }
+
+    pub fn approval_mode(&self) -> store::ApprovalMode {
+        self.preferences.approval_mode
+    }
+
+    /// The default policy is not usable until durable preferences were read.
+    pub fn approval_ready(&self) -> bool {
+        self.preferences.loaded
+    }
+
+    pub fn set_approval_mode(&mut self, mode: store::ApprovalMode) {
+        self.preferences.approval_mode = mode;
+        self.preferences.approval_explicit = true;
+        self.preferences.dirty = true;
+        self.preferences.error = None;
+        self.preferences.pending = None;
+    }
+
+    /// Refresh parked snapshots without taking over another partner's save.
+    pub fn sync_approval_choice(&mut self, mode: store::ApprovalMode) {
+        self.preferences.approval_explicit = true;
+        if self.preferences.approval_mode == mode {
+            return;
+        }
+        self.preferences.approval_mode = mode;
+        if matches!(
+            self.preferences.pending,
+            Some(store::PreferenceRequest::Save(_))
+        ) {
+            self.preferences.pending =
+                Some(store::PreferenceRequest::Save(self.preference_snapshot()));
+        }
     }
 
     /// Global latest intent also refreshes saves queued by a different partner.
@@ -73,6 +109,8 @@ impl State {
         self.preferences.restore_required = source.preferences.restore_required;
         self.preferences.reduced_motion = source.preferences.reduced_motion;
         self.preferences.text_density = source.preferences.text_density;
+        self.preferences.approval_mode = source.preferences.approval_mode;
+        self.preferences.approval_explicit = source.preferences.approval_explicit;
         self.preferences.stored_provider = source.preferences.stored_provider;
         self.preferences.remembered_selection = source.preferences.remembered_selection.clone();
     }
@@ -155,6 +193,7 @@ impl State {
             selections: self.selections.clone(),
             reduced_motion: self.preferences.reduced_motion,
             text_density: self.preferences.text_density,
+            approval_mode: self.preferences.approval_mode,
         }
     }
 
@@ -203,6 +242,9 @@ impl State {
         if !self.preferences.density_dirty {
             self.preferences.text_density = saved.text_density;
         }
+        if !self.preferences.approval_explicit {
+            self.preferences.approval_mode = saved.approval_mode;
+        }
         for (agent, selection) in &saved.selections {
             if !self.preferences.dirty_routes.contains(agent) {
                 self.selections.insert(*agent, selection.clone());
@@ -243,7 +285,7 @@ impl State {
         match result {
             Err(error) => {
                 self.notice = format!(
-                    "Local display/provider/model preference was NOT saved/restored: {error}. Your current choices and request draft remain in memory. /storage-retry retries; choose a different model if the ID is invalid."
+                    "Local approval/display/provider/model preference was NOT saved/restored: {error}. Your current choices and request draft remain in memory. /storage-retry retries; choose a different model if the ID is invalid."
                 );
                 self.preferences.error = Some(self.notice.clone());
                 self.preferences.quit_waiting = false;
@@ -255,6 +297,9 @@ impl State {
                     }
                     if !self.preferences.density_dirty {
                         self.preferences.text_density = saved.text_density;
+                    }
+                    if !self.preferences.approval_explicit {
+                        self.preferences.approval_mode = saved.approval_mode;
                     }
                     if self.preferences.remembered_selection.is_none() {
                         self.preferences.remembered_selection = Some((
@@ -349,7 +394,7 @@ impl State {
         } else {
             self.preferences.quit_waiting = true;
             self.notice =
-                "Saving the last local display/provider/model preferences before quitting…".into();
+                "Saving the last local approval/display/provider/model preferences before quitting…".into();
         }
         false
     }
@@ -364,6 +409,7 @@ mod tests {
         store::ProviderPreferences {
             reduced_motion: false,
             text_density: store::TextDensity::Compact,
+            approval_mode: store::ApprovalMode::Automatic,
             provider: Agent::ChatGPT,
             selections: [
                 (
@@ -819,5 +865,150 @@ mod tests {
             assert!(partner.reduced_motion());
             assert!(!partner.preferences_pending());
         }
+    }
+
+    #[test]
+    fn approval_restore_failure_never_enables_automatic_until_successful_hydration() {
+        let mut state = State::new();
+        assert!(!state.approval_ready());
+        submit(&mut state);
+        state.preference_event(Err("invalid stored approval mode".into()));
+        assert!(!state.approval_ready());
+        assert!(state.preference_restore_error().is_some());
+        assert!(state.preference_request().is_none());
+        state.retry_preferences();
+        assert!(!state.approval_ready());
+        assert!(matches!(submit(&mut state), store::PreferenceRequest::Load));
+        state.preference_event(Ok(None));
+        assert!(state.approval_ready());
+        assert_eq!(state.approval_mode(), store::ApprovalMode::Automatic);
+    }
+
+    #[test]
+    fn approval_choice_during_failed_load_wins_without_losing_other_preferences() {
+        let mut state = State::new();
+        submit(&mut state);
+        state.set_approval_mode(store::ApprovalMode::Ask);
+        state.set_text_density(store::TextDensity::Comfortable);
+        state.set_reduced_motion(true);
+        state.preference_event(Err("store unavailable".into()));
+        assert_eq!(state.approval_mode(), store::ApprovalMode::Ask);
+        assert!(!state.approval_ready());
+        state.retry_preferences();
+        submit(&mut state);
+        state.preference_event(Ok(Some(saved())));
+        assert!(state.approval_ready());
+        assert_eq!(state.approval_mode(), store::ApprovalMode::Ask);
+        let store::PreferenceRequest::Save(snapshot) = submit(&mut state) else {
+            panic!("latest approval choice must be saved");
+        };
+        assert_eq!(snapshot.approval_mode, store::ApprovalMode::Ask);
+        assert_eq!(snapshot.provider, saved().provider);
+        assert_eq!(snapshot.selections, saved().selections);
+        assert_eq!(snapshot.text_density, store::TextDensity::Comfortable);
+        assert!(snapshot.reduced_motion);
+        state.preference_event(Ok(Some(snapshot)));
+        assert!(!state.preferences_pending());
+    }
+
+    #[test]
+    fn approval_save_retry_and_stale_ack_keep_latest_intent_across_tasks_and_restart() {
+        let mut state = State::new();
+        state.preference_event(Ok(Some(saved())));
+        state.set_approval_mode(store::ApprovalMode::Ask);
+        let store::PreferenceRequest::Save(first) = submit(&mut state) else {
+            panic!("expected approval save");
+        };
+        state.preference_event(Err("disk full".into()));
+        assert!(
+            state.approval_ready(),
+            "save failure is not restore failure"
+        );
+        assert_eq!(state.approval_mode(), store::ApprovalMode::Ask);
+        assert!(!state.preferences_allow_quit(true));
+        assert!(state.preference_request().is_none());
+        state.retry_preferences();
+        let store::PreferenceRequest::Save(retry) = submit(&mut state) else {
+            panic!("expected approval retry");
+        };
+        assert_eq!(retry, first);
+        state.set_approval_mode(store::ApprovalMode::Automatic);
+        state.preference_event(Ok(Some(retry)));
+        assert_eq!(state.approval_mode(), store::ApprovalMode::Automatic);
+        assert!(!state.preferences_allow_quit(true));
+        let store::PreferenceRequest::Save(latest) = submit(&mut state) else {
+            panic!("stale acknowledgement cannot settle latest approval choice");
+        };
+        assert_eq!(latest.approval_mode, store::ApprovalMode::Automatic);
+        assert_eq!(latest.selections, first.selections);
+        state.preference_event(Ok(Some(latest.clone())));
+        assert!(state.preferences_allow_quit(false));
+        for mode in [store::ApprovalMode::Automatic, store::ApprovalMode::Ask] {
+            let mut restarted = State::new();
+            let mut snapshot = latest.clone();
+            snapshot.approval_mode = mode;
+            restarted.preference_event(Ok(Some(snapshot)));
+            restarted.reset(37);
+            assert_eq!(restarted.approval_mode(), mode);
+            assert!(restarted.approval_ready());
+            let partner = restarted.new_partner(
+                store::Attribution::of(&store::Partner {
+                    id: 2,
+                    ..Default::default()
+                }),
+                37,
+            );
+            assert_eq!(partner.approval_mode(), mode);
+            assert!(partner.approval_ready());
+            assert!(!partner.preferences_pending());
+        }
+    }
+
+    #[test]
+    fn global_approval_choice_refreshes_queued_partner_saves_and_survives_stale_merges() {
+        let mut parked = State::new();
+        parked.preference_event(Ok(Some(saved())));
+        let chosen = ModelSelection {
+            model: Some("partner/Exact".into()),
+            effort: Some("high".into()),
+        };
+        parked.apply_selection(chosen.clone(), false);
+        parked.set_text_density(store::TextDensity::Comfortable);
+        parked.set_reduced_motion(true);
+        assert!(matches!(
+            parked.preference_request(),
+            Some(store::PreferenceRequest::Save(_))
+        ));
+        parked.sync_approval_choice(store::ApprovalMode::Ask);
+        parked.merge_preferences(&saved());
+        let store::PreferenceRequest::Save(snapshot) = submit(&mut parked) else {
+            panic!("parked save must contain latest global approval choice");
+        };
+        assert_eq!(snapshot.approval_mode, store::ApprovalMode::Ask);
+        assert_eq!(snapshot.selections[&Agent::ChatGPT], chosen);
+        assert_eq!(
+            snapshot.selections[&Agent::Codex],
+            saved().selections[&Agent::Codex]
+        );
+        assert_eq!(snapshot.text_density, store::TextDensity::Comfortable);
+        assert!(snapshot.reduced_motion);
+        parked.preference_event(Ok(Some(snapshot)));
+        assert!(!parked.preferences_pending());
+        parked.merge_preferences(&saved());
+        assert_eq!(parked.approval_mode(), store::ApprovalMode::Ask);
+
+        let mut unhydrated = State::new();
+        unhydrated.sync_approval_choice(store::ApprovalMode::Ask);
+        let mut partner = unhydrated.new_partner(
+            store::Attribution::of(&store::Partner {
+                id: 2,
+                ..Default::default()
+            }),
+            7,
+        );
+        assert!(!partner.approval_ready());
+        partner.receive_preferences(Some(&saved()));
+        assert!(partner.approval_ready());
+        assert_eq!(partner.approval_mode(), store::ApprovalMode::Ask);
     }
 }

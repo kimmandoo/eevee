@@ -260,8 +260,18 @@ class DelegationPeer(Peer):
             assert [item['tool_call_id'] for item in returned] == [call['id'] for call in scenario.calls], \
                 'lead received delegated results in completion order instead of call order'
             row['delegation_results'] = [json.loads(item['content']) for item in returned]
+            blocked, *completed = row['delegation_results']
+            # Child zero deliberately requested an executor-forbidden write.
+            # A later prose summary cannot erase that unresolved tool blocker.
+            assert blocked.get('status') == 'incomplete' and blocked.get('outcome') == 'incomplete', \
+                'lead did not receive the truthful incomplete child policy-refusal outcome'
+            assert blocked.get('summary') == '', 'incomplete child prose was promoted to a completed summary'
+            assert blocked.get('error', '').startswith('eevee_write_file: refused:') \
+                and 'Delegated child executor permits only frozen-scope source reads' in blocked['error'], \
+                'lead lost the exact child executor policy refusal'
             assert all(item.get('status') == 'success' and item.get('outcome') == 'completed'
-                       for item in row['delegation_results']), 'lead received an untruthful child terminal status/outcome'
+                       and not item.get('error') for item in completed), \
+                'lead received an untruthful successful child terminal status/outcome'
             assert len({item['child_request_id'] for item in row['delegation_results']}) == 3, 'lead child result identities were duplicated'
             for call, outcome in zip(scenario.calls, row['delegation_results']):
                 assert outcome.get('call_id') == call['id'], 'delegated outcome lost its exact originating call identity'
@@ -271,7 +281,10 @@ class DelegationPeer(Peer):
             for index, item in enumerate(returned):
                 encoded = item['content'].encode()
                 assert len(encoded) <= 16 * 1024, 'delegated tool result exceeded 16 KiB'
-                assert scenario.summary(index) in item['content'], 'lead lost or cross-attributed a child summary'
+                if index != 0:
+                    assert scenario.summary(index) in item['content'], 'lead lost or cross-attributed a completed child summary'
+                else:
+                    assert scenario.summary(index) not in item['content'], 'lead received an unsupported completed summary for the blocked child'
                 assert all(scenario.summary(other) not in item['content']
                            for other in range(3) if other != index), 'child summaries were conflated'
             scenario.parent_ready.set()
@@ -367,7 +380,7 @@ class DelegationJourney(files.CreationJourney):
             return predicate()
         until(self.session, checked, description, timeout=timeout)
 
-    def begin_round(self, mode):
+    def begin_round(self, mode, *, automatic=False):
         scenario = self.peer.begin(mode)
         self.write_request('Investigate the public sources independently using three read-only helpers; report findings only. ' + mode)
         self.session.send('\r', settle=False)
@@ -380,6 +393,9 @@ class DelegationJourney(files.CreationJourney):
             nonlocal initial_approved
             if all(event.is_set() for event in scenario.started):
                 return True
+            if automatic:
+                assert 'Read-only delegation' not in self.session.display(), 'Automatic delegation opened a consent review'
+                return False
             if self.review_approvals:
                 # The granted review can remain in the last rendered frame
                 # until child startup. Never interpret that stale frame as
@@ -418,7 +434,7 @@ class DelegationJourney(files.CreationJourney):
             return False
 
         self.wait(children_started, 'three real child HTTP requests did not overlap')
-        assert self.review_approvals == 1, 'three children were dispatched without one exact round review'
+        assert self.review_approvals == (0 if automatic else 1), 'delegation round approval count did not match the selected mode'
         files.save(self.output / (mode + '-review.json'), {'approvals': self.review_approvals,
                                                         'pages': self.review_pages,
                                                         'scope_pages': self.review_scope_pages})
@@ -509,9 +525,9 @@ def assert_receipts(state, scenario):
     return parent_id, expected_ids
 
 
-def success(journey, result):
+def success(journey, result, *, automatic=False):
     baseline = project_bytes(journey.project)
-    scenario = journey.begin_round('success')
+    scenario = journey.begin_round('success', automatic=automatic)
     journey.work_rows(scenario)
     journey.assert_no_effects(baseline)
     files.save(journey.output / 'success-overlap-storage.json', journey.state())
@@ -570,15 +586,21 @@ def success(journey, result):
     journey.session.send(ESC)
     journey.session.command('response')
     journey.session.send(ALT_END)
-    wait_for(journey.session, 'XC02_PARENT_ORDERED_COMPLETE', timeout=35)
-    journey.capture('success-ordered-parent-summary')
+    # The lead also retains its unresolved delegated blocker; later model prose
+    # must not turn a policy-refused child into a completed parent.
+    wait_for(journey.session, 'Incomplete: eevee_delegate: incomplete:', timeout=35)
+    assert 'XC02_PARENT_ORDERED_COMPLETE' not in journey.session.display(), \
+        'unsupported model prose replaced the unresolved delegated blocker'
+    journey.capture('ordered-parent-retains-child-policy-blocker')
     journey.workspace()
     journey.assert_no_effects(baseline)
     files.save(journey.output / 'success-storage.json', state)
-    result['cases'].extend(['one exact round review with all three instructions, paths and bounds',
+    result['cases'].extend(['Automatic dispatched all three bounded read-only children without approval keys'
+                            if automatic else 'one exact round review with all three instructions, paths and bounds',
                             'three actual overlapping child HTTP requests and visible work rows',
                             'real source reads plus executor-refused unadvertised child write with unchanged bytes',
                             'reverse child completion; lead receives three results in original call order',
+                            'forbidden-write child remains incomplete with exact refusal; read-only siblings complete with distinct summaries',
                             'exact frozen child receipts linked to parent and parent to all children',
                             'four separate usage rows; duplicate provider snapshots aggregate once in the actual UI'])
 
@@ -651,9 +673,11 @@ def run(binary, output, size):
             for path, content in SOURCES.items():
                 (journey.project / path).write_bytes(content.encode())
             journey.setup_route()
+            journey.session.command('auto-approve')
             journey.session.command('role-plan')
             journey.workspace()
-            success(journey, result)
+            success(journey, result, automatic=True)
+            journey.session.command('auto-approve-off')
             cancellation(journey, result)
             journey.finish()
             peer.assert_clean()

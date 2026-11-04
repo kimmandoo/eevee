@@ -175,10 +175,6 @@ pub struct State {
     pub review_details: bool,
     /// Automatically presented permission review awaiting deliberate engagement.
     pub auto_permission_review: bool,
-    /// User-enabled, in-memory approval of this partner's file changes and
-    /// commands for the current task. Cleared on task change and restart;
-    /// questions are never answered automatically.
-    pub auto_approve: bool,
     pub file_consent: FileConsent,
     pub submitted_request: Arc<str>,
     submitted_instruction: Option<Arc<str>>,
@@ -328,7 +324,6 @@ impl State {
             scroll: 0, scroll_max: 0, reviewed: false, affirmative: false,
             review_details: false,
             auto_permission_review: false,
-            auto_approve: false,
             file_consent: FileConsent::default(),
             submitted_request: Arc::default(),
             submitted_instruction: None,

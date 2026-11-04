@@ -61,7 +61,7 @@ impl App {
         self.cursor = 0;
         self.insert_input(&request);
         self.changed_task();
-        self.notice = "/init prepared a project guide request. Enter starts; file changes require approval. Your form and selected permissions are unchanged.".into();
+        self.notice = "/init prepared a project guide request. Enter starts; file changes follow saved Automatic/Ask mode. Your form and selected permissions are unchanged.".into();
     }
 
     pub(super) fn insert_input(&mut self, text: &str) -> bool {

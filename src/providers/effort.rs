@@ -952,6 +952,7 @@ mod tests {
                 .collect(),
             reduced_motion: false,
             text_density: crate::store::TextDensity::Compact,
+            approval_mode: crate::store::ApprovalMode::Automatic,
         };
         let saved = serde_json::to_vec(&preferences).unwrap();
         assert!(serde_json::from_slice::<PreviousPreferences>(&saved).is_err());

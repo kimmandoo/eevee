@@ -267,6 +267,7 @@ def main():
                              'with command `printf EEVEE_APPROVAL_PROBE`, sandbox_permissions `require_escalated`, and a '
                              'justification asking permission for this harmless print. Do not substitute a sandboxed invocation '
                              'or write any file. If denied, stop and state that it was denied.')
+            session.command('auto-approve-off')
             goal(session, approval_goal)
             session.command('role-plan')
             preview(session)

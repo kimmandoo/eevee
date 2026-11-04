@@ -119,6 +119,14 @@ fn mcp_call_inner(
                 let rule = answer
                     .as_object_mut()
                     .and_then(|answer| answer.remove("mcp_rule"));
+                let policy = answer
+                    .as_object_mut()
+                    .and_then(|answer| answer.remove("mcp_automatic"));
+                if policy.as_ref().is_some_and(|value| value != &json!(true))
+                    || (policy.is_some() && rule.is_some())
+                {
+                    continue;
+                }
                 if answer != deny && answer != allow {
                     continue;
                 }
@@ -130,6 +138,10 @@ fn mcp_call_inner(
                         rule["id"],
                         rule["sentence"].as_str().unwrap_or_default()
                     );
+                } else if policy.is_some() {
+                    automatic = true;
+                    cause.clear();
+                    cause.push_str("Automatic execution policy");
                 }
                 break Ok(answer == allow);
             }
@@ -238,7 +250,7 @@ fn mcp_call_inner(
                 item_id: format!("mcp-effects-unknown-{round}-{index}"),
                 kind: ItemKind::Tool,
                 text: format!(
-                    "UNMANAGED MCP effects unknown or still pending for this project after {} / {}. Server failure/cancellation is not proof of no effects. Persisted marker disables automatic Command/Write/MCP grants, including task auto-approval; inference continues and fresh explicit reviews remain available. No rollback.",
+                    "UNMANAGED MCP effects unknown or still pending for this project after {} / {}. Server failure/cancellation is not proof of no effects. Persisted marker disables automatic Command/Write/MCP grants, including saved Automatic policy; inference continues and fresh explicit reviews remain available. No rollback.",
                     tool.server, tool.name
                 ),
                 complete: true,

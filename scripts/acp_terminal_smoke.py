@@ -50,8 +50,8 @@ class Journey:
                         journals=[json.loads(row[0]) for row in db.execute('SELECT record FROM provider_journal')])
 
 
-def journey(binary, compiler, output, route, size, mode):
-    result = dict(status='failed', route=route, size=list(size), mode=mode, cases=[])
+def journey(binary, compiler, output, route, size, mode, automatic=False):
+    result = dict(status='failed', route=route, size=list(size), mode=mode, automatic=automatic, cases=[])
     session = None
     output.mkdir(parents=True)
     with tempfile.TemporaryDirectory(prefix='eevee-acp-terminal-界-') as temporary:
@@ -74,6 +74,8 @@ def journey(binary, compiler, output, route, size, mode):
                            EEVEE_ACP_TERMINAL_CHILD='1', EEVEE_ACP_TERMINAL_MODE=mode,
                            EEVEE_ACP_TERMINAL_LOG=str(log), EEVEE_ACP_TERMINAL_CONTROL=str(control),
                            EEVEE_ACP_TERMINAL_COMPILER=str(compiler))
+        if automatic:
+            environment['EEVEE_ACP_TERMINAL_AUTOMATIC'] = '1'
         argv = [str(binary), '--data-dir', str(data), '--images', 'off', '--color', 'mono']
         if size[0] == 60:
             argv.append('--ascii')
@@ -85,6 +87,11 @@ def journey(binary, compiler, output, route, size, mode):
             session = SurfaceSession(argv, project, environment, size, output, )
             app = Journey(session, project, data, )
             wait_for(session, 'Storage: saved', timeout=40)
+            if automatic:
+                wait_for(session, 'AUTO-APPROVE')
+            else:
+                session.command('auto-approve-off')
+                wait_for(session, 'ASK')
             if mode == 'readonly':
                 app.workspace()
                 session.command('role-plan')
@@ -111,7 +118,12 @@ def journey(binary, compiler, output, route, size, mode):
             until(session, preview, 'exact external-policy review incomplete', timeout=45)
             session.capture('external-policy-before-dispatch')
             session.send('y')
-            if mode != 'readonly':
+            if automatic:
+                until(session, lambda: (project / 'agent-program').is_file()
+                      and (project / 'main.rs').read_text() == FIXED,
+                      'Automatic compiler repair and real product missing', timeout=100)
+                result['cases'].append('fresh-default Automatic source repair compiler and program without approval keys')
+            elif mode != 'readonly':
                 file_decision(app)
                 until(session, lambda: (project / 'main.rs').exists(), 'first source effect missing')
                 assert (project / 'main.rs').read_text() == BROKEN
@@ -159,7 +171,8 @@ def journey(binary, compiler, output, route, size, mode):
                         result['cases'].append('terminal/' + mode + ' stopped only the actual owned native command; no delayed marker effect')
                     else:
                         assert runs[2]['exit_code'] == 0
-                        result['cases'].append('native compiler product executed through separate exact approval and actual output')
+                        result['cases'].append('native compiler product executed with Automatic' if automatic else
+                                               'native compiler product executed through separate exact approval and actual output')
             initialize = [row['packet'] for row in packets() if row['packet'].get('method') == 'initialize']
             assert len(initialize) == 1 and initialize[0]['params']['clientCapabilities']['terminal'] is (mode != 'readonly')
             prompts = [row['packet'] for row in packets() if row['packet'].get('method') == 'session/prompt']
@@ -197,7 +210,10 @@ def main():
     parser.add_argument('--size', choices=('120x36', '60x18'), default='120x36')
     parser.add_argument('--modes', nargs='+', choices=('happy', 'deny', 'cancel', 'kill', 'release', 'readonly'),
                         default=['happy', 'deny', 'cancel', 'kill', 'release', 'readonly'])
+    parser.add_argument('--automatic', action='store_true', help='prove fresh-default Automatic happy path without file/command approval keys')
     args = parser.parse_args()
+    if args.automatic and args.modes != ['happy']:
+        parser.error('--automatic requires --modes happy')
     if os.name != 'posix':
         parser.error('This opt-in executable-fixture PTY proof requires POSIX; Rust callback regressions are platform-independent')
     binary, compiler, output = args.binary.resolve(), args.compiler.resolve(), args.output.resolve()
@@ -211,7 +227,7 @@ def main():
                           'No private credentials, paid calls, SQL seeding, private executor or default CI expansion.'])
     size = tuple(map(int, args.size.split('x')))
     for mode in args.modes:
-        report['journeys'].append(journey(binary, compiler, output / mode, args.route, size, mode))
+        report['journeys'].append(journey(binary, compiler, output / mode, args.route, size, mode, args.automatic))
     assert hashlib.sha256(binary.read_bytes()).hexdigest() == digest, 'supplied binary changed'
     report['status'] = 'passed' if all(row['status'] == 'passed' for row in report['journeys']) else 'failed'
     save(output / 'results.json', report)

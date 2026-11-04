@@ -38,6 +38,7 @@ def case(binary, output, root, size, blocked):
                                       'compatible', 'responses', True, False, peer)
             wait_for(journey.session, 'Storage: saved')
             journey.setup_route()
+            journey.session.command('auto-approve-off')
             before = task_state(journey)
             step = 'Create both requested files'
             steps = [{'label': step, 'phase': 'implement', 'status': 'active'}]
@@ -114,6 +115,7 @@ def boundary_case(binary, output, root, size, mode):
                                       'compatible', 'responses', True, False, peer)
             wait_for(journey.session, 'Storage: saved')
             journey.setup_route()
+            journey.session.command('auto-approve-off')
             calls = [{'id': 'plan', 'name': 'todo', 'arguments': {
                 'operation': 'init', 'label': '', 'steps': [
                     {'label': 'Finish requested files', 'phase': 'implement', 'status': 'active'}]}}]

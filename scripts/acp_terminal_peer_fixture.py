@@ -126,12 +126,14 @@ def main():
     assert call('fs/read_text_file', path=str(root / 'main.rs'))['result']['content'] == BROKEN
     arguments = ['--edition=2021', '--color=never', 'main.rs', '-o', 'agent-program']
     terminal = create(compiler, arguments)
-    # create is returned before approval/run, and peer frames continue to be handled.
-    pending = call('terminal/output', terminalId=terminal)['result']
-    assert pending['output'] == '' and 'exitStatus' not in pending, pending
-    assert pending['_meta']['eevee.dev/terminal']['state'] == 'pending'
-    assert 'error' in call('fs/write_text_file', path=str(root / 'main.rs'), content='must not overwrite during run\n')
-    assert 'error' in call('terminal/create', command=compiler, args=arguments, cwd=str(root))
+    if os.environ.get('EEVEE_ACP_TERMINAL_AUTOMATIC') != '1':
+        # Manual consent holds this command pending long enough to probe
+        # overlap deterministically. Automatic may already have completed it.
+        pending = call('terminal/output', terminalId=terminal)['result']
+        assert pending['output'] == '' and 'exitStatus' not in pending, pending
+        assert pending['_meta']['eevee.dev/terminal']['state'] == 'pending'
+        assert 'error' in call('fs/write_text_file', path=str(root / 'main.rs'), content='must not overwrite during run\n')
+        assert 'error' in call('terminal/create', command=compiler, args=arguments, cwd=str(root))
     assert 'error' in call('terminal/output', terminalId='wrong-generation-or-task')
     foreign = request('terminal/output', terminalId=terminal)
     # Explicitly send a second, wrong-session frame with an independent callback ID.
@@ -153,7 +155,8 @@ def main():
         emit(id=prompt, result=dict(stopReason='end_turn'))
     else:
         finish(terminal, 0)
-        terminal = create(root / 'agent-program', ['--slow-marker'] if mode in ('kill', 'release') else [])
+        terminal = create(root / 'agent-program',
+                          ['--slow-marker'] if mode in ('kill', 'release') else [])
         if mode in ('kill', 'release'):
             # The driver signals only after the normal UI has dispatched this exact run.
             # This control file is outside the project and carries no command/approval.

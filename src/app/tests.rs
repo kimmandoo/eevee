@@ -2375,6 +2375,7 @@ fn native_missing_model_opens_local_picker_and_retains_request_without_retry() {
                     selections: std::collections::HashMap::new(),
                     reduced_motion: false,
                     text_density: store::TextDensity::Compact,
+                    approval_mode: store::ApprovalMode::Ask,
                 })));
             assert_eq!(
                 app.agents.readiness(agent.index()),
@@ -2527,6 +2528,7 @@ fn terminal_native_unknown_allows_explicit_followup_and_task_switch_but_cli_unkn
                 selections: std::collections::HashMap::new(),
                 reduced_motion: false,
                 text_density: store::TextDensity::Compact,
+                approval_mode: store::ApprovalMode::Ask,
             })));
         app.update(Event::Paste("Interrupted request".into()));
         key(&mut app, KeyCode::Enter);
@@ -4274,6 +4276,7 @@ fn automatic_todo_follows_provider_progress_and_steers_the_next_send() {
                 selections: std::collections::HashMap::new(),
                 reduced_motion: false,
                 text_density: store::TextDensity::Compact,
+                approval_mode: store::ApprovalMode::Ask,
             })));
         app.update(Event::Paste("Fix the failing code".into()));
         key(&mut app, KeyCode::Enter);

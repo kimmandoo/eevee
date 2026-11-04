@@ -49,7 +49,7 @@ pub use admission::validate_command_callback;
 pub use admission::{review_run_observations, validate_planning_input, validate_work_input};
 pub use lifecycle::inspect_lifecycle_data;
 pub use partners::validate_nickname;
-pub use preferences::{PreferenceRequest, ProviderPreferences, TextDensity};
+pub use preferences::{ApprovalMode, PreferenceRequest, ProviderPreferences, TextDensity};
 pub use recovery::export_readable;
 pub(crate) use runs::valid_run_id;
 
@@ -419,6 +419,7 @@ pub enum RunOperation {
     Abandon {
         request_id: String,
         run_id: String,
+        reason: Option<String>,
     },
     Load,
     ReadOutput {
@@ -465,9 +466,9 @@ impl RunRequest {
                 Some(record.prepared.request_id.clone()),
                 Some(record.prepared.run_id.clone()),
             ),
-            RunOperation::Abandon { request_id, run_id } => {
-                (Some(request_id.clone()), Some(run_id.clone()))
-            }
+            RunOperation::Abandon {
+                request_id, run_id, ..
+            } => (Some(request_id.clone()), Some(run_id.clone())),
             RunOperation::ReadOutput { run_id, .. } | RunOperation::PurgeOutput { run_id } => {
                 (None, Some(run_id.clone()))
             }

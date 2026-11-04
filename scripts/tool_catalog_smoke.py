@@ -188,6 +188,7 @@ def run(binary, output, root, size, ):
             wait_for(journey.session, 'Storage: saved', timeout=35)
             (journey.project / 'defect.txt').write_bytes(SOURCE.encode())
             journey.setup_route()
+            journey.session.command('auto-approve-off')
             journey.session.command('role-plan')
             journey.workspace()
             manifest = fixture_manifest()

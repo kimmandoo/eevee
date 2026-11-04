@@ -1,4 +1,4 @@
-//! Nonsecret, store-global provider/model preferences; never provider session state.
+//! Nonsecret store-global approval, display and route preferences; never session state.
 use super::*;
 use crate::providers::{Agent, ModelSelection};
 use std::collections::HashMap;
@@ -20,6 +20,15 @@ impl TextDensity {
     }
 }
 
+/// Persistent mediation policy, independent of request or session grants.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ApprovalMode {
+    #[default]
+    Automatic,
+    Ask,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProviderPreferences {
@@ -29,6 +38,9 @@ pub struct ProviderPreferences {
     pub reduced_motion: bool,
     #[serde(default, skip_serializing_if = "TextDensity::is_compact")]
     pub text_density: TextDensity,
+    // Always emit this choice so older strict readers cannot reinterpret it.
+    #[serde(default)]
+    pub approval_mode: ApprovalMode,
 }
 
 #[derive(Clone, Debug)]
@@ -132,7 +144,7 @@ impl State {
 }
 
 #[cfg(test)]
-mod motion_tests {
+mod compatibility_tests {
     use super::*;
 
     #[derive(Deserialize)]
@@ -142,65 +154,40 @@ mod motion_tests {
         _provider: Agent,
         #[serde(rename = "selections")]
         _selections: HashMap<Agent, ModelSelection>,
-    }
-
-    #[test]
-    fn legacy_default_is_compatible_but_an_old_strict_reader_refuses_motion_data() {
-        let legacy = ProviderPreferences {
-            provider: Agent::Codex,
-            selections: HashMap::new(),
-            reduced_motion: false,
-            text_density: TextDensity::Compact,
-        };
-        let bytes = serde_json::to_vec(&legacy).unwrap();
-        assert!(serde_json::from_slice::<PreviousPreferences>(&bytes).is_ok());
-        assert!(
-            !serde_json::from_slice::<ProviderPreferences>(&bytes)
-                .unwrap()
-                .reduced_motion
-        );
-        let reduced = ProviderPreferences {
-            reduced_motion: true,
-            ..legacy
-        };
-        let bytes = serde_json::to_vec(&reduced).unwrap();
-        assert!(serde_json::from_slice::<PreviousPreferences>(&bytes).is_err());
-        assert!(
-            serde_json::from_slice::<ProviderPreferences>(&bytes)
-                .unwrap()
-                .reduced_motion
-        );
-    }
-
-    #[derive(Deserialize)]
-    #[serde(deny_unknown_fields)]
-    struct Version26Preferences {
-        #[serde(rename = "provider")]
-        _provider: Agent,
-        #[serde(rename = "selections")]
-        _selections: HashMap<Agent, ModelSelection>,
         #[serde(default, rename = "reduced_motion")]
         _reduced_motion: bool,
+        #[serde(default, rename = "text_density")]
+        _text_density: TextDensity,
     }
 
     #[test]
-    fn compact_preserves_legacy_json_but_v26_refuses_comfortable_without_rewriting_it() {
+    fn legacy_preferences_load_but_every_explicit_approval_choice_refuses_old_readers() {
         let legacy = br#"{"provider":"Codex","selections":{}}"#;
         let mut preferences: ProviderPreferences = serde_json::from_slice(legacy).unwrap();
-        assert_eq!(preferences.text_density, TextDensity::Compact);
-        assert_eq!(serde_json::to_vec(&preferences).unwrap(), legacy);
-        assert!(serde_json::from_slice::<Version26Preferences>(legacy).is_ok());
-        preferences.reduced_motion = true;
-        let compact = serde_json::to_vec(&preferences).unwrap();
-        assert!(serde_json::from_slice::<Version26Preferences>(&compact).is_ok());
-        preferences.text_density = TextDensity::Comfortable;
-        let comfortable = serde_json::to_vec(&preferences).unwrap();
-        assert!(serde_json::from_slice::<Version26Preferences>(&comfortable).is_err());
-        assert_eq!(
-            serde_json::from_slice::<ProviderPreferences>(&comfortable).unwrap(),
-            preferences
-        );
-        let unsupported = br#"{"provider":"Codex","selections":{},"text_density":"spacious"}"#;
-        assert!(serde_json::from_slice::<ProviderPreferences>(unsupported).is_err());
+        assert_eq!(preferences.approval_mode, ApprovalMode::Automatic);
+        assert!(serde_json::from_slice::<PreviousPreferences>(legacy).is_ok());
+        for mode in [ApprovalMode::Automatic, ApprovalMode::Ask] {
+            preferences.approval_mode = mode;
+            for density in [TextDensity::Compact, TextDensity::Comfortable] {
+                preferences.text_density = density;
+                preferences.reduced_motion = true;
+                let bytes = serde_json::to_vec(&preferences).unwrap();
+                assert!(serde_json::from_slice::<PreviousPreferences>(&bytes).is_err());
+                assert_eq!(
+                    serde_json::from_slice::<ProviderPreferences>(&bytes).unwrap(),
+                    preferences
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn unknown_persistent_approval_or_density_refuses_instead_of_falling_back() {
+        for unsupported in [
+            br#"{"provider":"Codex","selections":{},"approval_mode":"session"}"#.as_slice(),
+            br#"{"provider":"Codex","selections":{},"text_density":"spacious"}"#.as_slice(),
+        ] {
+            assert!(serde_json::from_slice::<ProviderPreferences>(unsupported).is_err());
+        }
     }
 }

@@ -473,7 +473,11 @@ impl State {
             RunOperation::Update(record) => {
                 self.update_run(task_id, record).map(RunResponse::Updated)
             }
-            RunOperation::Abandon { request_id, run_id } => {
+            RunOperation::Abandon {
+                request_id,
+                run_id,
+                reason,
+            } => {
                 let mut stored = stored_run(connection, task_id, &run_id)?;
                 if stored.record.prepared.request_id != request_id
                     || stored.record.state != crate::workspace::runner::RunState::AwaitingDispatch
@@ -484,10 +488,10 @@ impl State {
                 }
                 stored.record.state = crate::workspace::runner::RunState::Interrupted;
                 stored.record.ended_at_ms = Some(timestamp()? as u64);
-                stored.record.error = Some(
+                stored.record.error = Some(reason.unwrap_or_else(|| {
                     "Approval was invalidated or dispatch was refused; command was not started"
-                        .into(),
-                );
+                        .into()
+                }));
                 stored.record.output_unavailable = true;
                 self.update_run(task_id, stored.record)
                     .map(RunResponse::Updated)
@@ -1204,6 +1208,7 @@ mod moving_tests {
                     task_id: task.id,
                     operation: RunOperation::Abandon {
                         request_id: second.request_id.clone(),
+                        reason: None,
                         run_id: first.run_id.clone()
                     },
                 })
@@ -1215,6 +1220,7 @@ mod moving_tests {
                 operation: RunOperation::Abandon {
                     request_id: first.request_id,
                     run_id: first.run_id,
+                    reason: None,
                 },
             })
             .unwrap();

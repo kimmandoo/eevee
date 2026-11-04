@@ -130,7 +130,7 @@ core-help-content =
     { "" }
     { "SAFETY" }
     { " Enter sends your Request to the selected provider." }
-    { " Commands, file changes and privilege grants require approval." }
+    { " Commands and file changes follow saved Automatic/Ask mode; privilege grants need review." }
     { " Project-supplied runtimes and unmanaged tool routes still need connection review." }
     { " Full technical details remain inspectable." }
     { " Pasted text never sends a request or runs commands." }
@@ -220,7 +220,7 @@ core-input-limit = { "Input limit reached; draft retained." }
 
 core-composer-idle-control = { "Type a request | / Commands | @ Files" }
 
-core-editor-request-help = { "Enter sends this request. Commands and file changes need separate approval." }
+core-editor-request-help = { "Enter sends this request. Commands and file changes follow saved Automatic/Ask mode." }
 
 core-editor-criteria-help = { "One criterion per line; 64 max, 256 bytes each. Changed criteria reset to unmet." }
 
@@ -253,12 +253,12 @@ core-editor-status =
 core-evolution-auto = { "Auto" }
 core-evolution-manual = { "Pinned" }
 core-evolution-discovery = { "the work is finding and reading code" }
-core-evolution-verification = { "the work is running builds or tests · commands ask first" }
-core-evolution-implementation = { "the work is changing code · edits ask first" }
-core-evolution-general = { "no plan yet · the model's plan will pick the form · effects ask first" }
+core-evolution-verification = { "the work is running builds or tests · commands follow policy" }
+core-evolution-implementation = { "the work is changing code · edits follow policy" }
+core-evolution-general = { "no plan yet · the model's plan will pick the form · effects follow policy" }
 core-evolution-planning = { "the work is planning or design" }
 core-evolution-diagnosis = { "the work is tracking down a problem" }
-core-evolution-refactor = { "the work is cleaning up or speeding up code · edits ask first" }
+core-evolution-refactor = { "the work is cleaning up or speeding up code · edits follow policy" }
 core-evolution-review = { "the work is reviewing changes" }
 core-evolution-documentation = { "the work is docs, notes or a summary" }
 core-evolution-readonly = { "Plan mode is on · read-only" }

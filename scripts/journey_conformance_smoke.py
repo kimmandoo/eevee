@@ -399,6 +399,7 @@ def row(binary, node, sidecar, output, route, protocol, model, size, account_wir
                 session = SurfaceSession([str(binary), '--data-dir', str(data), '--images', 'off', '--color', 'mono', *(['--ascii'] if size[0] == 60 else [])], project, environment, size, output / 'tui')
                 app = Journey(session, data, output)
                 wait_for(session, 'Storage: saved', timeout=40)
+                session.command('auto-approve-off')
                 session.command('journey')
                 wait_for(session, 'Request journey')
                 pages = ''

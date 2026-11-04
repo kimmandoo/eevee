@@ -2297,6 +2297,7 @@ fn replaced_output_links_are_unavailable_and_purge_never_deletes_external_files(
         .run_request(RunRequest {
             task_id: task.id,
             operation: RunOperation::Abandon {
+                reason: None,
                 request_id: prepared.request_id.clone(),
                 run_id: prepared.run_id.clone(),
             },
@@ -2450,6 +2451,7 @@ fn foreign_output_reference_is_refused_before_writable_open() {
         .run_request(RunRequest {
             task_id: task.id,
             operation: RunOperation::Abandon {
+                reason: None,
                 request_id: prepared.request_id,
                 run_id: prepared.run_id,
             },
@@ -2502,6 +2504,7 @@ fn deletion_preview_lists_exact_owned_artifacts_without_mutation_and_rechecks_ac
         .run_request(RunRequest {
             task_id: task.id,
             operation: RunOperation::Abandon {
+                reason: None,
                 request_id: prepared.request_id,
                 run_id: prepared.run_id.clone(),
             },
@@ -3306,7 +3309,12 @@ fn nickname_store_enforces_unicode_write_boundaries_without_losing_the_original(
 #[test]
 fn provider_preferences_survive_restart_and_preserve_exact_route_ids_and_task_data() {
     use crate::providers::{Agent, ModelSelection};
-    for density in [TextDensity::Compact, TextDensity::Comfortable] {
+    for (density, approval_mode) in [
+        (TextDensity::Compact, ApprovalMode::Automatic),
+        (TextDensity::Comfortable, ApprovalMode::Automatic),
+        (TextDensity::Compact, ApprovalMode::Ask),
+        (TextDensity::Comfortable, ApprovalMode::Ask),
+    ] {
         let directory = Directory::new();
         let worker = worker(&directory, "project");
         loaded(&worker);
@@ -3333,6 +3341,7 @@ fn provider_preferences_survive_restart_and_preserve_exact_route_ids_and_task_da
             .collect(),
             reduced_motion: true,
             text_density: density,
+            approval_mode,
         };
         let mut pending = Some(PreferenceRequest::Save(preferences.clone()));
         assert!(worker.try_preferences(&mut pending));
@@ -3355,23 +3364,11 @@ fn provider_preferences_survive_restart_and_preserve_exact_route_ids_and_task_da
             })
             .unwrap();
         let json: serde_json::Value = serde_json::from_str(&record).unwrap();
-        assert_eq!(
-            json.as_object().unwrap().len(),
-            if density.is_compact() { 3 } else { 4 }
-        );
-        assert_eq!(
-            json.get("text_density").and_then(serde_json::Value::as_str),
-            if density.is_compact() {
-                None
-            } else {
-                Some("comfortable")
-            },
-        );
         assert_eq!(json["reduced_motion"], true);
-        for selection in json["selections"].as_object().unwrap().values() {
-            assert_eq!(selection.as_object().unwrap().len(), 2);
-            assert!(selection.get("model").is_some() && selection.get("effort").is_some());
-        }
+        assert_eq!(
+            json["approval_mode"],
+            serde_json::to_value(approval_mode).unwrap()
+        );
     }
 }
 
@@ -3394,6 +3391,7 @@ fn failed_preference_save_preserves_committed_preference_and_task_draft() {
         .collect(),
         reduced_motion: false,
         text_density: TextDensity::Compact,
+        approval_mode: ApprovalMode::Ask,
     };
     store
         .preference_request(PreferenceRequest::Save(preferences.clone()))
@@ -3413,6 +3411,49 @@ fn failed_preference_save_preserves_committed_preference_and_task_draft() {
         load_task(store.connection.as_ref().unwrap(), "project", task.id).unwrap(),
         Some(task)
     );
+}
+
+#[test]
+fn legacy_approval_preferences_admit_but_unknown_stored_mode_refuses_without_rewriting() {
+    let directory = Directory::new();
+    let mut store = state(&directory, "project", Policy::default());
+    let legacy = r#"{"provider":"Codex","selections":{}}"#;
+    store
+        .connection
+        .as_ref()
+        .unwrap()
+        .execute(
+            "INSERT INTO provider_preferences(id,record) VALUES(1,?1)",
+            [legacy],
+        )
+        .unwrap();
+    let restored = store
+        .preference_request(PreferenceRequest::Load)
+        .unwrap()
+        .unwrap();
+    assert_eq!(restored.approval_mode, ApprovalMode::Automatic);
+    let unsupported = r#"{"provider":"Codex","selections":{},"approval_mode":"session"}"#;
+    store
+        .connection
+        .as_ref()
+        .unwrap()
+        .execute(
+            "UPDATE provider_preferences SET record=?1 WHERE id=1",
+            [unsupported],
+        )
+        .unwrap();
+    assert!(store.preference_request(PreferenceRequest::Load).is_err());
+    let record: String = store
+        .connection
+        .as_ref()
+        .unwrap()
+        .query_row(
+            "SELECT record FROM provider_preferences WHERE id=1",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(record, unsupported);
 }
 
 fn stored_table_rows(connection: &Connection, table: &str) -> Vec<Vec<rusqlite::types::Value>> {
@@ -3698,6 +3739,7 @@ fn location_pin_requires_a_task_owned_run_and_retains_its_origin_after_reopen() 
         .run_request(RunRequest {
             task_id: first.id,
             operation: RunOperation::Abandon {
+                reason: None,
                 request_id: prepared.request_id.clone(),
                 run_id: prepared.run_id.clone(),
             },

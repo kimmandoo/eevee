@@ -434,6 +434,7 @@ fn abandoning_an_8mib_reservation_admits_a_16mib_one() {
         .run_request(RunRequest {
             task_id: fixture.task,
             operation: RunOperation::Abandon {
+                reason: None,
                 request_id: legacy.request_id,
                 run_id: legacy.run_id,
             },

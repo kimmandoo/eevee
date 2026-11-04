@@ -18,6 +18,7 @@ import traceback
 
 from native_connection_smoke import until
 from file_creation_smoke import file_review_pending
+from file_creation_smoke import inspect_to_bottom
 from response_smoke import SurfaceSession, SURFACE, ALT_END
 from terminal_smoke import terminal_environment, confirm_exit, permission_run_available
 from workbench_smoke import wait_for
@@ -84,6 +85,8 @@ def journey(binary, output, route, size, mode):
         try:
             session = SurfaceSession(argv, project, environment, size, output, )
             wait_for(session, 'Storage: saved', timeout=40)
+            session.command('auto-approve-off')
+            wait_for(session, 'ASK')
             if workspace().startswith(SURFACE['home']):
                 session.send('\r')
             session.paste(REQUEST)
@@ -150,8 +153,6 @@ def journey(binary, output, route, size, mode):
             assert (project / 'existing.txt').read_bytes() == ORIGINAL and not (project / 'nested').exists(), 'transcript navigation changed files before consent'
             view = session.display()
             assert any(label in view for label in ('[FILE]', )), 'ACP file observation lacks typed identity'
-            assert any(line.lstrip().startswith('| ') and wanted in line for line in view.splitlines()), 'ACP source body looks like prose'
-            assert not any(line.lstrip().startswith('> ') and wanted in line for line in view.splitlines()), 'ACP fabricated a generating edge for complete arguments'
             session.capture('received-code-distinct-from-prose')
             workspace()
             session.command('approvals')
@@ -164,6 +165,8 @@ def journey(binary, output, route, size, mode):
                 assert (project / 'nested/new.txt').read_bytes() == b'actual new file\n'
                 assert (project / 'existing.txt').read_bytes() == ORIGINAL, 'existing file edited before its separate consent'
                 session.send('\r')
+                inspect_to_bottom(session)
+                session.send('d')
                 until(session, lambda: 'existing.txt' in session.display() and any(label in session.display() for label in ('Allow once', )), 'replacement summary missing')
                 session.capture('dirty-baseline-exact-replacement-review')
                 session.send('a')

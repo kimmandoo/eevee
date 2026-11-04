@@ -1836,6 +1836,31 @@ pub(crate) mod native {
     fn wide(path: &std::ffi::OsStr) -> Vec<u16> {
         path.encode_wide().chain(Some(0)).collect()
     }
+    fn launch_executable_path(path: &Path) -> io::Result<&Path> {
+        if !matches!(
+            path.components().next(),
+            Some(std::path::Component::Prefix(prefix))
+                if matches!(prefix.kind(), std::path::Prefix::VerbatimDisk(_))
+        ) {
+            return Ok(path);
+        }
+        // Legacy runtimes inspect their image spelling; an NT namespace prefix
+        // can break CLR startup. Never normalize to a different frozen image.
+        let text = path.to_str().ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Executable path is not lossless UTF-8",
+            )
+        })?;
+        let win32 = Path::new(&text[4..]);
+        if fs::canonicalize(win32)? != path {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Frozen executable has no identity-equivalent Win32 launch path",
+            ));
+        }
+        Ok(win32)
+    }
     fn handle(raw: HANDLE) -> io::Result<OwnedHandle> {
         if raw.is_null() || raw == INVALID_HANDLE_VALUE {
             Err(io::Error::last_os_error())
@@ -2013,6 +2038,7 @@ pub(crate) mod native {
             env: &[(String, String)],
             clean: bool,
         ) -> io::Result<Self> {
+            let launch_image = launch_executable_path(&prepared.executable.path)?;
             let job = handle(unsafe { CreateJobObjectW(null(), null()) })?;
             let mut limits = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
             limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
@@ -2102,7 +2128,7 @@ pub(crate) mod native {
             startup.StartupInfo.hStdOutput = inherited[1];
             startup.StartupInfo.hStdError = inherited[2];
             startup.lpAttributeList = attributes.list;
-            let executable = wide(prepared.executable.path.as_os_str());
+            let executable = wide(launch_image.as_os_str());
             let cwd = wide(prepared.cwd.as_os_str());
             // lpApplicationName selects the frozen image; argv[0] retains its reviewed alias.
             let mut line = quote(program(&prepared.spec));

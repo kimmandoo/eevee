@@ -332,7 +332,7 @@ impl App {
                 .owner()
                 .is_some_and(|owner| owner.partner == self.lead.id)
         {
-            return self.auto_approve_command("auto-approve-session");
+            return self.auto_approve_command("auto-approve");
         }
         if key.kind == KeyEventKind::Release {
             return false;

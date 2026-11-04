@@ -42,7 +42,10 @@ def main(argv=None):
     parser.add_argument('--node', type=Path, default=shutil.which('node'))
     parser.add_argument('--sidecar', type=Path, default=Path(__file__).resolve().parents[1] / 'sidecar')
     parser.add_argument('--limit', choices=('turns', 'budget'), help='controlled SDK exhaustion instead of compiler workflow')
+    parser.add_argument('--automatic', action='store_true', help='prove fresh-default Automatic host effects without file/command approval keys')
     args = parser.parse_args(argv)
+    if args.automatic and args.limit:
+        parser.error('--automatic cannot be combined with --limit')
     binary, compiler, output, sidecar = (path.resolve() for path in (args.binary, args.compiler, args.output, args.sidecar))
     if args.node is None:
         parser.error('Node >=24 required; pass --node')
@@ -57,6 +60,7 @@ def main(argv=None):
     result = {'status': 'failed', 'binary': str(binary), 'binary_sha256': digest,
               'compiler': str(compiler), 'node': str(node),
               'limits': ['Controlled query production, not live SDK/model/account conformance.',
+                         'Fresh-default Automatic host effects.' if args.automatic else
                          'Actual compiler/program run only after separate exact host command approval.']}
     if args.limit:
         result.update(scenario='limit-' + args.limit)
@@ -106,6 +110,11 @@ def main(argv=None):
             session = SurfaceSession([str(binary), '--data-dir', str(data), '--images', 'off', '--color', 'mono'],
                                      project, environment, (120, 36), output, )
             wait_for(session, 'Storage: saved', timeout=40)
+            if args.automatic:
+                wait_for(session, 'AUTO-APPROVE')
+            elif not args.limit:
+                session.command('auto-approve-off')
+                wait_for(session, 'ASK')
             session.command('provider-claude')
             workspace()
             journey = SimpleNamespace(session=session, project=project, data=data, surface=SURFACE, workspace=workspace)
@@ -173,10 +182,11 @@ def main(argv=None):
                               logical_queries=1, terminal_reason=subtype, retained_transcript=text)
             else:
                 for identity in ('write-broken', 'compile-failure', 'write-fix', 'compile-success', 'run-program'):
-                    if identity.startswith('write-'):
-                        coding.file_decision(journey)
-                    else:
-                        coding.command_decision(journey)
+                    if not args.automatic:
+                        if identity.startswith('write-'):
+                            coding.file_decision(journey)
+                        else:
+                            coding.command_decision(journey)
                     until(session, lambda step=identity: any(row['kind'] == 'step' and row['id'] == step for row in rows()),
                           'real SDK tool result did not reach query: ' + identity, timeout=120)
                 until(session, lambda: any(row['kind'] == 'finished' for row in rows()) and not claims(), 'SDK terminal/claim settlement', timeout=90)

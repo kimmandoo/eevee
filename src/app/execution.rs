@@ -91,6 +91,7 @@ enum StoreJob {
         task: i64,
         request: String,
         run: String,
+        reason: Option<String>,
     },
     Load(i64),
     Read {
@@ -136,9 +137,15 @@ impl StoreJob {
                 capacity: *capacity,
             },
             Self::Update(r) => store::RunOperation::Update(r.clone()),
-            Self::Abandon { request, run, .. } => store::RunOperation::Abandon {
+            Self::Abandon {
+                request,
+                run,
+                reason,
+                ..
+            } => store::RunOperation::Abandon {
                 request_id: request.clone(),
                 run_id: run.clone(),
+                reason: reason.clone(),
             },
             Self::Load(_) => store::RunOperation::Load,
             Self::Read { run, offset, .. } => store::RunOperation::ReadOutput {
@@ -325,18 +332,20 @@ impl State {
     }
     /// A failed lazy runner start revokes dispatch without affecting other partners.
     pub fn runner_unavailable(&mut self, error: String) {
+        let message = format!("Local command runtime unavailable; no process launched: {error}");
         if let Some(permit) = self.permit.take() {
             self.critical(StoreJob::Abandon {
                 task: permit.task_id,
                 request: permit.request_id,
                 run: permit.run_id,
+                reason: Some(message.clone()),
             });
         }
         self.invalidate();
         self.invalidation = false;
         self.fail(
             "Runtime",
-            format!("Local command runtime unavailable; no process launched: {error}"),
+            message,
             "The command draft is retained. Resolve the runtime error and deliberately prepare again.",
         );
     }
@@ -961,6 +970,7 @@ impl State {
                             task: task_id,
                             request,
                             run,
+                            reason: Some(error.clone()),
                         });
                         self.invalidate();
                         self.fail("Approval", error, "Prepare and deliberately review a new request. The command is not retried.");
@@ -971,6 +981,7 @@ impl State {
                     task: permit.task_id,
                     request: permit.request_id.clone(),
                     run: permit.run_id.clone(),
+                    reason: None,
                 });
                 drop(permit);
             }
@@ -1046,6 +1057,7 @@ impl State {
                         task: task_id,
                         request: request_id.clone(),
                         run: p.run_id.clone(),
+                        reason: Some(message.clone()),
                     });
                 }
                 self.dispatching = false;
@@ -1210,6 +1222,7 @@ impl State {
                     task: permit.task_id,
                     request: permit.request_id.clone(),
                     run: permit.run_id.clone(),
+                    reason: None,
                 });
             }
             return;
@@ -1250,6 +1263,7 @@ impl State {
                         task: permit.task_id,
                         request: permit.request_id,
                         run: permit.run_id,
+                        reason: None,
                     });
                 }
             }

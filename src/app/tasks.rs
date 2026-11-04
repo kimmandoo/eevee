@@ -142,7 +142,6 @@ impl App {
         }
         self.lead = lead;
         if task_changed {
-            self.auto_approve_session = false;
             self.cooperation.parked.clear();
             self.cooperation.executions.clear();
             self.cooperation.execution_actions.clear();
@@ -285,7 +284,6 @@ impl App {
         }
         let mut task = store::Snapshot::empty(self.cwd.clone());
         task.lead_partner = self.lead.id;
-        self.auto_approve_session = false;
         task.navigation.linear = self.linear;
         self.load_task(task);
         self.launch_session = Some(crate::config::LaunchSession::Fresh);
@@ -790,7 +788,7 @@ impl App {
                 .command_callbacks
                 .contains_key(&self.lead.id)
         {
-            return self.auto_approve_command("auto-approve-session");
+            return self.auto_approve_command("auto-approve");
         }
         if let Some(action) = self.execution.key(key) {
             self.apply_execution_action(action);
