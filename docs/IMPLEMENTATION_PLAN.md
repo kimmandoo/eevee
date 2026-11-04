@@ -1,17 +1,17 @@
 # Eevee Implementation Plan
 
-Updated2026-11-04. Active: fix shared Windows post-login credential admission and qualify a new0.1.49 release. Completed0.1.48 tags/assets remain immutable; live-provider quality is not inferred from controlled acceptance.
+Updated2026-11-04. Completed: shared Windows post-login credential admission and published0.1.49, including actual downloaded Windows/Linux credential journeys and genuine public update preservation. Completed0.1.48 tags/assets remain immutable; live-provider quality is not inferred from controlled acceptance.
 
 Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPATIBILITY.md). Live-provider conformance remains distinct from implemented transports and deterministic runtime proof.
 
-## Active delivery — Windows login safety compatibility (2026-11-04)
+## Completed delivery — Windows login safety compatibility (2026-11-04)
 
 1. Trace the reported Windows refusal through successful issuer login, local save and shared native provider resolution; treat the user report as fact. Inspect only nonsecret Windows ownership metadata.
 2. Admit trusted SYSTEM/Administrators ownership for the canonical home only; bind OWNER RIGHTS grants to an already-admitted actual owner without accepting that SID as an owner/account. Retain current-user-only private objects, all ACL/no-follow/identity/foreign-write guards, source precedence and explicit session-only choice.
 3. Add real Windows regressions for normal inherited home ownership, selected-provider save/replacement/restart and unsafe-object refusal. Cover ChatGPT/OpenAI/Anthropic/Google/compatible; do not claim external managed runtimes use this checker.
 4. Exercise actual Windows storage/login surfaces with synthetic credentials and isolated homes, then run source/SDK/Python/native gates. Preserve safe existing storage rather than repairing user/provider ACLs.
 5. Publish only a newly qualified exact0.1.49 source through the existing immutable native/promotion pipeline. Verify public assets/previous release preservation and genuine0.1.48→0.1.49 update/resume/data, then record completed handoff without retagging.
-Steps1–4 passed: Linux2030/two ignored, strict lint/release build; native Windows36 credential regressions; actual Windows/Linux9 UI journeys each, including four routes at both sizes, replacement/session/durable restart and unsafe-home refusal. Only source publication/exact-source native qualification/new immutable0.1.49/public Windows/Linux/update proof remains. No real user credential or existing ACL was changed.
+Steps1–5 passed. Linux2030/two ignored, strict lint/release build; native Windows36 credential regressions; actual candidate Windows/Linux9 journeys each. Exact source f687c55 passed native41800988032/all six jobs and immutable promotion41803103920 publishedv0.1.49/release433706997. All eight assets/seven checksums/five layouts/source/tag/latest/previous-release identities passed. Downloaded Windows MSVC and Linux images each passed all nine credential journeys; genuine public0.1.48→0.1.49 Linux update/resume/caret/data/credential/uninstall/reinstall passed with zero effects. Owned disposable drivers were removed. No user credential or existing ACL was changed; no outstanding delivery step or unrelated roadmap closure.
 
 
 ## Completed delivery — Agent execution, tool visibility and stable evolution (2026-11-04)
