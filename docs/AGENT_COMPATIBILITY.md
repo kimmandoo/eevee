@@ -4,11 +4,13 @@
 
 The binary implements native ChatGPT/OpenAI/Anthropic/Gemini/compatible HTTP connections, Run-owned Responses WebSocket connections, the durable local workbench, Codex Plan/controlled Implement, an optional official Claude SDK bridge, ACP1 for OpenCode/Gemini/Devin, and version-1 handoff. **Implemented transport support is not authenticated interoperability acceptance.** Per-service live evidence is recorded in the checkpoint; missing credentials do not become a blanket model-browsing or custom-selection blocker. Existing A04/A06/full A07 agent-conformance gates remain separate. Binding rules live in [DESIGN_RULES.md](DESIGN_RULES.md).
 
-### Current source — v0.1.48 coding and stable evolution
+### Published v0.1.48 — coding and stable evolution
 
 The complete SDK bridge is revision12. Older/mixed bundles refuse before model submission, preventing obsolete16-turn or incomplete-tool-admission policy from passing a newer host's inspection. Replace main, policy and dependencies together. SQL20/TM2/formation2 are unchanged. Native/Codex/SDK/ACP retain ordinary exact command approval for builds, programs and requested downloads; fetching content is not execution consent. Automatic appearance is bounded to Send-time selection plus one in-flight adaptation per acquired request, while current frozen profile instructions remain non-additive across role updates. Opaque external history is not deleted or claimed inspectable.
 
-### Unreleased bounded completion
+Annotatedv0.1.48 points to exact source2892ffd, qualified by native41786818562/all six jobs and immutable promotion41788847893. Public release433601486/latest, eight asset digests, seven checksum rows, five layouts/CPU headers, source-identical installers and previous0.1.47 asset identities were verified. Genuine public Linux x86_64 update/resume/caret/data/uninstall/reinstall passed; other local public OS updates and authenticated model behavior are not inferred from these checks.
+
+### Owned-request bounded completion
 
 Native HTTP/account and Responses WebSocket execution distinguishes the end of a model turn from known current-request todo completion. Successful todo mutations in this request may trigger up to three forward-only completion reminders under the original owner, capabilities, receipt and aggregate limits. Actual assistant turns/tool results remain; WebSocket reminders use the authoritative completed-response anchor without replaying effects. Task-level adoption or an old `view` alone never binds a fresh request.
 

@@ -1,10 +1,10 @@
 # Eevee Implementation Plan
 
-Updated2026-11-04. Current delivery: complete agent coding/tools, stable in-flight evolution and a qualified0.1.48 release/update. Earlier published tags/assets remain immutable; live-provider quality is not inferred from controlled acceptance.
+Updated2026-11-04. Completed agent coding/tools, stable in-flight evolution and qualified public0.1.48 release/update. Earlier tags/assets remained immutable; live-provider quality was not inferred from controlled acceptance.
 
 Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPATIBILITY.md). Live-provider conformance remains distinct from implemented transports and deterministic runtime proof.
 
-## Active delivery — Agent execution, tool visibility and stable evolution (2026-11-04)
+## Completed delivery — Agent execution, tool visibility and stable evolution (2026-11-04)
 
 1. Reproduce native unfinished-build settlement and MCP pagination; correct definite-failure/input-refusal handling without replaying unknown effects or denied permissions.
 2. Expose truthful correlated tool/command lifecycle and route capability, complete bounded MCP discovery with exact executable schemas, and require the complete SDK tool roster. Cut over complete bridge12 so older16-turn implementations cannot masquerade as the128-turn policy.
@@ -12,7 +12,7 @@ Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPAT
 4. Apply EV21: Send-time role selection plus one actual in-flight automatic adaptation per exact live request; keep frozen current profile/style non-additive and subordinate to task/host policy. Run both-size evolution backtest and all-route captured HTTP/WS/stdio/query profile invariants.
 5. Freeze0.1.48 source/docs/checkpoint, run final formatting/Rust/strict Clippy/SDK/Python/build gates and runtime acceptance, then commit/push. Require newest exact-source main Check/all five native rows/every step and immutable package identities before tagging.
 6. Publish only qualified package IDs through the existing workflow; verify public source/tag/assets/checksums/native layouts and genuine downloaded public upgrade/resume/caret/data/uninstall/reinstall. Record final evidence, remove owned disposable drivers and commit completed handoff; no unrelated roadmap task closes automatically.
-Local acceptance passed: Rust2030/two ignored, SDK47, Python22/four skips; coding4, SDK3/ACP6, MCP24, completion10, tools2, both-size EV21 and16 full profile journeys. Feature source76cc187 failed only Windows fixture guards in native41783485275. The fixture-only30-second repair passed full Rust/strict lint/release build again, plus all four coding/download and both evolution journeys on rebuilt image63af2bb. Commit/push it and require a new exact-source full native qualification; no tag/publication has occurred.
+Steps1–6 passed. Local Rust2030/two ignored, SDK47, Python22/four skips; coding4, SDK3/ACP6, MCP24, completion10, tools2, EV21 backtests and16 full profile journeys passed. After Windows fixture-only guard repair, exact source2892ffd passed native41786818562/all six jobs and promotion41788847893 published immutablev0.1.48/release433601486. All eight public assets/seven checksums/five layouts/source/tag/latest/previous-release identities passed. Downloaded public Linux image6bcbb4e passed coding4, evolution2 and production SDK execution; genuine public0.1.47→0.1.48 update/resume/caret/data/uninstall/reinstall passed with zero effects. Owned disposable drivers were removed. No outstanding step for this delivery; unrelated roadmap/live-provider gates were not closed.
 
 
 ## Completed delivery — CI repair, test diet and0.1.46 release (2026-11-03)

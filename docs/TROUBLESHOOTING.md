@@ -6,6 +6,7 @@
 - **Root Cause:** Native integration fixtures allowed only5 seconds for durable store admission plus acknowledgment and8 seconds for a whole batch before the next HTTP accept. A batch can persist16 distinct tool artifacts serially; the full parallel Windows run exceeded these test-only guards. Peer disconnection then tested transport loss instead of the intended over-budget refusal. This was not evidence of a production request timeout or successful effects.
 - **Solution:** Unified fixture durable-store and next-round waits under a30-second deadlock guard. Kept every actual persisted result, round count, file-byte, atomic refusal and completion assertion. Socket/explicit approval-expiry tests and production request/permission/storage deadlines were not increased; no OS test was skipped.
 - **Prevention / Reference:** Main source76cc187 remains ineligible despite five green jobs. Require a new exact-source six-job run before tagging. The public check-run annotation retained full failure details when the unauthenticated job-log endpoint returnedHTTP403; no private credential was needed to diagnose it.
+- **Verification:** Repair2892ffd passed native41786818562 attempt1: Check and all five native jobs/every required step, including actual Windows Rust/Defender/console/PowerShell gates. Annotatedv0.1.48 then promoted those five immutable package IDs in publication41788847893; the failed76cc187 source was never tagged or substituted.
 
 ### [2026-11-04] Publishing environment had SSH access but no local GitHub CLI
 
