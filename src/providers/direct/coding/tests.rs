@@ -118,7 +118,6 @@ impl Fixture {
             inspect_models: false,
             selection: ModelSelection::default(),
             conversation: None,
-            credential: None,
         };
         Self {
             root,
@@ -199,7 +198,7 @@ fn wire_tools(protocol: Protocol, calls: &[(&str, &str, Value)], text: &str) -> 
                 json!({"type":"response.completed","response":{"status":"completed","model":"fixture-model","output":output,"usage":{"input_tokens":11,"output_tokens":3}}}),
             )
         }
-        Protocol::ChatCompletions => {
+        Protocol::ChatCompletions | Protocol::Devin => {
             let tool_calls = calls.iter().enumerate().map(|(i,(id,name,args))| json!({"index":i,"id":id,"type":"function","function":{"name":name,"arguments":args.to_string()}})).collect::<Vec<_>>();
             let mut delta = json!({"content":text});
             if !calls.is_empty() {
@@ -580,7 +579,7 @@ fn unfinished_todo_final_continues_owned_work_without_replaying_effects() {
         );
         let field = match protocol {
             Protocol::Responses => "input",
-            Protocol::ChatCompletions | Protocol::Messages => "messages",
+            Protocol::ChatCompletions | Protocol::Devin | Protocol::Messages => "messages",
             Protocol::Gemini => "contents",
             Protocol::Codex => unreachable!(),
         };
@@ -1940,7 +1939,9 @@ fn readonly_roles_advertise_only_source_tools_and_metadata_remains_tool_free() {
             let body: Value = serde_json::from_str(&run.payload).unwrap();
             let policy = match protocol {
                 Protocol::Codex | Protocol::Responses => body["instructions"].as_str().unwrap(),
-                Protocol::ChatCompletions => body["messages"][0]["content"].as_str().unwrap(),
+                Protocol::ChatCompletions | Protocol::Devin => {
+                    body["messages"][0]["content"].as_str().unwrap()
+                }
                 Protocol::Messages => body["system"].as_str().unwrap(),
                 Protocol::Gemini => body["systemInstruction"]["parts"][0]["text"]
                     .as_str()

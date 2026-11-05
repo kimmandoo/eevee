@@ -90,6 +90,25 @@ async fn inference_rounds(
     let model = selected_model(&run.input, connection)
         .map_err(|error| (Outcome::Failed, error))?
         .to_owned();
+    let devin = if connection.protocol == Protocol::Devin {
+        validate_active(workspace, run, connection, control, revalidate).map_err(|error| {
+            (
+                if control.cancelled() {
+                    Outcome::Cancelled
+                } else {
+                    Outcome::Failed
+                },
+                error,
+            )
+        })?;
+        Some(
+            devin::Session::start(http, connection, control, run, events, &model)
+                .await
+                .map_err(|error| (Outcome::Failed, error))?,
+        )
+    } else {
+        None
+    };
     let mut body: Value = serde_json::from_str(&run.payload)
         .map_err(|_| (Outcome::Failed, "Frozen native packet is invalid".into()))?;
     let websocket = connection
@@ -228,6 +247,31 @@ async fn inference_rounds(
             socket
                 .round(wire, &mut stream, run, events, &round_control)
                 .await
+        } else if let Some(devin) = &devin {
+            let encoded = devin
+                .request(http, connection, &body, &round_control, run, events)
+                .await
+                .map_err(|error| (Outcome::Failed, error))?;
+            let mut response = send_inference(
+                || {
+                    http.post(devin.url())
+                        .header("Content-Type", "application/connect+proto")
+                        .header("Connect-Protocol-Version", "1")
+                        .header("Connect-Accept-Encoding", "gzip")
+                        .header("Accept-Encoding", "identity")
+                        .body(encoded.clone())
+                        .send()
+                },
+                run,
+                events,
+                &round_control,
+                round,
+                retry_policy,
+                &mut dispatched,
+                &mut retries,
+            )
+            .await?;
+            devin::read(&mut response, &mut stream, &round_control, run, events).await
         } else {
             let mut response = send_inference(
                 || {

@@ -177,7 +177,6 @@ fn input(app: &App) -> providers::Input {
         inspect_models: false,
         selection: Default::default(),
         conversation: None,
-        credential: None,
     }
 }
 

@@ -13,10 +13,9 @@ use std::time::{Duration, Instant, UNIX_EPOCH};
 use sha2::{Digest, Sha256};
 
 const REVISION: u32 = 1;
-pub(crate) const DEVIN: usize = 4;
 /// Trust index of `ant`; not a provider row in the connection drawer.
 pub(crate) const ANT: usize = 5;
-const PROVIDERS: usize = 5;
+const PROVIDERS: usize = 4;
 const OUTPUT_LIMIT: usize = 16 * 1024;
 const CONFIG_LIMIT: u64 = 64 * 1024;
 const EXECUTABLE_LIMIT: u64 = 256 * 1024 * 1024;
@@ -29,17 +28,13 @@ const NAMES: [&str; 6] = [
     "Claude Agent SDK",
     "OpenCode ACP",
     "Gemini ACP",
-    "Devin ACP",
+    "Native provider (no executable)",
     "Anthropic CLI (ant)",
 ];
-const PROGRAMS: [&str; 6] = ["codex", "claude", "opencode", "gemini", "devin", "ant"];
+const PROGRAMS: [&str; 6] = ["codex", "claude", "opencode", "gemini", "", "ant"];
 
-pub(crate) fn version_argument(index: usize) -> &'static str {
-    if index == DEVIN {
-        "version"
-    } else {
-        "--version"
-    }
+pub(crate) fn version_argument(_index: usize) -> &'static str {
+    "--version"
 }
 
 #[derive(Clone, Debug)]
@@ -365,7 +360,6 @@ fn discover(index: usize, project: &Path) -> Snapshot {
             0 => "Codex app-server; Plan/Review and native controlled-file implementation".into(),
             1 => "Optional Claude Agent SDK sidecar; e performs separate runtime/auth qualification".into(),
             2 => "OpenCode / negotiated ACP v1; provider-owned tools".into(),
-            DEVIN => "Devin / negotiated ACP v1; provider-owned tools and native account login".into(),
             ANT => "Anthropic CLI; Console OAuth login/status handoff for Claude only".into(),
             _ => "Gemini / negotiated ACP v1; absent credentials remain unavailable".into(),
         },
@@ -504,7 +498,6 @@ fn auth_labels(index: usize) -> (String, String) {
             "ANTHROPIC_API_KEY",
             "GOOGLE_GENERATIVE_AI_API_KEY",
         ],
-        DEVIN => &["WINDSURF_API_KEY"],
         ANT => &[
             "ANTHROPIC_PROFILE",
             "ANTHROPIC_CONFIG_DIR",
@@ -611,96 +604,6 @@ fn configuration_sources(index: usize, project: &Path) -> Vec<SourceStamp> {
             }
             if let Some(path) = env::var_os("OPENCODE_CONFIG") {
                 paths.push((path.into(), false));
-            }
-        }
-        DEVIN => {
-            // Documented Devin config/import locations. Metadata only: JSONC and local
-            // overrides can carry secrets; no credentials, instructions or hook bodies read.
-            if let Some(base) = if cfg!(windows) {
-                env::var_os("APPDATA")
-                    .map(PathBuf::from)
-                    .map(|p| p.join("devin"))
-            } else {
-                home.as_ref().map(|p| p.join(".config/devin"))
-            } {
-                for name in ["config.json", "mcp_config.json", "AGENTS.md", "skills"] {
-                    paths.push((base.join(name), false));
-                }
-            }
-            #[cfg(target_os = "linux")]
-            paths.push(("/etc/devin/system.json".into(), false));
-            #[cfg(target_os = "macos")]
-            paths.push((
-                "/Library/Application Support/Devin/system.json".into(),
-                false,
-            ));
-            #[cfg(windows)]
-            paths.push((PathBuf::from(r"C:\ProgramData\Devin\system.json"), false));
-            for name in [
-                ".devin/config.json",
-                ".devin/config.local.json",
-                ".devin/mcp_config.json",
-                ".devin/mcp_config.local.json",
-                ".devin/hooks.v1.json",
-                ".devin/skills",
-                ".devin/agents",
-                "AGENTS.md",
-                "AGENTS.local.md",
-                "AGENT.md",
-                ".windsurfrules",
-                ".cursor/rules",
-                ".cursor/mcp.json",
-                ".windsurf/rules",
-                ".windsurf/global_rules.md",
-                ".windsurf/skills",
-                "CLAUDE.md",
-                ".claude/skills",
-                ".claude/commands",
-                ".claude/settings.json",
-                ".claude/settings.local.json",
-                ".mcp.json",
-                ".github/skills",
-                "opencode.json",
-                ".zed/settings.json",
-            ] {
-                paths.push((project.join(name), false));
-            }
-            // Hooks, rules, skills and repo plugin declarations can be inherited.
-            // Bounded ancestor metadata is not an effective configuration loader.
-            for parent in project.ancestors().skip(1).take(31) {
-                for name in [
-                    ".devin/config.json",
-                    ".devin/config.local.json",
-                    ".devin/hooks.v1.json",
-                    ".devin/skills",
-                    ".devin/agents",
-                    ".claude/settings.json",
-                    ".claude/settings.local.json",
-                    "AGENTS.md",
-                    "AGENTS.local.md",
-                    "AGENT.md",
-                ] {
-                    paths.push((parent.join(name), false));
-                }
-            }
-            if let Some(home) = home.as_ref() {
-                for name in [
-                    ".codeium/windsurf/skills",
-                    ".codeium/windsurf/mcp_config.json",
-                    ".claude/CLAUDE.md",
-                    ".claude.json",
-                    ".claude/settings.json",
-                    ".claude/settings.local.json",
-                    ".claude/mcp_servers.json",
-                    ".config/opencode/opencode.json",
-                    ".config/zed/settings.json",
-                ] {
-                    paths.push((home.join(name), false));
-                }
-                let copilot = env::var_os("COPILOT_HOME")
-                    .map(PathBuf::from)
-                    .unwrap_or_else(|| home.join(".copilot"));
-                paths.push((copilot.join("skills"), false));
             }
         }
         _ => {
@@ -997,14 +900,6 @@ fn parse_version(index: usize, bytes: &[u8]) -> Option<String> {
         0 => text.strip_prefix("codex-cli ")?,
         1 => text.strip_suffix(" (Claude Code)")?,
         2 | 3 => text,
-        DEVIN => {
-            let (version, build) = text.strip_prefix("devin ")?.split_once(" (")?;
-            let build = build.strip_suffix(')')?;
-            if build.len() != 12 || !build.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-                return None;
-            }
-            version
-        }
         ANT => text.strip_prefix("ant version ")?,
         _ => return None,
     };
@@ -1353,15 +1248,11 @@ pub(crate) struct ExternalTrust {
 }
 
 impl ExternalTrust {
-    pub(crate) fn comparison_scope(
-        &self,
-        credential: Option<&str>,
-    ) -> Option<super::ComparisonScope> {
+    pub(crate) fn comparison_scope(&self) -> Option<super::ComparisonScope> {
         super::ComparisonScope::from_identity(&(
             &self.snapshot.stamp,
             &self.project_identity,
             &self.prepared.spec,
-            credential,
         ))
     }
 
@@ -1379,7 +1270,7 @@ pub(crate) fn external_trust(
     project: &Path,
     launch: Vec<String>,
 ) -> Result<ExternalTrust, String> {
-    if index >= NAMES.len()
+    if !matches!(index, 0..=3 | ANT)
         || launch.len() > 64
         || launch.iter().any(|arg| {
             arg.len() > 32 * 1024

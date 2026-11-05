@@ -695,7 +695,6 @@ fn selected_note_edits_revision_provenance_and_selection_invalidate_frozen_input
         conversation: None,
         prior_plan: None,
         public_context: None,
-        credential: None,
     };
     assert!(input.source_payload(&[]).is_ok());
     for dimension in ["content", "revision", "provenance", "selection"] {

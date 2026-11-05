@@ -1,8 +1,16 @@
 # Eevee Implementation Plan
 
-Updated2026-11-04. Completed the authorized automatic-by-default execution/durable-mode delivery and published0.1.50. Previous0.1.49 remains immutable; restored preferences never restore old effects or provider sessions.
+Updated2026-11-06. Completed the native Devin OAuth/Connect source delivery. Published0.1.50 remains unchanged; this session did not publish or qualify a new release.
 
 Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPATIBILITY.md). Live-provider conformance remains distinct from implemented transports and deterministic runtime proof.
+
+## Completed delivery — Native Devin OAuth and Connect cutover (2026-11-06)
+
+1. Compared the supplied local reference's Devin OAuth and Connect/protobuf wire contracts with the existing CLI/ACP/session-token path. Chose one native direct route, not another CLI wrapper or a fallback shim.
+2. Replaced Devin CLI discovery/auth/status/ACP routing and token injection with own browser OAuth, explicit key setup, existing private saved/session storage and exact owner/method/generation admission. Reused bounded hidden OAuth input and callback privacy; preserved failed/cancelled-login isolation.
+3. Added exact visible native model discovery, legacy-key/JWT authentication, declared router assignment, bounded Connect streaming, private in-run reasoning/signatures and authoritative tool completion. Reused ordinary coding/tools/permissions/command/MCP/public-conversation state; refused unreviewed destination changes.
+4. Passed Rust1.90 formatting, strict all-target/all-feature Clippy,2058 tests/two ignored and locked debug build. Python3.12 compileall and22 tests/four Windows-only skips passed. Exact binary26a30011 passed actual120×36/60×18 native Devin metadata/auth/router/file/Python-command/follow-up/trailer-error/cancel/no-replay and both Devin/OpenAI OAuth callback/hidden-input/cancel journeys.
+5. Updated README, binding design, compatibility, changelog, troubleshooting, task state and checkpoint; committed the complete source delivery. Historical ACP proof/provenance remains historical only. No live account login, paid inference, cross-platform runtime, release or unrelated roadmap completion was inferred.
 
 ## Completed delivery — Automatic coding without repeated approval (2026-11-04)
 

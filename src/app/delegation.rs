@@ -327,7 +327,6 @@ impl App {
             input.excerpts.clear();
             input.context_plan = None;
             input.mcp.clear();
-            input.credential = None;
             input.report = None;
             let mut state = planning::State::new();
             state.prepare_delegated(input);

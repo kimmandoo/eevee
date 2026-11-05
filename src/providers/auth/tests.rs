@@ -89,9 +89,16 @@ fn authentication_methods_cannot_cross_provider() {
     assert!(Plan::prepare(0, Method::GeminiNative, Path::new(".")).is_err());
     assert!(Plan::prepare(0, Method::ClaudeConsole, Path::new(".")).is_err());
     assert!(Plan::prepare(3, Method::ClaudeConsoleStatus, Path::new(".")).is_err());
-    assert!(Plan::prepare(0, Method::DevinBrowser, Path::new(".")).is_err());
-    assert!(Plan::prepare(agent::DEVIN, Method::CodexBrowser, Path::new(".")).is_err());
-    assert!(Plan::prepare(agent::ANT, Method::DevinBrowser, Path::new(".")).is_err());
+    assert!(Plan::prepare(0, Method::DevinWeb, Path::new(".")).is_err());
+    assert!(
+        Plan::prepare(
+            crate::providers::Agent::Devin.index(),
+            Method::CodexBrowser,
+            Path::new(".")
+        )
+        .is_err()
+    );
+    assert!(Plan::prepare(agent::ANT, Method::DevinWeb, Path::new(".")).is_err());
     assert!(methods(1).iter().all(|method| method.is_claude()));
     assert!(Plan::prepare(0, Method::OpenAiBrowser, Path::new(".")).is_err());
     assert!(
@@ -163,76 +170,6 @@ fn native_status_success_is_not_authentication_evidence() {
         native_exit_outcome(std::process::ExitStatus::from_raw(130 << 8)),
         Outcome::Cancelled
     );
-}
-
-#[test]
-fn devin_web_callback_input_parses_redirect_query_and_fragment_forms() {
-    assert_eq!(
-        devin_web::parse_callback_input("http://127.0.0.1:8765/callback?code=abc123&state=xyz789"),
-        (Some("abc123".into()), Some("xyz789".into()))
-    );
-    assert_eq!(
-        devin_web::parse_callback_input("?code=abc%20123&state=x"),
-        (Some("abc 123".into()), Some("x".into()))
-    );
-    assert_eq!(
-        devin_web::parse_callback_input("abc123#xyz789"),
-        (Some("abc123".into()), Some("xyz789".into()))
-    );
-    assert_eq!(devin_web::parse_callback_input(""), (None, None));
-}
-
-#[test]
-fn devin_web_token_plausibility_rejects_shell_and_whitespace_bytes() {
-    assert!(!devin_web::plausible_token(""));
-    assert!(!devin_web::plausible_token(&"x".repeat(15)));
-    assert!(!devin_web::plausible_token(&"a".repeat(4097)));
-    assert!(!devin_web::plausible_token(&format!(
-        "{};rm",
-        "a".repeat(16)
-    )));
-    assert!(!devin_web::plausible_token(&format!("{} ", "a".repeat(16))));
-    assert!(!devin_web::plausible_token(&format!(
-        "{}$x",
-        "a".repeat(16)
-    )));
-    assert!(devin_web::plausible_token(&"a".repeat(32)));
-    let jwt = format!("{}.{}.{}", "a".repeat(8), "b".repeat(8), "c".repeat(8));
-    assert!(devin_web::plausible_token(&jwt));
-}
-
-#[test]
-fn devin_web_jwt_expiry_reads_exp_minus_skew_and_rejects_malformed() {
-    let segment = base64_simd::URL_SAFE
-        .encode_to_string(br#"{"exp":2000}"#)
-        .trim_end_matches('=')
-        .to_string();
-    let token = format!("header.{segment}.signature");
-    assert_eq!(
-        devin_web::jwt_expiry(&token),
-        Some(2000 - devin_web::EXPIRY_SKEW)
-    );
-    assert_eq!(devin_web::jwt_expiry("opaque-token-no-dots"), None);
-    assert_eq!(devin_web::jwt_expiry("a.b"), None);
-    assert_eq!(devin_web::jwt_expiry("a.b.c.d"), None);
-    assert_eq!(devin_web::jwt_expiry("a.@@@.c"), None);
-}
-
-#[test]
-fn session_credential_redacts_debug_and_reports_expiry() {
-    let mut credential = crate::providers::auth::SessionCredential {
-        env: "WINDSURF_API_KEY",
-        token: "opaque-session-secret".into(),
-        expires_at: None,
-    };
-    assert!(!format!("{credential:?}").contains("opaque-session-secret"));
-    assert!(!credential.expired());
-    credential.expires_at = Some(0);
-    assert!(credential.expired());
-    credential.expires_at = Some(u64::MAX);
-    assert!(!credential.expired());
-    assert_eq!(credential.env, "WINDSURF_API_KEY");
-    assert_eq!(credential.token(), "opaque-session-secret");
 }
 
 #[test]

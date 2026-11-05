@@ -2,6 +2,7 @@
 mod coding;
 pub(crate) mod config;
 mod delegation;
+mod devin;
 mod fault;
 mod mcp;
 pub mod retry;
@@ -340,7 +341,7 @@ fn worker(
                 owner = Some((generation, input.task.id));
                 let mut preview = Preview { transport: None, comparison_scope: None, arrival: super::approval_arrival(), destination: None, requires_connection_review: false, generation, task_id: input.task.id, thread_id: None, trust: vec![
                     "Native request; no provider executable, project hooks, shell commands, MCP or transport fallback. HTTP rounds refused before processing (connect refused, HTTP 429/503/529) are resent at most three times unchanged unless launched with --retry off; nothing is resent after a response starts. Canonical chat is bounded completed public user/assistant memory, not a provider thread; /chat-new resets it locally.".into(),
-                    "The actual initial wire packet and destination below are frozen. HTTP continuations carry the bounded full transcript; WebSocket continuations carry only actual acknowledged tool outputs with the completed response ID on this Run's single connection. Implement effects use exact one-shot host decisions under saved Automatic/Ask mode; credentials stay scoped headers.".into(),
+                    "The request content and configured destination below are frozen. JSON-native protocols freeze their actual initial wire packet; Devin's displayed internal envelope is translated into native protobuf at dispatch as disclosed below. HTTP continuations carry the bounded full transcript; WebSocket continuations carry only acknowledged tool outputs with the completed response ID on this Run's single connection. Implement effects use exact one-shot host decisions under saved Automatic/Ask mode; credentials use protocol-scoped headers or native metadata.".into(),
                     "Cancellation retires the request-owned connection; remote completion is not confirmed stopped. Each model round has a bounded deadline; file permission has a separate five-minute expiry. No connection or private response chain survives this logical Run.".into(),
                 ], payload: String::new(), blockers: Vec::new() };
                 if native_writing(&input) {
@@ -354,11 +355,18 @@ fn worker(
                     preview.trust.push("READ ONLY: eevee_list_files, eevee_read_file and Rust-only eevee_structural_search inspect actual bounded safe project sources within frozen root/privacy/exclusion boundaries using a nonwriting lease. Incomplete scans are not absence; cache hits retain original observation times and require current fingerprint work. No mutation approval, shell or verification.".into());
                 }
                 if input.inspect_models {
-                    preview.trust.push("METADATA ONLY: bounded paginated model discovery; no task/source content or inference request. Explicit/configured models are not restricted to the discovered catalogue.".into());
+                    preview.trust.push(if input.agent == super::Agent::Devin {
+                        "METADATA ONLY: authenticated GetCliModelConfigs protobuf POST; no task/source content or inference. Only returned visible exact model UIDs are usable; no guessed fallback or synthetic effort-family IDs."
+                    } else {
+                        "METADATA ONLY: bounded paginated model discovery; no task/source content or inference request. Explicit/configured models are not restricted to the discovered catalogue."
+                    }.into());
                 }
                 let result = validate_input(&workspace, &input).and_then(|()| {
                     let connection = config::resolve(input.agent)?;
                     preview.trust.push(connection.description.clone());
+                    if connection.protocol == Protocol::Devin {
+                        preview.trust.push("DEVIN NATIVE: the displayed JSON is the frozen host-tool/conversation envelope, not literal protobuf bytes. At Run, GetCliModelConfigs authenticates and validates the exact selected visible model UID. GetUserJwt obtains native metadata authentication unless a legacy enterprise sk-ws- key authenticates directly; declared routers use AssignModel with the current user prompt and a request-local cascade ID, then only its returned model UID/assignment JWT. API key and user JWT stay in protobuf metadata, never a CLI process or task content. Server-directed API routing to a different origin is refused pending explicit connection review. GetChatMessage uses bounded Connect frames, full in-run user/assistant/tool replay and authoritative stream trailers. Reasoning/signatures stay request-local; later explicit user turns retain only bounded completed public conversation. Every file/command/MCP call still uses the same host executor and exact policy; no provider-side tool executor is enabled.".into());
+                    }
                     if input.screenshot.is_some() {
                         preview.trust.push(
                             connection.screenshot_route(selected_model(&input, &connection)?)?,
@@ -594,7 +602,7 @@ fn payload(
     if input.inspect_models {
         return serde_json::to_string_pretty(&json!({
             "purpose": "Model metadata only; no inference, task content, session, tools or local writes",
-            "method": "GET", "url": connection.models_url(), "pagination": "At most 128 pages, 4 MiB per page, 4096 unique model identities; no guessed fallback",
+            "method": if connection.protocol == Protocol::Devin { "POST protobuf" } else { "GET" }, "url": connection.models_url(), "pagination": "Bounded metadata only; no guessed fallback",
             "configured_model": connection.model, "explicit_model": input.selection.model,
         })).map_err(|_| "Cannot encode model inspection preview".into());
     }
@@ -969,7 +977,12 @@ fn inference_body<'a>(
     history: Option<&'a NativeConversation>,
     request: &'a str,
 ) -> Result<NativeBody<'a>, String> {
-    if effort.is_some() && matches!(protocol, Protocol::Messages | Protocol::Gemini) {
+    if effort.is_some()
+        && matches!(
+            protocol,
+            Protocol::Messages | Protocol::Gemini | Protocol::Devin
+        )
+    {
         return Err("This native protocol has no qualified effort control; clear the explicit effort selection before Run".into());
     }
     let prior = history.map_or(&[][..], |history| history.messages.as_ref());
@@ -1011,7 +1024,7 @@ fn inference_body<'a>(
             store: false,
             reasoning: effort.map(|effort| WireReasoning { effort }),
         },
-        Protocol::ChatCompletions => {
+        Protocol::ChatCompletions | Protocol::Devin => {
             let mut chat = Vec::with_capacity(prior.len() + 2);
             chat.push(TextMessage {
                 role: "system",
@@ -1578,6 +1591,9 @@ async fn discover(
     run: &Prepared,
     events: &Events,
 ) -> Result<ModelCatalogue, String> {
+    if connection.protocol == Protocol::Devin {
+        return devin::discover(http, connection, control, run, events).await;
+    }
     discover_pages(connection, control, |cursor| async move {
         control.check()?;
         connection.revalidate()?;
@@ -1850,7 +1866,7 @@ impl Stream {
                 value.pointer("/input_tokens_details/cache_write_tokens"),
                 value.pointer("/output_tokens_details/reasoning_tokens"),
             ),
-            Protocol::ChatCompletions => (
+            Protocol::ChatCompletions | Protocol::Devin => (
                 value.get("prompt_tokens"),
                 value.get("completion_tokens"),
                 value.pointer("/prompt_tokens_details/cached_tokens"),
@@ -1922,7 +1938,7 @@ impl Stream {
                             .and_then(|response| response.get("usage")),
                     );
                 }
-                Protocol::ChatCompletions | Protocol::Messages => {
+                Protocol::ChatCompletions | Protocol::Devin | Protocol::Messages => {
                     self.observe_usage(value.get("usage"))
                 }
                 Protocol::Gemini => self.observe_usage(value.get("usageMetadata")),
@@ -1992,7 +2008,7 @@ impl Stream {
                     _ => {}
                 }
             }
-            Protocol::ChatCompletions => {
+            Protocol::ChatCompletions | Protocol::Devin => {
                 self.observe(value.get("model").and_then(Value::as_str))?;
                 self.observe_response(value.get("id"));
                 // include_usage sends a request-total trailer with choices: [].
@@ -2224,6 +2240,11 @@ impl Stream {
                 cache_read_in_input: Some(true),
                 cache_write_in_input: None,
                 reasoning_in_output: Some(false),
+            },
+            Protocol::Devin => Semantics {
+                cache_read_in_input: Some(false),
+                cache_write_in_input: Some(false),
+                reasoning_in_output: None,
             },
         };
         emit(

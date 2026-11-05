@@ -603,7 +603,6 @@ fn model_inspection_has_no_task_prompt_or_source_or_edit_lookup() {
             effort: Some("high".into()),
         },
         conversation: None,
-        credential: None,
     };
     input.task.goal = "private-task-goal-canary".into();
     let text = payload(Path::new("unopened-data"), &input, &[], None).unwrap();
@@ -1332,7 +1331,6 @@ fn outbound_task_facts_do_not_leak_generated_provider_session_provenance() {
         inspect_models: false,
         selection: ModelSelection::default(),
         conversation: None,
-        credential: None,
     };
     let scope = WriteSet::capture_readonly(&cleanup.0, &data, &[]).unwrap();
     let text = payload(&data, &input, &[], Some(&scope)).unwrap();

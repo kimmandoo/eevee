@@ -289,8 +289,6 @@ pub struct State {
     effort_last: HashMap<(Agent, Option<String>), String>,
     session_selection: ModelSelection,
     pub observed_model: Option<String>,
-    /// Website-OAuth session credential for Devin ACP launches; memory only.
-    pub devin_credential: Option<crate::providers::auth::SessionCredential>,
     /// The partner in front of the task; a prepared request binds to it.
     pub front: Option<store::Attribution>,
     /// Request slots keyed by partner id; journal records carry the owner (PT06A).
@@ -380,7 +378,6 @@ impl State {
             request_effort: None, request_effort_model: None, request_progress: None,
             effort_last: HashMap::new(),
             observed_model: None,
-            devin_credential: None,
             front: None,
             slots: BTreeMap::new(),
             work: None, work_pending: None, work_inflight: false, work_error: None,
@@ -489,7 +486,6 @@ impl State {
             let journal_recovery = std::mem::take(&mut self.journal_recovery);
             let effort_last = std::mem::take(&mut self.effort_last);
             let selection = self.selection.clone();
-            let credential = self.devin_credential.take();
             let front = self.front.take();
             let agent = self.agent;
             let (auto_models, auto_picker) = (self.auto_models, self.auto_picker);
@@ -508,18 +504,8 @@ impl State {
             self.effort_last = effort_last;
             self.catalogues = catalogues;
             self.catalogue_errors = catalogue_errors;
-            self.devin_credential = credential;
             self.front = front;
         }
-    }
-
-    /// Replaces only the credential for future Devin ACP preparations; `None`
-    /// detaches it. Held inputs and launched transports retain their exact bytes.
-    pub fn set_devin_credential(
-        &mut self,
-        credential: Option<crate::providers::auth::SessionCredential>,
-    ) {
-        self.devin_credential = credential;
     }
 
     /// Revoke account-scoped caches and grants in every state, including parked
@@ -536,7 +522,6 @@ impl State {
         self.catalogue_errors.clear();
         self.catalogue_pending = None;
         self.picker_models.clear();
-        self.devin_credential = None;
         self.auto_models = false;
         self.auto_picker = false;
         self.auto_run = false;

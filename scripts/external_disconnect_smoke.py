@@ -25,7 +25,7 @@ from terminal_smoke import terminal_environment
 from workbench_smoke import wait_for
 
 ESC = '\x1b'
-ROUTES = ('codex', 'claude', 'opencode', 'gemini', 'devin')
+ROUTES = ('codex', 'claude', 'opencode', 'gemini')
 FUTURE = 'Future 한글界e\u0301Z-end'
 PRIVATE_CANARY = 'DISCONNECT_PRIVATE_CANARY'
 SDK_WRAPPER = r'''

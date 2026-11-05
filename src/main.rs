@@ -294,11 +294,12 @@ fn run(config: Config) -> io::Result<()> {
                 app.images_cancel = false;
             }
             if let Some(plan) = app.agents.pending_auth.take() {
-                let openai_generation = app.agents.openai_auth_generation();
+                let openai_generation = app.agents.native_auth_generation();
                 let native_openai = matches!(
                     plan.method,
                     auth::Method::OpenAiBrowser | auth::Method::OpenAiDevice
                 );
+                let native_devin = plan.method == auth::Method::DevinWeb;
                 if app.overlay != Some(app::Overlay::Agents)
                     || !app.authentication_ready()
                     || app.width < 60
@@ -312,6 +313,13 @@ fn run(config: Config) -> io::Result<()> {
                             auth::Outcome::Refused,
                             None,
                         );
+                    } else if native_devin {
+                        app.devin_connection_returned(
+                            &plan,
+                            openai_generation,
+                            None,
+                            auth::Outcome::Refused,
+                        );
                     } else {
                         app.agents
                             .auth_returned(plan.profile, auth::Outcome::Refused);
@@ -321,27 +329,10 @@ fn run(config: Config) -> io::Result<()> {
                     input.discard_pending()?;
                     let completion = modes.suspend(|| auth::run(&plan, &project))?;
                     // CLI login can mutate provider-owned stores even on cancellation.
-                    // Native OpenAI changes only its accepted, scoped credential result.
-                    if !plan.method.is_status() && !native_openai {
+                    // Native login changes only its accepted, scoped credential result.
+                    if !plan.method.is_status() && !native_openai && !native_devin {
                         app.authentication_returned();
                     }
-                    // A website-OAuth result arrives with its own session
-                    // credential; a native login clears it only when Devin
-                    // itself reports success.
-                    if let Some(credential) = completion.credential {
-                        app.set_devin_credential(Some(credential));
-                    } else if matches!(
-                        plan.method,
-                        auth::Method::DevinBrowser | auth::Method::DevinManualToken
-                    ) && completion.outcome == auth::Outcome::Authenticated
-                    {
-                        app.set_devin_credential(None);
-                    }
-                    app.agents.session_credential_until = app
-                        .planning
-                        .devin_credential
-                        .as_ref()
-                        .map(|credential| credential.expires_at.unwrap_or(u64::MAX));
                     input = input::Input::new()?;
                     input.discard_pending()?;
                     graphics = native::NativeGraphics::new(&config);
@@ -358,6 +349,13 @@ fn run(config: Config) -> io::Result<()> {
                             completion.openai_credential,
                             completion.outcome,
                             completion.openai_failure,
+                        );
+                    } else if native_devin {
+                        app.devin_connection_returned(
+                            &plan,
+                            openai_generation,
+                            completion.devin_credential,
+                            completion.outcome,
                         );
                     } else {
                         app.connection_returned(plan.profile, completion.outcome);

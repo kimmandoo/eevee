@@ -57,7 +57,6 @@ impl State {
         state.selections = selections;
         state.inherit_preferences_from(self);
         state.catalogues = self.catalogues.clone();
-        state.devin_credential = self.devin_credential.clone();
         state
     }
 

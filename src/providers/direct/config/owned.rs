@@ -69,6 +69,7 @@ fn name(provider: Agent) -> &'static str {
         Agent::Anthropic => "anthropic.json",
         Agent::Google => "google.json",
         Agent::Compatible => "compatible.json",
+        Agent::Devin => "devin.json",
         _ => "unsupported.json",
     }
 }
@@ -134,13 +135,14 @@ fn protocol(provider: Agent, value: &str) -> Result<Protocol, String> {
         (Agent::Google, "gemini") => Ok(Protocol::Gemini),
         (Agent::Compatible, "responses") => Ok(Protocol::Responses),
         (Agent::Compatible, "chat_completions") => Ok(Protocol::ChatCompletions),
+        (Agent::Devin, "devin") => Ok(Protocol::Devin),
         _ => Err("Protocol does not belong to the selected native route.".into()),
     }
 }
 
 fn check_expiry(expires_at: Option<u64>, now: u64) -> Result<(), String> {
     if expires_at.is_some_and(|at| now >= at) {
-        return Err("OpenAI account connection expired. Reconnect using browser/device sign-in; no renewal or alternate account was attempted.".into());
+        return Err("Account connection expired. Reconnect explicitly; no renewal or alternate credential was attempted.".into());
     }
     Ok(())
 }
@@ -152,7 +154,9 @@ pub(super) fn connection(provider: Agent, entry: Stored, now: u64) -> Result<Con
         return Err("ChatGPT subscription access tokens are scoped to the official Codex backend; choose a separate API route for custom endpoints.".into());
     }
     check_expiry(entry.expires_at, now)?;
-    if provider != Agent::ChatGPT && (entry.expires_at.is_some() || entry.residency.is_some()) {
+    if provider != Agent::ChatGPT && provider != Agent::Devin && entry.expires_at.is_some()
+        || provider != Agent::ChatGPT && entry.residency.is_some()
+    {
         return Err(
             "Subscription credential metadata belongs only to the OpenAI account route.".into(),
         );
@@ -171,7 +175,16 @@ pub(super) fn connection(provider: Agent, entry: Stored, now: u64) -> Result<Con
     let secret = if entry.keyless {
         None
     } else {
-        let secret = entry.secret.filter(|value| valid_secret(value)).ok_or_else(|| "Enter a nonempty native API key/access token, or explicitly choose Compatible keyless mode.".to_string())?;
+        let secret = entry
+            .secret
+            .ok_or_else(|| "Enter a nonempty native API key/access token.".to_string())?;
+        let secret = if provider == Agent::Devin {
+            crate::providers::auth::devin_api_key(&secret, now)?.0
+        } else if valid_secret(&secret) {
+            secret
+        } else {
+            return Err("Native credential is empty or unsuitable for an HTTP header.".into());
+        };
         if provider == Agent::Anthropic && secret.starts_with("sk-ant-oat") {
             return Err("Anthropic subscription OAuth tokens are not API keys. Use an Anthropic API key; subscription login remains a separate official route.".into());
         }
@@ -221,7 +234,7 @@ pub(super) fn connection(provider: Agent, entry: Stored, now: u64) -> Result<Con
     })
 }
 
-fn validate_model(value: Option<&str>) -> Result<(), String> {
+pub(super) fn validate_model(value: Option<&str>) -> Result<(), String> {
     if value.is_some_and(|value| value.is_empty() || value.len() > 256
         || crate::workspace::privacy::redact(value) != value
         || value.chars().any(|c| c.is_control() || matches!(c, '\u{061c}' | '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}'))) {
@@ -252,6 +265,12 @@ fn setup_from<F: Fn(&str) -> Option<String>>(
                     if provider == Agent::ChatGPT {
                         token_claims(entry.secret.as_deref().unwrap_or_default(), input.now)
                             .map(|_| ())
+                    } else if provider == Agent::Devin {
+                        crate::providers::auth::devin_api_key(
+                            entry.secret.as_deref().unwrap_or_default(),
+                            input.now,
+                        )
+                        .map(|_| ())
                     } else {
                         Ok(())
                     }
@@ -540,6 +559,7 @@ fn stored_from_setup(
             Agent::OpenAI => "responses",
             Agent::Anthropic => "messages",
             Agent::Google => "gemini",
+            Agent::Devin => "devin",
             Agent::Compatible if form.responses => "responses",
             Agent::Compatible => "chat_completions",
             _ => return Err("Select a native connection route.".into()),
@@ -602,7 +622,7 @@ pub(crate) fn apply_setup(provider: Agent, form: &Setup) -> Result<Applied, Stri
     };
     let mut entry = stored_from_setup(provider, form, secret, account_id)?;
     if let Some(previous) = &previous
-        && provider == Agent::ChatGPT
+        && matches!(provider, Agent::ChatGPT | Agent::Devin)
         && previous.secret == entry.secret
     {
         entry.expires_at = previous.expires_at;
@@ -685,9 +705,175 @@ fn apply_openai_login_from<F: Fn(&str) -> Option<String>>(
     })
 }
 
+/// Apply only after matching OAuth ownership/admission and the chosen storage
+/// scope have been revalidated by the UI. Never imports CLI or env defaults.
+pub(crate) fn apply_devin_login(
+    credential: crate::providers::auth::DevinCredential,
+    persist: bool,
+) -> Result<Applied, String> {
+    let mut session = SESSION.lock().map_err(|_| ERROR.to_string())?;
+    apply_devin_login_from(credential, persist, &inputs(), &mut session)
+}
+
+fn apply_devin_login_from<F: Fn(&str) -> Option<String>>(
+    credential: crate::providers::auth::DevinCredential,
+    persist: bool,
+    input: &Inputs<F>,
+    session: &mut HashMap<Agent, Stored>,
+) -> Result<Applied, String> {
+    let (token, expires_at) = credential.into_parts();
+    let entry = Stored {
+        base_url: DEVIN_BASE.into(),
+        model: None,
+        effort: None,
+        effort_model: None,
+        protocol: "devin".into(),
+        secret: Some(token),
+        account_id: None,
+        expires_at: Some(expires_at),
+        residency: None,
+        keyless: false,
+    };
+    connection(Agent::Devin, entry.clone(), input.now)?;
+    let durable = save_entry(Agent::Devin, entry, persist, input, session)?;
+    Ok(Applied {
+        changed: true,
+        durable,
+        effort_reset: false,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn devin_manual_setup_admits_loopback_but_refuses_insecure_remote_and_keyless_access() {
+        let input = Inputs {
+            get: |_: &str| None,
+            home: None,
+            config_home: None,
+            project: None,
+            now: 100,
+        };
+        let mut form = setup_from(Agent::Devin, &input, None, None).unwrap();
+        form.base_url = "http://127.0.0.1:4242".into();
+        form.model = "fixture-model".into();
+        form.credential = "sk-ws-reviewed-private-key".into();
+        form.persist = false;
+        let entry =
+            stored_from_setup(Agent::Devin, &form, Some(form.credential.clone()), None).unwrap();
+        let native = connection(Agent::Devin, entry, input.now).unwrap();
+        assert_eq!(native.protocol, Protocol::Devin);
+        assert_eq!(native.base_url, "http://127.0.0.1:4242");
+        assert_eq!(native.model.as_deref(), Some("fixture-model"));
+        assert_eq!(native.secret(), Some("sk-ws-reviewed-private-key"));
+        form.base_url = "http://untrusted.example".into();
+        assert!(
+            connection(
+                Agent::Devin,
+                stored_from_setup(Agent::Devin, &form, Some(form.credential.clone()), None)
+                    .unwrap(),
+                input.now
+            )
+            .is_err()
+        );
+        form.base_url = DEVIN_BASE.into();
+        form.keyless = true;
+        assert!(
+            connection(
+                Agent::Devin,
+                stored_from_setup(Agent::Devin, &form, None, None).unwrap(),
+                input.now
+            )
+            .is_err()
+        );
+    }
+
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn devin_login_replaces_only_own_storage_and_refuses_expired_grants() {
+        let fixture = Fixture::new();
+        let directory = storage::Directory::open(&fixture.0, None, true).unwrap();
+        let input = Inputs {
+            get: |_: &str| panic!("Devin login must never import CLI or environment credentials"),
+            home: Some(fixture.0.clone()),
+            config_home: None,
+            project: None,
+            now: 100,
+        };
+        let mut session = HashMap::from([(
+            Agent::OpenAI,
+            stored(Agent::OpenAI, "other-route-private-key"),
+        )]);
+        let first = crate::providers::auth::test_devin_credential("sk-ws-first-private-key", 1000);
+        assert!(
+            apply_devin_login_from(first, true, &input, &mut session)
+                .unwrap()
+                .durable
+        );
+        let saved: Stored =
+            serde_json::from_reader(directory.read("devin.json").unwrap().unwrap()).unwrap();
+        assert_eq!(saved.secret.as_deref(), Some("sk-ws-first-private-key"));
+        assert_eq!(saved.expires_at, Some(1000));
+        let second =
+            crate::providers::auth::test_devin_credential("sk-ws-session-private-key", 2000);
+        apply_devin_login_from(second, false, &input, &mut session).unwrap();
+        assert_eq!(
+            session[&Agent::Devin].secret.as_deref(),
+            Some("sk-ws-session-private-key")
+        );
+        let unchanged: Stored =
+            serde_json::from_reader(directory.read("devin.json").unwrap().unwrap()).unwrap();
+        assert_eq!(unchanged.secret, saved.secret);
+        assert!(!format!("{saved:?}").contains("private-key"));
+        let active = connection(Agent::Devin, session[&Agent::Devin].clone(), input.now).unwrap();
+        assert_eq!(active.protocol, Protocol::Devin);
+        assert_eq!(active.base_url, DEVIN_BASE);
+        assert_ne!(
+            active.fingerprint(),
+            connection(Agent::Devin, saved.clone(), input.now)
+                .unwrap()
+                .fingerprint()
+        );
+        assert_ne!(
+            active.conversation_scope(),
+            connection(Agent::Devin, saved, input.now)
+                .unwrap()
+                .conversation_scope()
+        );
+        let expired =
+            crate::providers::auth::test_devin_credential("sk-ws-expired-private-key", 100);
+        assert!(apply_devin_login_from(expired, true, &input, &mut session).is_err());
+        assert_eq!(
+            session[&Agent::Devin].secret.as_deref(),
+            Some("sk-ws-session-private-key")
+        );
+        let third = crate::providers::auth::test_devin_credential("sk-ws-final-private-key", 3000);
+        apply_devin_login_from(third, true, &input, &mut session).unwrap();
+        assert!(!session.contains_key(&Agent::Devin));
+        assert_eq!(
+            session[&Agent::OpenAI].secret.as_deref(),
+            Some("other-route-private-key")
+        );
+        let saved: Stored =
+            serde_json::from_reader(directory.read("devin.json").unwrap().unwrap()).unwrap();
+        let mut sessions = HashMap::from([(Agent::Devin, saved)]);
+        let plan = prepare_forget_from(
+            Agent::Devin,
+            &input,
+            sessions.get(&Agent::Devin).map(entry_identity),
+        )
+        .unwrap();
+        assert!(
+            plan.summary()
+                .iter()
+                .any(|line| line.contains("devin.json"))
+        );
+        forget_from(plan, &mut sessions).unwrap();
+        assert!(sessions.is_empty());
+        assert!(directory.read("devin.json").unwrap().is_none());
+    }
 
     #[cfg(any(unix, windows))]
     #[test]

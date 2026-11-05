@@ -26,7 +26,7 @@ impl Observation {
             let steps = serde_json::from_value(value["result"]["steps"].clone()).ok()?;
             return Self::new("native todo", steps, String::new());
         }
-        if matches!(agent, Agent::OpenCode | Agent::Gemini | Agent::Devin)
+        if matches!(agent, Agent::OpenCode | Agent::Gemini)
             && item.kind == ItemKind::Plan
             && item.item_id.starts_with("acp-plan-")
         {
@@ -609,7 +609,7 @@ mod tests {
 
     fn claim(state: &State, status: &str) -> Item {
         let (id, kind, text) = match state.agent {
-            Agent::Compatible => ("todo-1-0", ItemKind::Plan, json!({
+            agent if agent.is_direct() => ("todo-1-0", ItemKind::Plan, json!({
                 "tool":"todo","arguments":{"operation":"init","label":"","steps":[]},
                 "result":{"status":"success","steps":[{"label":"Finish remaining work","status":status}]}
             }).to_string()),

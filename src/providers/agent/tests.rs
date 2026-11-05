@@ -21,18 +21,6 @@ fn version_evidence_is_strict_and_never_retains_arbitrary_output() {
         Some("1.40.0".into())
     );
     assert_eq!(parse_version(ANT, b"1.40.0\n"), None);
-    assert_eq!(
-        parse_version(DEVIN, b"devin 3000.11.3 (9c803229faa4)\n"),
-        Some("3000.11.3".into())
-    );
-    for output in [
-        b"3000.11.3".as_slice(),
-        b"devin 3000.11.3 (secret)",
-        b"devin 3000.11.3 (9c803229faa4)\nWINDSURF_API_KEY=secret",
-        b"devin \x1b[31m3000.11.3 (9c803229faa4)",
-    ] {
-        assert_eq!(parse_version(DEVIN, output), None);
-    }
 }
 
 #[test]
@@ -46,7 +34,6 @@ fn release_numbers_are_evidence_not_protocol_admission_pins() {
         ),
         (2, "1.19.0", "1.19.0"),
         (3, "0.64.0", "0.64.0"),
-        (DEVIN, "devin 3000.12.0 (9c803229faa4)", "3000.12.0"),
         (ANT, "ant version 1.41.0", "1.41.0"),
     ] {
         assert_eq!(
@@ -157,63 +144,6 @@ fn configuration_changes_invalidate_the_consent_snapshot() {
     assert!(initial != absent);
     fs::write(&path, "sandbox_mode='danger-full-access'\n").unwrap();
     assert!(initial != source(path, true));
-}
-
-#[test]
-fn devin_config_metadata_tracks_replacement_without_reading_secrets_or_credentials() {
-    let fixture = Fixture::new();
-    fs::create_dir(fixture.0.join(".devin")).unwrap();
-    let path = fixture.0.join(".devin/config.local.json");
-    let absent = configuration_sources(DEVIN, &fixture.0);
-    fs::write(
-        &path,
-        b"{\"token\":\"private-canary\",\"hooks\":{\"command\":\"hook-canary\"}}",
-    )
-    .unwrap();
-    let initial = configuration_sources(DEVIN, &fixture.0);
-    assert!(initial != absent);
-    let config = initial.iter().find(|entry| entry.path == path).unwrap();
-    assert_eq!(
-        config.declaration,
-        "present; metadata only (no loader or plugin executed)"
-    );
-    assert!(
-        initial
-            .iter()
-            .all(|entry| !entry.declaration.contains("canary"))
-    );
-    assert!(
-        initial
-            .iter()
-            .all(|entry| !entry.path.ends_with("credentials.toml"))
-    );
-    let modified = fs::metadata(&path).unwrap().modified().unwrap();
-    fs::rename(&path, fixture.0.join("old-config")).unwrap();
-    fs::write(
-        &path,
-        b"{\"token\":\"private-canary\",\"hooks\":{\"command\":\"hook-canary\"}}",
-    )
-    .unwrap();
-    // Same size and modified time, as on a fast CI runner; on Windows NTFS
-    // tunneling also restores the creation time, so only identity differs.
-    File::options()
-        .write(true)
-        .open(&path)
-        .unwrap()
-        .set_modified(modified)
-        .unwrap();
-    assert!(initial != configuration_sources(DEVIN, &fixture.0));
-}
-
-#[cfg(unix)]
-#[test]
-fn devin_version_probe_rejects_extra_output_without_exposing_it() {
-    let fixture = Fixture::new();
-    let stop = AtomicBool::new(false);
-    let snapshot =
-        fixture.executable("printf 'devin 3000.11.3 (9c803229faa4)\\nprivate-canary\\n'");
-    let error = probe(DEVIN, &snapshot, &stop).unwrap_err();
-    assert!(!error.contains("canary"));
 }
 
 #[test]

@@ -318,7 +318,7 @@ pub fn built_in_stale(now: u64) -> bool {
 pub enum Route {
     /// Token × price on a direct API key.
     Api,
-    /// Account/subscription login (ChatGPT): no per-token price.
+    /// Account/subscription access (ChatGPT or Devin): no inferred per-token price.
     Plan,
     /// External agent program: its billing is its own.
     Agent,
@@ -331,10 +331,8 @@ pub fn route(agent: Agent, loopback: bool) -> Route {
         Agent::OpenAI | Agent::Anthropic | Agent::Google => Route::Api,
         Agent::Compatible if loopback => Route::Local,
         Agent::Compatible => Route::Api,
-        Agent::ChatGPT => Route::Plan,
-        Agent::Codex | Agent::Claude | Agent::OpenCode | Agent::Gemini | Agent::Devin => {
-            Route::Agent
-        }
+        Agent::ChatGPT | Agent::Devin => Route::Plan,
+        Agent::Codex | Agent::Claude | Agent::OpenCode | Agent::Gemini => Route::Agent,
     }
 }
 

@@ -83,7 +83,6 @@ providers-status-configured = Settings found · unchecked
 providers-status-setup = Setup needed
 providers-status-missing = CLI installation needed
 providers-status-signed-in = Sign-in reported · unchecked
-providers-status-session = Session sign-in · unchecked
 providers-status-signed-out = Sign in needed
 providers-status-unknown = Status unknown
 providers-next-setup = Choose a connection method; no task is sent.
@@ -611,7 +610,7 @@ providers-setup-opencode = { "Install/update latest stable OpenCode on PATH: npm
 
 providers-setup-gemini = { "Install/update latest stable Gemini on PATH: npm install -g @google/gemini-cli@latest. Then Refresh installed providers; current Gemini uses --acp." }
 
-providers-setup-devin = { "Install latest stable Devin from https://docs.devin.ai/cli/; update an existing installation with devin update. Then Refresh installed providers. Eevee does not run an installer automatically." }
+providers-setup-devin = { "Choose browser OAuth or an API key; no Devin CLI is required. Eevee connects directly to the Devin Connect API for model discovery and coding. Saved credentials use owner-private local plaintext (not a keychain); choose Session only to leave the saved profile unchanged. Reconnect when the grant expires. Account eligibility and billing remain provider-owned." }
 
 providers-setup-chatgpt = { "Choose Browser or Device login directly; no installed CLI is needed. This selects the official ChatGPT account route and its plan, not metered OpenAI API billing. Review account replacement, storage choice, and model-metadata-only continuation before login. Private local plaintext save is the default so the login survives restarts and updates; choose session-only to keep it in memory. Saved credentials are not encrypted or stored in a keychain. Reconnect when the access grant expires; Eevee does not auto-renew it or modify a provider credential store. Advanced settings retain manual access token/account entry and explicit CLI-token import. Native Implement proposes new/existing workspace paths and creates or replaces only after exact one-shot permission; /paths optionally restricts targets. Plan/Review remain read-only. Configuration and metadata access do not prove model eligibility." }
 
@@ -637,13 +636,19 @@ providers-auth-label-claude-console = { "Anthropic Console OAuth / browser (offi
 
 providers-auth-label-claude-console-code = { "Anthropic Console OAuth / paste code (no browser launch)" }
 
-providers-auth-label-devin-web = { "Devin / website OAuth (browser callback or pasted redirect; session credential)" }
+providers-auth-label-devin-web = { "Devin / browser OAuth" }
 
-providers-auth-label-devin-browser = { "Devin CLI / browser OAuth (stored credentials)" }
+providers-devin-api-key = { "API key / session token" }
 
-providers-auth-label-devin-manual-token = { "Devin CLI / manual token paste (stored credentials)" }
-
-providers-auth-label-devin-status = { "Official Devin auth status (not eligibility proof)" }
+providers-devin-review-method = Devin OAuth · no CLI required
+providers-devin-review-issuer = app.devin.ai → api.devin.ai · PKCE + state
+providers-devin-review-callback = Callback 127.0.0.1:59653 or hidden pasted redirect
+providers-devin-review-replace = Replaces this app's Devin connection only
+providers-devin-review-private = Private plaintext save · not encrypted/keychain
+providers-devin-review-session = Session only · saved profile unchanged
+providers-devin-review-access = Native server.codeium.com model access
+providers-devin-review-expiry = No task sent · expiry requires explicit reconnect
+providers-devin-review-cancel = Esc cancels · no fallback or task replay
 
 providers-auth-label-claude-console-status = { "Official ant auth status (profile presence, not eligibility)" }
 
@@ -657,9 +662,7 @@ providers-auth-guidance-codex-device = { "WSL/SSH: Device authorization works wi
 
 providers-auth-guidance-claude-console-code = { "Signs in to the Claude Console (platform.claude.com) and bills Claude API usage to the chosen organization/workspace. This is NOT claude.ai Pro/Max subscription login: Anthropic does not permit third-party Agent SDK apps to use subscription OAuth. Paste-code login prints the official authorize URL and reads the returned code inside ant, without a localhost callback or browser launcher (WSL/SSH). Never share codes or URLs." }
 
-providers-auth-guidance-devin-web = { "Eevee's own authorization-code + PKCE flow against the Devin website; no Devin CLI auth subcommand runs. A browser opens (or copy the printed URL) and the site redirects to a localhost listener on 127.0.0.1:59653. Without a browser or listener (SSH/WSL/headless), paste the localhost redirect URL after sign-in — or a session token (cog_/JWT form) — and press Enter. The token stays in process memory and is injected as WINDSURF_API_KEY only into devin acp processes Eevee launches; nothing is written to Devin's credential store, so devin auth status can still report logged out and restarting Eevee requires re-login. Esc cancels; expired/cancelled URLs cannot be reused. Never share callback URLs." }
-
-providers-auth-guidance-devin-manual-token = { "Runs the dedicated official devin auth login, not a chat or ACP session. Browser login is owned by Devin. For remote/SSH sessions, explicitly select manual token paste to skip browser auth; this is NOT device authorization. Paste any token only into Devin's native terminal prompt, never Eevee or task context. Enterprise machine policy may pin the host/account. Eevee neither reads nor stores credentials and never infers account/model eligibility from login exit." }
+providers-auth-guidance-devin-web = { "Signs in directly with Devin using authorization code + PKCE. The browser returns to 127.0.0.1:59653; on SSH/WSL, paste the returned redirect URL or code into the hidden login input. Esc/Ctrl+C cancels. Review Saved or Session only storage before login. Credentials authorize native model discovery and chat, never a CLI child; no task is sent by login. No automatic refresh, fallback or task replay." }
 
 providers-action-connect-credential-setup = { "Connect / credential setup" }
 

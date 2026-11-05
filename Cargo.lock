@@ -435,6 +435,7 @@ version = "0.1.50"
 dependencies = [
  "base64-simd",
  "crossterm",
+ "flate2",
  "fluent-syntax",
  "futures-util",
  "getrandom 0.2.17",

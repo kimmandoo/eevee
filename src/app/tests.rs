@@ -2134,19 +2134,19 @@ fn native_login_selection_waits_for_size_preserves_switch_review_and_rejects_sta
         app.agents.page = agents::Page::Account;
         app.agents.use_for_task = Some(Agent::ChatGPT.index());
         app.agents.pick = Some("model");
-        app.pending_openai_selection = Some((app.task_id, app.lead.id, source));
+        app.pending_native_selection = Some((app.task_id, app.lead.id, source));
         app.update(Event::Resize(59, 17));
         app.use_selected_provider();
         app.settle_planning();
         assert_eq!(app.planning.agent, source);
-        assert!(app.pending_openai_selection.is_some());
+        assert!(app.pending_native_selection.is_some());
         assert!(app.planning.pending.is_none() && app.planning.switch_to.is_none());
         if stale {
             app.task_id += 1;
         }
         app.update(Event::Resize(60, 18));
         app.settle_planning();
-        assert!(app.pending_openai_selection.is_none());
+        assert!(app.pending_native_selection.is_none());
         assert_eq!(app.planning.agent, source);
         assert_eq!(
             app.planning.thread_id.as_deref(),

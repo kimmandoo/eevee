@@ -649,8 +649,28 @@ impl App {
         if self.agents.use_for_task == Some(crate::providers::Agent::ChatGPT.index())
             && self.agents.pick == Some("model")
         {
-            self.pending_openai_selection = Some(owner);
-            self.settle_openai_selection();
+            self.pending_native_selection = Some(owner);
+            self.settle_native_selection();
+        }
+    }
+
+    pub fn devin_connection_returned(
+        &mut self,
+        plan: &crate::providers::auth::Plan,
+        generation: Option<u64>,
+        credential: Option<crate::providers::auth::DevinCredential>,
+        outcome: crate::providers::auth::Outcome,
+    ) {
+        let owner = (self.task_id, self.lead.id, self.planning.agent);
+        let admitted = self.overlay == Some(Overlay::Agents) && self.authentication_ready();
+        self.agents
+            .finish_devin_login(plan, generation, credential, outcome, &owner, admitted);
+        self.connection_settings_changed();
+        if self.agents.use_for_task == Some(crate::providers::Agent::Devin.index())
+            && self.agents.pick == Some("model")
+        {
+            self.pending_native_selection = Some(owner);
+            self.settle_native_selection();
         }
     }
 
@@ -755,7 +775,7 @@ impl App {
         if self.settle_context_comparison() {
             return true;
         }
-        let openai_selection = self.settle_openai_selection();
+        let openai_selection = self.settle_native_selection();
         let source_action = self.settle_source_action();
         let provider_picker = self.settle_provider_picker();
         if source_action || provider_picker || openai_selection {
@@ -1291,17 +1311,22 @@ impl App {
         true
     }
 
-    fn settle_openai_selection(&mut self) -> bool {
-        let Some(owner) = self.pending_openai_selection else {
+    fn settle_native_selection(&mut self) -> bool {
+        let Some(owner) = self.pending_native_selection else {
             return false;
         };
         if owner != (self.task_id, self.lead.id, self.planning.agent)
             || self.overlay != Some(Overlay::Agents)
             || self.agents.page != super::agents::Page::Account
-            || self.agents.use_for_task != Some(crate::providers::Agent::ChatGPT.index())
+            || !matches!(
+                self.agents
+                    .use_for_task
+                    .and_then(crate::providers::Agent::from_index),
+                Some(crate::providers::Agent::ChatGPT | crate::providers::Agent::Devin)
+            )
             || self.agents.pick != Some("model")
         {
-            self.pending_openai_selection = None;
+            self.pending_native_selection = None;
             self.agents.use_for_task = None;
             self.agents.pick = None;
             return true;
@@ -1309,7 +1334,7 @@ impl App {
         if self.width < 60 || self.height < 18 || !self.authentication_ready() {
             return false;
         }
-        self.pending_openai_selection = None;
+        self.pending_native_selection = None;
         self.use_selected_provider();
         true
     }
@@ -1347,8 +1372,8 @@ impl App {
 
     /// Drain paired provider/picker intent without dropping a mandatory switch review.
     pub(super) fn use_selected_provider(&mut self) {
-        if self.pending_openai_selection.is_some() {
-            self.settle_openai_selection();
+        if self.pending_native_selection.is_some() {
+            self.settle_native_selection();
             return;
         }
         let profile = self.agents.use_for_task.take();
@@ -1511,7 +1536,7 @@ impl App {
         self.task_switch_after_save = None;
         self.return_after_cancel = None;
         self.pending_provider_picker = None;
-        self.pending_openai_selection = None;
+        self.pending_native_selection = None;
         self.confirmation = None;
         self.command_popup = None;
         self.cooperation.journal_discard = None;

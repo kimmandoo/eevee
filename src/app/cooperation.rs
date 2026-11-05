@@ -62,17 +62,6 @@ impl App {
         self.cooperation.focused.is_some()
     }
 
-    /// Replace only future launch credentials; submitted inputs own independent copies.
-    pub fn set_devin_credential(
-        &mut self,
-        credential: Option<crate::providers::auth::SessionCredential>,
-    ) {
-        self.planning.set_devin_credential(credential.clone());
-        for state in self.cooperation.parked.values_mut() {
-            state.set_devin_credential(credential.clone());
-        }
-    }
-
     pub(super) fn planning_state(&self, partner: i64) -> Option<&planning::State> {
         if partner == self.lead.id {
             Some(&self.planning)
@@ -1856,13 +1845,7 @@ mod tests {
     #[test]
     fn external_disconnect_diagnostics_survive_owned_settlement_without_replay_or_draft_changes() {
         use providers::{Agent, Outcome, diagnostics::Failure};
-        for agent in [
-            Agent::Codex,
-            Agent::Claude,
-            Agent::OpenCode,
-            Agent::Gemini,
-            Agent::Devin,
-        ] {
+        for agent in [Agent::Codex, Agent::Claude, Agent::OpenCode, Agent::Gemini] {
             for outcome in [Outcome::Failed, Outcome::Unknown] {
                 let mut app = app();
                 app.agents.pending.take();
@@ -3545,9 +3528,8 @@ mod tests {
     }
 
     #[test]
-    fn authentication_and_future_credentials_reach_every_parked_owner() {
+    fn authentication_revocation_reaches_every_parked_owner() {
         let mut app = app();
-        app.set_devin_credential(Some(providers::auth::test_credential("old-account")));
         for partner in 1..=3 {
             start(&mut app, partner, partner as u64);
             app.planning_state_mut(partner).unwrap().thread_id =
@@ -3557,31 +3539,9 @@ mod tests {
         for partner in 1..=3 {
             let state = app.planning_state(partner).unwrap();
             assert!(!state.has_resumable_sessions());
-            assert!(state.devin_credential.is_none());
             assert!(
                 state.transport_pending(),
                 "Submitted work still owns its transport."
-            );
-        }
-        app.set_devin_credential(Some(providers::auth::test_credential("replacement")));
-        for partner in 1..=3 {
-            assert_eq!(
-                app.planning_state(partner)
-                    .unwrap()
-                    .devin_credential
-                    .as_ref()
-                    .unwrap()
-                    .token(),
-                "replacement"
-            );
-        }
-        app.set_devin_credential(None);
-        for partner in 1..=3 {
-            assert!(
-                app.planning_state(partner)
-                    .unwrap()
-                    .devin_credential
-                    .is_none()
             );
         }
     }

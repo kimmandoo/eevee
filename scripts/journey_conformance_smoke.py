@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Opt-in bounded actual-binary route/model journey conformance; no live provider.
 
-Every selectable route, native protocol, two contrasting advertised models and an
-unknown exact model run at 120x36 and 60x18 with English/Korean requests. Controlled
+The generic SSE/JSONL routes, two contrasting advertised models and an unknown
+exact model run at 120x36 and 60x18 with English/Korean requests.
 peers perform actual source reads through production boundaries; no echo oracle.
 Account HTTP stays fixed official: its UI/no-dispatch row is composed with the
 private-boundary Rust account wire regression (see --account-wire-proof).
+Devin's native Connect/protobuf journey is exercised separately by devin_smoke.py.
 """
 from __future__ import annotations
 import argparse
@@ -52,7 +53,7 @@ def cell_words(value):
 def protocol_peer(route):
     """Real JSONL transport, correlated source callback and terminal/cancel frames."""
     if '--version' in sys.argv or 'version' in sys.argv:
-        print('devin 3000.11.3 (012345abcdef)' if route == 'devin' else 'codex-cli 0.152.1' if route == 'codex' else '1.18.0')
+        print('codex-cli 0.152.1' if route == 'codex' else '1.18.0')
         return
     log = Path(os.environ['EEVEE_JOURNEY_LOG'])
     def record(kind, **fields):
@@ -674,10 +675,10 @@ def main():
     parser.add_argument('--node', type=Path, default=shutil.which('node'))
     parser.add_argument('--sidecar', type=Path, default=Path(__file__).resolve().parents[1] / 'sidecar')
     parser.add_argument('--account-wire-proof', type=Path, required=True, help='retained output from cargo test gp10_account_wire_matrix -- --nocapture')
-    parser.add_argument('--route', choices=[r for r, _ in NATIVE] + ['codex', 'claude', 'opencode', 'gemini', 'devin', 'chatgpt'])
+    parser.add_argument('--route', choices=[r for r, _ in NATIVE] + ['codex', 'claude', 'opencode', 'gemini', 'chatgpt'])
     parser.add_argument('--model', choices=MODELS, help='Bounded diagnostic row; default runs every model')
     parser.add_argument('--size', choices=('120x36', '60x18'), help='Bounded diagnostic geometry; default runs both')
-    parser.add_argument('--merge', type=Path, nargs='+', metavar='MATRIX', help='Validate and consolidate distinct frozen-binary route manifests into the complete 66-row matrix')
+    parser.add_argument('--merge', type=Path, nargs='+', metavar='MATRIX', help='Validate and consolidate distinct frozen-binary generic route manifests into the complete 60-row matrix')
     args = parser.parse_args()
     for path in (args.binary, args.account_wire_proof):
         if not path.is_file():
@@ -685,7 +686,7 @@ def main():
     proof = args.account_wire_proof.read_text()
     if any(proof.count('GP10_ACCOUNT_WIRE model=' + model + ' ') != 1 for model in MODELS) or 'test result: ok.' not in proof:
         parser.error('account wire proof must contain three distinct model markers and a passing test result; UI geometry is proved by the six account PTY rows')
-    variants = [*NATIVE, *((route, None) for route in ('codex', 'claude', 'opencode', 'gemini', 'devin', 'chatgpt'))]
+    variants = [*NATIVE, *((route, None) for route in ('codex', 'claude', 'opencode', 'gemini', 'chatgpt'))]
     if args.merge and any((args.route, args.model, args.size)):
         parser.error('--merge requires complete coverage, not diagnostic filters')
     if args.route:
@@ -708,7 +709,7 @@ def main():
         observed = [(result['route'], result['protocol'], result['model'], tuple(result['size'])) for result in results]
         expected = {(route, protocol, model, size) for route, protocol in variants for model in MODELS for size in ((120, 36), (60, 18))}
         if len(observed) != len(expected) or set(observed) != expected:
-            parser.error('merged matrix must contain each of the 66 distinct route/protocol/model/geometry rows exactly once')
+            parser.error('merged matrix must contain each of the 60 distinct generic route/protocol/model/geometry rows exactly once')
     else:
         results = [row(args.binary.resolve(), Path(args.node).resolve() if args.node else None, args.sidecar.resolve(),
             args.output / f'{route}-{protocol or "controlled"}-{model}-{size[0]}', route, protocol, model, size, args.account_wire_proof.resolve())

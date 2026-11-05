@@ -398,11 +398,6 @@ impl State {
             } else {
                 None
             },
-            credential: if self.agent == Agent::Devin {
-                self.devin_credential.clone()
-            } else {
-                None
-            },
         })));
         self.bind_slot(task.id);
         self.awaiting_preview = true;

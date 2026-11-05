@@ -47,7 +47,7 @@ def receive():
 
 def main():
     if '--version' in sys.argv or 'version' in sys.argv:
-        print('devin 3000.11.3 (012345abcdef)' if Path(sys.argv[0]).name == 'devin' else '1.18.0')
+        print('1.18.0')
         return
     if os.environ.get('EEVEE_ACP_TERMINAL_CHILD') != '1':
         raise SystemExit('This protocol peer is only for the opt-in isolated PTY driver')

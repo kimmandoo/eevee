@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-11-06
+
+- feat(devin)!: replaced the Devin CLI/ACP connection with native Connect/protobuf model discovery, router assignment, streaming chat and the existing host coding/tool/conversation engine; removed CLI auth/status and child-token injection.
+- feat(auth): added owner-bound Devin browser OAuth with PKCE/state, loopback or hidden pasted callbacks, private app-owned saved credentials and explicit session-only storage; retained masked API/session keys and explicit environment sources without CLI-store imports or automatic refresh.
+- fix(devin): preserved exact visible model identities, separate reasoning variants, legacy enterprise-key authentication, private in-run signatures, reported usage and completed public follow-up roles without guessing models or replaying effects.
+- fix(devin): refused unreviewed server-directed destinations, malformed/truncated tool arguments, oversized/compressed frames and unsuccessful terminal trailers before granting host effects; retained cancellation without task replay.
+- test(devin): exercised actual both-size TUI metadata/auth/router requests, real file creation and Python execution, follow-up history, trailer failure and cancellation; verified Devin and shared OpenAI OAuth hidden-input/callback/cancel recovery without live-account claims.
+
 ## 2026-11-04
 
 ### 0.1.50

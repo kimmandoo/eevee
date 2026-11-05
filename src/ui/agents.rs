@@ -25,7 +25,6 @@ fn readiness_label(state: &crate::app::agents::State, index: usize, paint: &Pain
         Readiness::MissingCli => Message::ProvidersStatusMissing,
         Readiness::Blocked => Message::DiagnosticsStatusBlocked,
         Readiness::SignedIn => Message::ProvidersStatusSignedIn,
-        Readiness::Session => Message::ProvidersStatusSession,
         Readiness::SignedOut => Message::ProvidersStatusSignedOut,
         Readiness::Unknown => Message::ProvidersStatusUnknown,
     })
@@ -316,9 +315,6 @@ fn method_label(method: crate::providers::auth::Method, paint: &Paint) -> &'stat
         Method::ClaudeConsole => Message::ProvidersAuthLabelClaudeConsole,
         Method::ClaudeConsoleCode => Message::ProvidersAuthLabelClaudeConsoleCode,
         Method::DevinWeb => Message::ProvidersAuthLabelDevinWeb,
-        Method::DevinBrowser => Message::ProvidersAuthLabelDevinBrowser,
-        Method::DevinManualToken => Message::ProvidersAuthLabelDevinManualToken,
-        Method::DevinStatus => Message::ProvidersAuthLabelDevinStatus,
         Method::ClaudeConsoleStatus => Message::ProvidersAuthLabelClaudeConsoleStatus,
         Method::CodexStatus => Message::ProvidersAuthLabelCodexStatus,
         Method::OpenCodeStatus => Message::ProvidersAuthLabelOpenCodeStatus,
@@ -334,9 +330,6 @@ fn method_guidance(method: crate::providers::auth::Method, paint: &Paint) -> Opt
             Message::ProvidersAuthGuidanceClaudeConsoleCode
         }
         Method::DevinWeb => Message::ProvidersAuthGuidanceDevinWeb,
-        Method::DevinBrowser | Method::DevinManualToken => {
-            Message::ProvidersAuthGuidanceDevinManualToken
-        }
         _ => return None,
     }))
 }
@@ -483,19 +476,29 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                     frame,
                     row(body, 0, 1),
                     if account {
-                        paint.hint(Message::ProvidersAccountBoundary)
+                        crate::providers::Agent::from_index(state.selected)
+                            .map_or("Account", |agent| agent.label())
                     } else {
                         "OpenAI"
                     },
                     paint.accent,
                 );
                 let labels: &[Message] = if account {
-                    &[
-                        Message::ProvidersAgentsBrowserLogin,
-                        Message::ProvidersAgentsDeviceLogin,
-                        Message::ProvidersAgentsStorage,
-                        Message::ProvidersFamilyAdvanced,
-                    ]
+                    if state.selected == crate::providers::Agent::Devin.index() {
+                        &[
+                            Message::ProvidersAuthLabelDevinWeb,
+                            Message::ProvidersDevinApiKey,
+                            Message::ProvidersAgentsStorage,
+                            Message::ProvidersFamilyAdvanced,
+                        ]
+                    } else {
+                        &[
+                            Message::ProvidersAgentsBrowserLogin,
+                            Message::ProvidersAgentsDeviceLogin,
+                            Message::ProvidersAgentsStorage,
+                            Message::ProvidersFamilyAdvanced,
+                        ]
+                    }
                 } else if state.family_has_current() {
                     &[
                         Message::ProvidersFamilyAccount,
@@ -555,7 +558,9 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                 text(
                     frame,
                     row(body, 6, body.height.saturating_sub(6)),
-                    if account {
+                    if account && state.selected == crate::providers::Agent::Devin.index() {
+                        paint.hint(Message::ProvidersAuthGuidanceDevinWeb)
+                    } else if account {
                         paint.hint(Message::ProvidersAccountReplace)
                     } else {
                         paint.hint(Message::ProvidersFamilyBoundary)
@@ -740,7 +745,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                     paint.hint(Message::ProvidersAccountEndpoint).into(),
                     paint.hint(Message::ProvidersAccountReplace).into(),
                     paint
-                        .hint(if state.openai_login_persist() {
+                        .hint(if state.native_login_persist() {
                             Message::ProvidersAccountPrivate
                         } else {
                             Message::ProvidersAccountSession
@@ -749,6 +754,24 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
                     paint.hint(Message::ProvidersAccountPlaintext).into(),
                     paint.hint(Message::ProvidersAccountContinue).into(),
                     paint.hint(Message::ProvidersAccountExpiry).into(),
+                ];
+                &native_summary
+            } else if plan.method == crate::providers::auth::Method::DevinWeb {
+                native_summary = vec![
+                    paint.hint(Message::ProvidersDevinReviewMethod).into(),
+                    paint.hint(Message::ProvidersDevinReviewIssuer).into(),
+                    paint.hint(Message::ProvidersDevinReviewCallback).into(),
+                    paint.hint(Message::ProvidersDevinReviewReplace).into(),
+                    paint
+                        .hint(if state.native_login_persist() {
+                            Message::ProvidersDevinReviewPrivate
+                        } else {
+                            Message::ProvidersDevinReviewSession
+                        })
+                        .into(),
+                    paint.hint(Message::ProvidersDevinReviewAccess).into(),
+                    paint.hint(Message::ProvidersDevinReviewExpiry).into(),
+                    paint.hint(Message::ProvidersDevinReviewCancel).into(),
                 ];
                 &native_summary
             } else {

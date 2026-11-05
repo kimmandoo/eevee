@@ -32,9 +32,8 @@ def receive():
 
 
 def main():
-    name = Path(sys.argv[0]).name
     if "--version" in sys.argv or "version" in sys.argv:
-        print("devin 3000.11.3 (012345abcdef)" if name == "devin" else "1.18.0")
+        print("1.18.0")
         return
     if os.environ.get("EEVEE_ACP_FILE_TEST_CHILD") != "1":
         raise SystemExit("This peer is only for isolated ACP integration tests")

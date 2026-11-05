@@ -206,7 +206,7 @@ def main():
     parser.add_argument('--binary', required=True, type=Path, help='already-built actual Eevee binary')
     parser.add_argument('--compiler', required=True, type=Path, help='genuine installed rustc, not rustup or a fixture')
     parser.add_argument('--output', required=True, type=Path)
-    parser.add_argument('--route', choices=('opencode', 'gemini', 'devin'), default='opencode')
+    parser.add_argument('--route', choices=('opencode', 'gemini'), default='opencode')
     parser.add_argument('--size', choices=('120x36', '60x18'), default='120x36')
     parser.add_argument('--modes', nargs='+', choices=('happy', 'deny', 'cancel', 'kill', 'release', 'readonly'),
                         default=['happy', 'deny', 'cancel', 'kill', 'release', 'readonly'])

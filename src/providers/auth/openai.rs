@@ -1,5 +1,5 @@
 //! Reviewed native OpenAI authorization. Endpoints are fixed; no provider store is read.
-use super::{Completion, INTERRUPTED, Method, Outcome, Plan, RawInput};
+use super::{Completion, INPUT_LIMIT, INTERRUPTED, Method, Outcome, Plan, RawInput, read_input};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::io::Read;
@@ -10,7 +10,6 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 const ISSUER: &str = "https://auth.openai.com";
 const CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
 const BODY_LIMIT: usize = 128 * 1024;
-const INPUT_LIMIT: usize = 16 * 1024;
 const DEVICE_TIMEOUT: Duration = Duration::from_secs(900);
 const EXPIRY_SKEW: u64 = 60;
 const DEVICE_TRANSIENT_RETRIES: u32 = 3;
@@ -715,58 +714,6 @@ impl Terminal {
     }
 }
 
-/// Drain a buffered paste promptly, with bounded work per cancellation poll.
-/// Unbracketed redirects arrive as Key events, not one Paste event; handling
-/// only one per 25ms makes a long manual redirect appear stuck.
-fn read_input(
-    paste: &mut String,
-    mut read: impl FnMut() -> std::io::Result<Option<crossterm::event::Event>>,
-) -> Result<Option<String>, Outcome> {
-    use crossterm::event::{Event, KeyCode, KeyEventKind, KeyModifiers};
-    for _ in 0..256 {
-        match read().map_err(|_| Outcome::Failed)? {
-            Some(Event::Key(key)) if key.kind != KeyEventKind::Release => match key.code {
-                KeyCode::Esc => return Err(Outcome::Cancelled),
-                KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                    return Err(Outcome::Cancelled);
-                }
-                KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                    paste.clear();
-                }
-                KeyCode::Enter => return Ok(Some(std::mem::take(paste))),
-                KeyCode::Backspace => {
-                    paste.pop();
-                }
-                KeyCode::Char(ch)
-                    if !ch.is_control()
-                        && !key
-                            .modifiers
-                            .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
-                {
-                    if paste.len() + ch.len_utf8() > INPUT_LIMIT {
-                        paste.clear();
-                        return Err(Outcome::Refused);
-                    }
-                    paste.push(ch);
-                }
-                _ => {}
-            },
-            Some(Event::Paste(value)) => {
-                if paste.len() + value.len() > INPUT_LIMIT {
-                    paste.clear();
-                    return Err(Outcome::Refused);
-                }
-                paste.extend(value.chars().filter(|ch| !ch.is_control()));
-                println!(
-                    "Redirect input received (hidden). Enter submits; Ctrl+U clears; Esc cancels.\r"
-                );
-            }
-            None => break,
-            _ => {}
-        }
-    }
-    Ok(None)
-}
 fn serve(
     mut stream: TcpStream,
     grant: &mut BrowserGrant,
@@ -876,7 +823,7 @@ async fn browser(
         remedy: "Complete this Browser login, or explicitly choose Device if localhost is unavailable.",
         outcome: Outcome::NotAuthenticated,
     }));
-    super::devin_web::open_browser(&url);
+    super::open_browser(&url);
     loop {
         let pasted = terminal.read()?;
         let mut code = match pasted {
@@ -951,7 +898,7 @@ pub(super) fn login(method: Method) -> Completion {
     match result {
         Ok(credential) => Completion {
             outcome: Outcome::Authenticated,
-            credential: None,
+            devin_credential: None,
             openai_credential: Some(credential),
             openai_failure: None,
         },

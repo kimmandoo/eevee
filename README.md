@@ -34,7 +34,7 @@ It also comes with a companion: a party of Eevee forms that evolve with the kind
 
 ## Highlights
 
-- **Any model.** OpenAI (account or API), Anthropic, Google Gemini and any OpenAI-compatible endpoint, including local Ollama, vLLM and LM Studio. External agents work too: Codex, the Claude Agent SDK, and OpenCode / Gemini / Devin over ACP.
+- **Any model.** OpenAI (account or API), Anthropic, Google Gemini, native Devin account/API access and any OpenAI-compatible endpoint, including local Ollama, vLLM and LM Studio. External agents work too: Codex, the Claude Agent SDK, and OpenCode / Gemini over ACP.
 - **A real coding loop.** Discover, read, create, edit, rename and delete files; run builds, tests and programs; feed the actual output back to the model. Code streams into the transcript as it is written.
 - **Automatic coding by default.** File changes, builds, tests, programs, requested downloads and already-connected tool calls proceed without repeated approval prompts. `/auto-approve-off` selects Ask; `/auto-approve` restores Automatic. Your choice survives tasks and restarts.
 - **Explicit rules still win.** Project deny rules override Automatic. In Ask, turn a reviewed `cargo test` or `tests/**` edit into a reusable project rule with `/rule-allow`; inspect and revoke rules with `/rules`.
@@ -225,12 +225,15 @@ Sprites render via Kitty/Sixel when supported. Installers fetch the artwork sepa
 | **OpenAI API** | API key in setup, or `OPENAI_API_KEY` |
 | **Anthropic** | API key in setup, or `ANTHROPIC_API_KEY` |
 | **Google Gemini** | API key in setup, `GEMINI_API_KEY` or `GOOGLE_API_KEY` |
+| **Devin** | Browser OAuth or API key in setup, `DEVIN_API_KEY` or `WINDSURF_API_KEY`; native Connect API, no Devin CLI |
 | **OpenAI-compatible / local** | Endpoint, model, protocol (Chat Completions or Responses) and optional key; HTTPS required except loopback |
-| **External agents** | Codex app-server, Claude Agent SDK sidecar, OpenCode / Gemini / Devin via ACP |
+| **External agents** | Codex app-server, Claude Agent SDK sidecar, OpenCode / Gemini via ACP |
 
-The method you choose decides the transport: `ev` never silently falls back to another account, billing route, protocol or model, and exact custom model IDs work even when a provider's model list is unavailable. Credentials are saved by default as owner-private plaintext under `~/.eevee-connections/` (not an OS keychain), so logins survive restarts and updates; choose **Storage → Session only** to keep a credential in memory. Saved account grants still expire and need an explicit reconnect.
+The method you choose decides the transport: `ev` never silently falls back to another account, billing route, protocol or model. Other native APIs allow exact custom model IDs even when discovery is unavailable; Devin requires an exact visible wire model from its authenticated configurations, with reasoning variants selected as separate models rather than an independent effort override. Credentials are saved by default as owner-private plaintext under `~/.eevee-connections/` (not an OS keychain), so logins survive restarts and updates; choose **Storage → Session only** to keep a credential in memory. Saved account grants still expire and need an explicit reconnect.
 
 On remote and WSL sessions, prefer **Device login** for an OpenAI account. If a browser callback cannot reach the terminal, paste the complete redirect URL into the hidden prompt.
+
+For Devin, use **`/connect devin` → Browser OAuth**, review storage and connect, then choose a model. The browser returns to `http://127.0.0.1:59653/callback`; remote sessions can paste that attempt's complete redirect or `code#state` into the hidden terminal input. **API key / session token** is a separate masked setup route. Eevee uses its own `~/.eevee-connections/devin.json`, never imports the Devin CLI store or injects credentials into a CLI child. Existing CLI logins must be connected again in Eevee. Login opens model selection only; it never sends or replays a task, and credentials are not automatically refreshed.
 
 On Windows, a safely protected user home may be owned by `SYSTEM` or Administrators; the app's credential directory and files still require current-user ownership and private access. A successful provider sign-in cannot repair an unsafe local path. If a storage safety check refuses, use the selected provider's setup to choose **Session only** with a newly entered credential rather than repeatedly signing in or blindly changing ACLs. Eevee never changes existing home/provider permissions for you.
 

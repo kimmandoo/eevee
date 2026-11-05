@@ -17,7 +17,7 @@ fn structured_diff_schema_never_guesses_raw_input_or_authority() {
 
 #[test]
 fn file_capabilities_are_operation_bound_not_profile_guesses() {
-    for agent in [Agent::OpenCode, Agent::Gemini, Agent::Devin] {
+    for agent in [Agent::OpenCode, Agent::Gemini] {
         for operation in [Operation::Plan, Operation::Implement, Operation::Review] {
             let mut input = crate::providers::tests::claimed(
                 agent,
@@ -114,7 +114,7 @@ fn acp_reads_requested_ranges_beyond_mutation_bound_without_silent_output_trunca
 
 #[test]
 fn shared_callbacks_read_create_replace_and_refuse_unsafe_scope_on_every_host() {
-    for agent in [Agent::OpenCode, Agent::Gemini, Agent::Devin] {
+    for agent in [Agent::OpenCode, Agent::Gemini] {
         let fixture = Fixture::new();
         let workspace = Workspace {
             project: fixture.root.clone(),
@@ -494,7 +494,7 @@ fn actual_acp_peer_file_callbacks_across_all_three_routes() {
     if std::env::var("EEVEE_ACP_FILE_TEST_CHILD").as_deref() == Ok("1") {
         // Routes are independent peers with their own fixtures; run them side by side.
         thread::scope(|scope| {
-            for agent in [Agent::OpenCode, Agent::Gemini, Agent::Devin] {
+            for agent in [Agent::OpenCode, Agent::Gemini] {
                 scope.spawn(move || {
                     for mode in [
                         "happy",

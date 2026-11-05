@@ -38,7 +38,7 @@ pub(super) fn policy(input: &Input) -> Result<String, String> {
 pub(super) fn restrict_definitions(body: &mut Value, protocol: Protocol) {
     let keep = |entry: &Value| {
         let name = match protocol {
-            Protocol::ChatCompletions => entry["function"]["name"].as_str(),
+            Protocol::ChatCompletions | Protocol::Devin => entry["function"]["name"].as_str(),
             _ => entry["name"].as_str(),
         }
         .unwrap_or("");

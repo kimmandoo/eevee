@@ -27,9 +27,9 @@ from workbench_smoke import wait_for
 ESC = '\x1b'
 
 
-def run(binary, output, size):
+def run(binary, output, size, route='chatgpt'):
     output.mkdir(parents=True)
-    result = {'status': 'failed', 'size': list(size), 'cases': []}
+    result = {'status': 'failed', 'route': route, 'size': list(size), 'cases': []}
     with tempfile.TemporaryDirectory(prefix='ev-native-oauth-input-') as temporary:
         root = Path(temporary)
         project, home, tools, data = [root / name for name in ('project', 'home', 'bin', 'data')]
@@ -52,34 +52,39 @@ def run(binary, output, size):
                           project, environment, size, output / 'terminal', controlling_tty=True)
         try:
             wait_for(session, 'Storage: saved')
-            session.command('connect chatgpt')
-            wait_for(session, 'Browser login')
-            assert any('>' in line and 'Device login' in line for line in session.display().splitlines()), 'remote native account setup did not suggest Device'
-            result['cases'].append('SSH native account chooser suggests Device without launching login')
-            # Explicit Browser selection remains available, with neutral review.
-            for _ in range(4):
-                if any('>' in line and 'Browser login' in line for line in session.display().splitlines()):
-                    break
-                session.send(ESC + '[A')
+            session.command('connect ' + route)
+            if route == 'chatgpt':
+                wait_for(session, 'Browser login')
+                assert any('>' in line and 'Device login' in line for line in session.display().splitlines()), 'remote native account setup did not suggest Device'
+                result['cases'].append('SSH native account chooser suggests Device without launching login')
+                for _ in range(4):
+                    if any('>' in line and 'Browser login' in line for line in session.display().splitlines()):
+                        break
+                    session.send(ESC + '[A')
+                else:
+                    raise AssertionError('Explicit Browser method is not reachable')
             else:
-                raise AssertionError('Explicit Browser method is not reachable')
+                wait_for(session, 'Devin / browser OAuth')
+                assert 'API key / session token' in session.display(), 'explicit key route is missing'
+                result['cases'].append('Devin offers OAuth and explicit key setup without CLI installation')
             session.send('\r')
             wait_for(session, 'Review connection')
-            wait_for(session, 'Browser login')
-            assert 'Device login' not in session.display(), 'Refusing to authorize a live Device request in a Browser-only fixture'
-            wait_for(session, '[Back]')  # Scope and committed-input readiness must be visible.
+            wait_for(session, '[Back]')
             session.send('\t')
             session.send('\r')
-            wait_for(session, 'OpenAI account sign-in')
-            assert 'Callback ports unavailable' not in session.text, 'both registered callback ports are occupied; controlled callback cannot be qualified'
-            match = re.search(r'https://auth\.openai\.com/oauth/authorize\?[^\r\n\x1b]+', session.text)
+            wait_for(session, 'OpenAI account sign-in' if route == 'chatgpt' else 'Devin sign-in:')
+            pattern = r'https://auth\.openai\.com/oauth/authorize\?[^\r\n\x1b]+' if route == 'chatgpt' else r'https://app\.devin\.ai/auth/cli/continue\?[^\r\n\x1b]+'
+            match = re.search(pattern, session.text)
             assert match, 'native sign-in did not display its official manual browser URL'
             values = parse_qs(urlsplit(match.group(0)).query)
             callback = urlsplit(values['redirect_uri'][0])
-            assert callback.hostname == 'localhost' and callback.port in (1455, 1457)
+            if route == 'chatgpt':
+                assert callback.hostname == 'localhost' and callback.port in (1455, 1457)
+            else:
+                assert callback.hostname == '127.0.0.1' and callback.port == 59653
             assert values['state'] and values['code_challenge_method'] == ['S256']
             with socket.create_connection((callback.hostname, callback.port), timeout=2) as peer:
-                peer.sendall(b'GET /auth/callback?code=fixture-invalid&state=wrong-state HTTP/1.1\r\nHost: localhost\r\n\r\n')
+                peer.sendall(('GET ' + callback.path + '?code=fixture-invalid&state=wrong-state HTTP/1.1\r\nHost: localhost\r\n\r\n').encode())
                 peer.settimeout(2)
                 response = b''
                 while b'\r\n\r\n' not in response and len(response) < 16384:
@@ -95,7 +100,7 @@ def run(binary, output, size):
             pasted = values['redirect_uri'][0] + '?code=' + 'x' * 4096 + '&state=wrong-state'
             started = time.monotonic()
             session.send(pasted + '\r', settle=False)
-            wait_for(session, 'Redirect not recognized', timeout=5)
+            wait_for(session, 'Redirect not recognized' if route == 'chatgpt' else 'Invalid callback or state', timeout=5)
             result['manual_input_seconds'] = round(time.monotonic() - started, 3)
             assert pasted not in session.text, 'hidden redirect was echoed'
             session.send('\x15')
@@ -116,9 +121,10 @@ def run(binary, output, size):
             # Authorization links and redirects are transient even on assertion
             # failure. Do not put a raw screen or exception display in reports.
             session.text = re.sub(r'https://auth\.openai\.com/oauth/authorize\?[^\r\n\x1b]+', '[authorization link omitted]', session.text)
+            session.text = re.sub(r'https://app\.devin\.ai/auth/cli/continue\?[^\r\n\x1b]+', '[authorization link omitted]', session.text)
             session.text = re.sub(r'(enter: )[A-Z0-9-]+', r'\1[device code omitted]', session.text)
             for event in session.events:
-                if '/auth/callback?' in event.get('input', ''):
+                if '/callback?' in event.get('input', ''):
                     event['input'] = '[hidden fixture redirect omitted]'
             session.close()
     return result
@@ -128,6 +134,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--binary', required=True, type=Path)
     parser.add_argument('--output', required=True, type=Path)
+    parser.add_argument('--route', choices=('chatgpt', 'devin'), default='chatgpt')
     args = parser.parse_args()
     if WINDOWS:
         parser.error('POSIX-only no-op browser isolation; native Windows browser launch is not intercepted')
@@ -137,7 +144,7 @@ def main():
               'limits': 'Local invalid-state callback/input/cancellation only; no successful live OAuth, public identity request, account entitlement or model call.'}
     for size in ((120, 36), (60, 18)):
         try:
-            report['journeys'].append(run(binary, output / str(size[0]), size))
+            report['journeys'].append(run(binary, output / str(size[0]), size, args.route))
         except Exception as error:
             site = traceback.extract_tb(error.__traceback__)[-1]
             report['journeys'].append({'status': 'failed', 'size': list(size),

@@ -1658,11 +1658,6 @@ pub(crate) mod native {
         pub fn spawn_piped(prepared: &Prepared) -> io::Result<Self> {
             Self::spawn_inner(prepared, true, &[], false)
         }
-        /// Like `spawn_piped` with extra environment variables applied to the
-        /// child only; values are not recorded in the reviewed spec.
-        pub fn spawn_piped_env(prepared: &Prepared, env: &[(String, String)]) -> io::Result<Self> {
-            Self::spawn_inner(prepared, true, env, false)
-        }
         pub(crate) fn spawn_piped_clean_env(
             prepared: &Prepared,
             env: &[(String, String)],
@@ -2020,11 +2015,6 @@ pub(crate) mod native {
         /// Keep the same suspended-before-Job admission as local commands.
         pub fn spawn_piped(prepared: &Prepared) -> io::Result<Self> {
             Self::spawn_inner(prepared, true, &[], false)
-        }
-        /// Like `spawn_piped` with extra environment variables applied to the
-        /// child only; values are not recorded in the reviewed spec.
-        pub fn spawn_piped_env(prepared: &Prepared, env: &[(String, String)]) -> io::Result<Self> {
-            Self::spawn_inner(prepared, true, env, false)
         }
         pub(crate) fn spawn_piped_clean_env(
             prepared: &Prepared,

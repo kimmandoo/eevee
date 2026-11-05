@@ -141,8 +141,7 @@ fn profile(agent: Agent) -> Result<(usize, Vec<String>), String> {
     match agent {
         Agent::OpenCode => Ok((2, vec!["acp".into(), "--pure".into()])),
         Agent::Gemini => Ok((3, vec!["--acp".into()])),
-        Agent::Devin => Ok((crate::providers::agent::DEVIN, vec!["acp".into()])),
-        _ => Err("ACP route accepts only OpenCode, Gemini or Devin".into()),
+        _ => Err("ACP route accepts only OpenCode or Gemini".into()),
     }
 }
 fn worker(
@@ -189,7 +188,6 @@ fn worker(
                     match input.agent {
                         Agent::OpenCode => lines.push("OpenCode acp --pure disables external plugins; built-in tools/config/MCP/project rules remain provider-owned.".into()),
                         Agent::Gemini => lines.push("Gemini CLI uses current stable --acp. Older --experimental-acp-only releases must be updated explicitly; no fallback or automatic download. Its configured Google OAuth/API/Vertex route is provider-owned; no free-account eligibility claim.".into()),
-                        Agent::Devin => lines.push("Devin CLI acp uses local stdio, without --cloud. Connect separately through the official native browser login; credentials, account eligibility, tools and configuration remain provider-owned.".into()),
                         _ => unreachable!("profile rejects non-ACP providers"),
                     }
                     lines.push(format!(
@@ -232,34 +230,9 @@ fn worker(
                     {
                         blockers.push("Resume refused: session is not an observed session of this provider and task; no cross-provider session transfer.".into());
                     }
-                    if input.credential.is_some() && input.agent != Agent::Devin {
-                        blockers.push(
-                            "A website-login credential is attached but this provider is not Devin; injection is refused. Clear the credential or switch back.".into(),
-                        );
-                    } else if let Some(credential) = &input.credential {
-                        if credential.expired() {
-                            blockers.push(
-                                "The session credential from the provider website login has expired; Connect again before launching. No launch was prepared.".into(),
-                            );
-                        } else {
-                            lines.push(format!(
-                                "Session credential: Eevee injects {} into the launched provider process only (memory-held website credential; it takes precedence over the provider CLI's stored credentials and is never persisted or printed).{}",
-                                credential.env,
-                                credential
-                                    .expires_at
-                                    .map(|at| format!(" Token expires ~unix {at}."))
-                                    .unwrap_or_default()
-                            ));
-                        }
-                    }
                     let preview = Preview {
                         transport: None,
-                        comparison_scope: trust.comparison_scope(
-                            input
-                                .credential
-                                .as_ref()
-                                .map(|credential| credential.token()),
-                        ),
+                        comparison_scope: trust.comparison_scope(),
                         arrival: super::approval_arrival(),
                         destination: None,
                         requires_connection_review: true,
@@ -361,7 +334,7 @@ fn payload(
 ) -> Result<String, String> {
     input.validate_selection()?;
     if std::path::Path::new(&input.task.project) != workspace.project.as_path()
-        || !matches!(input.agent, Agent::OpenCode | Agent::Gemini | Agent::Devin)
+        || !matches!(input.agent, Agent::OpenCode | Agent::Gemini)
         || (!input.inspect_models
             && input.operation == Operation::Plan
             && !input.edit_paths.is_empty())
@@ -1221,17 +1194,7 @@ fn transport(
         if stop.load(Ordering::Acquire) || cancelled.load(Ordering::Acquire) == run.generation {
             return Err("Cancelled before ACP launch".into());
         }
-        let env: Vec<(String, String)> = if run.input.agent == Agent::Devin {
-            run.input
-                .credential
-                .iter()
-                .filter(|credential| !credential.expired())
-                .map(|credential| (credential.env.to_string(), credential.token().to_string()))
-                .collect()
-        } else {
-            Vec::new()
-        };
-        crate::workspace::runner::native::Process::spawn_piped_env(&prepared, &env)
+        crate::workspace::runner::native::Process::spawn_piped(&prepared)
             .map_err(|_| "Trusted ACP peer failed to launch; OS details withheld".to_owned())
     })();
     let process = match setup {

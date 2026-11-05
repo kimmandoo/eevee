@@ -26,7 +26,7 @@ fn result(code: i32) -> Value {
 
 #[test]
 fn implement_and_exact_session_are_required_independent_of_agent_profile() {
-    for agent in [Agent::OpenCode, Agent::Gemini, Agent::Devin] {
+    for agent in [Agent::OpenCode, Agent::Gemini] {
         for operation in [Operation::Plan, Operation::Review, Operation::Implement] {
             let mut input = crate::providers::tests::claimed(
                 agent,

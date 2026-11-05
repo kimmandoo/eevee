@@ -870,14 +870,13 @@ fn authentication_change_revokes_idle_sessions_even_while_claims_and_journals_se
     );
     state.items.push(message());
     state.catalogues.insert(Agent::Codex, catalogue());
-    state.set_devin_credential(Some(crate::providers::auth::test_credential("old-account")));
     state.reviewed = true;
     state.affirmative = true;
     assert!(state.busy());
     state.invalidate_authentication();
     assert!(state.thread_id.is_none() && state.sessions.is_empty() && state.items.is_empty());
     assert!(!state.has_resumable_sessions());
-    assert!(state.catalogues.is_empty() && state.devin_credential.is_none());
+    assert!(state.catalogues.is_empty());
     assert!(!state.reviewed && !state.affirmative && !state.transport_pending());
     assert_eq!(state.work.as_ref(), Some(&claim));
     assert!(state.work_acquired);
@@ -906,51 +905,11 @@ fn authentication_change_revokes_idle_sessions_even_while_claims_and_journals_se
 }
 
 #[test]
-fn parked_and_new_partner_states_only_inherit_current_future_credentials() {
-    let mut front = State::new();
-    front.reset(7);
-    front.agent = Agent::Devin;
-    front.catalogues.insert(Agent::Devin, catalogue());
-    front.set_devin_credential(Some(crate::providers::auth::test_credential("account-one")));
-    let mut parked = front.new_partner(partner(2, "Mizu", 1), 7);
-    front.thread_id = Some("front-old-account".into());
-    parked.thread_id = Some("parked-old-account".into());
-    for state in [&mut front, &mut parked] {
-        state.invalidate_authentication();
-        assert!(state.devin_credential.is_none());
-        assert!(state.catalogues.is_empty() && !state.has_resumable_sessions());
-        state.set_devin_credential(Some(crate::providers::auth::test_credential("account-two")));
-        assert!(state.pending.is_none());
-    }
-    let mut newcomer = parked.new_partner(partner(3, "Leaf", 6), 7);
-    assert_eq!(
-        newcomer.devin_credential.as_ref().unwrap().token(),
-        "account-two"
-    );
-    assert!(newcomer.catalogues.is_empty() && !newcomer.has_resumable_sessions());
-    command(&mut newcomer, "new", true);
-    let Some(Request::Preview(input)) = newcomer.pending.take() else {
-        panic!("A deliberate new request must use the replacement credential.");
-    };
-    assert_eq!(input.credential.as_ref().unwrap().token(), "account-two");
-    for state in [&mut front, &mut parked, &mut newcomer] {
-        state.set_devin_credential(None);
-        assert!(state.devin_credential.is_none());
-    }
-    let fresh = front.new_partner(partner(4, "Snow", 7), 7);
-    assert!(fresh.devin_credential.is_none() && fresh.pending.is_none());
-    assert_eq!(input.credential.as_ref().unwrap().token(), "account-two");
-}
-
-#[test]
-fn credential_changes_preserve_held_input_and_authentication_cancel_settles_exact_claim() {
+fn authentication_cancel_preserves_held_input_and_settles_exact_claim() {
     let owner = partner(1, "Bolt", 2);
     let mut state = State::new().new_partner(owner.clone(), 7);
-    state.agent = Agent::Devin;
+    state.agent = Agent::OpenCode;
     state.thread_id = Some("old-account-thread".into());
-    state.set_devin_credential(Some(crate::providers::auth::test_credential(
-        "held-account",
-    )));
     command(&mut state, "resume", true);
     let claim = store::WorkClaim {
         task_id: 7,
@@ -961,23 +920,9 @@ fn credential_changes_preserve_held_input_and_authentication_cancel_settles_exac
     state.stage_work(claim.clone());
     let held_address = state.held_input.as_deref().unwrap() as *const crate::providers::Input;
     let task_bytes = serde_json::to_vec(&state.held_input.as_ref().unwrap().task).unwrap();
-    for credential in [
-        Some(crate::providers::auth::test_credential(
-            "replacement-account",
-        )),
-        None,
-    ] {
-        state.set_devin_credential(credential);
-        let held = state.held_input.as_deref().unwrap();
-        assert_eq!(held as *const _, held_address);
-        assert_eq!(held.credential.as_ref().unwrap().token(), "held-account");
-        assert_eq!(held.resume.as_deref(), Some("old-account-thread"));
-        assert_eq!(serde_json::to_vec(&held.task).unwrap(), task_bytes);
-    }
     state.invalidate_authentication();
     let held = state.held_input.as_deref().unwrap();
     assert_eq!(held as *const _, held_address);
-    assert_eq!(held.credential.as_ref().unwrap().token(), "held-account");
     assert_eq!(held.resume.as_deref(), Some("old-account-thread"));
     assert_eq!(serde_json::to_vec(&held.task).unwrap(), task_bytes);
     assert!(state.claim_cancelled && state.pending.is_none());
@@ -1068,11 +1013,8 @@ fn active_account_change_preserves_submitted_bytes_and_revokes_every_terminal_se
     ] {
         let mut state = State::new();
         state.reset(7);
-        state.agent = Agent::Devin;
+        state.agent = Agent::OpenCode;
         state.thread_id = Some("submitted-old-account".into());
-        state.set_devin_credential(Some(crate::providers::auth::test_credential(
-            "submitted-account",
-        )));
         command(&mut state, "resume", true);
         let Some(Request::Preview(input)) = state.pending.take() else {
             panic!("The submitted transport must own an immutable input.");
@@ -1108,17 +1050,10 @@ fn active_account_change_preserves_submitted_bytes_and_revokes_every_terminal_se
             },
         );
         state.invalidate_authentication();
-        state.set_devin_credential(Some(crate::providers::auth::test_credential(
-            "future-account",
-        )));
         assert!(state.active && !state.cancelling && state.pending.is_none());
         assert_eq!(state.generation, Some(11));
         assert_eq!(state.thread_id.as_deref(), Some("submitted-old-account"));
         assert!(state.sessions.is_empty() && !state.has_resumable_sessions());
-        assert_eq!(
-            input.credential.as_ref().unwrap().token(),
-            "submitted-account"
-        );
         assert_eq!(input.resume.as_deref(), Some("submitted-old-account"));
         assert_eq!(serde_json::to_vec(&input.task).unwrap(), task_bytes);
         assert_eq!(
@@ -1159,10 +1094,6 @@ fn active_account_change_preserves_submitted_bytes_and_revokes_every_terminal_se
             serde_json::to_vec(state.committed_input.as_deref().unwrap()).unwrap(),
             task_bytes
         );
-        assert_eq!(
-            input.credential.as_ref().unwrap().token(),
-            "submitted-account"
-        );
         state.event(Event::Thread {
             generation: 11,
             task_id: 7,
@@ -1188,10 +1119,6 @@ fn active_account_change_preserves_submitted_bytes_and_revokes_every_terminal_se
             panic!("Only a deliberate fresh request can use the replacement credential.");
         };
         assert!(future.resume.is_none());
-        assert_eq!(
-            future.credential.as_ref().unwrap().token(),
-            "future-account"
-        );
     }
 }
 

@@ -192,9 +192,7 @@ impl App {
         {
             match self.agents.cached_readiness(pairing.agent.index()) {
                 super::agents::Readiness::Configured => Route::Configured,
-                super::agents::Readiness::SignedIn | super::agents::Readiness::Session => {
-                    Route::Observed
-                }
+                super::agents::Readiness::SignedIn => Route::Observed,
                 super::agents::Readiness::Setup
                 | super::agents::Readiness::MissingCli
                 | super::agents::Readiness::Blocked

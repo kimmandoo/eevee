@@ -152,7 +152,7 @@ fn advertisements_are_exact_native_function_declarations() {
         assert_eq!(body["policy"], "immutable");
         let declaration = match protocol {
             Protocol::Responses | Protocol::Codex | Protocol::Messages => &body["tools"][0],
-            Protocol::ChatCompletions => &body["tools"][0]["function"],
+            Protocol::ChatCompletions | Protocol::Devin => &body["tools"][0]["function"],
             Protocol::Gemini => &body["tools"][0]["functionDeclarations"][0],
         };
         assert_eq!(declaration["name"], TOOL_NAME);
@@ -462,7 +462,7 @@ fn every_dialect_retains_schema_refusals_for_correlated_zero_effect_results() {
         let mut calls = Calls::new(protocol);
         match protocol {
             Protocol::Responses | Protocol::Codex => completed(&mut calls, vec![response_call("one", &args("src/new.rs", "valid")), response_call("two", "{\"path\":\"src/new.rs\"}")]).unwrap(),
-            Protocol::ChatCompletions => {
+            Protocol::ChatCompletions | Protocol::Devin => {
                 chat_fragment(&mut calls, json!([
                     {"index":0,"id":"one","type":"function","function":{"name":TOOL_NAME,"arguments":args("src/new.rs","valid")}},
                     {"index":1,"id":"two","type":"function","function":{"name":TOOL_NAME,"arguments":"{\"path\":\"src/new.rs\"}"}}
@@ -1036,7 +1036,7 @@ fn mixed_file_tool_identities_survive_every_protocol_continuation() {
             Protocol::Responses | Protocol::Codex => completed(&mut calls, typed.iter().enumerate().map(|(index,(name,args,_))| {
                 json!({"type":"function_call","call_id":format!("call-{index}"),"name":name,"arguments":args.to_string(),"status":"completed"})
             }).collect()).unwrap(),
-            Protocol::ChatCompletions => {
+            Protocol::ChatCompletions | Protocol::Devin => {
                 chat_fragment(&mut calls, Value::Array(typed.iter().enumerate().map(|(index,(name,args,_))| {
                     json!({"index":index,"id":format!("call-{index}"),"type":"function","function":{"name":name,"arguments":args.to_string()}})
                 }).collect()), None).unwrap();
@@ -1092,7 +1092,7 @@ fn mixed_file_tool_identities_survive_every_protocol_continuation() {
                     assert_eq!(&result, expected);
                 }
             }
-            Protocol::ChatCompletions => {
+            Protocol::ChatCompletions | Protocol::Devin => {
                 for (index, expected) in results.iter().enumerate() {
                     assert_eq!(
                         body["messages"][index + 1]["tool_call_id"],

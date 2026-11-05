@@ -1,5 +1,12 @@
 # Troubleshooting
 
+### [2026-11-06] macOS system Python could not run the repository acceptance tools
+
+- **Context / Symptom:** `python3 -m unittest discover -s scripts -p 'test_*.py'` used Xcode Python3.9. Release tests failed with `ModuleNotFoundError: No module named 'tomllib'`; scheduler tests saw empty result lists because the acceptance runner rejected the unsupported interpreter. Homebrew Python3.12 passed the26-test discovery (22 passed/four Windows-only skips), but initially lacked `pyte`.
+- **Root Cause:** The repository acceptance tooling requires Python3.11+; the system `python3` resolved to3.9, while terminal parser dependencies were installed only for that older interpreter.
+- **Solution:** Used `/opt/homebrew/bin/python3.12`; created the isolated ignored `target/devin-proof-venv` and installed `pyte==0.8.2 wcwidth==0.2.13` there. Compileall and unittest discovery passed in that environment. The exact built application then passed both-size native Devin coding and Devin/OpenAI OAuth callback/input/cancellation journeys under `target/devin-proof/`.
+- **Prevention / Reference:** Check the interpreter explicitly before acceptance. Use `target/devin-proof-venv/bin/python scripts/devin_smoke.py --binary target/debug/ev --output <new-output>` and `scripts/native_oauth_input_smoke.py --route devin` with the same interpreter. Do not modify the system Python, user credentials or global packages to bypass the prerequisite.
+
 ### [2026-11-04] Public verification confused platform text representation with changed release data
 
 - **Context / Symptom:** The disposable public-package verifier rejected the Windows archive's license, although all eight downloaded asset digests/sizes and seven manifest rows matched. The genuine0.1.49→0.1.50 update then succeeded, but a draft-display wait missed visually correct `界é` because the saved draft used decomposed`e`+combining acute.

@@ -17,11 +17,12 @@ mod posix;
 mod windows;
 
 pub(crate) use owned::{
-    ForgetPlan, PERSIST_BY_DEFAULT, Setup, apply_openai_login, apply_setup, forget_connection,
-    load_cli_credential, prepare_forget, setup,
+    ForgetPlan, PERSIST_BY_DEFAULT, Setup, apply_devin_login, apply_openai_login, apply_setup,
+    forget_connection, load_cli_credential, prepare_forget, setup,
 };
 
 const CODEX_BASE: &str = "https://chatgpt.com/backend-api/codex";
+const DEVIN_BASE: &str = "https://server.codeium.com";
 const FILE_LIMIT: u64 = 128 * 1024;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -31,6 +32,7 @@ pub(super) enum Protocol {
     Messages,
     Gemini,
     ChatCompletions,
+    Devin,
 }
 
 pub(super) struct Connection {
@@ -52,6 +54,10 @@ impl std::fmt::Debug for Connection {
 }
 
 impl Connection {
+    pub fn secret(&self) -> Option<&str> {
+        self.secret.as_deref()
+    }
+
     pub fn native_wire(
         &self,
         choice: crate::providers::NativeTransport,
@@ -170,6 +176,7 @@ impl Connection {
             request = match self.protocol {
                 Protocol::Messages => request.header("x-api-key", private_header(secret)),
                 Protocol::Gemini => request.header("x-goog-api-key", private_header(secret)),
+                Protocol::Devin => request,
                 _ => request.bearer_auth(secret),
             };
         }
@@ -276,6 +283,12 @@ impl Connection {
     }
 
     pub fn models_url(&self) -> String {
+        if self.protocol == Protocol::Devin {
+            return format!(
+                "{}/exa.api_server_pb.ApiServerService/GetCliModelConfigs",
+                self.base_url
+            );
+        }
         if self.protocol == Protocol::Codex {
             format!("{}/models?client_version=0.162.1", self.base_url)
         } else {
@@ -288,6 +301,7 @@ impl Connection {
             Protocol::Codex | Protocol::Responses => "responses".into(),
             Protocol::Messages => "messages".into(),
             Protocol::ChatCompletions => "chat/completions".into(),
+            Protocol::Devin => "exa.api_server_pb.ApiServerService/GetChatMessage".into(),
             Protocol::Gemini => format!(
                 "models/{}:streamGenerateContent?alt=sse",
                 path_segment(model.strip_prefix("models/").unwrap_or(model))
@@ -297,6 +311,16 @@ impl Connection {
     }
 
     fn scopes(&self, url: &str) -> bool {
+        if self.protocol == Protocol::Devin {
+            return [
+                "exa.api_server_pb.ApiServerService/GetCliModelConfigs",
+                "exa.api_server_pb.ApiServerService/GetChatMessage",
+                "exa.auth_pb.AuthService/GetUserJwt",
+                "exa.api_server_pb.ApiServerService/AssignModel",
+            ]
+            .iter()
+            .any(|path| url == format!("{}/{path}", self.base_url));
+        }
         if url == self.models_url() {
             return true;
         }
@@ -313,6 +337,7 @@ impl Connection {
                 Protocol::Codex => &["client_version", "cursor"],
                 Protocol::Messages => &["after_id", "limit"],
                 Protocol::Gemini => &["pageToken", "pageSize"],
+                Protocol::Devin => &[],
                 Protocol::Responses | Protocol::ChatCompletions => &["after", "limit", "cursor"],
             };
             return candidate
@@ -466,6 +491,18 @@ fn settings<F: Fn(&str) -> Option<String>>(
             keyless: false,
         });
     }
+    if provider == Agent::Devin {
+        let model = (input.get)("DEVIN_MODEL");
+        owned::validate_model(model.as_deref())?;
+        return Ok(Settings {
+            protocol: Protocol::Devin,
+            base_url: DEVIN_BASE.into(),
+            model,
+            effort: None,
+            key_env: Some("DEVIN_API_KEY".into()),
+            keyless: false,
+        });
+    }
     let file = load_file(input)?;
     let entry = selected_entry(&file, provider);
     let (prefix, default_base, default_key, protocol) = match provider {
@@ -581,7 +618,7 @@ fn valid_env_name(value: &str) -> bool {
 
 /// A deliberately narrow URL grammar avoids parser disagreement, encoded authority
 /// tricks, network-path references, and credentials hidden in a query or userinfo.
-fn validate_base(value: &str) -> Result<String, String> {
+pub(super) fn validate_base(value: &str) -> Result<String, String> {
     let error = || {
         "API base URL must be HTTPS, or HTTP on a numeric loopback/localhost address, with no credentials, query, fragment, escapes or traversal.".to_string()
     };
@@ -947,6 +984,17 @@ fn resolve_with<F: Fn(&str) -> Option<String>>(
             key_name = "GOOGLE_API_KEY";
             key = (input.get)(key_name);
         }
+        if key.is_none() && provider == Agent::Devin {
+            key_name = "WINDSURF_API_KEY";
+            key = (input.get)(key_name);
+        }
+        if provider == Agent::Devin {
+            key = key
+                .map(|value| {
+                    crate::providers::auth::devin_api_key(&value, input.now).map(|(key, _)| key)
+                })
+                .transpose()?;
+        }
         if provider == Agent::Anthropic
             && key
                 .as_deref()
@@ -1087,6 +1135,7 @@ fn preferred_with(choice: Option<&str>, configured: impl Fn(Agent) -> bool) -> A
         Agent::Anthropic,
         Agent::Google,
         Agent::Compatible,
+        Agent::Devin,
     ]
     .into_iter()
     .find(|provider| configured(*provider))
@@ -1136,10 +1185,14 @@ pub(crate) fn configured(provider: Agent) -> bool {
         || provider == Agent::Google
             && settings.key_env.as_deref() == Some("GEMINI_API_KEY")
             && environment_exists("GOOGLE_API_KEY")
+        || provider == Agent::Devin && environment_exists("WINDSURF_API_KEY")
 }
 
 pub(crate) fn guidance(provider: Agent) -> String {
     let guidance = match provider {
+        Agent::Devin => {
+            "Sign in directly with Devin browser OAuth (or paste the matching callback), or enter an explicit API key. No installed CLI or provider-owned credential store is required. DEVIN_API_KEY or WINDSURF_API_KEY is an explicit environment alternative; bare JWTs receive the native session prefix and legacy sk-ws- keys remain unchanged. The default native Connect endpoint is https://server.codeium.com. Private-save/session-only and Forget apply only to the app-owned Devin connection. Expired grants require explicit reconnect; no CLI import, refresh or alternate-key fallback."
+        }
         Agent::ChatGPT => {
             "Sign in directly with an OpenAI account using browser or callback-free device authorization; no CLI is required. This uses the fixed subscription endpoint, not separately billed API keys. Private local save is the default so the login survives restarts and updates; choose session-only to keep it in memory. Access grants expire and require reconnect. Advanced: supply a subscription token, CODEX_ACCESS_TOKEN (+ optional matching CODEX_ACCOUNT_ID), or explicitly import a read-only CODEX_HOME/auth.json snapshot. Keychain-only/API-key-only CLI login cannot be imported. Provider stores are never modified."
         }
@@ -1227,6 +1280,71 @@ pub(crate) fn profile(provider: Agent) -> agent::Profile {
 mod tests {
     use super::*;
     use std::collections::HashMap;
+
+    #[test]
+    fn devin_environment_resolution_is_explicit_native_private_and_nonfallback() {
+        let legacy = resolve_with(
+            Agent::Devin,
+            &input(&[
+                ("DEVIN_API_KEY", "sk-ws-primary-private-key"),
+                ("WINDSURF_API_KEY", "sk-ws-secondary-private-key"),
+                ("DEVIN_MODEL", "fixture-model"),
+            ]),
+        )
+        .unwrap();
+        assert_eq!(legacy.protocol, Protocol::Devin);
+        assert_eq!(legacy.base_url, DEVIN_BASE);
+        assert_eq!(legacy.secret(), Some("sk-ws-primary-private-key"));
+        assert!(!legacy.description.contains("private-key"));
+        assert!(!format!("{legacy:?}").contains("private-key"));
+        let alternative = resolve_with(
+            Agent::Devin,
+            &input(&[("WINDSURF_API_KEY", "sk-ws-secondary-private-key")]),
+        )
+        .unwrap();
+        assert_eq!(alternative.secret(), Some("sk-ws-secondary-private-key"));
+        let expired = jwt(serde_json::json!({"exp":1}));
+        assert!(
+            resolve_with(
+                Agent::Devin,
+                &input(&[
+                    ("DEVIN_API_KEY", &expired),
+                    ("WINDSURF_API_KEY", "sk-ws-secondary-private-key"),
+                ])
+            )
+            .unwrap_err()
+            .contains("expired")
+        );
+        let http = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .unwrap();
+        for url in [
+            legacy.models_url(),
+            legacy.inference_url("fixture-model"),
+            format!("{DEVIN_BASE}/exa.auth_pb.AuthService/GetUserJwt"),
+            format!("{DEVIN_BASE}/exa.api_server_pb.ApiServerService/AssignModel"),
+        ] {
+            assert!(legacy.scopes(&url));
+            let request = legacy.request(&http, "POST", &url).build().unwrap();
+            assert!(!request.headers().contains_key("authorization"));
+        }
+        for url in [
+            "https://evil.invalid/exa.api_server_pb.ApiServerService/GetChatMessage",
+            "https://server.codeium.com/exa.api_server_pb.ApiServerService/GetChatMessage?redirect=evil",
+            "https://server.codeium.com/other",
+        ] {
+            assert!(!legacy.scopes(url));
+            let request = legacy.request(&http, "POST", url).build().unwrap();
+            assert!(!request.headers().contains_key("authorization"));
+        }
+        assert!(
+            legacy
+                .native_wire(crate::providers::NativeTransport::WebSocket)
+                .is_err()
+        );
+        assert!(resolve_with(Agent::Devin, &input(&[])).is_err());
+    }
 
     #[test]
     fn screenshot_qualification_uses_ordinary_config_exact_models_and_protocols() {

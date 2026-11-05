@@ -33,7 +33,6 @@ fn input() -> Input {
         inspect_models: true,
         selection: ModelSelection::default(),
         conversation: None,
-        credential: None,
     }
 }
 fn workspace() -> Workspace {
@@ -351,7 +350,7 @@ fn exact_protocol_bodies_preserve_custom_model_and_do_not_grant_tools() {
             Protocol::Codex | Protocol::Responses => {
                 assert_eq!(body["input"][0]["content"][0]["text"], "Reviewed text")
             }
-            Protocol::ChatCompletions => {
+            Protocol::ChatCompletions | Protocol::Devin => {
                 assert_eq!(body["messages"][0]["role"], "system");
                 assert_eq!(body["messages"][0]["content"], "Policy");
                 assert_eq!(body["messages"][1]["content"], "Reviewed text");
@@ -423,7 +422,7 @@ fn catalogues_keep_unadvertised_configured_ids_as_unknown_not_advertised_models(
                 json!({"models":[{"slug":"older-model"},{"slug":"future-model","description":null}]}),
             ],
             Protocol::Responses => vec![json!([{"id":"older-model"},{"id":"future-model"}])],
-            Protocol::ChatCompletions => {
+            Protocol::ChatCompletions | Protocol::Devin => {
                 vec![json!({"data":[{"id":"older-model"},{"id":"future-model"}]})]
             }
         });
@@ -996,7 +995,9 @@ fn set_request(task: &mut crate::store::Snapshot, text: &str) {
 fn role_texts(body: &Value, protocol: Protocol) -> Vec<(String, String)> {
     let rows = match protocol {
         Protocol::Codex | Protocol::Responses => body["input"].as_array().unwrap(),
-        Protocol::ChatCompletions | Protocol::Messages => body["messages"].as_array().unwrap(),
+        Protocol::ChatCompletions | Protocol::Devin | Protocol::Messages => {
+            body["messages"].as_array().unwrap()
+        }
         Protocol::Gemini => body["contents"].as_array().unwrap(),
     };
     rows.iter()
@@ -1106,7 +1107,9 @@ fn committed_native_followups_preserve_raw_roles_and_separate_current_untrusted_
             assert_eq!(role_texts(&body, protocol), expected);
             let policy = match protocol {
                 Protocol::Codex | Protocol::Responses => body["instructions"].as_str().unwrap(),
-                Protocol::ChatCompletions => body["messages"][0]["content"].as_str().unwrap(),
+                Protocol::ChatCompletions | Protocol::Devin => {
+                    body["messages"][0]["content"].as_str().unwrap()
+                }
                 Protocol::Messages => body["system"].as_str().unwrap(),
                 Protocol::Gemini => body["systemInstruction"]["parts"][0]["text"]
                     .as_str()

@@ -147,13 +147,12 @@ fn official_grouped_select_fixture_is_flattened_without_guessing_or_duplicate_va
 }
 
 #[test]
-fn empty_devin_selector_does_not_invent_model_options_or_reasoning_controls() {
-    // Verbatim sanitized selector from real isolated Devin 3000.11.3 session/new.
-    let fixture = json!({"configOptions":[{"id":"model","name":"Model","description":"AI model to use","category":"model","type":"select","currentValue":"swe-1-6-fast","options":[]}]});
+fn empty_selector_does_not_invent_model_options_or_reasoning_controls() {
+    let fixture = json!({"configOptions":[{"id":"model","name":"Model","category":"model","type":"select","currentValue":"selected-model","options":[]}]});
     let state = Models::parse(&fixture).unwrap();
-    let catalogue = state.catalogue(Agent::Devin).unwrap();
+    let catalogue = state.catalogue(Agent::OpenCode).unwrap();
     assert!(catalogue.models.is_empty());
-    assert_eq!(catalogue.current.as_deref(), Some("swe-1-6-fast"));
+    assert_eq!(catalogue.current.as_deref(), Some("selected-model"));
     assert!(catalogue.effort_note.is_none());
     assert!(
         state
@@ -432,7 +431,7 @@ fn managed_review_is_refused_before_loading_or_dispatching_an_acp_session() {
         data_dir: PathBuf::from("unopened-storage"),
         exclusions: Vec::new(),
     };
-    for agent in [Agent::OpenCode, Agent::Gemini, Agent::Devin] {
+    for agent in [Agent::OpenCode, Agent::Gemini] {
         let input = Input {
             native_transport: crate::providers::NativeTransport::Auto,
             behavior_profile: None,
@@ -460,7 +459,6 @@ fn managed_review_is_refused_before_loading_or_dispatching_an_acp_session() {
             inspect_models: false,
             selection: ModelSelection::default(),
             conversation: None,
-            credential: None,
         };
         assert!(
             payload(&workspace, &input, None)
@@ -477,7 +475,7 @@ fn model_metadata_needs_no_saved_task_or_managed_role_and_retains_identity_check
         data_dir: PathBuf::from("unopened-storage"),
         exclusions: Vec::new(),
     };
-    for agent in [Agent::OpenCode, Agent::Gemini, Agent::Devin] {
+    for agent in [Agent::OpenCode, Agent::Gemini] {
         for operation in [Operation::Plan, Operation::Implement, Operation::Review] {
             let mut input = Input {
                 native_transport: crate::providers::NativeTransport::Auto,
@@ -506,7 +504,6 @@ fn model_metadata_needs_no_saved_task_or_managed_role_and_retains_identity_check
                 inspect_models: true,
                 selection: ModelSelection::default(),
                 conversation: None,
-                credential: None,
             };
             input.task.goal = "private-goal-canary".into();
             input.task.archived = true;

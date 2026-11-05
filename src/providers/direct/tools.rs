@@ -55,7 +55,7 @@ pub(super) fn advertise_selected(
             entry["strict"] = json!(!entry["name"].as_str().is_some_and(|name| name.starts_with("mcp__")));
             entry
         }).collect()),
-        Protocol::ChatCompletions => Value::Array(declarations.into_iter().map(|mut entry| {
+        Protocol::ChatCompletions | Protocol::Devin => Value::Array(declarations.into_iter().map(|mut entry| {
             entry["strict"] = json!(!entry["name"].as_str().is_some_and(|name| name.starts_with("mcp__")));
             json!({"type":"function","function":entry})
         }).collect()),
@@ -198,6 +198,9 @@ pub(super) struct Calls {
     text: String,
     // Request-local reasoning some Chat Completions services require in tool continuations.
     reasoning: String,
+    devin_signature: String,
+    devin_signature_type: String,
+    devin_gemini_signature: String,
     blocks: BTreeMap<usize, Block>,
     parts: Vec<Value>,
     terminal: bool,
@@ -217,6 +220,9 @@ impl Calls {
             chat: BTreeMap::new(),
             text: String::new(),
             reasoning: String::new(),
+            devin_signature: String::new(),
+            devin_signature_type: String::new(),
+            devin_gemini_signature: String::new(),
             blocks: BTreeMap::new(),
             parts: Vec::new(),
             terminal: false,
@@ -257,7 +263,7 @@ impl Calls {
     pub(super) fn observe(&mut self, kind: &str, value: &Value) -> Result<(), String> {
         match self.protocol {
             Protocol::Responses | Protocol::Codex => self.responses_event(kind, value)?,
-            Protocol::ChatCompletions => self.chat_event(value)?,
+            Protocol::ChatCompletions | Protocol::Devin => self.chat_event(value)?,
             Protocol::Messages => self.messages_event(kind, value)?,
             Protocol::Gemini => self.gemini_event(value)?,
         }
@@ -285,7 +291,7 @@ impl Calls {
                         .collect()
                 },
             ),
-            Protocol::ChatCompletions => self.chat.keys().copied().collect(),
+            Protocol::ChatCompletions | Protocol::Devin => self.chat.keys().copied().collect(),
             Protocol::Messages => self
                 .blocks
                 .iter()
@@ -370,7 +376,7 @@ impl Calls {
                     }
                 }
             }
-            Protocol::ChatCompletions => {
+            Protocol::ChatCompletions | Protocol::Devin => {
                 for (index, call) in &self.chat {
                     preview(previews, *index, &call.name, &call.arguments, self.terminal);
                 }
@@ -571,6 +577,37 @@ impl Calls {
                     let reasoning = reasoning.as_str().ok_or("Invalid assistant reasoning")?;
                     self.charge(reasoning.len())?;
                     append(&mut self.reasoning, reasoning, BODY_LIMIT)?;
+                }
+                if self.protocol == Protocol::Devin
+                    && let Some(signature) = delta.get("devin_signature").and_then(Value::as_str)
+                {
+                    self.charge(signature.len())?;
+                    append(&mut self.devin_signature, signature, BODY_LIMIT)?;
+                }
+                if self.protocol == Protocol::Devin {
+                    for key in ["devin_signature_type", "devin_gemini_signature"] {
+                        if let Some(value) = delta
+                            .get(key)
+                            .and_then(Value::as_str)
+                            .filter(|value| !value.is_empty())
+                        {
+                            self.charge(value.len())?;
+                            let target = if key == "devin_signature_type" {
+                                &mut self.devin_signature_type
+                            } else {
+                                &mut self.devin_gemini_signature
+                            };
+                            if !target.is_empty() && target.as_str() != value {
+                                return Err(
+                                    "Devin reasoning signature metadata changed within round"
+                                        .into(),
+                                );
+                            }
+                            if target.is_empty() {
+                                target.push_str(value);
+                            }
+                        }
+                    }
                 }
                 if let Some(calls) = delta.get("tool_calls").filter(|v| !v.is_null()) {
                     let calls = calls.as_array().ok_or("Invalid chat tool calls")?;
@@ -970,7 +1007,7 @@ impl Calls {
                     return Err("Missing authoritative Responses output".into());
                 }
             }
-            Protocol::ChatCompletions => {
+            Protocol::ChatCompletions | Protocol::Devin => {
                 contiguous(self.chat.keys().copied())?;
                 for (index, call) in &self.chat {
                     push_call(
@@ -978,7 +1015,7 @@ impl Calls {
                         &mut calls,
                         Some(&chat_id(*index, call)),
                         &call.name,
-                        decode(&call.arguments, true)?,
+                        decode(&call.arguments, self.protocol != Protocol::Devin)?,
                     )?;
                 }
             }
@@ -1097,7 +1134,7 @@ impl Calls {
                 }
                 "input"
             }
-            Protocol::ChatCompletions => {
+            Protocol::ChatCompletions | Protocol::Devin => {
                 let tool_calls: Vec<_> = self.chat.iter().map(|(index, call)| {
                     let mut value = json!({"id":chat_id(*index, call),"type":"function","function":{"name":call.name,"arguments":call.arguments}});
                     if let Some(extra) = &call.extra_content {
@@ -1114,6 +1151,17 @@ impl Calls {
                 }
                 if !self.reasoning.is_empty() {
                     assistant["reasoning_content"] = Value::String(self.reasoning.clone());
+                }
+                if self.protocol == Protocol::Devin && !self.devin_signature.is_empty() {
+                    assistant["devin_signature"] = Value::String(self.devin_signature.clone());
+                }
+                if self.protocol == Protocol::Devin {
+                    if !self.devin_signature_type.is_empty() {
+                        assistant["devin_signature_type"] = json!(self.devin_signature_type);
+                    }
+                    if !self.devin_gemini_signature.is_empty() {
+                        assistant["devin_gemini_signature"] = json!(self.devin_gemini_signature);
+                    }
                 }
                 additions.push(assistant);
                 for (call, result) in calls.iter().zip(results) {
@@ -1171,7 +1219,7 @@ impl Calls {
             additions.push(match self.protocol {
                 Protocol::Responses | Protocol::Codex =>
                     json!({"type":"message","role":"user","content":[{"type":"input_text","text":text}]}),
-                Protocol::ChatCompletions => json!({"role":"user","content":text}),
+                Protocol::ChatCompletions | Protocol::Devin => json!({"role":"user","content":text}),
                 Protocol::Messages => json!({"role":"user","content":[{"type":"text","text":text}]}),
                 Protocol::Gemini => json!({"role":"user","parts":[{"text":text}]}),
             });
@@ -1221,7 +1269,7 @@ pub(super) fn append_steering(
     }
     let (field, merge) = match protocol {
         Protocol::Responses | Protocol::Codex => ("input", None),
-        Protocol::ChatCompletions => ("messages", None),
+        Protocol::ChatCompletions | Protocol::Devin => ("messages", None),
         // Tool results already form the last user turn; add text blocks to it.
         Protocol::Messages => ("messages", Some("content")),
         Protocol::Gemini => ("contents", Some("parts")),
@@ -1246,7 +1294,7 @@ pub(super) fn append_steering(
     }
     for text in texts {
         array.push(match protocol {
-            Protocol::ChatCompletions => json!({"role":"user","content":text}),
+            Protocol::ChatCompletions | Protocol::Devin => json!({"role":"user","content":text}),
             _ => json!({"type":"message","role":"user","content":[{"type":"input_text","text":text}]}),
         });
     }

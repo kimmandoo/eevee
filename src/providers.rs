@@ -35,7 +35,7 @@ pub(crate) fn project_context(scope: &writes::WriteSet, agent: Agent) -> Project
             Agent::Claude => {
                 "Use mcp__eevee_source__discover for bounded safe host discovery and Read for admitted files. Native Glob/Grep subtree guards still apply; do not bypass a refusal. Filenames are not source contents."
             }
-            Agent::OpenCode | Agent::Gemini | Agent::Devin => {
+            Agent::OpenCode | Agent::Gemini => {
                 "Use client fs/read_text_file with an absolute path formed under this root to inspect listed files. ACP has no client filename-list callback; this bounded observation may be incomplete. Do not invent missing filenames or claim exhaustive discovery. Provider-owned tools remain external policy, not client confinement."
             }
             _ => {
@@ -84,7 +84,7 @@ impl Agent {
             Self::Claude => "Claude Agent",
             Self::OpenCode => "OpenCode ACP",
             Self::Gemini => "Gemini ACP",
-            Self::Devin => "Devin ACP",
+            Self::Devin => "Devin · account / API",
             Self::ChatGPT => "OpenAI · account",
             Self::OpenAI => "OpenAI · API",
             Self::Anthropic => "Anthropic API",
@@ -122,7 +122,12 @@ impl Agent {
     pub fn is_direct(self) -> bool {
         matches!(
             self,
-            Self::ChatGPT | Self::OpenAI | Self::Anthropic | Self::Google | Self::Compatible
+            Self::Devin
+                | Self::ChatGPT
+                | Self::OpenAI
+                | Self::Anthropic
+                | Self::Google
+                | Self::Compatible
         )
     }
 }
@@ -306,9 +311,6 @@ pub struct Input {
     pub prior_plan: Option<Arc<NativeConversation>>,
     /// Bounded completed public Codex request/answer context, never opaque sessions.
     pub public_context: Option<Arc<NativeConversation>>,
-    /// Eevee-owned website login result, injected into the launched provider
-    /// process environment at Run time. Memory only; never serialized or logged.
-    pub credential: Option<crate::providers::auth::SessionCredential>,
 }
 
 /// Advanced native requests may target saved task facts without a Request draft.
@@ -796,7 +798,7 @@ impl Input {
         if self.inspect_sessions {
             return Err("Review cannot be combined with provider session inspection".into());
         }
-        if matches!(self.agent, Agent::OpenCode | Agent::Gemini | Agent::Devin) {
+        if matches!(self.agent, Agent::OpenCode | Agent::Gemini) {
             return Err("Managed Review unavailable: this ACP peer cannot establish an enforceable no-source-write tool policy. Local review remains available.".into());
         }
         Ok(())
@@ -1247,8 +1249,9 @@ impl Worker {
         let sent = match Agent::ALL[selected] {
             Agent::Codex => self.codex.try_request(pending),
             Agent::Claude => self.claude.try_request(pending),
-            Agent::OpenCode | Agent::Gemini | Agent::Devin => self.acp.try_request(pending),
-            Agent::ChatGPT
+            Agent::OpenCode | Agent::Gemini => self.acp.try_request(pending),
+            Agent::Devin
+            | Agent::ChatGPT
             | Agent::OpenAI
             | Agent::Anthropic
             | Agent::Google
@@ -1264,8 +1267,9 @@ impl Worker {
         match Agent::ALL[self.selected.load(std::sync::atomic::Ordering::Acquire)] {
             Agent::Codex => self.codex.try_event(),
             Agent::Claude => self.claude.try_event(),
-            Agent::OpenCode | Agent::Gemini | Agent::Devin => self.acp.try_event(),
-            Agent::ChatGPT
+            Agent::OpenCode | Agent::Gemini => self.acp.try_event(),
+            Agent::Devin
+            | Agent::ChatGPT
             | Agent::OpenAI
             | Agent::Anthropic
             | Agent::Google
@@ -1374,7 +1378,6 @@ mod tests {
             selection: ModelSelection::default(),
             effort_resolution: None,
             conversation: None,
-            credential: None,
         }
     }
 
@@ -1701,7 +1704,7 @@ mod tests {
 
     #[test]
     fn managed_review_admits_only_fresh_no_write_supported_provider_requests() {
-        for agent in [Agent::Codex, Agent::Claude] {
+        for agent in [Agent::Codex, Agent::Claude, Agent::Devin] {
             let mut input = review(agent);
             assert!(input.validate_review().is_ok());
             input.resume = Some("implementation-or-prior-review".into());
@@ -1718,7 +1721,7 @@ mod tests {
             input.inspect_sessions = true;
             assert!(input.validate_review().unwrap_err().contains("inspection"));
         }
-        for agent in [Agent::OpenCode, Agent::Gemini, Agent::Devin] {
+        for agent in [Agent::OpenCode, Agent::Gemini] {
             assert!(review(agent).validate_review().unwrap_err().contains("ACP"));
         }
     }
@@ -1802,13 +1805,7 @@ mod tests {
             .into(),
         }));
         assert!(input.validate_selection().is_ok());
-        for agent in [
-            Agent::Codex,
-            Agent::Claude,
-            Agent::OpenCode,
-            Agent::Gemini,
-            Agent::Devin,
-        ] {
+        for agent in [Agent::Codex, Agent::Claude, Agent::OpenCode, Agent::Gemini] {
             input.agent = agent;
             assert!(
                 input

@@ -218,7 +218,7 @@ def main():
                   limits=['Deterministic ACP protocol peer, not paid/live-provider conformance.',
                           'Agent-owned tools remain external policy; callbacks are not their sandbox.',
                           'PTY evidence, not physical GUI-terminal certification.'])
-    for route in ('opencode', 'gemini', 'devin'):
+    for route in ('opencode', 'gemini'):
         for size in ((120, 36), (60, 18)):
             for mode in ('happy', 'deny'):
                 label = f'{route}-{size[0]}-{mode}'
