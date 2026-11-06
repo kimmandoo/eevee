@@ -1,10 +1,10 @@
 # Eevee Implementation Plan
 
-Updated2026-11-06. Active delivery: readable agent output, durable Windows command discovery and the user-added usage/cost presentation. User subsequently authorized a new release; published0.1.50 stays immutable until exact-source0.1.51 qualification and promotion pass.
+Updated2026-11-06. Completed readable agent output, durable Windows command discovery and scoped usage/cost presentation, then the explicitly requested immutable0.1.51 release. Published0.1.50 and earlier assets stayed unchanged.
 
 Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPATIBILITY.md). Live-provider conformance remains distinct from implemented transports and deterministic runtime proof.
 
-## Active delivery — Readable output and Windows command discovery (2026-11-06)
+## Completed delivery — Readable output, Windows command discovery and usage (2026-11-06)
 
 1. Compare the supplied local terminal reference's presentation concepts with the cached transcript; implement original semantic prose and distinct bounded command-output styling without importing reference code, names or dependencies.
 2. Preserve literal output, request/owner attribution, genuine streaming, Unicode wrapping, source-card lifecycle, draft/caret and permission/outcome boundaries at120×36 and60×18. Honor the user's added requirement: an accepted Enter/Send resumes following latest output; passive append/resize and refused or inspection-only actions preserve paused byte anchors.
@@ -15,7 +15,9 @@ Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPAT
 7. Run final source and actual usage/output/Enter journeys; update documentation/checkpoint and commit/push candidate0.1.51. Require Check/all five native rows/every required step, including real Windows PATH/rollback verification, from the newest same-source main push.
 8. Publish only its immutable qualified packages under a new annotated0.1.51 tag. Verify public asset checksums/layouts/source identity, unchanged previous-release assets, downloaded-host usage/output behavior and genuine0.1.50→0.1.51 update/data/draft retention; finish the release checkpoint and commit it without retagging.
 
-Steps1–7 source implementation/host acceptance passed: Rust2063/two ignored/strict lint/build, Python22/four skips, SDK47/actionlint, final candidate`ad760f76` both-size response and four-turn usage journeys. Two monetary-boundary regressions failed RED then passed. Intermediate original-rendering/native-Codex coding proof remains separately identified. Next: commit/push0.1.51 and require exact-source native qualification before step8/tag/publication. Native Windows registry/PS5.1 proof and public update remain unclaimed until they run.
+Steps1–8 passed: Rust2063/two ignored/strict lint/build, Python22/four skips, SDK47/actionlint, both-size actual response/usage/coding and source Devin journeys. Two monetary regressions and two native Windows acceptance failures were retained before their root-cause fixes; no failed source was tagged or promoted. Exact75d48e6/native42154277173/attempt1 passed Check/all five rows/every step, including PS5.1/PS7 nineteen-operation/five-discovery cases and same-host TUI/denial/rollback/repair.
+
+Promotion42156433444 published annotatedv0.1.51/release436066030 as latest, using only immutable qualified package IDs. All eight public downloads matched API metadata/checksums/qualified bytes and all five native layouts; previous0.1.50 identities stayed unchanged. Downloaded public macOS usage2/response2/coding4 and actual0.1.50 `ev update`→0.1.51 with byte-identical data, Unicode draft/caret, zero effects and uninstall/reinstall retention passed. The completed checkpoint records hashes, artifacts and limits; no step remains active and no unrelated roadmap task starts automatically.
 
 ## Completed delivery — Native Devin OAuth and Connect cutover (2026-11-06)
 

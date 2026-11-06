@@ -4,6 +4,7 @@
 
 ### 0.1.51
 
+- chore(release): publishedv0.1.51 from exact source75d48e6 after native42154277173/all six jobs and immutable promotion42156433444; verified all eight public assets, both PowerShell engines' real PATH/caller/rollback behavior, downloaded macOS usage/output and genuine0.1.50→0.1.51 data/Unicode-caret-preserving update without changing previous releases.
 - chore(release): advanced the package to0.1.51 with SQL20, complete SDK bridge12, TM2 and formation2 unchanged.
 - feat(usage): replaced clipped token rows with readable request/task/launch summaries showing input/output, cached/reasoning subsets and estimated USD together; made complete price/source/date and route details scrollable at compact sizes without moving drafts or carets.
 - fix(usage): retained `est.` on home monetary summaries, exposed `/usage` in spare compact header space and kept unreported, partial, plan, external-agent and local costs distinct from zero-priced API work.
