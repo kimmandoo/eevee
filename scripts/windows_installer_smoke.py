@@ -104,12 +104,20 @@ def restore_registry_acl():
     security.SetSecurityInfo.restype = wintypes.DWORD
     kernel.LocalFree.argtypes = [pointer]
     kernel.LocalFree.restype = pointer
+
+    def acl_bytes(value):
+        if not value.value:
+            return None
+        size = ctypes.c_ushort.from_address(value.value + 2).value
+        return ctypes.string_at(value, size)
+
     with winreg.OpenKey(winreg.HKEY_CURRENT_USER, 'Environment', 0, 0x20000 | 0x40000) as key:
         dacl, descriptor = pointer(), pointer()
         error = security.GetSecurityInfo(int(key), 4, 4, None, None,
                                          ctypes.byref(dacl), None, ctypes.byref(descriptor))
         if error:
             raise ctypes.WinError(error)
+        original_acl = acl_bytes(dacl)
         try:
             yield
         finally:
@@ -117,6 +125,17 @@ def restore_registry_acl():
                 error = security.SetSecurityInfo(int(key), 4, 4, None, None, dacl, None)
                 if error:
                     raise ctypes.WinError(error)
+                restored, restored_descriptor = pointer(), pointer()
+                error = security.GetSecurityInfo(int(key), 4, 4, None, None,
+                                                 ctypes.byref(restored), None,
+                                                 ctypes.byref(restored_descriptor))
+                if error:
+                    raise ctypes.WinError(error)
+                try:
+                    if acl_bytes(restored) != original_acl:
+                        raise RuntimeError('Denied-write fixture did not restore the original registry DACL')
+                finally:
+                    kernel.LocalFree(restored_descriptor)
             finally:
                 kernel.LocalFree(descriptor)
 
@@ -170,7 +189,7 @@ def probe_persisted_command(shell, destination, case, env):
 
 
 def denied_path_source(installer, arguments, case):
-    """Use a real registry ACL denial, retaining a full-control restoration handle."""
+    """Inject a real deny; the parent owns exact held-handle DACL restoration."""
     parameters = {str(arguments[index]).lstrip('-'): arguments[index + 1]
                   for index in range(0, len(arguments) - 1, 2)}
     invocation = ' '.join('-' + name + ' ' + quote(value) for name, value in parameters.items())
@@ -187,7 +206,6 @@ def denied_path_source(installer, arguments, case):
         '    else { [Microsoft.Win32.RegistryAclExtensions]::SetAccessControl($key, $value) }',
         '}',
         '$acl = Read-RegistrySecurity',
-        '$original = $acl.GetSecurityDescriptorSddlForm([Security.AccessControl.AccessControlSections]::Access)',
         '$sid = [Security.Principal.WindowsIdentity]::GetCurrent().User',
         "$rule = [Security.AccessControl.RegistryAccessRule]::new($sid, [Security.AccessControl.RegistryRights]::SetValue, [Security.AccessControl.AccessControlType]::Deny)",
         '$acl.AddAccessRule($rule)',
@@ -207,17 +225,7 @@ def denied_path_source(installer, arguments, case):
         + ' ' + invocation + ' -NoAnimation',
         "    if ($LASTEXITCODE -eq 0) { throw '-File denied user PATH write returned success.' }",
         "    if ($env:PATH -cne $beforePath) { throw 'Denied PATH registration changed the invoking process PATH.' }",
-        '} finally {',
-        '    try {',
-        '        $restore = Read-RegistrySecurity',
-        # SetAccessControl persists only modified sections; replaying an untouched
-        # snapshot is a no-op and would leave the injected deny ACE installed.
-        '        $restore.SetSecurityDescriptorSddlForm($original, [Security.AccessControl.AccessControlSections]::Access)',
-        '        Write-RegistrySecurity $restore',
-        '        $restored = Read-RegistrySecurity',
-        "        if ($restored.GetSecurityDescriptorSddlForm([Security.AccessControl.AccessControlSections]::Access) -cne $original) { throw 'Denied-write fixture did not restore the original registry ACL.' }",
-        '    } finally { $key.Dispose() }',
-        '}',
+        '} finally { $key.Dispose() }',
         'exit 0',
     ])
 
@@ -338,7 +346,9 @@ def run_file_case(shell, installer, archive, checksums, bad_checksums, case, env
         ('initial-denied-user-path', ['-Archive', archive, '-Checksums', checksums], 0),
         ('install', ['-Archive', archive, '-Checksums', checksums], 0),
         ('denied-user-path', ['-Archive', archive, '-Checksums', checksums], 0),
+        ('equivalent-path-update', ['-Archive', archive, '-Checksums', checksums], 0),
         ('update', ['-Archive', archive, '-Checksums', checksums], 0),
+        ('repeat-update', ['-Archive', archive, '-Checksums', checksums], 0),
         ('failure', ['-Archive', archive, '-Checksums', bad_checksums], 1),
         ('modified-binary', ['-Archive', archive, '-Checksums', checksums], 1),
         ('missing-binary-bad-checksum', ['-Archive', archive, '-Checksums', bad_checksums], 1),
@@ -359,10 +369,11 @@ def run_file_case(shell, installer, archive, checksums, bad_checksums, case, env
         if denied:
             expected_path = seed
             write_user_path((expected_path, winreg.REG_EXPAND_SZ))
-        elif name == 'update':
-            # A preexisting quoted/case/slash-normalized entry must be preserved,
-            # rather than appending another spelling or claiming it as owned.
-            expected_path = seed + '"' + str(destination).replace('\\', '/').upper() + '/"'
+        elif name in ('equivalent-path-update', 'update'):
+            # An unquoted equivalent is functional and needs no duplicate.
+            # A quoted spelling is preserved but must not suppress registration.
+            alias = str(destination).replace('\\', '/').upper() + '/'
+            expected_path = seed + ('"' + alias + '"' if name == 'update' else alias)
             write_user_path((expected_path, winreg.REG_EXPAND_SZ))
         mutation = {
             'modified-binary': binary,
@@ -405,8 +416,10 @@ def run_file_case(shell, installer, archive, checksums, bad_checksums, case, env
                 raise RuntimeError('Rejected operation changed retained installation: ' + name)
         if name == 'install':
             expected_path = seed + str(destination)
+        elif name == 'update':
+            expected_path += ';' + str(destination)
         assert_user_path(expected_path)
-        if name in ('install', 'update', 'repair'):
+        if name in ('install', 'equivalent-path-update', 'update', 'repeat-update', 'repair'):
             probe_persisted_command(shell, destination, case, env)
             row['fresh_process_persisted_ev_discovered'] = True
         if mutation is not None:

@@ -112,6 +112,8 @@ Get-Command ev
 
 Use your actual installation directory if you selected `-InstallDir`. If the installer reports that user PATH registration failed, it does not report success; resolve the reported access/error cause and rerun. No administrator shell or execution-policy change is required.
 
+The installer preserves old quoted PATH entries but adds a searchable, unquoted installation directory once: PowerShell may not discover executables through quoted entries even when they spell the right directory.
+
 If the window closes immediately, run these from an already-open PowerShell window and include the output and terminal (Windows Terminal or classic console) in a report:
 
 ```powershell

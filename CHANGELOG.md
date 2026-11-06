@@ -15,6 +15,7 @@
 - fix(windows): registered successful installations in the current user's persistent PATH and the invoking ScriptBlock process, preserved raw unrelated entries and value kinds, avoided duplicate destinations and rolled back publication when registration failed.
 - test(windows): extended disposable-host installer acceptance with fresh-process command discovery, repeat-update and rejected-update PATH preservation, registry-denied rollback and explicit user-PATH mutation consent.
 - fix(ci): restored the original registry DACL after each Windows denied-write installer probe instead of replaying an unmodified security object that left the fixture's own deny rule active.
+- fix(windows): preserved quoted legacy PATH aliases while adding one searchable unquoted destination, fixing fresh PowerShell discovery after an otherwise successful update and retaining idempotent effective-path registration.
 - chore(branding): audited source, manifests, settings, documentation and filenames for reference-specific branding and retained an independent implementation without reference dependencies or identifiers.
 
 - feat(devin)!: replaced the Devin CLI/ACP connection with native Connect/protobuf model discovery, router assignment, streaming chat and the existing host coding/tool/conversation engine; removed CLI auth/status and child-token injection.

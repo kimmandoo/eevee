@@ -395,9 +395,9 @@ function Test-PathContains([string]$PathValue, [string]$Destination, [switch]$Ex
     # Split only outside quotes, and compare without rewriting anyone else's bytes.
     foreach ($entry in [regex]::Split($PathValue, ';(?=(?:[^"]*"[^"]*")*[^"]*$)')) {
         $candidate = $entry.Trim()
-        if ($candidate.StartsWith('"') -and $candidate.EndsWith('"') -and $candidate.Length -ge 2) {
-            $candidate = $candidate.Substring(1, $candidate.Length - 2)
-        }
+        # PowerShell does not discover executables through quoted PATH entries.
+        # Preserve those bytes, but do not let them suppress a working registration.
+        if ($candidate.Contains('"')) { continue }
         if ([string]::IsNullOrWhiteSpace($candidate)) { continue }
         try {
             if ($ExpandVariables) { $candidate = [Environment]::ExpandEnvironmentVariables($candidate) }
