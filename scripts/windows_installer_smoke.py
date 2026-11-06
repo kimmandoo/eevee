@@ -187,7 +187,7 @@ def denied_path_source(installer, arguments, case):
         '    else { [Microsoft.Win32.RegistryAclExtensions]::SetAccessControl($key, $value) }',
         '}',
         '$acl = Read-RegistrySecurity',
-        '$original = Read-RegistrySecurity',
+        '$original = $acl.GetSecurityDescriptorSddlForm([Security.AccessControl.AccessControlSections]::Access)',
         '$sid = [Security.Principal.WindowsIdentity]::GetCurrent().User',
         "$rule = [Security.AccessControl.RegistryAccessRule]::new($sid, [Security.AccessControl.RegistryRights]::SetValue, [Security.AccessControl.AccessControlType]::Deny)",
         '$acl.AddAccessRule($rule)',
@@ -207,7 +207,17 @@ def denied_path_source(installer, arguments, case):
         + ' ' + invocation + ' -NoAnimation',
         "    if ($LASTEXITCODE -eq 0) { throw '-File denied user PATH write returned success.' }",
         "    if ($env:PATH -cne $beforePath) { throw 'Denied PATH registration changed the invoking process PATH.' }",
-        '} finally { try { Write-RegistrySecurity $original } finally { $key.Dispose() } }',
+        '} finally {',
+        '    try {',
+        '        $restore = Read-RegistrySecurity',
+        # SetAccessControl persists only modified sections; replaying an untouched
+        # snapshot is a no-op and would leave the injected deny ACE installed.
+        '        $restore.SetSecurityDescriptorSddlForm($original, [Security.AccessControl.AccessControlSections]::Access)',
+        '        Write-RegistrySecurity $restore',
+        '        $restored = Read-RegistrySecurity',
+        "        if ($restored.GetSecurityDescriptorSddlForm([Security.AccessControl.AccessControlSections]::Access) -cne $original) { throw 'Denied-write fixture did not restore the original registry ACL.' }",
+        '    } finally { $key.Dispose() }',
+        '}',
         'exit 0',
     ])
 
@@ -374,10 +384,12 @@ def run_file_case(shell, installer, archive, checksums, bad_checksums, case, env
             source = denied_path_source(installer, invocation, case)
             command = [shell, '-NoLogo', '-NoProfile', '-NonInteractive',
                        '-EncodedCommand', encoded_command(source)]
+            with restore_registry_acl():
+                completed = run_owned(command, env=env, cwd=case / 'project', timeout=120)
         else:
             command = [shell, '-NoLogo', '-NoProfile', '-NonInteractive', '-File',
                        str(installer), *invocation]
-        completed = run_owned(command, env=env, cwd=case / 'project', timeout=120)
+            completed = run_owned(command, env=env, cwd=case / 'project', timeout=120)
         (case / ('file-' + name + '-stdout.bin')).write_bytes(completed.stdout)
         (case / ('file-' + name + '-stderr.bin')).write_bytes(completed.stderr)
         row = {'operation': name, 'exit_code': completed.returncode, 'expected_exit_code': expected,

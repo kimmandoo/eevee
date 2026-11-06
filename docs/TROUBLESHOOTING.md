@@ -1,5 +1,12 @@
 # Troubleshooting
 
+### [2026-11-06] Windows denied-write acceptance left its own registry deny rule active
+
+- **Context / Symptom:** Native42149256332/source8f986b2 passed Check and all four macOS/Linux rows, but both Windows PowerShell5.1.20348.5773 and7.6.9 failed the normal install immediately after the initial denied-write probe. Retained stderr reported `CreateSubKey ... HKEY_CURRENT_USER\Environment ... Access ... denied`; the deliberate denial itself and final parent PATH restoration passed. No release/tag was created.
+- **Root Cause:** The test restored an untouched `RegistrySecurity` snapshot with `SetAccessControl`. The runtime's [`RegistrySecurity.Persist`](https://github.com/dotnet/runtime/blob/d099f075e45d2aa6007a22b71b45a08758559f80/src/libraries/Microsoft.Win32.Registry/src/System/Security/AccessControl/RegistrySecurity.cs) writes only modified sections; that restoration was a no-op, leaving the fixture's deny ACE active until its outer parent cleanup. This was acceptance-fixture state leakage, not permission granted by the installer.
+- **Solution:** Captured the original access SDDL and explicitly applied it to the restoration object so the DACL is marked modified; checked the actual restored SDDL before the child returned. Wrapped each denied operation in the parent's retained-handle DACL restoration as well, retaining recovery after child timeout/exit and the outer user-PATH restoration. Kept both real denial invocations, rollback checks and all normal installation assertions.
+- **Prevention / Reference:** Original evidence is under`target/release051-proof/windows-failed-1/`. Updated generated PowerShell parsed on private7.6.9 and Python22/four Windows skips passed locally; native success still requires a new exact-source full run. Never rerun the unchanged failed install as confirmation, suppress access failures, weaken the real registry denial or promote partial packages from the failed source.
+
 ### [2026-11-06] Usage details clipped costs and tiny nonzero estimates looked free
 
 - **Context / Symptom:** The user found token usage hard to read and requested monetary amounts. The compact sheet collapsed token breakdowns, clipped unscrollable source/error details and made costs easy to miss; the narrow home chip stripped `est.`. The targeted positive-cost regression reproduced `est. $0.0000` for USD0.0000004.
