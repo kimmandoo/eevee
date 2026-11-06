@@ -2,6 +2,20 @@
 
 ## 2026-11-06
 
+### 0.1.51
+
+- chore(release): advanced the package to0.1.51 with SQL20, complete SDK bridge12, TM2 and formation2 unchanged.
+- feat(usage): replaced clipped token rows with readable request/task/launch summaries showing input/output, cached/reasoning subsets and estimated USD together; made complete price/source/date and route details scrollable at compact sizes without moving drafts or carets.
+- fix(usage): retained `est.` on home monetary summaries, exposed `/usage` in spare compact header space and kept unreported, partial, plan, external-agent and local costs distinct from zero-priced API work.
+- fix(pricing): displayed tiny positive USD estimates as a positive upper bound instead of rounding them into an apparently free request, while retaining unknown-cost remainders.
+- fix(pricing): stopped unlisted model versions from inheriting an older similarly named built-in rate; retained explicit user-defined prefix overrides and dated snapshots of known aliases.
+- feat(ui): styled response headings, lists, quotes, emphasis and inline code through the cached transcript while retaining literal content, source syntax, Unicode wrapping and paused anchors.
+- feat(ui): separated bounded literal program prints from tool status with an output rail and visible clipping, without treating command logs as Markdown or changing execution evidence.
+- fix(ui): resumed latest-output following on an admitted Enter/Send, including follow-ups from a paused transcript; retained paused reading through passive updates, blocked requests and inspection.
+- fix(windows): registered successful installations in the current user's persistent PATH and the invoking ScriptBlock process, preserved raw unrelated entries and value kinds, avoided duplicate destinations and rolled back publication when registration failed.
+- test(windows): extended disposable-host installer acceptance with fresh-process command discovery, repeat-update and rejected-update PATH preservation, registry-denied rollback and explicit user-PATH mutation consent.
+- chore(branding): audited source, manifests, settings, documentation and filenames for reference-specific branding and retained an independent implementation without reference dependencies or identifiers.
+
 - feat(devin)!: replaced the Devin CLI/ACP connection with native Connect/protobuf model discovery, router assignment, streaming chat and the existing host coding/tool/conversation engine; removed CLI auth/status and child-token injection.
 - feat(auth): added owner-bound Devin browser OAuth with PKCE/state, loopback or hidden pasted callbacks, private app-owned saved credentials and explicit session-only storage; retained masked API/session keys and explicit environment sources without CLI-store imports or automatic refresh.
 - fix(devin): preserved exact visible model identities, separate reasoning variants, legacy enterprise-key authentication, private in-run signatures, reported usage and completed public follow-up roles without guessing models or replaying effects.

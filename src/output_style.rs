@@ -13,6 +13,12 @@ pub enum Kind {
     Type,
     Function,
     Fence,
+    Heading,
+    Marker,
+    Strong,
+    Emphasis,
+    InlineCode,
+    Link,
     Error,
     Warning,
 }
@@ -179,9 +185,141 @@ impl Code {
     }
 }
 
+/// Conservative Markdown accents retain every literal byte. Unfinished inline
+/// markers stay plain until a matching delimiter actually arrives.
+fn prose(tokens: &mut Vec<Token>, body: &str, offset: usize) {
+    if body.len() > MAX_LINE {
+        return;
+    }
+    let trimmed = body.trim_start_matches(' ');
+    let indent = body.len() - trimmed.len();
+    let heading = trimmed.bytes().take_while(|byte| *byte == b'#').count();
+    if indent <= 3 && (1..=6).contains(&heading) && trimmed[heading..].starts_with(' ') {
+        push(tokens, offset..offset + body.len(), Some(Kind::Heading));
+        return;
+    }
+    let marker = if trimmed.starts_with(['-', '*', '+', '>'])
+        && trimmed
+            .as_bytes()
+            .get(1)
+            .is_some_and(u8::is_ascii_whitespace)
+    {
+        2
+    } else {
+        let digits = trimmed.bytes().take_while(u8::is_ascii_digit).count();
+        if (1..=9).contains(&digits)
+            && matches!(trimmed.as_bytes().get(digits), Some(b'.' | b')'))
+            && trimmed
+                .as_bytes()
+                .get(digits + 1)
+                .is_some_and(u8::is_ascii_whitespace)
+        {
+            digits + 2
+        } else {
+            0
+        }
+    };
+    let mut cursor = if marker > 0 {
+        let mut end = indent + marker;
+        if ["[ ] ", "[x] ", "[X] "]
+            .iter()
+            .any(|checkbox| body[end..].starts_with(checkbox))
+        {
+            end += 4;
+        }
+        push(tokens, offset..offset + end, Some(Kind::Marker));
+        end
+    } else {
+        0
+    };
+    while cursor < body.len() && tokens.len() < MAX_TOKENS {
+        let rest = &body[cursor..];
+        let ch = rest.chars().next().expect("remaining character");
+        if ch == '\\' {
+            cursor += 1;
+            cursor += body[cursor..].chars().next().map_or(0, char::len_utf8);
+            continue;
+        }
+        let delimiter = match ch {
+            '`' => {
+                let count = rest.bytes().take_while(|byte| *byte == b'`').count();
+                Some((&rest[..count], Kind::InlineCode))
+            }
+            '*' | '_' => {
+                let count = rest.bytes().take_while(|byte| *byte == ch as u8).count();
+                let previous = body[..cursor].chars().next_back();
+                if count <= 2
+                    && !previous.is_some_and(char::is_alphanumeric)
+                    && rest[count..]
+                        .chars()
+                        .next()
+                        .is_some_and(|ch| !ch.is_whitespace())
+                {
+                    Some((
+                        &rest[..count],
+                        if count == 2 {
+                            Kind::Strong
+                        } else {
+                            Kind::Emphasis
+                        },
+                    ))
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        };
+        if let Some((delimiter, kind)) = delimiter {
+            let start = cursor + delimiter.len();
+            if let Some(end) = body[start..].find(delimiter) {
+                let end = start + end;
+                let after = end + delimiter.len();
+                if end > start
+                    && body.as_bytes().get(after) != Some(&(ch as u8))
+                    && (kind == Kind::InlineCode
+                        || !body[..end].ends_with(char::is_whitespace)
+                            && !body[after..]
+                                .chars()
+                                .next()
+                                .is_some_and(char::is_alphanumeric))
+                {
+                    push(tokens, offset + cursor..offset + after, Some(kind));
+                    cursor = after;
+                    continue;
+                }
+            }
+            // A partial multi-backtick opener is one marker, not a succession
+            // of shorter openers that could style an unrelated later fragment.
+            if kind == Kind::InlineCode {
+                cursor = start;
+                continue;
+            }
+        }
+        if ch == '['
+            && let Some(label) = rest.find("](")
+            && let Some(end) = rest[label + 2..].find(')')
+        {
+            let end = cursor + label + 2 + end + 1;
+            push(tokens, offset + cursor..offset + end, Some(Kind::Link));
+            cursor = end;
+            continue;
+        }
+        cursor += ch.len_utf8();
+    }
+}
+
+/// Markdown belongs only to assistant prose/plans, never a command's stdout.
+pub fn markdown(tokens: &mut Vec<Token>, text: &str) {
+    classify_as(tokens, text, false, true);
+}
+
 /// Classify a changed observation once, before wrapping. `file` means the first
 /// line is a typed file path and numeric gutters are presentation, not source.
 pub fn classify(tokens: &mut Vec<Token>, text: &str, file: bool) {
+    classify_as(tokens, text, file, false);
+}
+
+fn classify_as(tokens: &mut Vec<Token>, text: &str, file: bool, markdown: bool) {
     tokens.clear();
     let mut lines = text.split_inclusive('\n');
     let mut offset = 0;
@@ -249,7 +387,11 @@ pub fn classify(tokens: &mut Vec<Token>, text: &str, file: bool) {
                 code = None;
             }
         } else if log {
-            push(tokens, offset..offset + body.len(), diagnostic(body));
+            if let Some(kind) = diagnostic(body) {
+                push(tokens, offset..offset + body.len(), Some(kind));
+            } else if markdown && fence.is_none() {
+                prose(tokens, body, offset);
+            }
         }
         offset += line.len();
     }
@@ -376,5 +518,39 @@ mod tests {
         let unknown = "```not-a-language\nerror: literal unknown source\n```";
         classify(&mut tokens, unknown, false);
         assert_eq!(kind_at(&tokens, unknown, "error:"), None);
+    }
+    #[test]
+    fn streamed_markdown_keeps_literal_graphemes_and_command_output_separate() {
+        let mut tokens = Vec::new();
+        let partial = "설명 ``界e\u{301} `tail";
+        markdown(&mut tokens, partial);
+        assert!(tokens.iter().all(|token| token.kind != Kind::InlineCode));
+        let complete = format!("{partial}`` and **강조**");
+        markdown(&mut tokens, &complete);
+        assert_eq!(kind_at(&tokens, &complete, "界"), Some(Kind::InlineCode));
+        assert_eq!(kind_at(&tokens, &complete, "강조"), Some(Kind::Strong));
+        assert!(
+            tokens
+                .windows(2)
+                .all(|pair| pair[0].range.end <= pair[1].range.start)
+        );
+        for token in &tokens {
+            assert!(
+                complete
+                    .grapheme_indices(true)
+                    .any(|(at, _)| at == token.range.start)
+            );
+            assert!(
+                token.range.end == complete.len()
+                    || complete
+                        .grapheme_indices(true)
+                        .any(|(at, _)| at == token.range.end)
+            );
+        }
+        classify(&mut tokens, &complete, false);
+        assert!(tokens.is_empty(), "plain command output is not Markdown");
+        let source = "```text\n**literal source** and `ticks`\n```";
+        markdown(&mut tokens, source);
+        assert_eq!(kind_at(&tokens, source, "literal"), None);
     }
 }

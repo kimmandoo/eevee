@@ -1,5 +1,5 @@
 # Install, update, or remove an owned Windows release without elevation.
-# PowerShell 5.1+; never changes the execution policy or permanent PATH.
+# PowerShell 5.1+; registers the owned destination on user PATH, never machine PATH.
 # Online: .\install.ps1 [-Version v0.1.0] [-InstallDir C:\Tools\ev]
 # Offline: .\install.ps1 -Archive C:\Downloads\ev-windows-x86_64.zip -Checksums C:\Downloads\SHA256SUMS
 # Online installs populate all nine pinned sprites in the user's cache before publication.
@@ -391,6 +391,92 @@ function Get-ArgumentPath([string]$Value, [string]$Label) {
     return Get-AbsolutePath $Value $Label
 }
 
+function Test-PathContains([string]$PathValue, [string]$Destination, [switch]$ExpandVariables) {
+    # Split only outside quotes, and compare without rewriting anyone else's bytes.
+    foreach ($entry in [regex]::Split($PathValue, ';(?=(?:[^"]*"[^"]*")*[^"]*$)')) {
+        $candidate = $entry.Trim()
+        if ($candidate.StartsWith('"') -and $candidate.EndsWith('"') -and $candidate.Length -ge 2) {
+            $candidate = $candidate.Substring(1, $candidate.Length - 2)
+        }
+        if ([string]::IsNullOrWhiteSpace($candidate)) { continue }
+        try {
+            if ($ExpandVariables) { $candidate = [Environment]::ExpandEnvironmentVariables($candidate) }
+            # Relative PATH entries must not depend on the installer's current directory.
+            if ($candidate -notmatch '\A(?:[A-Za-z]:[\\/]|\\\\[^\\/]+[\\/][^\\/]+(?:[\\/]|\z))') { continue }
+            $candidate = Get-AbsolutePath ([IO.Path]::GetFullPath($candidate)) 'PATH entry'
+            if ([string]::Equals($candidate, $Destination, [StringComparison]::OrdinalIgnoreCase)) { return $true }
+        } catch { }
+    }
+    return $false
+}
+
+function Add-PathDestination([string]$PathValue, [string]$Destination, [switch]$ExpandVariables) {
+    if (([regex]::Matches($PathValue, '"').Count % 2) -ne 0) {
+        throw 'Existing PATH contains unmatched quotes; it was left unchanged.'
+    }
+    if (Test-PathContains $PathValue $Destination -ExpandVariables:$ExpandVariables) { return $PathValue }
+    if ([string]::IsNullOrEmpty($PathValue) -or $PathValue.EndsWith(';')) { return $PathValue + $Destination }
+    return $PathValue + ';' + $Destination
+}
+
+function Register-UserPath([string]$Destination) {
+    if ($Destination.Contains(';') -or $Destination.Contains('"') -or $Destination.Contains('%')) {
+        throw 'InstallDir cannot contain semicolons, quotes, or percent signs when registering Windows PATH.'
+    }
+    # Serialize our own installers across destinations. Read the raw expandable value:
+    # Environment.GetEnvironmentVariable(User) would expand and rewrite unrelated entries.
+    $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+    $mutex = [Threading.Mutex]::new($false, ('Local\Eevee.UserPath.' + $sid))
+    $acquired = $false
+    $key = $null
+    try {
+        try { $acquired = $mutex.WaitOne(30000) }
+        catch [Threading.AbandonedMutexException] { $acquired = $true }
+        if (-not $acquired) { throw 'Timed out waiting to register the user PATH.' }
+        $key = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey('Environment')
+        $raw = $key.GetValue('Path', $null, [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+        $kind = [Microsoft.Win32.RegistryValueKind]::ExpandString
+        if ($null -ne $raw) {
+            $kind = $key.GetValueKind('Path')
+            if ($kind -ne [Microsoft.Win32.RegistryValueKind]::String -and
+                $kind -ne [Microsoft.Win32.RegistryValueKind]::ExpandString) {
+                throw 'The existing user PATH is not a string; it was left unchanged.'
+            }
+        }
+        $updated = Add-PathDestination ([string]$raw) $Destination -ExpandVariables:($kind -eq [Microsoft.Win32.RegistryValueKind]::ExpandString)
+        if ($updated -cne [string]$raw) { $key.SetValue('Path', $updated, $kind) }
+    } finally {
+        if ($null -ne $key) { $key.Dispose() }
+        if ($acquired) { $mutex.ReleaseMutex() }
+        $mutex.Dispose()
+    }
+}
+
+function Notify-EnvironmentChange {
+    # Best effort only: publication and user PATH registration have already succeeded.
+    try {
+        if ($null -eq ('EeveeInstaller.EnvironmentBroadcast' -as [type])) {
+            Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+namespace EeveeInstaller {
+    public static class EnvironmentBroadcast {
+        [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        public static extern IntPtr SendMessageTimeout(IntPtr window, uint message,
+            UIntPtr wParam, string lParam, uint flags, uint timeout, out UIntPtr result);
+    }
+}
+'@
+        }
+        $result = [UIntPtr]::Zero
+        $sent = [EeveeInstaller.EnvironmentBroadcast]::SendMessageTimeout(
+            [IntPtr]65535, 0x1A, [UIntPtr]::Zero, 'Environment', 2, 2000, [ref]$result)
+        if ($sent -eq [IntPtr]::Zero) { throw 'The environment notification timed out or was unavailable.' }
+    } catch {
+        [Console]::Error.WriteLine('User PATH was saved, but other applications could not be notified. Restart your terminal application or sign out and back in if ev is not found.')
+    }
+}
+
 function Get-PathAttributes([string]$Path) {
     try { return [IO.File]::GetAttributes($Path) }
     catch [IO.FileNotFoundException] { return $null }
@@ -686,7 +772,7 @@ try {
         }
         $keepStage = $false
         $deferCleanup = $null -ne $installerState.ownerProcess
-        Write-Output "Uninstalled ev from $binary. Task, cache, and provider data were retained."
+        Write-Output "Uninstalled ev from $binary. Task, cache, and provider data were retained. User and process PATH entries were left unchanged; remove an unused entry manually if desired."
         return
     }
     if ($offline) {
@@ -822,8 +908,8 @@ try {
     $metadataPublished = $false
     $keepStage = $true
     try {
-        # Publish metadata first; the executable rename is the final commit.
-        # A locked executable leaves the old binary untouched while metadata rolls back.
+        # Publish metadata before the executable, then register PATH.
+        # A locked executable or denied PATH write rolls the package back.
         if ($hadInstall) {
             [IO.Directory]::Move($metadata, $backupMetadata)
             $metadataBackedUp = $true
@@ -840,6 +926,9 @@ try {
             [IO.File]::Replace($stageBinary, $binary, $backupBinary, $false)
         } else { [IO.File]::Move($stageBinary, $binary) }
         $binaryPublished = $true
+        # PATH is part of successful publication. A denied persistent write rolls
+        # back the package using the same recovery path as a failed file commit.
+        Register-UserPath $destination
     } catch {
         $publicationError = $_.Exception.Message
         $rollbackErrors = [Collections.Generic.List[string]]::new()
@@ -866,27 +955,19 @@ try {
             throw "Publication failed: $publicationError. Rollback also failed: $($rollbackErrors -join '; '). Recovery files retained at $stage."
         }
         $keepStage = $false
-        throw "Could not publish ev; previous installation was preserved. Close any running ev and retry. The installer never stops installed ev processes. Details: $publicationError"
+        throw "Could not publish ev and register its user PATH; previous installation was preserved. Close any running ev and retry, or check user environment write access. The installer never stops installed ev processes. Details: $publicationError"
     }
     $keepStage = $false
     $deferCleanup = $hadInstall -and $null -ne $installerState.ownerProcess
     Stop-InstallAnimation
     Write-Output "Installed $version at $binary"
-    $onPath = $false
-    foreach ($pathEntry in ($env:PATH -split ';')) {
-        if ([string]::IsNullOrWhiteSpace($pathEntry)) { continue }
-        try {
-            $normalized = Get-AbsolutePath ($pathEntry.Trim().Trim([char]'"')) 'PATH entry'
-            if ([string]::Equals($normalized, $destination, [StringComparison]::OrdinalIgnoreCase)) { $onPath = $true }
-        } catch { }
+    try { $env:PATH = Add-PathDestination $env:PATH $destination }
+    catch {
+        [Console]::Error.WriteLine('Installation and user PATH registration succeeded, but this process PATH could not be updated: ' + $_.Exception.Message)
     }
-    if (-not $onPath) {
-        $quotedDestination = $destination.Replace("'", "''")
-        Write-Output "For this PowerShell session: `$env:PATH = '$quotedDestination;' + `$env:PATH"
-        # Printed, never run: the installer does not change the persistent PATH.
-        Write-Output 'For future terminals (adds to your user PATH once):'
-        Write-Output "  [Environment]::SetEnvironmentVariable('Path', '$quotedDestination;' + [Environment]::GetEnvironmentVariable('Path', 'User'), 'User')"
-    }
+    Notify-EnvironmentChange
+    Write-Output 'User PATH is registered. A called ScriptBlock also updates this PowerShell session; a -File child cannot change its parent shell.'
+    Write-Output 'For other shells, open a new terminal. If ev is still unavailable, fully restart the terminal application (including Windows Terminal or VS Code), or sign out and back in.'
 } catch {
     Stop-InstallAnimation
     # A terminating error gives -File its nonzero exit status without `exit`

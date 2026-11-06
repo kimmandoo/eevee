@@ -2098,6 +2098,7 @@ fn temporary_sheets_preserve_live_status_and_return_context() {
                 Overlay::Images,
                 Overlay::Repository,
                 Overlay::Preview,
+                Overlay::Usage,
             ] {
                 let config = home_config();
                 let mut app = App::new("/workspace".into(), width, height);
@@ -3404,5 +3405,143 @@ fn native_tool_targets_and_honest_states_are_visible_in_compact_and_wide_layouts
                 assert!(!text.contains("[ok]"), "{text}");
             }
         }
+    }
+}
+
+#[test]
+fn usage_minimum_view_keeps_counts_and_estimates_together_and_scrolls_complete_errors() {
+    use crate::workspace::usage::{
+        Counters, Identity, Kind, Measurement, Record, Report, Scope, Semantics,
+    };
+    use ratatui::{Terminal, backend::TestBackend};
+
+    for (width, height) in [(60, 18), (120, 36)] {
+        let config = home_config();
+        let mut artwork = Artwork::load(&config);
+        let mut app = App::new("/workspace".into(), width, height);
+        app.task_id = 7;
+        let mut record = Record::new(
+            "usage-boundary".into(),
+            7,
+            store::Attribution {
+                partner: 1,
+                name: "Lead".into(),
+                form: 0,
+            },
+            crate::providers::Agent::OpenAI,
+        );
+        let counters = Counters {
+            input: Some(500),
+            output: Some(200),
+            cache_read: Some(100),
+            reasoning: Some(80),
+            ..Counters::default()
+        };
+        record.measurements.push(Measurement {
+            report: Report {
+                identity: Identity::default(),
+                scope: Scope::Response,
+                kind: Kind::Snapshot,
+                counters,
+                baseline: None,
+                model: Some("gpt-4.1".into()),
+                tokenizer: None,
+                semantics: Semantics {
+                    cache_read_in_input: Some(true),
+                    reasoning_in_output: Some(true),
+                    ..Semantics::default()
+                },
+                complete: true,
+            },
+            attributable: counters,
+            delta_events: Vec::new(),
+        });
+        app.planning.usage.record = Some(record.clone());
+        app.records.snapshot.usages.push(record);
+        app.meter.table.error = Some(
+            (0..30)
+                .map(|i| format!("detail-{i:02}"))
+                .collect::<Vec<_>>()
+                .join("\n"),
+        );
+        app.input = "Unsent future draft 한글".into();
+        app.cursor = "Unsent future ".len();
+        app.editing = true;
+        app.editor_field = store::EditorField::Request;
+        let draft = (app.input.clone(), app.cursor);
+        app.command("usage");
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+        terminal
+            .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
+            .unwrap();
+        let first = screen_text(&terminal);
+        for label in ["Latest request", "Task", "This launch"] {
+            assert!(first.contains(label), "{width}: {first}");
+        }
+        for visible in [
+            "Input 500",
+            "Output 200",
+            "Cached read 100",
+            "Reasoning 80",
+            "est.",
+            "USD",
+        ] {
+            assert!(first.contains(visible), "{width}: {first}");
+        }
+        assert!(app.meter.scroll_max > 0);
+        let mut all = first;
+        loop {
+            let old = app.meter.scroll;
+            app.update(Event::Key(KeyEvent::new(
+                KeyCode::PageDown,
+                KeyModifiers::NONE,
+            )));
+            terminal
+                .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
+                .unwrap();
+            all.push_str(&screen_text(&terminal));
+            if old == app.meter.scroll {
+                break;
+            }
+        }
+        for i in 0..30 {
+            assert!(
+                all.contains(&format!("detail-{i:02}")),
+                "{width}: missing error detail {i}"
+            );
+        }
+        assert!(
+            all.contains(crate::workspace::pricing::BUILT_IN_AS_OF),
+            "{all}"
+        );
+        app.update(Event::Key(KeyEvent::new(KeyCode::Home, KeyModifiers::NONE)));
+        assert_eq!(app.meter.scroll, 0);
+        app.update(Event::Key(KeyEvent::new(KeyCode::End, KeyModifiers::NONE)));
+        assert_eq!(app.meter.scroll, app.meter.scroll_max);
+        app.update(Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)));
+        assert_eq!((app.input.clone(), app.cursor), draft);
+
+        // A real request without reported counters must not become fake zero usage.
+        app.planning
+            .usage
+            .record
+            .as_mut()
+            .unwrap()
+            .measurements
+            .clear();
+        app.records.snapshot.usages.clear();
+        app.command("usage");
+        terminal
+            .draw(|frame| render(frame, &mut app, &config, &mut artwork, "off"))
+            .unwrap();
+        let unknown = screen_text(&terminal);
+        assert!(
+            unknown.contains("unreported") && unknown.contains("USD unknown"),
+            "{unknown}"
+        );
+        assert!(
+            !unknown.contains("0 tok") && !unknown.contains("Input 0"),
+            "{unknown}"
+        );
     }
 }

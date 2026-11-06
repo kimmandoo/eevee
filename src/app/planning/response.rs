@@ -24,6 +24,7 @@ struct Row {
     range: Range<usize>,
     header: bool,
     spacer: Option<Spacer>,
+    clipped: bool,
 }
 
 /// A visible row borrows the cached header or original observation. File styling
@@ -32,6 +33,8 @@ pub struct ResponseRow<'a> {
     pub text: &'a str,
     pub kind: ItemKind,
     pub header: bool,
+    /// A bounded tool detail has more literal text available in `/verbose`.
+    pub clipped: bool,
     /// Typed terminal summary; ordinary prose never determines failure styling.
     pub outcome: Option<crate::providers::Outcome>,
     /// Physical edges belong to the typed file projection, not source bytes.
@@ -124,12 +127,14 @@ fn wrap(
                 range: range.start..range.start,
                 header,
                 spacer: Some(Spacer::Line),
+                clipped: false,
             });
         }
         rows.push(Row {
             range,
             header,
             spacer: None,
+            clipped: false,
         });
     };
     for line in text.split_terminator('\n') {
@@ -159,6 +164,38 @@ fn wrap(
             }
         }
         push(base + start..base + line.len());
+        base += line.len() + 1;
+    }
+}
+
+/// Tool printouts are a preview, not another wrapping prose paragraph. Keep
+/// each already-bounded detail on one physical row; the raw observation stays
+/// reachable through `/verbose`, with an explicit continuation marker here.
+fn wrap_tool(rows: &mut Vec<Row>, text: &str, width: usize) {
+    let (title, details) = text.split_once('\n').unwrap_or((text, ""));
+    wrap(rows, title, width, false, false, 0);
+    let mut base = title.len() + 1;
+    for line in details.split_terminator('\n') {
+        let clipped = Span::raw(line).width() > width;
+        let end = if clipped {
+            let budget = width.saturating_sub(3);
+            let mut used = 0;
+            line.grapheme_indices(true)
+                .take_while(|(_, glyph)| {
+                    used += Span::raw(*glyph).width();
+                    used <= budget
+                })
+                .last()
+                .map_or(0, |(at, glyph)| at + glyph.len())
+        } else {
+            line.len()
+        };
+        rows.push(Row {
+            range: base..base + end,
+            header: false,
+            spacer: None,
+            clipped,
+        });
         base += line.len() + 1;
     }
 }
@@ -579,11 +616,17 @@ impl Layout {
                 }
                 let content = segment.display.as_deref().unwrap_or(&item.text);
                 if !segment.styling_valid {
-                    crate::output_style::classify(
-                        &mut segment.styling,
-                        content,
-                        matches!(item.kind, ItemKind::File(_)),
-                    );
+                    if matches!(item.kind, ItemKind::Message | ItemKind::Plan)
+                        && segment.display.is_none()
+                    {
+                        crate::output_style::markdown(&mut segment.styling, content);
+                    } else {
+                        crate::output_style::classify(
+                            &mut segment.styling,
+                            content,
+                            matches!(item.kind, ItemKind::File(_)),
+                        );
+                    }
                     segment.styling_valid = true;
                 }
                 segment.rows.clear();
@@ -593,6 +636,7 @@ impl Layout {
                         range: 0..0,
                         header: false,
                         spacer: Some(Spacer::Segment),
+                        clipped: false,
                     });
                 }
                 // Reserve both box edges, interior spacing and the live caret;
@@ -623,6 +667,7 @@ impl Layout {
                         range: 0..0,
                         header: false,
                         spacer: Some(Spacer::Content),
+                        clipped: false,
                     });
                 }
                 let source_start = if file {
@@ -630,22 +675,27 @@ impl Layout {
                 } else {
                     0
                 };
-                wrap(
-                    &mut segment.rows,
-                    &content[source_start..],
-                    usize::from(content_width),
-                    false,
-                    comfortable
-                        && segment.display.is_none()
-                        && matches!(item.kind, ItemKind::Message | ItemKind::Plan),
-                    source_start,
-                );
+                if segment.tool_shown {
+                    wrap_tool(&mut segment.rows, content, usize::from(content_width));
+                } else {
+                    wrap(
+                        &mut segment.rows,
+                        &content[source_start..],
+                        usize::from(content_width),
+                        false,
+                        comfortable
+                            && segment.display.is_none()
+                            && matches!(item.kind, ItemKind::Message | ItemKind::Plan),
+                        source_start,
+                    );
+                }
                 if segment.summary_start < segment.header.len() {
                     if !content.is_empty() && !file {
                         segment.rows.push(Row {
                             range: 0..0,
                             header: false,
                             spacer: Some(Spacer::Summary),
+                            clipped: false,
                         });
                     }
                     wrap(
@@ -662,6 +712,7 @@ impl Layout {
                         range: content.len()..content.len(),
                         header: false,
                         spacer: Some(Spacer::FileEnd),
+                        clipped: false,
                     });
                 }
                 segment.valid = true;
@@ -1190,6 +1241,7 @@ impl State {
                         text: &text[row.range.clone()],
                         kind: segment.kind,
                         header: row.header,
+                        clipped: row.clipped,
                         outcome: (row.header && row.range.start >= segment.summary_start)
                             .then(|| {
                                 items[index]
@@ -1446,6 +1498,51 @@ mod tests {
             status: Some(status),
         });
         state
+    }
+
+    #[test]
+    fn long_tool_prints_stay_bounded_and_keep_byte_anchors_across_reflow() {
+        let output = format!("{}\n{}", "界e\u{301}".repeat(100), "한글".repeat(100));
+        let raw = serde_json::json!({
+            "tool": "eevee_run_command",
+            "arguments": {"cwd": "src"},
+            "status": "completed",
+            "result": {
+                "status": "success",
+                "run": {"state": "Succeeded", "exit_code": 0},
+                "stdout": output,
+            },
+        })
+        .to_string();
+        let state = tool_request(&raw, true);
+        let mut layout = Layout::default();
+        layout.update((60, 18), &state.items, "test", false, false);
+        let details = layout.segments[0]
+            .rows
+            .iter()
+            .enumerate()
+            .filter(|(_, row)| row.clipped)
+            .map(|(index, row)| (index, row.range.clone()))
+            .collect::<Vec<_>>();
+        assert_eq!(details.len(), 2);
+        let display = layout.segments[0].display.as_deref().unwrap();
+        for (_, range) in &details {
+            assert!(Span::raw(&display[range.clone()]).width() + 3 <= 60);
+            assert!(
+                display
+                    .grapheme_indices(true)
+                    .any(|(at, _)| at == range.end)
+            );
+        }
+        for (index, range) in details {
+            layout.pin(index);
+            for width in [120, 60] {
+                layout.update((width, 18), &state.items, "test", false, false);
+                let anchored = layout.anchor_row().unwrap();
+                assert_eq!(layout.segments[0].rows[anchored].range.start, range.start);
+            }
+        }
+        assert_eq!(state.items[0].text, raw);
     }
 
     #[test]

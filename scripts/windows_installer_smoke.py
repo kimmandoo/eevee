@@ -5,19 +5,24 @@ No builds, network requests, accounts, execution-policy changes or mocks. Runs
 both -File and the README's called ScriptBlock semantics, with offline archive
 arguments replacing only the network transport. The latter installs, updates,
 rejects a bad checksum, repairs an absent executable, launches the installed TUI
-and explicitly quits, then uninstalls in the SAME PowerShell host. Retains caller
-continuation/error markers and
-ConPTY transcripts; does not certify another device or physical terminal.
+and explicitly quits, then uninstalls in the SAME PowerShell host. Exercises raw
+user PATH persistence, duplicate prevention, fresh-process command discovery and
+denied-write rollback. Requires --allow-user-path-changes on a disposable Windows
+account: the real user PATH is temporarily changed and restored in finally.
+Retains caller continuation/error markers and ConPTY transcripts; does not
+certify another device or physical terminal.
 
   python scripts/windows_installer_smoke.py \
       --archive target/packages/ev-windows-x86_64.zip \
-      --checksums target/packages/SHA256SUMS --output target/windows-installer
+      --checksums target/packages/SHA256SUMS --output target/windows-installer \
+      --allow-user-path-changes
 """
 from __future__ import annotations
 
 import argparse
 import base64
 import hashlib
+from contextlib import contextmanager
 import json
 import os
 from pathlib import Path
@@ -26,7 +31,7 @@ import subprocess
 import time
 import traceback
 
-from terminal_smoke import Session, confirm_exit
+from terminal_smoke import Session, confirm_exit, run_owned
 
 
 def quote(value):
@@ -59,9 +64,157 @@ def environment(home):
     return env
 
 
+def read_user_path():
+    import winreg
+    with winreg.OpenKey(winreg.HKEY_CURRENT_USER, 'Environment') as key:
+        try:
+            return winreg.QueryValueEx(key, 'Path')
+        except FileNotFoundError:
+            return None
+
+
+def write_user_path(value):
+    import winreg
+    with winreg.CreateKey(winreg.HKEY_CURRENT_USER, 'Environment') as key:
+        if value is None:
+            try:
+                winreg.DeleteValue(key, 'Path')
+            except FileNotFoundError:
+                pass
+        else:
+            winreg.SetValueEx(key, 'Path', 0, value[1], value[0])
+
+
+@contextmanager
+def restore_registry_acl():
+    # The parent retains READ_CONTROL/WRITE_DAC without requesting SetValue.
+    # Restore the original ACL even if the denied-write child times out or dies.
+    import ctypes
+    from ctypes import wintypes
+    import winreg
+    security = ctypes.WinDLL('advapi32', use_last_error=True)
+    kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+    pointer = ctypes.c_void_p
+    security.GetSecurityInfo.argtypes = [wintypes.HANDLE, wintypes.DWORD, wintypes.DWORD,
+                                        pointer, pointer, ctypes.POINTER(pointer),
+                                        pointer, ctypes.POINTER(pointer)]
+    security.GetSecurityInfo.restype = wintypes.DWORD
+    security.SetSecurityInfo.argtypes = [wintypes.HANDLE, wintypes.DWORD, wintypes.DWORD,
+                                        pointer, pointer, pointer, pointer]
+    security.SetSecurityInfo.restype = wintypes.DWORD
+    kernel.LocalFree.argtypes = [pointer]
+    kernel.LocalFree.restype = pointer
+    with winreg.OpenKey(winreg.HKEY_CURRENT_USER, 'Environment', 0, 0x20000 | 0x40000) as key:
+        dacl, descriptor = pointer(), pointer()
+        error = security.GetSecurityInfo(int(key), 4, 4, None, None,
+                                         ctypes.byref(dacl), None, ctypes.byref(descriptor))
+        if error:
+            raise ctypes.WinError(error)
+        try:
+            yield
+        finally:
+            try:
+                error = security.SetSecurityInfo(int(key), 4, 4, None, None, dacl, None)
+                if error:
+                    raise ctypes.WinError(error)
+            finally:
+                kernel.LocalFree(descriptor)
+
+
+@contextmanager
+def user_path_fixture(case):
+    import winreg
+    original = read_user_path()
+    save(case / 'user-path-before.json', {'value': None if original is None else original[0],
+                                        'kind': None if original is None else original[1]})
+    # Keep literal expandable placeholders, quotes, spaces, Unicode and empty
+    # entries. They must survive byte-for-byte, not be expanded and rewritten.
+    seed = ('"%USERPROFILE%\\unrelated path";"' + str(case / 'unrelated \uacbd\ub85c')
+            + '";;')
+    try:
+        with restore_registry_acl():
+            write_user_path((seed, winreg.REG_EXPAND_SZ))
+            yield seed
+    finally:
+        write_user_path(original)
+        save(case / 'user-path-restored.json', {'restored': read_user_path() == original})
+        if read_user_path() != original:
+            raise RuntimeError('Failed to restore the original user PATH')
+
+
+def assert_user_path(expected):
+    import winreg
+    if read_user_path() != (expected, winreg.REG_EXPAND_SZ):
+        raise RuntimeError('User PATH value or expandable-string type changed unexpectedly')
+
+
+def probe_persisted_command(shell, destination, case, env):
+    # A new shell inherits the Python runner, never the installer's updated PATH.
+    # Refresh it from persisted machine/user state, as a new desktop session does.
+    source = '\n'.join([
+        "$ErrorActionPreference = 'Stop'",
+        "$env:PATH = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [Environment]::GetEnvironmentVariable('Path', 'User')",
+        "$command = Get-Command ev -CommandType Application -ErrorAction Stop",
+        'if (-not [string]::Equals([IO.Path]::GetFullPath($command.Source), ' + quote(destination / 'ev.exe')
+        + ", [StringComparison]::OrdinalIgnoreCase)) { throw ('Wrong ev discovered: ' + $command.Source) }",
+        '& ev --version',
+        "if ($LASTEXITCODE -ne 0) { throw 'Persisted PATH ev --version failed.' }",
+    ])
+    completed = run_owned([shell, '-NoLogo', '-NoProfile', '-NonInteractive',
+                           '-EncodedCommand', encoded_command(source)],
+                          env=env, cwd=case / 'project', timeout=30)
+    (case / 'persisted-path-stdout.bin').write_bytes(completed.stdout)
+    (case / 'persisted-path-stderr.bin').write_bytes(completed.stderr)
+    if completed.returncode != 0:
+        raise RuntimeError('Fresh-process persisted PATH command discovery failed')
+
+
+def denied_path_source(installer, arguments, case):
+    """Use a real registry ACL denial, retaining a full-control restoration handle."""
+    parameters = {str(arguments[index]).lstrip('-'): arguments[index + 1]
+                  for index in range(0, len(arguments) - 1, 2)}
+    invocation = ' '.join('-' + name + ' ' + quote(value) for name, value in parameters.items())
+    return '\n'.join([
+        "$ErrorActionPreference = 'Stop'",
+        '$beforePath = $env:PATH',
+        "$key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Environment', [Microsoft.Win32.RegistryKeyPermissionCheck]::ReadWriteSubTree, [Security.AccessControl.RegistryRights]::FullControl)",
+        'function Read-RegistrySecurity {',
+        "    if ($null -ne $key.PSObject.Methods['GetAccessControl']) { return $key.GetAccessControl() }",
+        '    return [Microsoft.Win32.RegistryAclExtensions]::GetAccessControl($key)',
+        '}',
+        'function Write-RegistrySecurity($value) {',
+        "    if ($null -ne $key.PSObject.Methods['SetAccessControl']) { $key.SetAccessControl($value) }",
+        '    else { [Microsoft.Win32.RegistryAclExtensions]::SetAccessControl($key, $value) }',
+        '}',
+        '$acl = Read-RegistrySecurity',
+        '$original = Read-RegistrySecurity',
+        '$sid = [Security.Principal.WindowsIdentity]::GetCurrent().User',
+        "$rule = [Security.AccessControl.RegistryAccessRule]::new($sid, [Security.AccessControl.RegistryRights]::SetValue, [Security.AccessControl.AccessControlType]::Deny)",
+        '$acl.AddAccessRule($rule)',
+        'try {',
+        '    Write-RegistrySecurity $acl',
+        '    $caught = $false',
+        '    try { & ([scriptblock]::Create([IO.File]::ReadAllText(' + quote(installer) + '))) '
+        + invocation + ' -NoAnimation }',
+        '    catch {',
+        '        $caught = $true',
+        "        if ($_.Exception.Message -notmatch '(?i)user PATH.*previous installation was preserved') { throw }",
+        '        [IO.File]::WriteAllText(' + quote(case / 'denied-path-error.txt') + ', ($_ | Out-String))',
+        '    }',
+        "    if (-not $caught) { throw 'Denied user PATH write was not reported as failed.' }",
+        '    $childHost = [Diagnostics.Process]::GetCurrentProcess().MainModule.FileName',
+        '    & $childHost -NoLogo -NoProfile -NonInteractive -File ' + quote(installer)
+        + ' ' + invocation + ' -NoAnimation',
+        "    if ($LASTEXITCODE -eq 0) { throw '-File denied user PATH write returned success.' }",
+        "    if ($env:PATH -cne $beforePath) { throw 'Denied PATH registration changed the invoking process PATH.' }",
+        '} finally { try { Write-RegistrySecurity $original } finally { $key.Dispose() } }',
+        'exit 0',
+    ])
+
+
 def scriptblock_source(installer, archive, checksums, bad_checksums, case):
     """Use the exact & ([scriptblock]::Create(text)) call, not a -File wrapper."""
-    destination = case / 'ScriptBlock install with spaces'
+    destination = case / 'ScriptBlock install with spaces \uacbd\ub85c'
     binary = destination / 'ev.exe'
     arguments = (' -Archive ' + quote(archive) + ' -Checksums ' + quote(checksums)
                  + ' -InstallDir ' + quote(destination))
@@ -79,6 +232,10 @@ def scriptblock_source(installer, archive, checksums, bad_checksums, case):
         '$fields = @(' + ', '.join(quote(name) for name in fields) + ')',
         'foreach ($name in $fields) { Set-Variable -Scope Script -Name $name -Value $scopeSentinel }',
         '$beforePath = $env:PATH',
+        '$expectedPath = $beforePath + $(if ([string]::IsNullOrEmpty($beforePath) -or $beforePath.EndsWith(";")) { "" } else { ";" }) + ' + quote(destination),
+        "$pathKey = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Environment')",
+        "try { $beforeUserPath = $pathKey.GetValue('Path', '', [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames) } finally { $pathKey.Dispose() }",
+        '$expectedUserPath = $beforeUserPath + $(if ([string]::IsNullOrEmpty($beforeUserPath) -or $beforeUserPath.EndsWith(";")) { "" } else { ";" }) + ' + quote(destination),
         '$beforeSecurity = [Net.ServicePointManager]::SecurityProtocol',
         '$installerText = [IO.File]::ReadAllText(' + quote(installer) + ')',
         'function Read-ProbeHash([string]$path) {',
@@ -89,7 +246,12 @@ def scriptblock_source(installer, archive, checksums, bad_checksums, case):
         '}',
         'function Assert-CallerState {',
         "    if ($ErrorActionPreference -cne 'Continue') { throw 'Caller error preference changed.' }",
-        "    if ($env:PATH -cne $beforePath) { throw 'Caller PATH changed.' }",
+        "    if ($env:PATH -cne $expectedPath) { throw 'Caller PATH did not retain the exact one-time addition.' }",
+        "    $pathKey = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Environment')",
+        '    try {',
+        "        if ($pathKey.GetValue('Path', '', [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames) -cne $expectedUserPath -or",
+        "            $pathKey.GetValueKind('Path') -ne [Microsoft.Win32.RegistryValueKind]::ExpandString) { throw 'Persistent user PATH changed unexpectedly.' }",
+        '    } finally { $pathKey.Dispose() }',
         "    if ([Net.ServicePointManager]::SecurityProtocol -ne $beforeSecurity) { throw 'Caller TLS settings changed.' }",
         '    foreach ($name in $fields) {',
         '        if (-not [object]::ReferenceEquals((Get-Variable -Scope Script -Name $name -ValueOnly), $scopeSentinel)) {',
@@ -101,6 +263,7 @@ def scriptblock_source(installer, archive, checksums, bad_checksums, case):
         '    $PSVersionTable | Out-String | Set-Content -LiteralPath ' + quote(case / 'engine.txt'),
         '    & ([scriptblock]::Create($installerText))' + arguments,
         '    Assert-CallerState',
+        "    if (-not [string]::Equals((Get-Command ev -CommandType Application -ErrorAction Stop).Source, " + quote(binary) + ", [StringComparison]::OrdinalIgnoreCase)) { throw 'ScriptBlock ev command discovery failed.' }",
         "    if ($null -ne $evInstallerUndefinedScopeProbe) { throw 'Unexpected strict-mode probe value.' }",
         '    [IO.File]::WriteAllText(' + quote(case / 'continued-after-install') + ", 'continued')",
         '    & ([scriptblock]::Create($installerText))' + arguments,
@@ -134,7 +297,7 @@ def scriptblock_source(installer, archive, checksums, bad_checksums, case):
         "        throw 'Repair did not restore the exact verified installation.'",
         '    }',
         '    [IO.File]::WriteAllText(' + quote(case / 'continued-after-repair') + ", 'continued')",
-        '    & ' + quote(binary) + ' --images off',
+        '    & ev --images off',
         '    $nativeExit = $LASTEXITCODE',
         '    [IO.File]::WriteAllText(' + quote(case / 'native-exit.txt') + ', [string]$nativeExit)',
         "    if ($nativeExit -ne 0) { throw ('Installed TUI failed: ' + $nativeExit) }",
@@ -155,11 +318,16 @@ def scriptblock_source(installer, archive, checksums, bad_checksums, case):
     return '\n'.join(source) + '\n'
 
 
-def run_file_case(shell, installer, archive, checksums, bad_checksums, case, env):
-    destination = case / 'File install with spaces'
+def run_file_case(shell, installer, archive, checksums, bad_checksums, case, env, seed):
+    import winreg
+    destination = case / 'File install with spaces \uacbd\ub85c'
+    expected_path = seed
     rows = []
     for name, arguments, expected in [
+        ('initial-failure', ['-Archive', archive, '-Checksums', bad_checksums], 1),
+        ('initial-denied-user-path', ['-Archive', archive, '-Checksums', checksums], 0),
         ('install', ['-Archive', archive, '-Checksums', checksums], 0),
+        ('denied-user-path', ['-Archive', archive, '-Checksums', checksums], 0),
         ('update', ['-Archive', archive, '-Checksums', checksums], 0),
         ('failure', ['-Archive', archive, '-Checksums', bad_checksums], 1),
         ('modified-binary', ['-Archive', archive, '-Checksums', checksums], 1),
@@ -177,6 +345,15 @@ def run_file_case(shell, installer, archive, checksums, bad_checksums, case, env
         ('uninstall', ['-Uninstall'], 0),
     ]:
         binary, marker = destination / 'ev.exe', destination / '.ev-install/.native-install'
+        denied = name in ('initial-denied-user-path', 'denied-user-path')
+        if denied:
+            expected_path = seed
+            write_user_path((expected_path, winreg.REG_EXPAND_SZ))
+        elif name == 'update':
+            # A preexisting quoted/case/slash-normalized entry must be preserved,
+            # rather than appending another spelling or claiming it as owned.
+            expected_path = seed + '"' + str(destination).replace('\\', '/').upper() + '/"'
+            write_user_path((expected_path, winreg.REG_EXPAND_SZ))
         mutation = {
             'modified-binary': binary,
             'missing-binary-invalid-metadata': marker.parent / 'LICENSE',
@@ -191,23 +368,35 @@ def run_file_case(shell, installer, archive, checksums, bad_checksums, case, env
             original = mutation.read_bytes() if mutation.exists() else None
             mutation.write_bytes((original or b'') + b'\nmodified')
         before = {str(path.relative_to(destination)): hashlib.sha256(path.read_bytes()).hexdigest()
-                  for path in destination.rglob('*') if path.is_file()} if expected else None
-        command = [shell, '-NoLogo', '-NoProfile', '-NonInteractive', '-File',
-                   str(installer), *map(str, arguments), '-InstallDir', str(destination), '-NoAnimation']
-        completed = subprocess.run(command, env=env, cwd=case / 'project',
-                                   capture_output=True, timeout=120)
+                  for path in destination.rglob('*') if path.is_file()} if expected or denied else None
+        invocation = [*map(str, arguments), '-InstallDir', str(destination), '-NoAnimation']
+        if denied:
+            source = denied_path_source(installer, invocation, case)
+            command = [shell, '-NoLogo', '-NoProfile', '-NonInteractive',
+                       '-EncodedCommand', encoded_command(source)]
+        else:
+            command = [shell, '-NoLogo', '-NoProfile', '-NonInteractive', '-File',
+                       str(installer), *invocation]
+        completed = run_owned(command, env=env, cwd=case / 'project', timeout=120)
         (case / ('file-' + name + '-stdout.bin')).write_bytes(completed.stdout)
         (case / ('file-' + name + '-stderr.bin')).write_bytes(completed.stderr)
-        row = {'operation': name, 'exit_code': completed.returncode, 'expected_exit_code': expected}
+        row = {'operation': name, 'exit_code': completed.returncode, 'expected_exit_code': expected,
+               'invocation': 'ScriptBlock and -File with real registry write denial' if denied else '-File'}
         rows.append(row)
         save(case / 'file-results.json', rows)
         if completed.returncode != expected:
-            raise RuntimeError(f'-File {name} returned {completed.returncode}, expected {expected}')
+            raise RuntimeError(f'{name} returned {completed.returncode}, expected {expected}')
         if before is not None:
             after = {str(path.relative_to(destination)): hashlib.sha256(path.read_bytes()).hexdigest()
                      for path in destination.rglob('*') if path.is_file()}
             if before != after:
-                raise RuntimeError('-File rejected operation changed retained installation: ' + name)
+                raise RuntimeError('Rejected operation changed retained installation: ' + name)
+        if name == 'install':
+            expected_path = seed + str(destination)
+        assert_user_path(expected_path)
+        if name in ('install', 'update', 'repair'):
+            probe_persisted_command(shell, destination, case, env)
+            row['fresh_process_persisted_ev_discovered'] = True
         if mutation is not None:
             if original is None:
                 mutation.unlink()
@@ -217,6 +406,7 @@ def run_file_case(shell, installer, archive, checksums, bad_checksums, case, env
             raise RuntimeError('-File repair did not restore the exact verified executable')
         if name == 'uninstall' and (binary.exists() or marker.parent.exists()):
             raise RuntimeError('-File uninstall left installed files')
+    save(case / 'file-results.json', rows)
     return rows
 
 
@@ -279,7 +469,11 @@ def main():
     parser.add_argument('--checksums', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--powershell', action='append', help='repeat for engines; default requires powershell.exe and pwsh.exe')
+    parser.add_argument('--allow-user-path-changes', action='store_true',
+                        help='acknowledge temporary real user PATH/ACL changes on a disposable account')
     args = parser.parse_args()
+    if not args.allow_user_path_changes:
+        parser.error('--allow-user-path-changes is required on a disposable Windows account; the smoke temporarily changes real user PATH and registry ACLs')
     if os.name != 'nt':
         parser.error('native Windows only')
     installer, archive, checksums, output = (path.resolve() for path in
@@ -318,9 +512,10 @@ def main():
                                           '$PSVersionTable.PSVersion.ToString()'], env=env,
                                          capture_output=True, timeout=30, check=True)
                 row['version_output'] = version.stdout.decode('utf-8-sig', errors='replace').strip()
-                row['file'] = run_file_case(shell, installer, archive, checksums, bad_checksums, case, env)
-                source = scriptblock_source(installer, archive, checksums, bad_checksums, case)
-                row['scriptblock'] = run_scriptblock_case(shell, source, case, env)
+                with user_path_fixture(case) as seed:
+                    row['file'] = run_file_case(shell, installer, archive, checksums, bad_checksums, case, env, seed)
+                    source = scriptblock_source(installer, archive, checksums, bad_checksums, case)
+                    row['scriptblock'] = run_scriptblock_case(shell, source, case, env)
                 row['status'] = 'passed'
             except Exception as error:
                 row.update(error=str(error), traceback=traceback.format_exc())

@@ -195,7 +195,7 @@ def response_view(session):
     header = caption + 1
     if header + 1 < len(rows) and "[FILE]" in rows[header + 1]:
         header += 1
-    status_pattern = r"(?P<start>\d+)-(?P<end>\d+)/(?P<total>\d+).*Alt\+End"
+    status_pattern = r"(?P<start>\d+)-(?P<end>\d+)/(?P<total>\d+)\b"
     status = next((index for index in range(header + 1, len(rows))
                    if re.search(status_pattern, rows[index])), None)
     assert status is not None and status > header + 1, "response body not visible\n" + session.display()
@@ -338,20 +338,19 @@ def run(binary, output, root, size, ascii_mode, ):
 
             wheel(session, "up", response_view(session)["point"], 8)
             old = response_view(session)
+            assert not old["following"], "follow-up fixture must start from paused output"
             peer.plans.put(("complete", SECOND_ANSWER))
             session.send("\r")
             until(session, lambda: len(peer.snapshot("POST")) == 2 and not journey.snapshot()["claims"],
                   "one deliberately submitted follow-up")
-            previous = response_view(session)
-            assert not previous["following"]
-            session.capture("new-turn-kept-previous-reading-location")
-            assert re.findall(r"R\d{3}w\d{2}", previous["body"][0]) == re.findall(
-                r"R\d{3}w\d{2}", old["body"][0]
-            ), (old["body"][0], previous["body"][0])
+            latest = response_view(session)
+            assert latest["following"], "accepted Enter did not resume latest output"
+            assert SECOND_ANSWER in "\n".join(latest["body"]), latest
+            session.capture("new-turn-followed-latest-output")
+            cases.append("Enter from a paused transcript followed the newly submitted response without a navigation key")
             _, messages = decoded_payload("chat_completions", peer.snapshot("POST")[-1]["body"])
             assert messages == [("user", FIRST_REQUEST), ("assistant", peer.prefix + peer.suffix),
                                 ("user", expected_draft)], messages
-            session.send(ALT_END)
             wait_for(session, SECOND_ANSWER)
             boundary_rows = list(response_view(session)["body"])
             # No response-selection key: ordinary pages must cross both ways
@@ -416,7 +415,7 @@ def run(binary, output, root, size, ascii_mode, ):
             top = response_view(session)["body"]
             session.send(PAGE_UP)
             assert response_view(session)["body"] == top, "transcript Home did not clamp at the first row"
-            cases.append("new turn preserved the old reading location; explicit latest/inspect/top keys remained local")
+            cases.append("new Send followed latest output; subsequent explicit inspect/top keys remained local")
 
             session.send(ESC)
             at_top = response_view(session)

@@ -232,8 +232,8 @@ pub(super) fn header(frame: &mut Frame, area: Rect, app: &App, config: &Config, 
         &clipped(&status, area.width as usize),
         paint.muted,
     );
-    // Capability chip (EV03A): lowest header priority, so it appears only in
-    // space the activity/storage text leaves free and never clips it.
+    // Safety/activity text always wins. Usage gets spare room before the
+    // redundant capability chip; `/usage` remains discoverable at 60 columns.
     let operation = if app.planning.busy() {
         app.planning.operation
     } else {
@@ -257,30 +257,35 @@ pub(super) fn header(frame: &mut Frame, area: Rect, app: &App, config: &Config, 
     } else {
         chip
     };
-    let (chip_width, used) = (
-        Span::raw(chip.as_str()).width() as u16,
-        Span::raw(status.as_str()).width() as u16,
-    );
-    if used + 2 + chip_width <= line.width {
+    let used = Span::raw(status.as_str())
+        .width()
+        .min(usize::from(line.width)) as u16;
+    let available = line.width.saturating_sub(used.saturating_add(2));
+    let meter = app.meter_chip(available);
+    let meter_width = meter
+        .as_ref()
+        .map_or(0, |meter| Span::raw(meter.as_str()).width() as u16);
+    let chip_width = Span::raw(chip.as_str()).width() as u16;
+    let show_chip =
+        chip_width.saturating_add(if meter.is_some() { meter_width + 1 } else { 0 }) <= available;
+    let mut right = line.right();
+    if let Some(meter) = meter {
+        right -= meter_width;
         text(
             frame,
-            Rect::new(line.right() - chip_width, line.y, chip_width, 1),
+            Rect::new(right, line.y, meter_width, 1),
+            &meter,
+            paint.muted,
+        );
+        right = right.saturating_sub(1);
+    }
+    if show_chip {
+        text(
+            frame,
+            Rect::new(right - chip_width, line.y, chip_width, 1),
             &chip,
             paint.accent,
         );
-        // Usage meter (XC09): left of the capability chip, only in spare room.
-        if let Some(meter) = app.meter_chip(area.width) {
-            let meter = format!("{meter} ");
-            let width = Span::raw(meter.as_str()).width() as u16;
-            if used + 3 + chip_width + width <= line.width {
-                text(
-                    frame,
-                    Rect::new(line.right() - chip_width - width, line.y, width, 1),
-                    &meter,
-                    paint.muted,
-                );
-            }
-        }
     }
 }
 

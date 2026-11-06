@@ -58,10 +58,9 @@ export PATH="$HOME/.local/bin:$PATH"
 
 ```powershell
 & ([scriptblock]::Create((irm https://github.com/kimmandoo/eevee/releases/latest/download/install.ps1)))
-$env:PATH = "$env:LOCALAPPDATA\ev\bin;" + $env:PATH
 ```
 
-Installers verify SHA-256 checksums, never edit your shell profile or persistent `PATH`, and on Windows return to the calling PowerShell session without changing execution policy.
+Installers verify SHA-256 checksums and never edit shell profiles or execution policy. The Windows installer registers its installation directory in your **user PATH** once and updates the calling ScriptBlock session; machine PATH is untouched. A `-File` child process cannot update its parent shell: open a new terminal afterward, or use the session command below. POSIX PATH setup remains explicit.
 
 ```sh
 ev update --check   # is there a newer release?
@@ -93,7 +92,7 @@ sh ./install-ev.sh --archive ./ev-linux-x86_64.tar.gz --checksums ./SHA256SUMS
 powershell -NoProfile -File .\install.ps1 -Archive "$PWD\ev-windows-x86_64.zip" -Checksums "$PWD\SHA256SUMS"
 ```
 
-To keep `ev` on `PATH`, add `export PATH="$HOME/.local/bin:$PATH"` to your shell profile, or on Windows add `%LOCALAPPDATA%\ev\bin` to your user `Path`. macOS builds are not notarized and Windows packages are unsigned; WSL uses the Linux packages.
+On macOS/Linux, add `export PATH="$HOME/.local/bin:$PATH"` to your shell profile for future sessions. Windows install/update preserves existing user PATH entries and avoids duplicate registrations, including custom installation directories. Uninstall retains PATH entries as well as your data; remove an unused entry manually if desired. macOS builds are not notarized and Windows packages are unsigned; WSL uses the Linux packages.
 
 </details>
 
@@ -103,6 +102,15 @@ To keep `ev` on `PATH`, add `export PATH="$HOME/.local/bin:$PATH"` to your shell
 If Windows says `ev.exe` contains a virus or potentially unwanted software, **leave the block in place**. `Unblock-File` and execution-policy changes do not resolve an antivirus detection, and you should not disable Defender or add an exclusion. Check **Windows Security → Virus & threat protection → Protection history** and report the threat name, the `ev.exe` path, the release version and the Defender security-intelligence version. A matching SHA-256 proves the bytes came from the release, not that a file is safe.
 
 If `ev.exe` is missing but `.ev-install` remains, do not delete the metadata or your task data: rerun the installer, which repairs that state after validating its ownership marker. Modified or unowned files still refuse.
+
+If an older Windows installer left `ev` unavailable, rerun the updated installer to register its directory. For an already-open shell (or an older published installer), the default-location session repair is:
+
+```powershell
+$env:PATH = "$env:LOCALAPPDATA\ev\bin;" + $env:PATH
+Get-Command ev
+```
+
+Use your actual installation directory if you selected `-InstallDir`. If the installer reports that user PATH registration failed, it does not report success; resolve the reported access/error cause and rerun. No administrator shell or execution-policy change is required.
 
 If the window closes immediately, run these from an already-open PowerShell window and include the output and terminal (Windows Terminal or classic console) in a report:
 
@@ -138,6 +146,18 @@ Ordinary coding requests expose file and command tools automatically; importing 
 `/tools` shows the selected route's source, editing, execution and download capabilities, plus eligible selected MCP tools. Explicit Plan/Review disables file changes and commands; `/role-implement` restores ordinary coding for the next Send. MCP connections still require separate launch review and explicit tool selection.
 
 Tool calls stay in the response transcript, including on wide terminals: `[..]` awaits a result, `[ok]` reports success, `[!!]` reports failure, `[--]` reports a stopped request/tool and `[?]` an unknown result. A request ending without a tool result never becomes success or keeps running indefinitely; the note distinguishes a stopped request from proof of remote tool cancellation. Command rows retain the actual exit and bounded output; `/verbose` exposes complete retained detail. A definite compiler failure can be corrected within the same request while its todo remains actionable. Denied permissions and unknown effects never authorize replay.
+
+Headings, lists, quotes, emphasis and inline code have distinct transcript styling without rewriting the received text. Program prints use a separate output rail beneath the tool's status/exit; generated source retains its own file surface. Enter/Send follows the newly submitted response automatically. Scrolling up pauses following while output arrives; the next accepted Send returns to the bottom.
+
+### Tokens and estimated cost
+
+`/usage` shows **Latest request**, **Current task** and **This launch** with input/output tokens and a labelled **estimated USD** amount. Cached-input and reasoning counts are subsets, not extra tokens. Open the details to inspect missing reports, per-model/partner totals, price source/date and stale-price warnings. Navigation does not send a request or move your draft caret.
+
+Amounts are local estimates from provider-reported usage, **not billing**. Missing usage or prices stay unknown; account-plan, external-agent and local-endpoint routes are labelled instead of receiving invented API charges. Very small nonzero amounts remain visibly nonzero. No currency conversion or invoice lookup is performed.
+
+Use `/usage-meter on` or `/usage-meter off` for the home summary. `/usage-budget 2.50` sets a USD estimate notice, not a hard spending limit; `/usage-budget off` disables it. Custom per-million-token prices belong in `<data dir>/usage.toml`; `/prices` reloads them. Built-in prices retain their stated date and are marked stale when appropriate.
+
+Unlisted model versions are not priced from similarly named older models. Built-in alias rates also cover dated snapshots; explicit custom price rows retain longest-prefix matching. Price availability never restricts which model you can select.
 
 ### Sessions
 

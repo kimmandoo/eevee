@@ -2904,6 +2904,58 @@ fn run_request(state: &mut State, generation: u64, request: &str) {
 }
 
 #[test]
+fn only_an_admitted_send_resumes_paused_output() {
+    let mut state = active();
+    streamed(&mut state, "earlier", "first\nmiddle\nlast", true);
+    state.event(Event::Finished {
+        generation: 11,
+        task_id: 7,
+        outcome: Outcome::Completed,
+        message: "Complete".into(),
+    });
+    state.response_rows(40, 1, false).count();
+    press(&mut state, KeyCode::Home, true);
+    let held = state.response_rows(40, 1, false).next().unwrap().to_owned();
+    command(&mut state, "new", true);
+    state.pending.take();
+    state.event(Event::Preview(Preview {
+        transport: None,
+        comparison_scope: None,
+        arrival: crate::providers::approval_arrival(),
+        destination: None,
+        requires_connection_review: false,
+        generation: 12,
+        task_id: 7,
+        thread_id: None,
+        trust: Vec::new(),
+        payload: "next request".into(),
+        blockers: vec!["Unavailable source".into()],
+    }));
+    assert!(!state.dispatch_prepared());
+    assert!(!state.following);
+    assert_eq!(
+        state.response_rows(40, 1, false).next(),
+        Some(held.as_str())
+    );
+
+    state.preview.as_mut().unwrap().blockers.clear();
+    assert!(state.dispatch_prepared());
+    assert!(state.following && !state.new_output);
+    state.pending.take();
+    state.event(Event::Item {
+        generation: 12,
+        task_id: 7,
+        thread_id: "thread".into(),
+        turn_id: "next".into(),
+        item_id: "latest".into(),
+        kind: ItemKind::Message,
+        text: "new answer".into(),
+        complete: true,
+    });
+    assert_eq!(state.response_rows(40, 1, false).next(), Some("new answer"));
+}
+
+#[test]
 fn retained_output_keeps_request_ownership_during_startup_failure_and_navigation() {
     let mut state = active();
     state.submitted_request = "First question".into();
@@ -2935,7 +2987,7 @@ fn retained_output_keeps_request_ownership_during_startup_failure_and_navigation
 
     // Repeated text is still a distinct request, not the old answer's owner.
     run_request(&mut state, 13, "First question");
-    assert_eq!(state.response_request(), ("First question", true));
+    assert_eq!(state.response_request(), ("Second question", true));
     press(&mut state, KeyCode::Home, true);
     for (item_id, text, complete) in [
         ("second", "Partial", false),
@@ -3862,56 +3914,6 @@ fn late_events_for_another_or_released_partner_are_refused() {
     assert!(state.notice.contains("left the party"));
     state.event(journal_event(12, "released-item"));
     assert!(state.pending_journal.is_empty());
-}
-
-#[test]
-fn fresh_turn_dispatch_keeps_manually_selected_previous_response_until_explicit_latest() {
-    let mut state = active();
-    streamed(
-        &mut state,
-        "previous",
-        "one\ntwo\nthree\nfour\nfive\nsix",
-        true,
-    );
-    state.response_rows(40, 2, false).count();
-    assert!(state.scroll_response_lines(-2));
-    assert_eq!(
-        state.response_rows(40, 2, false).collect::<Vec<_>>(),
-        ["three", "four"]
-    );
-    state.event(Event::Finished {
-        generation: 11,
-        task_id: 7,
-        outcome: Outcome::Completed,
-        message: "Complete".into(),
-    });
-    run_request(&mut state, 12, "Next request");
-    assert!(!state.following);
-    assert_eq!(
-        state.response_rows(40, 2, false).collect::<Vec<_>>(),
-        ["three", "four"]
-    );
-    state.event(Event::Item {
-        generation: 12,
-        task_id: 7,
-        thread_id: "next-thread".into(),
-        turn_id: "next-turn".into(),
-        item_id: "next-response".into(),
-        kind: ItemKind::Message,
-        text: "new response".into(),
-        complete: true,
-    });
-    assert!(state.new_output);
-    assert_eq!(state.items[state.selected].item_id, "previous");
-    assert_eq!(
-        state.response_rows(40, 2, false).collect::<Vec<_>>(),
-        ["three", "four"]
-    );
-    reply_key(&mut state, KeyCode::End);
-    assert_eq!(
-        state.response_rows(40, 1, false).collect::<Vec<_>>(),
-        ["new response"]
-    );
 }
 
 #[test]

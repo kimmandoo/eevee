@@ -1,5 +1,19 @@
 # Troubleshooting
 
+### [2026-11-06] Usage details clipped costs and tiny nonzero estimates looked free
+
+- **Context / Symptom:** The user found token usage hard to read and requested monetary amounts. The compact sheet collapsed token breakdowns, clipped unscrollable source/error details and made costs easy to miss; the narrow home chip stripped `est.`. The targeted positive-cost regression reproduced `est. $0.0000` for USD0.0000004.
+- **Root Cause:** The presentation treated every scope as one clipped line, had no details scroll state and formatted all sub-cent values to only four decimal places. Neither missing provider counters nor account-plan billing can be reconstructed from those display totals.
+- **Solution:** Grouped latest-request/task/launch tokens with labelled estimated USD, input/output and explicit cached/reasoning subsets; added bounded ephemeral details navigation and spare-space `/usage` discovery without replacing safety status. Kept unknown/unreported/partial/plan/agent/local distinctions and the dated stale-price disclosure. Positive values below USD0.0001 now show `est. <$0.0001`, retaining `+?` when other costs are unknown.
+- **Prevention / Reference:** The retained regression covers exact zero, positive subprecision values, the precision boundary, cents and mixed unknown costs. `scripts/usage_smoke.py` uses actual isolated PTY/HTTP reports and explicit synthetic local prices; those estimates are not provider invoices, current list prices, FX or paid-account proof.
+
+### [2026-11-06] Windows installation did not make ev discoverable in later terminals
+
+- **Context / Symptom:** The user reported that `ev` was unavailable later after installation from PowerShell.
+- **Root Cause:** The installer explicitly avoided persistent PATH changes and printed manual session/user registration commands instead. A session-only `$env:PATH` repair does not survive opening a new terminal; a `-File` child cannot modify its parent process environment.
+- **Solution:** Registered only the admitted successful destination in raw HKCU `Environment\Path`, preserving existing bytes and value kind and avoiding normalized duplicates. Registration became the final fallible publication stage so failure rolls back the executable/ownership metadata. Called ScriptBlocks update process PATH; environment notification and precise new-terminal/session guidance cover independent shells. Uninstall deliberately retains PATH entries of unknown prior ownership.
+- **Prevention / Reference:** The native installer smoke requires `--allow-user-path-changes` on a disposable Windows host, snapshots/restores raw user PATH and exercises fresh-process discovery, repeat updates, rejected updates and denied registry-write rollback. Local macOS PowerShell parsing/append checks do not certify Windows registry, PS5.1 or Explorer inheritance.
+
 ### [2026-11-06] macOS system Python could not run the repository acceptance tools
 
 - **Context / Symptom:** `python3 -m unittest discover -s scripts -p 'test_*.py'` used Xcode Python3.9. Release tests failed with `ModuleNotFoundError: No module named 'tomllib'`; scheduler tests saw empty result lists because the acceptance runner rejected the unsupported interpreter. Homebrew Python3.12 passed the26-test discovery (22 passed/four Windows-only skips), but initially lacked `pyte`.

@@ -486,8 +486,6 @@ impl State {
         let generation = preview.generation;
         if preview.thread_id.is_none() && !self.inspect_sessions && !self.inspect_models {
             if self.items.is_empty() {
-                self.following = true;
-                self.new_output = false;
                 self.saved_scroll = 0;
                 self.response_scroll = 0;
                 self.response_max = 0;
@@ -496,6 +494,9 @@ impl State {
             self.observed_model = None;
         }
         if !self.inspect_models && !self.inspect_sessions {
+            // An accepted Send starts reading the new turn, even if the user
+            // paused an earlier answer. Inspection and refused sends stay put.
+            self.resume_follow();
             self.remember_used_selection();
         }
         self.pending = Some(Request::Run { generation });

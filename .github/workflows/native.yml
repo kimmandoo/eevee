@@ -169,6 +169,7 @@ jobs:
           if os.name == "nt":
               subprocess.run([
                   sys.executable, "scripts/windows_installer_smoke.py",
+                  "--allow-user-path-changes",
                   "--archive", "target/packages/ev-windows-x86_64.zip",
                   "--checksums", "target/packages/SHA256SUMS",
                   "--output", str(pathlib.Path(os.environ["NATIVE_SMOKE_OUTPUT"]) / "windows-installer"),

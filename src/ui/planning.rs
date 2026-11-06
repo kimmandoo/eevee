@@ -1409,6 +1409,7 @@ fn response(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
                     }
                     Line::from(spans).style(paint.base)
                 }
+                _ if row.header => Line::styled(row.text, paint.muted.add_modifier(Modifier::BOLD)),
                 _ => match row
                     .tool
                     .map(|status| (status, row.text.strip_prefix(status.marker())))
@@ -1417,9 +1418,35 @@ fn response(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
                         Span::styled(status.marker(), tool_style(status, paint)),
                         Span::styled(title, paint.surface.add_modifier(Modifier::BOLD)),
                     ]),
-                    Some((_, None)) if row.tokens.is_empty() => Line::styled(row.text, paint.muted),
+                    Some((_, _)) => {
+                        let detail = row.text.strip_prefix("     ");
+                        let mut spans = Vec::with_capacity(row.tokens.len() * 2 + 3);
+                        if detail.is_some() {
+                            spans.push(Span::styled(
+                                if paint.ascii { "   > " } else { "   › " },
+                                paint.muted,
+                            ));
+                        }
+                        let value = detail.unwrap_or(row.text);
+                        let hidden = value.starts_with("… ");
+                        append_styled(
+                            &mut spans,
+                            value,
+                            row.offset + row.text.len() - value.len(),
+                            row.tokens,
+                            if hidden { paint.muted } else { paint.surface },
+                            paint,
+                        );
+                        if row.clipped {
+                            spans.push(Span::styled(
+                                if paint.ascii { "..." } else { "…" },
+                                paint.muted,
+                            ));
+                        }
+                        Line::from(spans)
+                    }
                     None if row.tokens.is_empty() => Line::raw(row.text),
-                    _ => {
+                    None => {
                         let mut spans = Vec::with_capacity(row.tokens.len() * 2 + 1);
                         append_styled(
                             &mut spans,
@@ -1481,8 +1508,11 @@ fn response(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
         } else {
             "Following"
         };
-        let navigation =
-            format!("{following} {start}-{end}/{total} · PgUp/Dn · Alt+End · /verbose");
+        let navigation = if area.width < 80 {
+            format!("{following} {start}-{end}/{total} · End · /verbose")
+        } else {
+            format!("{following} {start}-{end}/{total} · PgUp/Dn · Alt+End · /verbose")
+        };
         text(
             frame,
             row(area, footer_y, 1),

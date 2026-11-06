@@ -1,8 +1,21 @@
 # Eevee Implementation Plan
 
-Updated2026-11-06. Completed the native Devin OAuth/Connect source delivery. Published0.1.50 remains unchanged; this session did not publish or qualify a new release.
+Updated2026-11-06. Active delivery: readable agent output, durable Windows command discovery and the user-added usage/cost presentation. User subsequently authorized a new release; published0.1.50 stays immutable until exact-source0.1.51 qualification and promotion pass.
 
 Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPATIBILITY.md). Live-provider conformance remains distinct from implemented transports and deterministic runtime proof.
+
+## Active delivery — Readable output and Windows command discovery (2026-11-06)
+
+1. Compare the supplied local terminal reference's presentation concepts with the cached transcript; implement original semantic prose and distinct bounded command-output styling without importing reference code, names or dependencies.
+2. Preserve literal output, request/owner attribution, genuine streaming, Unicode wrapping, source-card lifecycle, draft/caret and permission/outcome boundaries at120×36 and60×18. Honor the user's added requirement: an accepted Enter/Send resumes following latest output; passive append/resize and refused or inspection-only actions preserve paused byte anchors.
+3. Register the admitted successful Windows installation on the current user's PATH idempotently and expose it to the invoking ScriptBlock process; preserve raw existing entries, machine PATH, profiles and security settings. Keep failed publication recoverable and disclose child-process/new-terminal and uninstall behavior.
+4. Audit source, dependency manifests, configuration, filenames and documentation for reference-specific branding; retain unrelated ordinary identifiers and third-party legal notices.
+5. Run integrated Rust/installer parsing and actual both-size response/coding terminal journeys; exercise PATH comparison/update logic in actual PowerShell. Native Windows registry/PS5.1 acceptance requires a reachable Windows host and must not be inferred from macOS.
+6. Improve the existing reported-token and estimated-USD UI: clear request/task/launch scope, readable input/output/subsets, missing-data and account/external/local labels, complete compact details and price source/date. Preserve truthful `est.` labels and keep nonzero tiny estimates from looking free; do not invent prices, exchange rates or billing.
+7. Run final source and actual usage/output/Enter journeys; update documentation/checkpoint and commit/push candidate0.1.51. Require Check/all five native rows/every required step, including real Windows PATH/rollback verification, from the newest same-source main push.
+8. Publish only its immutable qualified packages under a new annotated0.1.51 tag. Verify public asset checksums/layouts/source identity, unchanged previous-release assets, downloaded-host usage/output behavior and genuine0.1.50→0.1.51 update/data/draft retention; finish the release checkpoint and commit it without retagging.
+
+Steps1–7 source implementation/host acceptance passed: Rust2063/two ignored/strict lint/build, Python22/four skips, SDK47/actionlint, final candidate`ad760f76` both-size response and four-turn usage journeys. Two monetary-boundary regressions failed RED then passed. Intermediate original-rendering/native-Codex coding proof remains separately identified. Next: commit/push0.1.51 and require exact-source native qualification before step8/tag/publication. Native Windows registry/PS5.1 proof and public update remain unclaimed until they run.
 
 ## Completed delivery — Native Devin OAuth and Connect cutover (2026-11-06)
 

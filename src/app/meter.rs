@@ -15,6 +15,10 @@ pub struct State {
     launch: BTreeMap<String, (Record, Route)>,
     routes: Vec<(crate::providers::Agent, Route)>,
     budget_noticed: bool,
+    /// Ephemeral `/usage` navigation, clamped to the wrapped viewport by rendering.
+    pub scroll: u16,
+    pub scroll_max: u16,
+    pub page_rows: u16,
 }
 
 #[derive(Default)]
@@ -134,35 +138,43 @@ impl App {
         summary
     }
 
-    /// The status-row chip, or None when hidden, empty or too narrow.
+    /// Optional header content that fits only the space left by safety status.
     pub fn meter_chip(&self, width: u16) -> Option<String> {
-        if !self.meter.table.meter || width < 70 || self.meter.launch.is_empty() {
+        if !self.meter.table.meter {
             return None;
         }
-        let summary = self.meter_summary();
-        let launch = &summary.launch;
-        if launch.tokens() == 0 && launch.unreported == launch.requests {
-            // Nothing reported yet (e.g. a local endpoint without usage); never "0 tok".
-            return Some("usage unreported · /usage".into());
+        let fits = |text: &str| Span::raw(text).width() <= usize::from(width);
+        if !self.meter.launch.is_empty() {
+            let launch = self.meter_summary().launch;
+            let tokens = if launch.unreported == launch.requests {
+                "tokens unreported".to_string()
+            } else {
+                format!(
+                    "{}{} tok",
+                    if launch.lower_bound() { "≥" } else { "" },
+                    pricing::tokens(launch.tokens())
+                )
+            };
+            let cost = pricing::cost(&launch);
+            let usd = if launch.priced > 0 { " USD" } else { "" };
+            let compact = format!("Launch {tokens} · {cost}{usd} · /usage");
+            if let Some(budget) = self.meter.table.budget_usd {
+                let budgeted = format!("{compact} · budget ${budget:.2} USD");
+                if fits(&budgeted) {
+                    return Some(budgeted);
+                }
+            }
+            if fits(&compact) {
+                return Some(compact);
+            }
         }
-        let bound = if launch.lower_bound() { "≥" } else { "" };
-        let tokens = pricing::tokens(launch.tokens());
-        let cost = pricing::cost(launch);
-        if width < 90 {
-            let cost = cost.strip_prefix("est. ").unwrap_or(&cost);
-            return Some(format!("{bound}{tokens} · {cost}"));
-        }
-        let request = summary
-            .request
-            .filter(|_| self.planning.busy())
-            .map(|request| format!("Req {} ↑ · ", pricing::tokens(request.tokens())))
-            .unwrap_or_default();
-        Some(format!("{request}Launch {bound}{tokens} tok · {cost}"))
+        fits("/usage").then(|| "/usage".into())
     }
 
     pub(super) fn usage_command(&mut self, name: &str, argument: Option<&str>) -> bool {
         match name {
             "usage" => {
+                self.meter.scroll = 0;
                 self.open_overlay(Overlay::Usage);
             }
             "usage-meter" => {
@@ -249,6 +261,29 @@ impl App {
             KeyCode::Char('m') => {
                 self.usage_command("usage-meter", None);
             }
+            KeyCode::Up => self.meter.scroll = self.meter.scroll.saturating_sub(1),
+            KeyCode::Down => {
+                self.meter.scroll = self
+                    .meter
+                    .scroll
+                    .saturating_add(1)
+                    .min(self.meter.scroll_max);
+            }
+            KeyCode::PageUp => {
+                self.meter.scroll = self
+                    .meter
+                    .scroll
+                    .saturating_sub(self.meter.page_rows.max(1));
+            }
+            KeyCode::PageDown => {
+                self.meter.scroll = self
+                    .meter
+                    .scroll
+                    .saturating_add(self.meter.page_rows.max(1))
+                    .min(self.meter.scroll_max);
+            }
+            KeyCode::Home => self.meter.scroll = 0,
+            KeyCode::End => self.meter.scroll = self.meter.scroll_max,
             _ => return false,
         }
         true
@@ -339,12 +374,20 @@ mod tests {
         // Saved "old" adds to the task; the saved copy of r1 does not double count.
         assert_eq!(summary.task.input, 1_500_000);
         assert_eq!(summary.partners.len(), 2);
-        assert_eq!(
-            app.meter_chip(120).unwrap(),
-            "Launch 2.0M tok · est. $10.00"
-        );
-        assert_eq!(app.meter_chip(80).unwrap(), "2.0M · $10.00");
-        assert_eq!(app.meter_chip(60), None);
+        for width in [60, 80, 120] {
+            let chip = app.meter_chip(width).unwrap();
+            assert!(
+                chip.contains("Launch") && chip.contains("2.0M tok"),
+                "{chip}"
+            );
+            assert!(
+                chip.contains("est. $10.00 USD") && chip.contains("/usage"),
+                "{chip}"
+            );
+            assert!(Span::raw(chip).width() <= usize::from(width));
+        }
+        assert_eq!(app.meter_chip(6).as_deref(), Some("/usage"));
+        assert_eq!(app.meter_chip(5), None);
         app.meter.table.meter = false;
         assert_eq!(app.meter_chip(120), None);
     }
@@ -364,9 +407,10 @@ mod tests {
         empty.measurements.clear();
         app.planning.usage.record = Some(empty);
         app.observe_usage();
-        assert_eq!(
-            app.meter_chip(120).unwrap(),
-            "Launch ≥2.0M tok · est. $4.00+?"
+        let chip = app.meter_chip(120).unwrap();
+        assert!(
+            chip.contains("≥2.0M tok") && chip.contains("est. $4.00+? USD"),
+            "{chip}"
         );
     }
 }

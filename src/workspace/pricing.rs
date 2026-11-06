@@ -279,16 +279,46 @@ impl Table {
     }
 
     pub fn lookup(&self, provider: &str, model: &str) -> Option<(&Price, Source)> {
-        fn best<'a>(rows: &'a [Price], provider: &str, model: &str) -> Option<&'a Price> {
+        fn best<'a>(
+            rows: &'a [Price],
+            provider: &str,
+            model: &str,
+            user_prefixes: bool,
+        ) -> Option<&'a Price> {
             rows.iter()
                 .filter(|row| {
-                    row.provider.eq_ignore_ascii_case(provider) && model.starts_with(&row.model)
+                    row.provider.eq_ignore_ascii_case(provider)
+                        && model
+                            .strip_prefix(row.model.as_str())
+                            .is_some_and(|suffix| {
+                                if user_prefixes || suffix.is_empty() {
+                                    return true;
+                                }
+                                // Compiled rates cover named aliases and their dated
+                                // snapshots, never a newer model with a similar name.
+                                let Some(date) = suffix.strip_prefix('-') else {
+                                    return false;
+                                };
+                                match date.len() {
+                                    8 => date.bytes().all(|byte| byte.is_ascii_digit()),
+                                    10 => date.bytes().enumerate().all(|(index, byte)| {
+                                        if matches!(index, 4 | 7) {
+                                            byte == b'-'
+                                        } else {
+                                            byte.is_ascii_digit()
+                                        }
+                                    }),
+                                    _ => false,
+                                }
+                            })
                 })
                 .max_by_key(|row| row.model.len())
         }
-        best(&self.user, provider, model)
+        best(&self.user, provider, model, true)
             .map(|row| (row, Source::User))
-            .or_else(|| best(&self.built_in, provider, model).map(|row| (row, Source::BuiltIn)))
+            .or_else(|| {
+                best(&self.built_in, provider, model, false).map(|row| (row, Source::BuiltIn))
+            })
     }
 
     pub fn user_rows(&self) -> usize {
@@ -534,14 +564,16 @@ pub fn cost(totals: &Totals) -> String {
         }
         .into();
     }
-    let amount = if totals.usd > 0.0 && totals.usd < 0.01 {
-        format!("{:.4}", totals.usd)
+    let amount = if totals.usd > 0.0 && totals.usd < 0.0001 {
+        "<$0.0001".to_string()
+    } else if totals.usd > 0.0 && totals.usd < 0.01 {
+        format!("${:.4}", totals.usd)
     } else {
-        format!("{:.2}", totals.usd)
+        format!("${:.2}", totals.usd)
     };
     // Local requests cost nothing; every other unpriced part leaves a remainder.
     let partial = totals.unpriced + totals.plan + totals.agent > 0 || totals.lower_bound();
-    format!("est. ${amount}{}", if partial { "+?" } else { "" })
+    format!("est. {amount}{}", if partial { "+?" } else { "" })
 }
 
 #[cfg(test)]
@@ -774,7 +806,10 @@ mod tests {
             table.lookup("openai", "gpt-5-mini-2025").unwrap().1,
             Source::User
         );
-        assert_eq!(table.lookup("openai", "gpt-5-2025").unwrap().0.input, 1.25);
+        assert_eq!(
+            table.lookup("openai", "gpt-5-2025-08-07").unwrap().0.input,
+            1.25
+        );
         assert_eq!(
             table.lookup("openai", "gpt-4o-mini").unwrap().0.model,
             "gpt-4o-mini"
@@ -791,6 +826,53 @@ mod tests {
                 .is_err()
         );
         assert!(Table::parse("unknown = 1\n").is_err());
+    }
+
+    #[test]
+    fn unlisted_model_versions_do_not_inherit_an_older_builtin_price() {
+        let table = Table::default();
+        for (agent, model) in [
+            (Agent::OpenAI, "gpt-5.1"),
+            (Agent::OpenAI, "gpt-50"),
+            (Agent::Anthropic, "claude-sonnet-4-6"),
+        ] {
+            let totals = request(
+                &record(
+                    agent,
+                    model,
+                    counts(500, None, 200, None),
+                    Semantics::default(),
+                ),
+                Route::Api,
+                &table,
+            );
+            assert_eq!(totals.priced, 0, "{model}");
+            assert_eq!(totals.unpriced, 1, "{model}");
+            assert_eq!(cost(&totals), "no price");
+        }
+    }
+
+    #[test]
+    fn small_positive_estimates_never_look_free_and_partial_costs_stay_partial() {
+        let mut totals = Totals {
+            requests: 1,
+            priced: 1,
+            ..Totals::default()
+        };
+        for (usd, expected) in [
+            (0.0, "est. $0.00"),
+            (0.000_000_4, "est. <$0.0001"),
+            (0.000_099_9, "est. <$0.0001"),
+            (0.000_1, "est. $0.0001"),
+            (0.01, "est. $0.01"),
+        ] {
+            totals.usd = usd;
+            assert_eq!(cost(&totals), expected);
+        }
+        totals.usd = 0.000_000_4;
+        totals.unpriced = 1;
+        totals.requests += 1;
+        assert_eq!(cost(&totals), "est. <$0.0001+?");
     }
 
     #[test]

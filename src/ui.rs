@@ -200,6 +200,30 @@ impl Paint {
     }
     fn output_style(&self, kind: crate::output_style::Kind, base: Style) -> Style {
         use crate::output_style::Kind;
+        match kind {
+            Kind::Heading => return base.patch(self.accent).add_modifier(Modifier::BOLD),
+            Kind::Marker => return base.patch(self.muted).add_modifier(Modifier::BOLD),
+            Kind::Strong => return base.add_modifier(Modifier::BOLD),
+            Kind::Emphasis => return base.add_modifier(Modifier::ITALIC),
+            Kind::Link => return base.patch(self.accent).add_modifier(Modifier::UNDERLINED),
+            Kind::InlineCode => {
+                return if self.color == ColorMode::Mono {
+                    base.add_modifier(Modifier::UNDERLINED)
+                } else {
+                    base.fg(if self.color == ColorMode::TrueColor {
+                        Color::Rgb(208, 225, 245)
+                    } else {
+                        Color::Indexed(189)
+                    })
+                    .bg(if self.color == ColorMode::TrueColor {
+                        Color::Rgb(30, 39, 45)
+                    } else {
+                        Color::Indexed(235)
+                    })
+                };
+            }
+            _ => {}
+        }
         if self.color == ColorMode::Mono {
             return match kind {
                 Kind::Error => base.add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
@@ -216,6 +240,12 @@ impl Paint {
             Kind::Error => ((255, 117, 127), 210),
             Kind::Warning => ((240, 198, 116), 222),
             Kind::Comment | Kind::Fence => return base.patch(self.muted),
+            Kind::Heading
+            | Kind::Marker
+            | Kind::Strong
+            | Kind::Emphasis
+            | Kind::InlineCode
+            | Kind::Link => unreachable!("presentation styles handled above"),
         };
         let style = base.fg(if self.color == ColorMode::TrueColor {
             Color::Rgb(r, g, b)
