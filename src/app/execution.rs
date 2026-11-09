@@ -177,6 +177,8 @@ pub struct State {
     /// Safely auto-presented agent command review; arriving keys cannot answer
     /// until Enter deliberately engages it.
     pub auto_presented: bool,
+    /// Unlocks direct `a`/`y`/`n` on the auto-presented review once settled.
+    pub direct_answer: crate::app::arrival::Guard,
     /// The approval body shows the exact command by default; identities,
     /// quotas and enforcement details stay one `d` away.
     pub approval_full: bool,
@@ -255,6 +257,7 @@ impl Default for State {
             task_id: 0,
             shown: false,
             auto_presented: false,
+            direct_answer: Default::default(),
             approval_full: false,
             view: View::Output,
             prepared: None,
@@ -1812,6 +1815,30 @@ impl State {
         if self.confirmation.is_some() {
             if key.kind != KeyEventKind::Press {
                 return None;
+            }
+            if self.auto_presented && matches!(self.confirmation, Some(Confirmation::Approval)) {
+                // A settled, fully shown review accepts its one-shot keys directly.
+                if key.modifiers.is_empty()
+                    && matches!(key.code, KeyCode::Char('a' | 'y' | 'n'))
+                    && self.direct_answer.ready()
+                    && self.confirmation_visible
+                    && self.shown
+                {
+                    self.auto_presented = false;
+                    self.direct_answer.clear();
+                    self.affirmative = key.code != KeyCode::Char('n');
+                    key.code = KeyCode::Enter;
+                } else if !matches!(
+                    key.code,
+                    KeyCode::Esc
+                        | KeyCode::Up
+                        | KeyCode::Down
+                        | KeyCode::PageUp
+                        | KeyCode::PageDown
+                        | KeyCode::Char('d')
+                ) {
+                    self.direct_answer.disturb();
+                }
             }
             if self.auto_presented && matches!(self.confirmation, Some(Confirmation::Approval)) {
                 match key.code {

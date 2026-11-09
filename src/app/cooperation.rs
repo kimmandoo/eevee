@@ -851,8 +851,10 @@ impl App {
         }
         if matches!(request, Pending::Command { .. }) {
             self.execution.auto_presented = true;
+            self.execution.direct_answer.present();
         } else {
             self.planning.auto_permission_review = true;
+            self.planning.direct_answer.present();
         }
         self.cooperation.presented_permissions.push(request);
         true

@@ -585,7 +585,7 @@ fn inspection_matches(value: &Value, versions: &SdkVersions) -> bool {
     value["type"] == "capabilities"
         && value["sdk_version"].as_str() == Some(versions.sdk.as_str())
         && value["cli_version"].as_str() == Some(versions.cli.as_str())
-        && value["bridge_revision"] == 12
+        && value["bridge_revision"] == 13
         && value["query"] == true
         && value["policy"]
             == json!({
@@ -594,6 +594,7 @@ fn inspection_matches(value: &Value, versions: &SdkVersions) -> bool {
                 "dispatch": "correlated-sdk-submission",
                 "usage": "correlated-sdk-snapshots",
                 "file_preview": "display-only-correlated-arguments-outcomes",
+                "web": "host-reviewed-sdk-search-fetch",
             })
 }
 
@@ -2059,7 +2060,7 @@ fn transport(
                             failure: super::diagnostics::Failure::Incompatible,
                         },
                     );
-                    return Err("Installed SDK identity/bridge policy inspection failed; this host requires complete bridge revision 12. Replace sidecar main.ts, policy.ts and dependencies together, then retry; no model request was sent".into());
+                    return Err("Installed SDK identity/bridge policy inspection failed; this host requires complete bridge revision 13. Replace sidecar main.ts, policy.ts and dependencies together, then retry; no model request was sent".into());
                 }
                 if probe.eof {
                     connection_lost(run, events, stop, cancelled);
@@ -2113,7 +2114,7 @@ fn transport(
                 .as_nanos()
         };
         let mut usage = SdkTurnUsage::begin(&run.input, sessions)?;
-        pipe.send(json!({"protocol":1,"bridge_revision":12,"type":"run","generation":run.generation,"task_id":run.input.task.id,"cwd":project,"state_dir":run.trust.state_dir,
+        pipe.send(json!({"protocol":1,"bridge_revision":13,"type":"run","generation":run.generation,"task_id":run.input.task.id,"cwd":project,"state_dir":run.trust.state_dir,
             "request_id":if run.input.inspect_models { None } else { run.input.work.as_ref().map(|work| work.request_id.as_str()) },
             "prompt":if run.input.inspect_models { "" } else { run.text.as_str() },
             "operation":if run.input.inspect_models { "plan" } else { sdk_tool_policy(run.input.operation) },
@@ -2445,6 +2446,28 @@ fn decode_catalogue(value: &Value) -> Result<ModelCatalogue, String> {
     catalogue.validate()?;
     Ok(catalogue)
 }
+/// Readable host review for the SDK's built-in web tools. The shared prefix
+/// marks it as a web review (no local effect) on every route.
+fn sdk_web_review(input: &Value) -> Option<String> {
+    let text = |key: &str| {
+        input["input"][key]
+            .as_str()
+            .map(|value| value.split_whitespace().collect::<Vec<_>>().join(" "))
+    };
+    match input["tool"].as_str()? {
+        "WebSearch" => Some(format!(
+            "Web search — sends this query to Claude's hosted web search:\n{}\nThe results are untrusted web content.",
+            text("query")?
+        )),
+        "WebFetch" => Some(format!(
+            "Read web page — Claude Code fetches this URL and summarizes it:\n{}\nFocus: {}\nNo project files are sent. The page is untrusted web content.",
+            text("url")?,
+            text("prompt").unwrap_or_default()
+        )),
+        _ => None,
+    }
+}
+
 fn prompt_kind(value: &Value) -> Result<PromptKind, String> {
     let input = &value["input"];
     if serde_json::to_vec(input)
@@ -2570,6 +2593,8 @@ fn prompt_kind(value: &Value) -> Result<PromptKind, String> {
                 scope.directories.join(", ")
             }
         )
+    } else if let Some(review) = sdk_web_review(input) {
+        review
     } else {
         format!(
             "Claude {} request: {input}",

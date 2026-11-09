@@ -118,19 +118,23 @@ pub(super) fn file_prompt_area(area: Rect, app: &App) -> Option<Rect> {
 
 pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Config, paint: &Paint) {
     app.planning.set_response_body(Rect::default());
-    let approval_header = app.approval_position().map(|(position, total)| {
-        paint.format(
-            Template::ProvidersPlanningPositionOfTotal,
-            &[
-                ("position", &(position).to_string()),
-                ("total", &(total).to_string()),
-                (
-                    "owner",
-                    &(crate::store::Attribution::label(app.planning.owner())),
-                ),
-            ],
-        )
-    });
+    // The queue position matters only when more than one review waits.
+    let approval_header =
+        app.approval_position()
+            .filter(|(_, total)| *total > 1)
+            .map(|(position, total)| {
+                paint.format(
+                    Template::ProvidersPlanningPositionOfTotal,
+                    &[
+                        ("position", &(position).to_string()),
+                        ("total", &(total).to_string()),
+                        (
+                            "owner",
+                            &(crate::store::Attribution::label(app.planning.owner())),
+                        ),
+                    ],
+                )
+            });
     let editing = if app
         .planning
         .preview
@@ -260,7 +264,10 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &mut App, config: &Conf
         )
     };
     let title = match editing.as_deref().filter(|_| !local_picker) {
-        Some(editing) if dock.is_some() || area.width < 90 => format!(" {editing} "),
+        // A provider request names itself; form/route context is in its body.
+        Some(editing) if dock.is_some() || area.width < 90 || state.request.is_some() => {
+            format!(" {editing} ")
+        }
         Some(editing) => format!("{} / {editing} ", title.trim_end()),
         None => title,
     };
@@ -974,7 +981,7 @@ fn review_summary(state: &State, paint: &Paint) -> Vec<String> {
     } else {
         vec![paint.format(
             Template::ProvidersPlanningWhoAsksThisProviderRequestOnly,
-            &[("owner", &(who)), ("provider", (state.agent.label()))],
+            &[("provider", (state.agent.label()))],
         )]
     };
     match &request.kind {
@@ -1114,14 +1121,16 @@ fn review_controls(frame: &mut Frame, area: Rect, state: &State, paint: &Paint) 
     } else {
         controls(state, paint)
     };
-    let permission_choice = if !state.review_details && !file_summary {
-        match state.request.as_ref().map(|request| &request.kind) {
-            Some(PromptKind::Permission { options, .. }) => options.get(state.option),
-            _ => None,
-        }
-    } else {
-        None
-    };
+    // An auto-presented review has no selection yet; its keys are listed below.
+    let permission_choice =
+        if !state.review_details && !file_summary && !state.auto_permission_review {
+            match state.request.as_ref().map(|request| &request.kind) {
+                Some(PromptKind::Permission { options, .. }) => options.get(state.option),
+                _ => None,
+            }
+        } else {
+            None
+        };
     if let Some(option) = permission_choice {
         text(
             frame,

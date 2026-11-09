@@ -33,6 +33,7 @@ pub mod tool_plans;
 pub mod updates;
 pub mod workflows;
 
+mod arrival;
 mod autosave;
 mod cooperation_execution;
 mod density;

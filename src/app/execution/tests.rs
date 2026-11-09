@@ -1603,7 +1603,26 @@ fn agent_command_review_opens_itself_but_arriving_keys_cannot_answer() {
     assert_eq!(app.overlay, Some(crate::app::Overlay::Execution));
     assert!(!app.execution.auto_presented);
     app.execution.confirmation_visible = true;
-    app.execution.key(key(KeyCode::Char('y')));
+    // A settled, fully shown auto-presented review takes `a` directly.
+    app.execution.auto_presented = true;
+    app.execution.shown = false;
+    app.execution.direct_answer.present_at(
+        std::time::Instant::now()
+            - crate::app::arrival::SETTLE
+            - std::time::Duration::from_millis(1),
+    );
+    app.execution.key(key(KeyCode::Char('a')));
+    assert!(
+        !app.execution.reserving,
+        "unshown review cannot be answered"
+    );
+    app.execution.direct_answer.present_at(
+        std::time::Instant::now()
+            - crate::app::arrival::SETTLE
+            - std::time::Duration::from_millis(1),
+    );
+    app.execution.shown = true;
+    app.execution.key(key(KeyCode::Char('a')));
     assert!(app.execution.reserving);
 }
 

@@ -4275,3 +4275,58 @@ fn live_code_keeps_following_after_output_arrives_behind_a_review() {
         assert!(state.following && !state.new_output);
     }
 }
+
+#[test]
+fn settled_auto_presented_review_accepts_direct_allow_and_deny() {
+    use std::time::{Duration, Instant};
+    let settled = || {
+        let mut state = file_review_state();
+        state.auto_permission_review = true;
+        state.reviewed = true;
+        state
+            .direct_answer
+            .present_at(Instant::now() - crate::app::arrival::SETTLE - Duration::from_millis(1));
+        state
+    };
+    for (code, answer) in [(KeyCode::Char('a'), "once"), (KeyCode::Char('n'), "deny")] {
+        let mut state = settled();
+        press(&mut state, code, true);
+        assert!(matches!(
+            state.pending.as_ref(),
+            Some(Request::Answer { answer: sent, .. }) if sent == &json!({"permission": answer})
+        ));
+        assert!(!state.auto_permission_review);
+    }
+    // A fresh arrival does not take the keystroke as consent.
+    let mut state = settled();
+    state.direct_answer.present();
+    press(&mut state, KeyCode::Char('a'), true);
+    assert!(state.pending.is_none() && state.auto_permission_review);
+    // Once other typing arrived, the explicit Enter path remains required.
+    let mut state = settled();
+    press(&mut state, KeyCode::Char('x'), true);
+    press(&mut state, KeyCode::Char('a'), true);
+    assert!(state.pending.is_none() && state.auto_permission_review);
+    // Allow needs the summary to have been shown; deny does not.
+    let mut state = settled();
+    state.reviewed = false;
+    press(&mut state, KeyCode::Char('a'), true);
+    assert!(state.pending.is_none());
+    // Repeats and modified keys never answer.
+    let mut state = settled();
+    state.key(
+        KeyEvent::new_with_kind(KeyCode::Char('a'), KeyModifiers::NONE, KeyEventKind::Repeat),
+        true,
+        &task(),
+        &[],
+        None,
+    );
+    state.key(
+        KeyEvent::new(KeyCode::Char('a'), KeyModifiers::ALT),
+        true,
+        &task(),
+        &[],
+        None,
+    );
+    assert!(state.pending.is_none());
+}

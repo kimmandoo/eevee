@@ -12,17 +12,52 @@ export const SDKPackageSchema = z.object({
   name: z.literal('@anthropic-ai/claude-agent-sdk'),
   version: VersionSchema, claudeCodeVersion: VersionSchema,
 });
-export const BRIDGE_REVISION = 12;
+export const BRIDGE_REVISION = 13;
 export const BRIDGE_POLICY = {
   tools: 'closed-allowlist', permissions: 'default-host-once', mcp: 'host-discovery-and-reviewed-command',
   configuration: 'isolated', authentication: 'api-console-cloud-only',
   dispatch: 'correlated-sdk-submission',
   usage: 'correlated-sdk-snapshots',
   file_preview: 'display-only-correlated-arguments-outcomes',
+  web: 'host-reviewed-sdk-search-fetch',
 };
 export const FRAME_LIMIT = 2 * 1024 * 1024;
 export const SDK_LIMITS = { maxTurns: 128, maxBudgetUsd: 5 } as const;
 export const READ_TOOLS = ['Read', 'Glob', 'Grep', 'AskUserQuestion'];
+/** SDK built-in web tools; every call still passes the host's Automatic/Ask review. */
+export const WEB_TOOLS = ['WebSearch', 'WebFetch'];
+
+/** Hosts that always name this machine or its private network. */
+function privateHost(host: string): boolean {
+  const name = host.toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '');
+  if (name === 'localhost' || name.endsWith('.localhost') || name.endsWith('.local') || name.endsWith('.internal')) return true;
+  const v4 = name.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (v4) {
+    const [a, b] = [Number(v4[1]), Number(v4[2])];
+    return a === 0 || a === 10 || a === 127 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127) || a >= 224;
+  }
+  if (name.includes(':')) {
+    return name === '::' || name === '::1' || /^f[cd]/.test(name) || /^fe[89ab]/.test(name) || name.startsWith('::ffff:');
+  }
+  return false;
+}
+
+/**
+ * Admission for SDK WebFetch before host review: absolute http(s), no embedded
+ * credentials, and no host that names this machine or a private network.
+ * DNS names resolving privately are not detectable here; the review shows the URL.
+ */
+export function webFetchAdmission(input: Record<string, unknown>): { allowed: true } | { allowed: false; reason: string } {
+  const raw = input.url;
+  if (typeof raw !== 'string' || raw.length === 0 || raw.length > 2048) return { allowed: false, reason: 'WebFetch requires one absolute URL of at most 2048 characters' };
+  let url: URL;
+  try { url = new URL(raw); } catch { return { allowed: false, reason: 'WebFetch URL is not a valid absolute URL' }; }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return { allowed: false, reason: 'Only http:// or https:// URLs can be read' };
+  if (url.username || url.password) return { allowed: false, reason: 'URLs with embedded credentials are refused' };
+  if (privateHost(url.hostname)) return { allowed: false, reason: 'Private, loopback and link-local hosts are blocked; use the host command tool for local servers' };
+  return { allowed: true };
+}
 export const DISCOVERY_SERVER = 'eevee_source';
 export const DISCOVERY_TOOL = 'mcp__eevee_source__discover';
 export const COMMAND_SERVER = 'eevee_command';
@@ -53,7 +88,7 @@ export const DiscoverySchema = z.object({
   glob: z.string().min(1).max(512).default('**/*'),
   text: z.string().min(1).max(512).optional(),
 }).strict();
-export const DENIED_TOOLS = ['Bash', 'Agent', 'Task', 'TaskOutput', 'TaskStop', 'NotebookEdit', 'Skill', 'WebFetch', 'WebSearch', 'ToolSearch', 'EnterWorktree', 'ExitWorktree', 'EnterPlanMode', 'ExitPlanMode', 'CronCreate', 'CronDelete', 'CronList'];
+export const DENIED_TOOLS = ['Bash', 'Agent', 'Task', 'TaskOutput', 'TaskStop', 'NotebookEdit', 'Skill', 'ToolSearch', 'EnterWorktree', 'ExitWorktree', 'EnterPlanMode', 'ExitPlanMode', 'CronCreate', 'CronDelete', 'CronList'];
 
 const boundedText = (max: number) => z.string().min(1).max(max).refine(value =>
   !/[\p{Cc}\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/u.test(value), 'Display controls are forbidden');

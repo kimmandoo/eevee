@@ -73,9 +73,19 @@ fn dynamic_tools(writing: bool) -> Value {
     let mut declarations = definitions(writing);
     declarations.extend(crate::providers::artifacts::definitions());
     declarations.push(crate::workspace::progress::definition());
+    declarations.extend(crate::providers::web::definitions());
     Value::Array(declarations.into_iter().map(|entry| {
         json!({"type":"function","name":entry["name"],"description":entry["description"],"inputSchema":entry["parameters"]})
     }).collect())
+}
+
+struct PendingWeb {
+    /// Provider JSON-RPC request awaiting the tool result.
+    id: Value,
+    /// Host review identity offered to the user.
+    review: Value,
+    call: crate::providers::web::Call,
+    running: Option<Receiver<Value>>,
 }
 
 fn requested_tool(params: &Value) -> Result<FileTool, String> {
@@ -1040,6 +1050,8 @@ struct Engine<'a> {
         Value,
         Receiver<Result<crate::workspace::artifacts::Response, String>>,
     )>,
+    /// A host web call: its review prompt, then the running request.
+    pending_web: Option<PendingWeb>,
     journal_session: String,
     /// The Eevee `todo` dynamic tool's state, seeded like native routes.
     progress: crate::workspace::progress::State,
@@ -1125,6 +1137,7 @@ fn run_transport(
         pending_write_preview: None,
         pending_command: None,
         pending_artifact: None,
+        pending_web: None,
         progress: run
             .input
             .task
@@ -1174,6 +1187,7 @@ fn run_transport(
             }
             engine.poll_command()?;
             engine.poll_artifact()?;
+            engine.poll_web()?;
             if let Some(result) = engine.terminal.take() {
                 return Ok(result);
             }
@@ -2301,15 +2315,128 @@ impl Engine<'_> {
         let text = serde_json::to_string(&result).map_err(|_| "Cannot encode todo result")?;
         self.queue(json!({"id":id,"result":{"success":success,"contentItems":[{"type":"inputText","text":text}]}}))
     }
+    /// Opens the shared `eevee-web` review for a Codex dynamic web call; an
+    /// invalid request is returned to the model without review.
+    fn request_web(
+        &mut self,
+        id: Value,
+        params: &Value,
+        tool: &FileTool,
+        call: Result<crate::providers::web::Call, String>,
+    ) -> Result<(), String> {
+        let call = match call {
+            Ok(call) => call,
+            Err(message) => {
+                let text = serde_json::to_string(
+                    &json!({"status":"refused","correctable":true,"message":message}),
+                )
+                .map_err(|_| "Cannot encode web refusal")?;
+                return self.queue(json!({"id":id,"result":{"success":false,"contentItems":[{"type":"inputText","text":text}]}}));
+            }
+        };
+        if !self.prompts.is_empty() || self.pending_write.is_some() || self.cancelling.is_some() {
+            return self.queue(json!({"id":id,"result":{"success":false,"contentItems":[{"type":"inputText","text":"Web request refused: another review is pending"}]}}));
+        }
+        let review = json!({"eevee-web":{"generation":self.run.generation,"task":self.run.input.task.id,"call":identity(params, "callId")?,"tool":tool.kind().name()}});
+        let prompt = Prompt {
+            arrival: super::approval_arrival(),
+            request_id: review.clone(),
+            thread_id: self.thread_id.clone().ok_or("Codex thread missing")?,
+            turn_id: self.turn_id.clone().ok_or("Codex turn missing")?,
+            item_id: identity(params, "callId")?,
+            kind: crate::providers::web::permission(&call),
+        };
+        emit(
+            self.events,
+            Event::Prompt {
+                generation: self.run.generation,
+                task_id: self.run.input.task.id,
+                request: prompt.clone(),
+            },
+        )?;
+        self.prompts.push(prompt);
+        self.pending_web = Some(PendingWeb {
+            id,
+            review,
+            call,
+            running: None,
+        });
+        Ok(())
+    }
+
+    fn answer_web(&mut self, generation: u64, answer: Value, index: usize) -> Result<(), String> {
+        let prompt = self.prompts.remove(index);
+        emit(
+            self.events,
+            Event::PromptClosed {
+                generation,
+                request_id: prompt.request_id.clone(),
+            },
+        )?;
+        let allowed = matches!(
+            &prompt.kind,
+            PromptKind::Permission { options, .. } if options.get(1).is_some_and(|option| option.answer == answer)
+        );
+        let web = self.pending_web.as_mut().ok_or("Web request missing")?;
+        if !allowed {
+            let id = web.id.clone();
+            self.pending_web = None;
+            let text = serde_json::to_string(
+                &json!({"status":"denied","message":"User denied this web request"}),
+            )
+            .map_err(|_| "Cannot encode web denial")?;
+            return self.queue(json!({"id":id,"result":{"success":false,"contentItems":[{"type":"inputText","text":text}]}}));
+        }
+        let (reply, result) = mpsc::sync_channel(1);
+        let call = web.call.clone();
+        std::thread::spawn(move || {
+            let _ = reply.send(crate::providers::web::Client::default().run(&call));
+        });
+        web.running = Some(result);
+        Ok(())
+    }
+
+    fn poll_web(&mut self) -> Result<(), String> {
+        if self.cancelling.is_some()
+            || self.cancelled.load(Ordering::Acquire) == self.run.generation
+        {
+            self.pending_web = None;
+            return Ok(());
+        }
+        let Some(receiver) = self
+            .pending_web
+            .as_ref()
+            .and_then(|web| web.running.as_ref())
+        else {
+            return Ok(());
+        };
+        let value = match receiver.try_recv() {
+            Ok(value) => value,
+            Err(mpsc::TryRecvError::Empty) => return Ok(()),
+            Err(mpsc::TryRecvError::Disconnected) => {
+                json!({"status":"error","correctable":true,"message":"Web request worker stopped unexpectedly"})
+            }
+        };
+        let id = self.pending_web.take().expect("pending web").id;
+        let text = serde_json::to_string(&value).map_err(|_| "Cannot encode web result")?;
+        self.queue(json!({"id":id,"result":{"success":value["status"] == "success","contentItems":[{"type":"inputText","text":text}]}}))
+    }
+
     fn request_write(&mut self, id: Value, params: &Value) -> Result<(), String> {
         // Identity/authority failures are terminal, not model-correctable source
         // refusals. Check them before observing or enrolling any target.
         identity(params, "callId")?;
         self.revalidate_write_session()?;
-        if self.pending_command.is_some() || self.pending_artifact.is_some() {
+        if self.pending_command.is_some()
+            || self.pending_artifact.is_some()
+            || self.pending_web.is_some()
+        {
             return self.queue(json!({"id":id,"result":{"success":false,"contentItems":[{"type":"inputText","text":"A host command is pending; no overlapping tool effects are permitted"}]}}));
         }
         let tool = requested_tool(params)?;
+        if let Some(call) = tool.web() {
+            return self.request_web(id, params, &tool, call);
+        }
         if let FileTool::Todo { input } = &tool {
             return self.apply_todo(id, input);
         }
@@ -2743,6 +2870,13 @@ impl Engine<'_> {
         }
         // Grant scope and immutable input/config remain valid at approval/answer dispatch as well.
         self.run.input.validate_committed(self.data_dir)?;
+        if self
+            .pending_web
+            .as_ref()
+            .is_some_and(|web| web.review == id && web.running.is_none())
+        {
+            return self.answer_web(generation, answer, index);
+        }
         if self.pending_write.is_some() {
             return self.answer_write(generation, id, answer, index);
         }

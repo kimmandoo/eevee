@@ -1945,3 +1945,41 @@ fn codex_offers_the_role_checked_todo_tool_in_every_operation() {
         ));
     }
 }
+
+#[test]
+fn codex_dynamic_tools_offer_host_web_tools_in_every_operation() {
+    for writing in [false, true] {
+        let tools = dynamic_tools(writing);
+        let names: Vec<_> = tools
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|tool| tool["name"].as_str().unwrap())
+            .collect();
+        assert!(names.contains(&crate::providers::web::SEARCH), "{names:?}");
+        assert!(names.contains(&crate::providers::web::FETCH), "{names:?}");
+    }
+    let tool = requested_tool(&json!({
+        "tool": crate::providers::web::FETCH,
+        "arguments": {"url": "https://docs.rs/ureq/", "offset": 0}
+    }))
+    .unwrap();
+    let call = tool.web().unwrap().unwrap();
+    let PromptKind::Permission {
+        description,
+        options,
+        ..
+    } = crate::providers::web::permission(&call)
+    else {
+        panic!("web review is a permission")
+    };
+    assert!(crate::providers::web::is_web_review(&description));
+    assert_eq!(options.len(), 2);
+    assert!(
+        validate_answer(
+            &crate::providers::web::permission(&call),
+            &options[1].answer
+        )
+        .is_ok()
+    );
+}

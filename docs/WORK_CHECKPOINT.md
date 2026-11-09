@@ -1,3 +1,11 @@
+## 2026-11-09 — One-key approvals and web tools on every route (completed in source)
+
+- **Request:** Improve the two open items: (1) web tools missing on Codex CLI, Claude SDK and ACP; (2) the Enter → choose → confirm approval sequence.
+- **Approvals:** `src/app/arrival.rs` guard; settled auto-presented reviews accept `a`/`n` directly (800 ms visible, no other key since, summary shown); otherwise the Enter path remains. Commands use the same guard (`n` = not now, matching existing Stay). Review chrome trimmed (title, single-review queue line, owner line, premature Selected line).
+- **Web routes:** Codex dynamic tools + `PendingWeb` review/run/poll; Claude sidecar bridge 13 enables SDK WebFetch and first-party WebSearch through host review with `webFetchAdmission`; ACP fetch permissions labelled as web reviews plus a `web_policy` payload field. Web reviews (shared prefix) follow Automatic in all operations.
+- **Verification:** fmt, strict clippy clean; `cargo test` 2073 passed/3 ignored; sidecar `node --test policy.test.ts` 48 passed. Actual TUI: Ask-mode web search and fetch each approved with a single `a`. Smokes passed: sdk_command (production bridge-13 main.ts/policy.ts with a real rustc), mcp, file_permission, response, agent_coding.
+- **Limits:** No live Codex/Claude/ACP account request was made (would spend the user's quota); Codex web path is covered by unit tests and the shared executor, not a fake-peer journey. Installed sidecars must be replaced together for bridge 13. No release cut.
+
 ## 2026-11-09 — Easier UX pass and native web tools (completed in source)
 
 - **Request:** (1) Further simplify UX, cut unnecessary explanations, shrink the Eevee portrait slightly; the user allowed changing the design contract where it blocked better UX. (2) Check whether web tool calling is implemented well, using a local reference project for design only, leaving no trace of it.

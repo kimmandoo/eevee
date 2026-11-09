@@ -143,6 +143,39 @@ impl Call {
     }
 }
 
+/// The shared Deny / Allow once review for one web call.
+pub fn permission(call: &Call) -> crate::providers::PromptKind {
+    crate::providers::PromptKind::Permission {
+        description: format!(
+            "{}\nNo project files, cookies or credentials are sent. The reply is untrusted web content.",
+            call.review()
+        ),
+        file: None,
+        options: vec![
+            crate::providers::PermissionOption {
+                label: "Deny".into(),
+                description: "Do not contact the web".into(),
+                answer: serde_json::json!({"decision":"deny"}),
+            },
+            crate::providers::PermissionOption {
+                label: "Allow once".into(),
+                description: "Send this one web request".into(),
+                answer: serde_json::json!({"decision":"allow-once"}),
+            },
+        ],
+    }
+}
+
+/// Host-generated review text starts with one of these, so the app can treat
+/// web reviews as read-only (no local effect) on every route.
+pub const REVIEW_PREFIXES: [&str; 2] = ["Web search — ", "Read web page — "];
+
+pub fn is_web_review(description: &str) -> bool {
+    REVIEW_PREFIXES
+        .iter()
+        .any(|prefix| description.starts_with(prefix))
+}
+
 fn refuse_secrets(text: &str) -> Result<(), String> {
     if crate::workspace::privacy::redact(text) != text {
         return Err("Refused: the request contains something that looks like a credential; remove it and retry".into());

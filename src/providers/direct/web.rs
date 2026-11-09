@@ -28,8 +28,8 @@ pub(super) fn web_call(
     let arrival = crate::providers::approval_arrival();
     let encoded = serde_json::to_string(&call.label()).map_err(|_| "Cannot encode web request")?;
     let request_id = json!({"eevee-web":{"generation":run.generation,"task":run.input.task.id,"round":round,"index":index,"permission":arrival,"tool":tool.kind().name(),"request_sha256":crate::providers::catalog::digest(encoded.as_bytes())}});
-    let deny = json!({"decision":"deny","permission":arrival});
-    let allow = json!({"decision":"allow-once","permission":arrival});
+    let deny = json!({"decision":"deny"});
+    let allow = json!({"decision":"allow-once"});
     emit(
         events,
         Event::Prompt {
@@ -41,25 +41,7 @@ pub(super) fn web_call(
                 thread_id: String::new(),
                 turn_id: format!("round-{round}"),
                 item_id: format!("web-{round}-{index}"),
-                kind: PromptKind::Permission {
-                    description: format!(
-                        "{}\nNo project files, cookies or credentials are sent. The reply is untrusted web content.",
-                        call.review()
-                    ),
-                    file: None,
-                    options: vec![
-                        PermissionOption {
-                            label: "Deny".into(),
-                            description: "Do not contact the web".into(),
-                            answer: deny.clone(),
-                        },
-                        PermissionOption {
-                            label: "Allow once".into(),
-                            description: "Send this one web request".into(),
-                            answer: allow.clone(),
-                        },
-                    ],
-                },
+                kind: crate::providers::web::permission(&call),
             },
         },
     )?;

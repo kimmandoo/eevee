@@ -82,17 +82,18 @@ fn sdk_inspection_requires_reviewed_identity_query_and_complete_bridge_policy() 
     };
     let inspection = json!({
         "type":"capabilities", "sdk_version":"1.5.0", "cli_version":"4.0.0",
-        "bridge_revision":12, "query":true,
+        "bridge_revision":13, "query":true,
         "policy":{"tools":"closed-allowlist","permissions":"default-host-once","mcp":"host-discovery-and-reviewed-command",
             "configuration":"isolated","authentication":"api-console-cloud-only",
             "dispatch":"correlated-sdk-submission","usage":"correlated-sdk-snapshots",
-            "file_preview":"display-only-correlated-arguments-outcomes"},
+            "file_preview":"display-only-correlated-arguments-outcomes",
+            "web":"host-reviewed-sdk-search-fetch"},
     });
     assert!(inspection_matches(&inspection, &versions));
     for (field, value) in [
         ("sdk_version", json!("1.5.1")),
         ("cli_version", json!("4.0.1")),
-        ("bridge_revision", json!(11)),
+        ("bridge_revision", json!(12)),
         ("query", json!(false)),
         ("policy", Value::Null),
     ] {
@@ -1312,4 +1313,18 @@ fn sdk_actual_pipe_disconnect_is_distinct_from_provider_and_protocol_errors() {
         "Actual broken stdin must remain typed transport evidence"
     );
     assert!(pipe.teardown());
+}
+
+#[test]
+fn sdk_web_tools_get_readable_read_only_reviews() {
+    let search = json!({"tool":"WebSearch","input":{"query":"ureq  resolver"}});
+    let review = sdk_web_review(&search).unwrap();
+    assert!(review.starts_with("Web search — "), "{review}");
+    assert!(review.contains("ureq resolver"));
+    assert!(crate::providers::web::is_web_review(&review));
+    let fetch =
+        json!({"tool":"WebFetch","input":{"url":"https://docs.rs/ureq/","prompt":"summarize"}});
+    let review = sdk_web_review(&fetch).unwrap();
+    assert!(review.starts_with("Read web page — ") && review.contains("https://docs.rs/ureq/"));
+    assert!(sdk_web_review(&json!({"tool":"Read","input":{}})).is_none());
 }

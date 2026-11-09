@@ -527,7 +527,7 @@ providers-planning-send-literal-answers-to-this-provider-request = { "Send " }{ 
 
 providers-planning-who-wants-to-run-command = { $owner }{ " · " }{ $provider }{ " wants to run:" }
 
-providers-planning-who-asks-this-provider-request-only = { $owner }{ " · " }{ $provider }{ " · applies to this request only" }
+providers-planning-who-asks-this-provider-request-only = { $provider }{ " · this request only" }
 
 providers-planning-selected-permission = { "Selected: " }{ $label }
 
@@ -578,8 +578,8 @@ providers-execution-full-details-hint = { "d Full identity, quotas & enforcement
 providers-execution-brief-details-hint = { "d Back to the exact command" }
 
 providers-execution-auto-review-actions =
-    { "Command approval required · Enter to review (not approve)" }
-    { "Then choose and confirm | Esc later · no approval" }
+    { "Command approval required · a Run once · n Not now" }
+    { "Enter to review (not approve) · d Details · Esc later" }
 
 providers-execution-requested-action-stay-keeps-this-task-and =
     { "Requested: " }{ $action }
@@ -755,12 +755,12 @@ providers-planning-file-label = { "[FILE]" }
 providers-planning-permission-required = { "Permission required" }
 
 providers-planning-permission-auto-review-actions =
-    { "Permission required · Enter to review (not approve)" }
-    { "Then choose and confirm | Esc later · no approval" }
+    { "a Allow once · n Deny" }
+    { "Enter to review (not approve) · Esc later" }
 
 providers-planning-file-auto-review-actions =
-    { "Left/Right choose · Enter inspects the change" }
-    { "No choice · Esc later; request stays pending" }
+    { "a Allow once · n Deny · Left/Right choose" }
+    { "Enter inspects the change · Esc later" }
 
 providers-planning-file-generating = { "Generating · not saved" }
 

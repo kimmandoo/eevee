@@ -8,7 +8,7 @@ import { spawn } from 'node:child_process';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { once } from 'node:events';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { credentialRoute, consoleProfile, accountMatches, SDKWritePolicy, SDKFilePreviews, questionSchema, sdkOutcome, sdkLimit, SDK_LIMITS, READ_TOOLS, RunSchema, SelectionSchema, modelCatalogue, prepareModels, assertAppliedModel, SDKPackageSchema, assertInitialization, assertSessionPolicy, SDKDispatchReceipt, SDKUsageLedger, BRIDGE_POLICY, DISCOVERY_TOOL, DISCOVERY_SERVER, COMMAND_TOOL, COMMAND_SERVER, HostCommandSchema, CommandResultSchema } from './policy.ts';
+import { credentialRoute, consoleProfile, accountMatches, SDKWritePolicy, SDKFilePreviews, questionSchema, sdkOutcome, sdkLimit, SDK_LIMITS, READ_TOOLS, RunSchema, SelectionSchema, modelCatalogue, prepareModels, assertAppliedModel, SDKPackageSchema, assertInitialization, assertSessionPolicy, SDKDispatchReceipt, SDKUsageLedger, BRIDGE_POLICY, DISCOVERY_TOOL, DISCOVERY_SERVER, COMMAND_TOOL, COMMAND_SERVER, HostCommandSchema, CommandResultSchema, webFetchAdmission, WEB_TOOLS } from './policy.ts';
 import type { WriteScope } from './policy.ts';
 
 const compatibility = { sdkVersion: '0.3.999', cliVersion: '2.1.999', requireHooks: false };
@@ -683,7 +683,7 @@ test('the real bridge preserves exact effects, required roster admission and bou
       });
       const closed = once(child, 'close');
       child.stdin!.write(JSON.stringify({
-        protocol: 1, bridge_revision: 12, type: 'run', generation: 1, task_id: 1, request_id: 'submission',
+        protocol: 1, bridge_revision: 13, type: 'run', generation: 1, task_id: 1, request_id: 'submission',
         prompt: 'Deterministic source and write operations', cwd: root, state_dir: join(fixture, 'state'),
         operation: scenario === 'readonly' ? 'plan' : 'implement',
         write_scope: { ...(scenario === 'readonly' ? reviewedScope(root, []) : workspaceScope(root)), excluded_paths: ['excluded'], protected_paths: [join(root, 'host-state')] }, inspect_models: false,
@@ -870,13 +870,13 @@ test('catalogues reject duplicate identifiers, oversized fields and display cont
 });
 
 test('strict inspection commands cannot carry prompts, prior sessions, writes or unreviewed options', () => {
-  const command = { protocol: 1, bridge_revision: 12, type: 'run', generation: 1, task_id: 1, request_id: null, cwd: '/project', state_dir: '/state', prompt: '',
+  const command = { protocol: 1, bridge_revision: 13, type: 'run', generation: 1, task_id: 1, request_id: null, cwd: '/project', state_dir: '/state', prompt: '',
     operation: 'plan', write_scope: { mode: 'Selected', protected_paths: [], excluded_paths: [], root_identity: null, files: [] }, resume: null, inspect_models: true, selection: { model: null, effort: null } };
   assert.equal(RunSchema.safeParse(command).success, true);
   assert.equal(RunSchema.safeParse({ ...command, task_id: 0 }).success, true);
   assert.equal(RunSchema.safeParse({ ...command, task_id: -1 }).success, false);
   for (const changed of [{ request_id: 'claimed-inference' }, { prompt: 'must not send' }, { resume: '01234567-89ab-4cde-8123-456789abcdef' },
-    { bridge_revision: 11 }, { edit_paths: ['file.ts'] }, { operation: 'implement' }, { tools: ['Bash'] }, { selection: { model: null, effort: null, fallback: 'a' } }]) {
+    { bridge_revision: 12 }, { edit_paths: ['file.ts'] }, { operation: 'implement' }, { tools: ['Bash'] }, { selection: { model: null, effort: null, fallback: 'a' } }]) {
     assert.equal(RunSchema.safeParse({ ...command, ...changed }).success, false);
   }
   for (const field of ['mode', 'protected_paths', 'excluded_paths']) {
@@ -1197,14 +1197,14 @@ test('unsafe recursive SDK discovery returns actionable actual safe filenames ra
 });
 
 test('noninspection SDK planning requires frozen observational root even without mutation targets', () => {
-  const command = { protocol: 1, bridge_revision: 12, type: 'run', generation: 1, task_id: 1,
+  const command = { protocol: 1, bridge_revision: 13, type: 'run', generation: 1, task_id: 1,
     request_id: 'owned-request', cwd: '/project', state_dir: '/state', prompt: 'Read project context',
     operation: 'plan', write_scope: { mode: 'Selected', protected_paths: ['/state'],
       excluded_paths: ['private'], root_identity: '1:2', files: [] },
     resume: null, inspect_models: false, selection: { model: null, effort: null } };
   assert.equal(RunSchema.safeParse(command).success, true);
   assert.equal(RunSchema.safeParse({ ...command, write_scope: { ...command.write_scope, root_identity: null } }).success, false);
-  assert.equal(RunSchema.safeParse({ ...command, bridge_revision: 11 }).success, false);
+  assert.equal(RunSchema.safeParse({ ...command, bridge_revision: 12 }).success, false);
 });
 
 test('file previews forward only actual correlated tool argument fragments and never grant write authority', () => {
@@ -1426,4 +1426,18 @@ test('host command schema is closed, literal and cannot inject configuration or 
   assert.equal(CommandResultSchema.safeParse(result).success, true);
   assert.equal(CommandResultSchema.safeParse({ ...result, call_id: 'foreign' }).success, false);
   assert.equal(CommandResultSchema.safeParse({ ...result, result: { status: 'unknown' } }).success, false);
+});
+
+test('SDK web fetch admission refuses local, private and credentialed URLs before review', () => {
+  assert.deepEqual(WEB_TOOLS, ['WebSearch', 'WebFetch']);
+  for (const url of ['https://docs.rs/ureq/', 'http://example.com/a?b=c', 'https://[2606:4700::1111]/']) {
+    assert.deepEqual(webFetchAdmission({ url }), { allowed: true }, url);
+  }
+  for (const url of ['file:///etc/passwd', 'ftp://example.com/', 'https://user:pw@example.com/', 'http://localhost:3000/',
+    'http://dev.localhost/', 'http://printer.local/', 'http://127.0.0.1/', 'http://10.0.0.5/', 'http://172.20.1.1/',
+    'http://192.168.1.1/', 'http://169.254.169.254/latest', 'http://[::1]/', 'http://[fd00::1]/', 'http://[fe80::1]/',
+    'http://0.0.0.0/', 'not a url', '']) {
+    assert.equal(webFetchAdmission({ url }).allowed, false, url);
+  }
+  assert.equal(webFetchAdmission({}).allowed, false);
 });

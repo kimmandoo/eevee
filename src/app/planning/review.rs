@@ -650,13 +650,19 @@ impl State {
     /// Apply the current automatic policy to this exact tool permission.
     /// Questions and setup/connection reviews are not tool permissions.
     pub(in crate::app) fn auto_accept(&mut self) -> bool {
-        let readonly_tool = self.agent.is_direct()
-            && self.request.as_ref().is_some_and(|request| {
-                matches!(&request.kind, PromptKind::Permission { file: None, .. })
-                    && (request.request_id.get("eevee-native-delegate").is_some()
-                        || request.request_id.get("eevee-mcp").is_some()
-                        || request.request_id.get("eevee-web").is_some())
-            });
+        // Web reviews cause no local effect, so they follow Automatic in every
+        // operation and on every route.
+        let web_review = self.request.as_ref().is_some_and(|request| {
+            matches!(&request.kind, PromptKind::Permission { file: None, description, .. }
+                if crate::providers::web::is_web_review(description))
+        });
+        let readonly_tool = web_review
+            || self.agent.is_direct()
+                && self.request.as_ref().is_some_and(|request| {
+                    matches!(&request.kind, PromptKind::Permission { file: None, .. })
+                        && (request.request_id.get("eevee-native-delegate").is_some()
+                            || request.request_id.get("eevee-mcp").is_some())
+                });
         if !self.approval_ready()
             || self.approval_mode() != crate::store::ApprovalMode::Automatic
             || (self.operation != Operation::Implement && !readonly_tool)
@@ -665,30 +671,27 @@ impl State {
         {
             return false;
         }
-        let (mut answer, subject) =
-            match self.request.as_ref().map(|request| &request.kind) {
-                Some(PromptKind::Permission { options, file, .. }) if options.len() >= 2 => (
-                    options[1].answer.clone(),
-                    file.as_ref().map_or_else(
-                        || {
-                            if self.request.as_ref().is_some_and(|request| {
-                                request.request_id.get("eevee-web").is_some()
-                            }) {
-                                "web request".into()
-                            } else {
-                                "tool permission".into()
-                            }
-                        },
-                        |file| file.path.clone(),
-                    ),
+        let (mut answer, subject) = match self.request.as_ref().map(|request| &request.kind) {
+            Some(PromptKind::Permission { options, file, .. }) if options.len() >= 2 => (
+                options[1].answer.clone(),
+                file.as_ref().map_or_else(
+                    || {
+                        if web_review {
+                            "web request".into()
+                        } else {
+                            "tool permission".into()
+                        }
+                    },
+                    |file| file.path.clone(),
                 ),
-                Some(PromptKind::Approval {
-                    allow_once: true,
-                    command,
-                    ..
-                }) => (json!({"decision": "accept"}), command.clone()),
-                _ => return false,
-            };
+            ),
+            Some(PromptKind::Approval {
+                allow_once: true,
+                command,
+                ..
+            }) => (json!({"decision": "accept"}), command.clone()),
+            _ => return false,
+        };
         if self
             .request
             .as_ref()
@@ -703,6 +706,23 @@ impl State {
         self.send_answer(answer);
         self.notice = format!("Auto-approved: {subject} · /auto-approve-off to review each change");
         true
+    }
+
+    /// The exact allow-once or deny answer for a settled auto-presented review.
+    /// Allow additionally requires the review summary to have been fully shown.
+    fn direct_answer(&self, allow: bool) -> Option<Value> {
+        match &self.request.as_ref()?.kind {
+            PromptKind::Permission { options, .. } if options.len() == 2 => {
+                (!allow || self.reviewed).then(|| options[usize::from(allow)].answer.clone())
+            }
+            PromptKind::Approval {
+                allow_once: true, ..
+            } if allow => self.reviewed.then(|| json!({"decision": "accept"})),
+            PromptKind::Approval { deny_decision, .. } if !allow => {
+                Some(json!({"decision": deny_decision}))
+            }
+            _ => None,
+        }
     }
 
     /// Answers the current owned permission with one of its own options; used
@@ -755,6 +775,19 @@ impl State {
             if large_enough
                 && key.kind == KeyEventKind::Press
                 && key.modifiers.is_empty()
+                && matches!(key.code, KeyCode::Char('a' | 'n'))
+                && self.direct_answer.ready()
+                && self.required_permission_review()
+                && let Some(answer) = self.direct_answer(key.code == KeyCode::Char('a'))
+            {
+                self.auto_permission_review = false;
+                self.direct_answer.clear();
+                self.send_answer(answer);
+                return true;
+            }
+            if large_enough
+                && key.kind == KeyEventKind::Press
+                && key.modifiers.is_empty()
                 && matches!(
                     key.code,
                     KeyCode::Enter
@@ -784,8 +817,12 @@ impl State {
                 }
                 return true;
             }
-            // Request typing cannot become an answer on asynchronous arrival.
+            // Request typing cannot become an answer on asynchronous arrival:
+            // any other key keeps this review on the explicit Enter path.
             // App owns Esc deferral and its exact request identity.
+            if key.code != KeyCode::Esc {
+                self.direct_answer.disturb();
+            }
             return false;
         }
         if self.task != task.id && !self.busy() && !self.journal_failed() {

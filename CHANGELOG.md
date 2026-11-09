@@ -2,6 +2,12 @@
 
 ## 2026-11-09
 
+- feat(permissions): accepted `a`/`n` directly on a settled auto-presented permission or command review (800 ms on screen, no other key since, summary shown), replacing the Enter → choose → confirm sequence while keeping typing-in-progress from ever counting as consent.
+- feat(ui): shortened permission reviews: the title names the request, the queue position appears only with several waiting reviews, the duplicate owner line and the premature "Selected: Deny" line are gone.
+- feat(tools): offered host web search/page reading on the Codex CLI route as dynamic tools with the same review and executor.
+- feat(claude): enabled the Claude SDK's built-in WebFetch and first-party WebSearch behind the host Automatic/Ask review with readable web reviews, refusing local/private/credentialed WebFetch URLs before review; raised the sidecar bridge to revision 13.
+- feat(acp): labelled ACP agents' own fetch permissions as web reviews and told agents that web use follows host review.
+- fix(permissions): let web reviews follow saved Automatic in Plan/Review on every route, since they cause no local effect.
 - feat(tools): added host-executed `eevee_web_search` and `eevee_web_fetch` for native routes, gated by the saved Automatic/Ask policy with an exact `eevee-web` review, keyless DuckDuckGo or `BRAVE_API_KEY` Brave search, readable HTML-to-text paging and correctable network failures.
 - fix(security): refused private, loopback, link-local and unique-local addresses for web requests at DNS resolution and after redirects unless `EV_WEB_ALLOW_LOCAL=1` is set, and refused URLs or queries carrying credentials.
 - test(tools): covered web tool schemas, validation, address policy, HTML conversion, paging, binary refusal, search parsing, bot checks and the native permission loop on every protocol; added an ignored live network check.

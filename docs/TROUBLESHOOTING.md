@@ -1,5 +1,12 @@
 # Troubleshooting
 
+### [2026-11-09] sdk_command_smoke failed with "unexpected argument '--edition'"
+
+- **Context / Symptom:** `sdk_command_smoke.py --compiler "$(which rustc)"` failed with "real SDK tool result did not reach query: compile-failure"; the reviewed command ran `rustup --edition=2021 ...`.
+- **Root Cause:** `~/.cargo/bin/rustc` is a rustup proxy; the smoke resolves the executable's real identity, which is `rustup`, so the compiler arguments went to rustup.
+- **Solution:** Pass the toolchain's real compiler: `--compiler "$(rustc --print sysroot)/bin/rustc"`. The smoke then passed.
+- **Prevention / Reference:** Any smoke that takes `--compiler` needs the toolchain binary, not the rustup shim.
+
 ### [2026-11-09] DuckDuckGo occasionally returned an empty result page
 
 - **Context / Symptom:** The first live `eevee_web_search` for "ureq rust http client" reported no results, while an immediate repeat and `curl` returned ten results from the same endpoint.
