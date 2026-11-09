@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-11-09
+
+- feat(ui): removed duplicated chrome so each fact appears once: dropped the bracketed capability chip that repeated the policy label, the composer's border and idle key hints that repeated the footer, and the command picker's in-panel key row (its keys, including Ctrl+K All, moved to the footer).
+- feat(ui): simplified the Request title to `Request` plus an attachment count only when files are attached; the draft owner is named there only when the party has more than one partner.
+- feat(ui): shortened the empty home invitation to the starting commands and the Ctrl+S draft key, and shortened the behavior-profile row to `Profile: on · N B`.
+- fix(ui): stopped showing a same-form `Auto Eevee → Eevee: no plan yet` row and a misleading fresh-context notice on a first request; hid the successful transport summary behind `/verbose` and removed the repeated PgUp/Dn hint from the follow line.
+- fix(ui): blanked the partner card's `No criteria yet` placeholder and muted its idle command hint.
+
 ## 2026-11-06
 
 ### 0.1.51

@@ -23,12 +23,9 @@ pub(super) fn workspace(frame: &mut Frame, area: Rect, app: &App, paint: &Paint)
     if app.text_density() == store::TextDensity::Comfortable && content.height >= 9 {
         lines.push(Line::from(""));
     }
-    if form == 0 {
-        lines.extend([
-            Line::from(paint.hint(Message::CoreRequestStart)),
-            Line::styled(paint.hint(Message::CoreRequestSave), paint.muted),
-        ]);
-    } else {
+    // Plain Eevee needs no form introduction: the footer already names Enter
+    // Send, so the invitation goes straight to the starting commands.
+    if form != 0 {
         let (signature, action, label) = crate::domain::FIRST_ACTIONS[form];
         lines.extend([
             Line::from(format!(
@@ -45,10 +42,13 @@ pub(super) fn workspace(frame: &mut Frame, area: Rect, app: &App, paint: &Paint)
             ),
         ]);
     }
+    if lines.last().is_some_and(|line| line.width() > 0) {
+        lines.push(Line::from(""));
+    }
     lines.extend([
-        Line::from(""),
         Line::styled(paint.hint(Message::CoreRequestContext), paint.muted),
         Line::styled(paint.hint(Message::CoreRequestTasks), paint.muted),
+        Line::styled(paint.hint(Message::CoreRequestSave), paint.muted),
     ]);
     if app
         .drafts
@@ -99,10 +99,11 @@ pub(super) fn compact_companion(
     if show_image && app.nickname_editor.is_none() {
         artwork.render(app.form(), image, frame.buffer_mut());
     }
+    // An empty criteria list is the normal state, not news worth a row.
     let status = if let Some(todo) = todo_line(app) {
         Cow::Owned(todo)
     } else if app.criteria.is_empty() {
-        Cow::Borrowed("No criteria yet")
+        Cow::Borrowed("")
     } else {
         let met = app
             .criteria
@@ -127,7 +128,7 @@ pub(super) fn compact_companion(
         } else {
             "/forms | /companion"
         },
-        paint.accent,
+        if focused { paint.accent } else { paint.muted },
     );
 }
 

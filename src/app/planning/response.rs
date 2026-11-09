@@ -561,9 +561,12 @@ impl Layout {
                             item.item_id
                         );
                     }
+                    // The pinned header already says "Completed · model"; a
+                    // successful run's transport summary stays in /verbose.
                     if !verbose
                         && settled
                         && let Some(status) = &item.status
+                        && status.outcome != Some(crate::providers::Outcome::Completed)
                     {
                         if !segment.header.is_empty() {
                             segment.header.push('\n');

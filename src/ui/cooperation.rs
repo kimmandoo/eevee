@@ -76,6 +76,9 @@ pub(super) fn header(frame: &mut Frame, area: Rect, app: &App, paint: &Paint) ->
         && !file_output
         && let Some(transition) = app.evolution.transition
         && transition.from == transition.to
+        // "No plan yet" on an unchanged form restates nothing; keep the row
+        // only when it carries a reason or discloses a fresh context.
+        && (transition.fresh || transition.reason != crate::messages::Message::CoreEvolutionGeneral)
         && offset + 1 < area.height
     {
         let fresh = if transition.fresh {

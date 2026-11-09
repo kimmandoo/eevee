@@ -1,10 +1,7 @@
 core-policy-readonly = Read-only /role
 core-policy-review = Review /role
-core-capability-readonly = read only
-core-capability-reviewed-coding = code · approve changes
 core-request-invitation = What would you like to do?
 core-task-prefix = { "Task: " }
-core-request-start = Type your request below; Enter saves and sends it.
 core-request-save = Ctrl+S keeps a draft without sending.
 core-request-context = @ Attach files | /connect Choose provider
 core-request-tasks = /resume Saved sessions | /new Fresh session
@@ -144,7 +141,7 @@ core-saving-reset = { "Saving old task and drafts before reset / Esc Stay" }
 
 core-applying-task = { "Applying task operation / mutation paused" }
 
-core-command-picker-control = { "Type | arrows Choose | Enter Open | Esc Back" }
+core-command-picker-control = { "Type to search | Up/Down Choose | Enter Open | Esc Back | Ctrl+K All" }
 
 core-file-picker-control = { "Arrows Choose file | Enter Inspect | Esc Keep text" }
 
@@ -208,8 +205,6 @@ core-attachment-save-failed = { " · save failed" }
 
 core-attachment-saving = { " · saving" }
 
-core-composer-draft-control = { " Ctrl+N Newline | Ctrl+S Retain draft " }
-
 core-request-placeholder = { "Ask a question or describe what you want to do..." }
 
 core-next-action-placeholder = { "Describe the next action..." }
@@ -217,8 +212,6 @@ core-next-action-placeholder = { "Describe the next action..." }
 core-goal-placeholder = { "Describe the optional task goal..." }
 
 core-input-limit = { "Input limit reached; draft retained." }
-
-core-composer-idle-control = { "Type a request | / Commands | @ Files" }
 
 core-editor-request-help = { "Enter sends this request. Commands and file changes follow saved Automatic/Ask mode." }
 
@@ -242,7 +235,8 @@ core-detail-position =
     { $value }
     Detail line { $line }
 
-core-composer-title = { $title }/ { $partner } / { $count } attached{ $status }{ " " }{ $pairing }
+core-composer-title = { $title }{ $owner }{ $attached }{ $status }{ " " }{ $pairing }
+core-composer-attached = · { $count } attached{ " " }
 
 core-editor-title = { " " }Edit { $field } / { $partner }{ " " }
 

@@ -232,59 +232,20 @@ pub(super) fn header(frame: &mut Frame, area: Rect, app: &App, config: &Config, 
         &clipped(&status, area.width as usize),
         paint.muted,
     );
-    // Safety/activity text always wins. Usage gets spare room before the
-    // redundant capability chip; `/usage` remains discoverable at 60 columns.
-    let operation = if app.planning.busy() {
-        app.planning.operation
-    } else {
-        app.planning
-            .explicit_operation()
-            .unwrap_or(crate::providers::Operation::Implement)
-    };
-    let chip = format!(
-        "[{}] ",
-        paint.hint(match operation {
-            crate::providers::Operation::Plan | crate::providers::Operation::Review =>
-                Message::CoreCapabilityReadonly,
-            crate::providers::Operation::Implement => Message::CoreCapabilityReviewedCoding,
-        })
-    );
-    let chip = if app.planning.approval_ready()
-        && app.approval_mode() == crate::store::ApprovalMode::Automatic
-        && operation == crate::providers::Operation::Implement
-    {
-        format!("[{}] ", paint.hint(Message::AutoApproveChip))
-    } else {
-        chip
-    };
+    // Safety/activity text always wins; usage takes the spare room. The policy
+    // label above is the single capability indicator, so no second chip
+    // repeats it here.
     let used = Span::raw(status.as_str())
         .width()
         .min(usize::from(line.width)) as u16;
     let available = line.width.saturating_sub(used.saturating_add(2));
-    let meter = app.meter_chip(available);
-    let meter_width = meter
-        .as_ref()
-        .map_or(0, |meter| Span::raw(meter.as_str()).width() as u16);
-    let chip_width = Span::raw(chip.as_str()).width() as u16;
-    let show_chip =
-        chip_width.saturating_add(if meter.is_some() { meter_width + 1 } else { 0 }) <= available;
-    let mut right = line.right();
-    if let Some(meter) = meter {
-        right -= meter_width;
+    if let Some(meter) = app.meter_chip(available) {
+        let meter_width = Span::raw(meter.as_str()).width() as u16;
         text(
             frame,
-            Rect::new(right, line.y, meter_width, 1),
+            Rect::new(line.right() - meter_width, line.y, meter_width, 1),
             &meter,
             paint.muted,
-        );
-        right = right.saturating_sub(1);
-    }
-    if show_chip {
-        text(
-            frame,
-            Rect::new(right - chip_width, line.y, chip_width, 1),
-            &chip,
-            paint.accent,
         );
     }
 }

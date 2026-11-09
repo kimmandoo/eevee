@@ -1657,15 +1657,28 @@ fn composer_input(frame: &mut Frame, area: Rect, app: &App, config: &Config, pai
             .is_some_and(|profile| profile.blockers.is_empty()),
     );
     let partner = app.lead_label();
+    // Drafts belong to a partner. With a solo partner the header and partner
+    // card already name it; a party names the draft owner here too.
+    let owner = if app.has_party() {
+        format!("/ {partner} ")
+    } else {
+        String::new()
+    };
+    let attached_count = app.sources.basket.len() + usize::from(screenshot.is_some());
+    let attached = if attached_count == 0 {
+        String::new()
+    } else {
+        paint.format(
+            Template::CoreComposerAttached,
+            &[("count", &attached_count.to_string())],
+        )
+    };
     let title = paint.format(
         Template::CoreComposerTitle,
         &[
             ("title", title),
-            ("partner", &partner),
-            (
-                "count",
-                &(app.sources.basket.len() + usize::from(screenshot.is_some())).to_string(),
-            ),
+            ("owner", &owner),
+            ("attached", &attached),
             ("status", attachment_status),
             (
                 "pairing",
@@ -1674,8 +1687,8 @@ fn composer_input(frame: &mut Frame, area: Rect, app: &App, config: &Config, pai
         ],
     );
     let title = match composer_todo(app, frame.area().width) {
-        Some(todo) => format!("{} · {todo} ", title.trim_end()),
-        None => title,
+        Some(todo) => format!(" {} · {todo} ", title.trim()),
+        None => format!(" {} ", title.trim()),
     };
     let mut block = panel(&title, config, paint, editing && app.overlay.is_none());
     let pairing_offer;
@@ -1705,19 +1718,11 @@ fn composer_input(frame: &mut Frame, area: Rect, app: &App, config: &Config, pai
             clipped(&pairing_offer, area.width.saturating_sub(4) as usize),
             paint.accent,
         ));
-    } else if editing {
-        block = block.title_bottom(Line::styled(
-            paint.hint(Message::CoreComposerDraftControl),
-            paint.muted,
-        ));
     }
     let content = block.inner(area);
     frame.render_widget(block, area);
-    let hint_rows = if editing && !app.input_truncated {
-        0
-    } else {
-        1
-    };
+    // The footer owns key hints; the panel keeps only the input-limit warning.
+    let hint_rows = u16::from(editing && app.input_truncated);
     let profile_rows = u16::from(app.composer_is_request() && content.height > hint_rows + 1);
     if profile_rows != 0 {
         text(
@@ -1800,21 +1805,14 @@ fn composer_input(frame: &mut Frame, area: Rect, app: &App, config: &Config, pai
             input.y + (caret_row - top) as u16,
         ));
     }
-    // While editing, the footer carries the composer keys; only the input
-    // limit warning stays inside the panel.
-    let hint = if app.input_truncated && editing {
-        paint.hint(Message::CoreInputLimit)
-    } else if editing {
-        ""
-    } else {
-        paint.hint(Message::CoreComposerIdleControl)
-    };
-    text(
-        frame,
-        row(content, content.height.saturating_sub(hint_rows), hint_rows),
-        hint,
-        paint.muted,
-    );
+    if hint_rows != 0 {
+        text(
+            frame,
+            row(content, content.height.saturating_sub(hint_rows), hint_rows),
+            paint.hint(Message::CoreInputLimit),
+            paint.muted,
+        );
+    }
 }
 
 fn editor(frame: &mut Frame, area: Rect, app: &App, config: &Config, paint: &Paint) {

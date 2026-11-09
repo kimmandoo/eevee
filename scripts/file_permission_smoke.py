@@ -10,6 +10,7 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
+import re
 import tempfile
 import traceback
 
@@ -98,7 +99,7 @@ def run_case(binary, output, root, size, route, protocol, form):
                 journey.capture(f'{sequence}-automatic-file-popup')
                 rows = session.display().splitlines()
                 composer_row = next((index for index, row in enumerate(rows)
-                                     if 'Request / ' in row), None)
+                                     if re.search(r'[╭┌+] Request ', row)), None)
                 assert composer_row is not None, 'File decision hid the Request composer'
                 assert any('Deny' in row and 'Allow' in row
                            for row in rows[max(2, composer_row - 8):composer_row]), (

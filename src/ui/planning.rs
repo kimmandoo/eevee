@@ -1511,7 +1511,7 @@ fn response(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
         let navigation = if area.width < 80 {
             format!("{following} {start}-{end}/{total} · End · /verbose")
         } else {
-            format!("{following} {start}-{end}/{total} · PgUp/Dn · Alt+End · /verbose")
+            format!("{following} {start}-{end}/{total} · Alt+End Latest · /verbose")
         };
         text(
             frame,

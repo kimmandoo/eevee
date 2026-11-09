@@ -284,20 +284,15 @@ pub(super) fn commands(frame: &mut Frame, area: Rect, app: &App, config: &Config
             paint.muted,
         );
     }
+    // Picker keys live in the footer; the popup ends with the selection detail.
     text(
         frame,
         row(
             content,
-            content.height.saturating_sub(detail_rows + 1),
+            content.height.saturating_sub(detail_rows),
             detail_rows,
         ),
         &clipped(&detail, content.width as usize * detail_rows as usize),
-        paint.muted,
-    );
-    text(
-        frame,
-        row(content, content.height.saturating_sub(1), 1),
-        paint.hint(Message::ProvidersComposerUpDownChooseEnterOpenEscBack),
         paint.muted,
     );
 }

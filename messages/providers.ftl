@@ -492,7 +492,6 @@ providers-composer-search-actions-by-name-or-description-esc = { "Search actions
 
 providers-composer-no-matching-command-try-a-shorter-search = { "No matching command. Try a shorter search." }
 
-providers-composer-up-down-choose-enter-open-esc-back = { "Up/Down Choose / Enter Open / Esc Back / Ctrl+K All" }
 
 providers-agents-default-effort-same-model-only = { "Default effort: " }{ $effort }{ " (same model only)" }
 

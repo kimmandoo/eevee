@@ -516,8 +516,9 @@ mod tests {
             assert_eq!(state.items[0].text, "Original partial 界e\u{301}");
             state.response_rows(120, 100, false).count();
             state.home_response_key(KeyCode::Home);
+            // A successful run's transport summary is shown only in /verbose.
             let view = state
-                .response_rows(120, 100, false)
+                .response_rows(120, 100, outcome == Outcome::Completed)
                 .collect::<Vec<_>>()
                 .join("\n");
             assert!(

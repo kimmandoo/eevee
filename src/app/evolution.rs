@@ -297,6 +297,9 @@ impl App {
             return false;
         };
         let from = self.form();
+        // A first request has no earlier context to retire, so its operation
+        // switch is not disclosed as a fresh context.
+        let had_context = !self.planning.items.is_empty() || self.planning.thread_id.is_some();
         let fresh = self.planning.prepare_automatic_operation(choice.operation);
         if from != choice.form || fresh {
             self.set_form(choice.form);
@@ -304,7 +307,7 @@ impl App {
                 from,
                 to: choice.form,
                 reason: choice.reason,
-                fresh,
+                fresh: fresh && had_context,
             });
             self.evolution.popup_shown = false;
             if self.follows_todo()

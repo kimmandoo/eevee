@@ -11,11 +11,7 @@ impl App {
             return "Profile: off for next Send · /form-profile".into();
         }
         match self.form_profiles.instruction_bytes(&self.cwd, self.form()) {
-            Ok(Some(bytes)) => format!(
-                "Profile: {} · {} B · /form-profile",
-                FORMS[self.form()].name,
-                bytes
-            ),
+            Ok(Some(bytes)) => format!("Profile: on · {bytes} B · /form-profile"),
             Ok(None) => "Profile: off · /form-profile".into(),
             Err(_) => "Profile: unavailable · /form-profile".into(),
         }

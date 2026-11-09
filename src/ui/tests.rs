@@ -307,7 +307,6 @@ fn compact_palette_shows_blocker_and_keys_without_mutating_draft() {
             "/storage-retry",
             "Unavailable:",
             "No failed task save to retry.",
-            "Esc Back",
             "1-1/1",
         ] {
             assert!(rendered.contains(expected), "{width}x{height}: {expected}");
@@ -666,9 +665,8 @@ fn approval_policy_stays_visible_and_explicit_readonly_takes_precedence() {
             rendered.contains("AUTO-APPROVE"),
             "{width}x{height}\n{rendered}"
         );
-        if width == 120 {
-            assert!(rendered.contains("[code · auto-approve]"), "{rendered}");
-        }
+        // The policy label is the only capability indicator.
+        assert!(!rendered.contains("[code"), "{rendered}");
         app.planning.set_approval_mode(store::ApprovalMode::Ask);
         let rendered = draw(&mut app, &mut terminal, &mut artwork);
         assert!(rendered.contains("ASK"), "{rendered}");
@@ -1523,10 +1521,19 @@ fn nicknames_keep_species_visible_in_header_and_composer_at_both_sizes() {
                     KeyModifiers::NONE,
                 )));
                 app.party_request.take();
-                app.store_event(store::Event::Party(Ok(vec![store::Partner {
-                    nickname: Some(nickname_value.into()),
-                    ..store::Partner::default()
-                }])));
+                // A party names the draft owner in the composer; a solo
+                // partner is named by the header and partner card only.
+                app.store_event(store::Event::Party(Ok(vec![
+                    store::Partner {
+                        nickname: Some(nickname_value.into()),
+                        ..store::Partner::default()
+                    },
+                    store::Partner {
+                        id: 99,
+                        nickname: Some("second".into()),
+                        ..store::Partner::default()
+                    },
+                ])));
                 app.planning.selection.model = Some("model-sentinel".into());
                 app.planning.selection.effort = Some("high".into());
                 let mut artwork = Artwork::load(&config);
@@ -2416,7 +2423,7 @@ fn idle_evolution_expiry_repaints_completed_answer_after_earlier_tools() {
             assert!(app.evolution.popup_shown);
             let shown = screen_text(&terminal);
             if width == 60 {
-                assert!(!shown.contains("FINAL_ANSWER_MARKER"), "{shown}");
+                assert!(!shown.contains("result detail four"), "{shown}");
             }
             let now = Instant::now();
             let deadline = now
@@ -2432,6 +2439,7 @@ fn idle_evolution_expiry_repaints_completed_answer_after_earlier_tools() {
                 .unwrap();
             let screen = screen_text(&terminal);
             assert!(screen.contains("FINAL_ANSWER_MARKER"), "{screen}");
+            assert!(screen.contains("result detail four"), "{screen}");
             assert!(evolution_popup_area(Rect::new(0, 0, width, height), &app).is_none());
             assert_eq!(app.evolution_wait(deadline), None);
             assert!(!app.tick_evolution(deadline));

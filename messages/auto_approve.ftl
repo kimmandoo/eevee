@@ -2,7 +2,6 @@ auto-approve-command-on = Run agent file changes, commands and connected tools a
 auto-approve-command-off = Ask before agent file changes, commands and connected tools (saved preference)
 auto-approve-enabled = Automatic execution selected for all partners: file changes, commands, connected tools and read-only helpers run without asking. Saved with local preferences across tasks and restarts. Commands use your account permissions, not an OS sandbox; effects are not rolled back. Questions and connection/login setup still ask. /auto-approve-off selects Ask.
 auto-approve-disabled = Ask selected: review each agent file change, command and connected tool unless an explicit rule allows it. Saved with local preferences across tasks and restarts. /auto-approve restores automatic execution.
-auto-approve-chip = code · auto-approve
 auto-approve-policy = AUTO-APPROVE
 auto-approve-ask-policy = ASK
 auto-approve-loading-policy = LOADING

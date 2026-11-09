@@ -569,6 +569,11 @@ impl App {
     }
 
     /// Header identity: nickname when set (PK01), else `Eevee #<id>`.
+    /// More than one partner can own drafts, so surfaces must name the owner.
+    pub fn has_party(&self) -> bool {
+        self.party.len() > 1
+    }
+
     pub fn lead_label(&self) -> String {
         format!(
             "{} ({})",
