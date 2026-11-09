@@ -25,6 +25,8 @@ pub(crate) enum ToolKind {
     Todo,
     Mcp,
     Delegate,
+    WebSearch,
+    WebFetch,
 }
 impl ToolKind {
     pub(crate) fn parse(name: &str) -> Result<Self, String> {
@@ -44,6 +46,8 @@ impl ToolKind {
             "todo" => Ok(Self::Todo),
             "eevee_mcp" => Ok(Self::Mcp),
             "eevee_delegate" => Ok(Self::Delegate),
+            crate::providers::web::SEARCH => Ok(Self::WebSearch),
+            crate::providers::web::FETCH => Ok(Self::WebFetch),
             _ => Err("Unsupported file tool name".into()),
         }
     }
@@ -64,6 +68,8 @@ impl ToolKind {
             Self::Todo => "todo",
             Self::Mcp => "eevee_mcp",
             Self::Delegate => "eevee_delegate",
+            Self::WebSearch => crate::providers::web::SEARCH,
+            Self::WebFetch => crate::providers::web::FETCH,
         }
     }
 }
@@ -152,6 +158,14 @@ pub(crate) enum FileTool {
         instruction: String,
         paths: Vec<PathBuf>,
     },
+    #[serde(rename = "eevee_web_search")]
+    WebSearch {
+        query: String,
+        limit: usize,
+        recency: String,
+    },
+    #[serde(rename = "eevee_web_fetch")]
+    WebFetch { url: String, offset: usize },
     #[serde(skip)]
     Invalid { kind: ToolKind },
 }
@@ -216,6 +230,8 @@ impl FileTool {
             Self::Todo { .. } => ToolKind::Todo,
             Self::Mcp { .. } => ToolKind::Mcp,
             Self::Delegate { .. } => ToolKind::Delegate,
+            Self::WebSearch { .. } => ToolKind::WebSearch,
+            Self::WebFetch { .. } => ToolKind::WebFetch,
             Self::Invalid { kind } => *kind,
         }
     }
@@ -232,6 +248,8 @@ impl FileTool {
             | Self::Todo { .. }
             | Self::Mcp { .. }
             | Self::Delegate { .. }
+            | Self::WebSearch { .. }
+            | Self::WebFetch { .. }
             | Self::ArtifactList { .. }
             | Self::ArtifactRead { .. }
             | Self::ArtifactSearch { .. }
@@ -243,6 +261,19 @@ impl FileTool {
             self.kind(),
             ToolKind::Write | ToolKind::Edit | ToolKind::Delete | ToolKind::Rename
         )
+    }
+    /// The validated network request for a web tool, or its correctable refusal.
+    pub(crate) fn web(&self) -> Option<Result<crate::providers::web::Call, String>> {
+        use crate::providers::web::Call;
+        match self {
+            Self::WebSearch {
+                query,
+                limit,
+                recency,
+            } => Some(Call::search(query, *limit, recency)),
+            Self::WebFetch { url, offset } => Some(Call::fetch(url, *offset)),
+            _ => None,
+        }
     }
     pub(crate) fn invalid(&self) -> bool {
         matches!(self, Self::Invalid { .. })

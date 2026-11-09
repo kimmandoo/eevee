@@ -2,6 +2,15 @@
 
 ## 2026-11-09
 
+- feat(tools): added host-executed `eevee_web_search` and `eevee_web_fetch` for native routes, gated by the saved Automatic/Ask policy with an exact `eevee-web` review, keyless DuckDuckGo or `BRAVE_API_KEY` Brave search, readable HTML-to-text paging and correctable network failures.
+- fix(security): refused private, loopback, link-local and unique-local addresses for web requests at DNS resolution and after redirects unless `EV_WEB_ALLOW_LOCAL=1` is set, and refused URLs or queries carrying credentials.
+- test(tools): covered web tool schemas, validation, address policy, HTML conversion, paging, binary refusal, search parsing, bot checks and the native permission loop on every protocol; added an ignored live network check.
+- feat(ui): rewrote Help as a three-step START HERE plus everyday keys/commands, game terms and a two-line safety summary.
+- feat(ui): turned the home invitation into aligned `/connect`, `/resume`, `@` and `/help` rows and moved Ctrl+S Draft into the footer while typing.
+- feat(ui): let the partner card alone name the lead at roomy widths (nickname row plus `Species · Type` row) and replaced the header identity with `Evolution: Auto|Pinned` and `default model`.
+- feat(ui): shortened everyday command descriptions and provider/formation notices, dropping "nothing sent"/"no work" reassurances.
+- feat(ui): hid the routine `Profile: on · N B` row, unreported-token meter text, empty move lists and verified artwork provenance unless `/verbose` or a problem needs them; renamed the idle activity to `Ready` and muted the follow line.
+- feat(ui): shrank the companion portrait slightly (22×10 → 20×9 cells).
 - feat(ui): removed duplicated chrome so each fact appears once: dropped the bracketed capability chip that repeated the policy label, the composer's border and idle key hints that repeated the footer, and the command picker's in-panel key row (its keys, including Ctrl+K All, moved to the footer).
 - feat(ui): simplified the Request title to `Request` plus an attachment count only when files are attached; the draft owner is named there only when the party has more than one partner.
 - feat(ui): shortened the empty home invitation to the starting commands and the Ctrl+S draft key, and shortened the behavior-profile row to `Profile: on · N B`.

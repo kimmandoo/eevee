@@ -163,7 +163,8 @@ class Journey(files.CreationJourney):
         tools = files.advertised_tools(self.protocol, row['body'])
         ordinary = {'eevee_list_files', 'eevee_read_file', 'eevee_structural_search',
                     'eevee_artifact_list', 'eevee_artifact_read', 'eevee_artifact_search',
-                    'eevee_artifact_locations', 'todo', 'eevee_delegate'}
+                    'eevee_artifact_locations', 'todo', 'eevee_delegate',
+                    'eevee_web_search', 'eevee_web_fetch'}
         effects = {'eevee_write_file', 'eevee_edit_file', 'eevee_delete_file',
                    'eevee_rename_file', 'eevee_run_command'}
         assert tools == ordinary | (effects if writing else set()), tools

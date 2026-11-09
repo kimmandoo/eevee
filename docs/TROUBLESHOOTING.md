@@ -1,5 +1,19 @@
 # Troubleshooting
 
+### [2026-11-09] DuckDuckGo occasionally returned an empty result page
+
+- **Context / Symptom:** The first live `eevee_web_search` for "ureq rust http client" reported no results, while an immediate repeat and `curl` returned ten results from the same endpoint.
+- **Root Cause:** DuckDuckGo's no-script HTML frontend sometimes serves a valid page without result blocks (status 200 or 202) to automated clients; the parser was correct against the saved page.
+- **Solution:** Retry once when the page parses to zero results; a genuine bot-check page (`anomaly-modal`) is reported as a correctable error suggesting `BRAVE_API_KEY`.
+- **Prevention / Reference:** `cargo test live_web -- --ignored --nocapture` exercises real search and fetch.
+
+### [2026-11-09] Four terminal smoke scripts already failed before this session
+
+- **Context / Symptom:** `native_connection_smoke.py`, `navigation_smoke.py`, `workbench_smoke.py` and `delegation_smoke.py` failed against this session's build (settlement waited for `Response · complete`; the default palette lacked `/tasks`; a `2/2` state was missing; the 60x18 usage sheet lacked `SCOPE`).
+- **Root Cause:** The same four scripts fail identically against a clean build of the earlier commit `8da3faf`, so their expectations predate this session's changes.
+- **Solution:** None in this session; the failures are recorded as pre-existing. `response`, `file_permission`, `usage` and `conversation_flow` smokes pass. The exact advertised tool sets in `file_creation_smoke.py`, `evolution_smoke.py` and `delegation_smoke.py` now include the web tools (absent for delegated children).
+- **Prevention / Reference:** Compare against a baseline build (`git worktree add <dir> <commit>` with a separate `CARGO_TARGET_DIR`) before attributing a smoke failure to new changes.
+
 ### [2026-11-06] A quoted PATH alias hid ev from fresh PowerShell discovery
 
 - **Context / Symptom:** Native42151896188/sourcea74d44e passed normal PS7 installation and real denied-write rollback, then the normalized quoted-path update returned success while a fresh PS7 `Get-Command ev` reported `The term 'ev' is not recognized`. PS5.1 additionally rejected the fixture's SDDL round-trip restoration check. Both failed sources remained untagged.

@@ -46,7 +46,7 @@ READ_TOOLS = {'eevee_list_files', 'eevee_read_file', 'eevee_structural_search'}
 EFFECT_TOOLS = {'eevee_write_file', 'eevee_edit_file', 'eevee_delete_file',
                 'eevee_rename_file', 'eevee_run_command', DELEGATE, 'todo',
                 'eevee_artifact_list', 'eevee_artifact_read', 'eevee_artifact_search',
-                'eevee_artifact_locations'}
+                'eevee_artifact_locations', 'eevee_web_search', 'eevee_web_fetch'}
 SOURCES = {
     'alpha.txt': 'ALPHA_ACTUAL_SOURCE_43f1\r\nvalue = "café e\u0301"\r\n',
     'beta.txt': 'BETA_ACTUAL_SOURCE_75c2\nvalue = "한글界"\n',

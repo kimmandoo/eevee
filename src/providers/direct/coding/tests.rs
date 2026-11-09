@@ -3576,3 +3576,96 @@ fn diagnostic_nonzero_command_does_not_invent_a_successful_rerun_obligation() {
         }));
     }
 }
+
+#[test]
+fn web_tools_follow_permission_block_private_addresses_and_continue() {
+    for protocol in [
+        Protocol::Responses,
+        Protocol::ChatCompletions,
+        Protocol::Messages,
+        Protocol::Gemini,
+    ] {
+        let fixture = Fixture::new(&[]);
+        let (url, server) = peer(vec![
+            wire_tools(
+                protocol,
+                &[
+                    (
+                        "web-local",
+                        crate::providers::web::FETCH,
+                        json!({"url":"http://127.0.0.1:9/secret","offset":0}),
+                    ),
+                    (
+                        "web-bad",
+                        crate::providers::web::FETCH,
+                        json!({"url":"file:///etc/passwd","offset":0}),
+                    ),
+                ],
+                "",
+            ),
+            wire_tools(protocol, &[], "Could not read the page"),
+        ]);
+        let (mut run, connection) = fixture.prepare(protocol, &url);
+        let body: Value = serde_json::from_str(&run.payload).unwrap();
+        assert!(body.to_string().contains(crate::providers::web::SEARCH));
+        let ((outcome, message), events) = run_with_answers(&fixture, &mut run, &connection, true);
+        assert_eq!(outcome, Outcome::Completed, "{protocol:?}: {message}");
+        // Only the well-formed request reaches review; the invalid one is
+        // refused before any prompt or network use.
+        let prompts: Vec<_> = events
+            .iter()
+            .filter_map(|event| match event {
+                Event::Prompt { request, .. } => Some(request),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(prompts.len(), 1);
+        assert!(prompts[0].request_id.get("eevee-web").is_some());
+        let PromptKind::Permission { description, .. } = &prompts[0].kind else {
+            panic!("web review is a permission")
+        };
+        assert!(description.contains("http://127.0.0.1:9/secret"));
+        let requests = server.join().unwrap();
+        assert_eq!(requests.len(), 2);
+        let continuation = requests[1].to_string();
+        assert!(
+            continuation.contains("link-local addresses are blocked"),
+            "{continuation}"
+        );
+        assert!(
+            continuation.contains("Only absolute http"),
+            "{continuation}"
+        );
+    }
+}
+
+#[test]
+fn denied_web_request_stops_as_a_permission_obstacle() {
+    let fixture = Fixture::new(&[]);
+    let protocol = Protocol::Responses;
+    let (url, server) = peer(vec![
+        wire_tools(
+            protocol,
+            &[(
+                "web-search",
+                crate::providers::web::SEARCH,
+                json!({"query":"ureq resolver","limit":3,"recency":"any"}),
+            )],
+            "",
+        ),
+        wire_tools(protocol, &[], "Search was denied"),
+    ]);
+    let (mut run, connection) = fixture.prepare(protocol, &url);
+    let ((outcome, message), _) = run_with_answers(&fixture, &mut run, &connection, false);
+    assert_eq!(outcome, Outcome::Incomplete, "{message}");
+    assert!(
+        message.starts_with("eevee_web_search: denied:"),
+        "{message}"
+    );
+    let requests = server.join().unwrap();
+    assert!(
+        requests[1]
+            .to_string()
+            .contains("User denied this web request")
+    );
+}

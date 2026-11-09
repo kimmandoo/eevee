@@ -723,6 +723,8 @@ async fn inference_rounds(
                         })()
                     } else if let crate::providers::writes::FileTool::Mcp { name, arguments } = &call.tool {
                         mcp_call(workspace, run, events, control, incoming, name, arguments, round, index)
+                    } else if let Some(request) = call.tool.web() {
+                        web::web_call(run, events, control, incoming, &call.tool, request, round, index)
                     } else if let Some(operation) = call.tool.artifact_operation() {
                         artifact_lookup(run, events, control, incoming, operation)
                     } else {
@@ -828,8 +830,12 @@ async fn inference_rounds(
             })?;
             // Delegation already enforces a 16 KiB complete result bound; keep
             // its child/parent links and summary intact in the lead's result.
-            let large =
-                tool != "eevee_delegate" && text.len() > crate::workspace::artifacts::PREVIEW_BYTES;
+            // Web pages and results are already paged and bounded by their tools;
+            // the model needs their text, not a preview handle.
+            let large = tool != "eevee_delegate"
+                && tool != crate::providers::web::SEARCH
+                && tool != crate::providers::web::FETCH
+                && text.len() > crate::workspace::artifacts::PREVIEW_BYTES;
             let preview = large.then(|| {
                 let redacted = crate::workspace::privacy::redact(&text);
                 crate::workspace::artifacts::utf8_prefix(
@@ -992,6 +998,8 @@ fn tool_observation(tool: &crate::providers::writes::FileTool, result: Option<&V
         FileTool::List { directory, .. } | FileTool::StructuralSearch { directory, .. } => {
             json!({"directory":path(directory)})
         }
+        FileTool::WebSearch { query, .. } => json!({"label":text(query, 256, false)}),
+        FileTool::WebFetch { url, .. } => json!({"label":text(url, 512, false)}),
         FileTool::Todo { input } => match input["operation"].as_str() {
             Some(operation) => json!({"operation":text(operation, 32, false)}),
             None => json!({}),

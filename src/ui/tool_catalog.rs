@@ -48,6 +48,11 @@ pub(super) fn render(frame: &mut Frame, area: Rect, app: &App, config: &Config, 
                 lines.push(Line::from(
                     "Progress: todo · retained output: eevee_artifact_list/read/search/locations",
                 ));
+                if agent.is_direct() {
+                    lines.push(Line::from(
+                        "Web: eevee_web_search · eevee_web_fetch (follows Automatic/Ask)",
+                    ));
+                }
                 if writing {
                     lines.push(Line::from(
                         "Files: exact create / write / edit / delete / rename",

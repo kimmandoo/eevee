@@ -14,6 +14,7 @@ pub mod direct;
 pub mod effort;
 pub(crate) mod file_preview;
 pub mod mcp;
+pub(crate) mod web;
 pub(crate) mod writes;
 
 use serde::{Deserialize, Serialize};

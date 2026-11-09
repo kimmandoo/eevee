@@ -308,6 +308,8 @@ fn sdk(value: &Value, complete: bool) -> View {
         ("eevee_artifact_locations", _) => "Artifact locations".into(),
         ("eevee_mcp", _) => "Connected tool".into(),
         ("eevee_delegate", _) => "Delegate".into(),
+        ("eevee_web_search", _) => "Web search".into(),
+        ("eevee_web_fetch", _) => "Read web page".into(),
         ("todo", Some(operation)) => format!("Todo {}", single_line(operation)),
         ("todo", None) => "Todo".into(),
         _ => single_line(tool),

@@ -654,7 +654,8 @@ impl State {
             && self.request.as_ref().is_some_and(|request| {
                 matches!(&request.kind, PromptKind::Permission { file: None, .. })
                     && (request.request_id.get("eevee-native-delegate").is_some()
-                        || request.request_id.get("eevee-mcp").is_some())
+                        || request.request_id.get("eevee-mcp").is_some()
+                        || request.request_id.get("eevee-web").is_some())
             });
         if !self.approval_ready()
             || self.approval_mode() != crate::store::ApprovalMode::Automatic
@@ -664,19 +665,30 @@ impl State {
         {
             return false;
         }
-        let (mut answer, subject) = match self.request.as_ref().map(|request| &request.kind) {
-            Some(PromptKind::Permission { options, file, .. }) if options.len() >= 2 => (
-                options[1].answer.clone(),
-                file.as_ref()
-                    .map_or_else(|| "tool permission".into(), |file| file.path.clone()),
-            ),
-            Some(PromptKind::Approval {
-                allow_once: true,
-                command,
-                ..
-            }) => (json!({"decision": "accept"}), command.clone()),
-            _ => return false,
-        };
+        let (mut answer, subject) =
+            match self.request.as_ref().map(|request| &request.kind) {
+                Some(PromptKind::Permission { options, file, .. }) if options.len() >= 2 => (
+                    options[1].answer.clone(),
+                    file.as_ref().map_or_else(
+                        || {
+                            if self.request.as_ref().is_some_and(|request| {
+                                request.request_id.get("eevee-web").is_some()
+                            }) {
+                                "web request".into()
+                            } else {
+                                "tool permission".into()
+                            }
+                        },
+                        |file| file.path.clone(),
+                    ),
+                ),
+                Some(PromptKind::Approval {
+                    allow_once: true,
+                    command,
+                    ..
+                }) => (json!({"decision": "accept"}), command.clone()),
+                _ => return false,
+            };
         if self
             .request
             .as_ref()
