@@ -64,12 +64,14 @@ pub(super) fn shell(area: Rect, linear: bool, focus: Pane) -> Shell {
 /// Border plus at least two tool rows; shorter columns keep tools inline.
 const TOOLS_MIN_HEIGHT: u16 = 4;
 
+/// Slightly inset so the portrait accompanies the partner name rather than
+/// dominating the card.
 pub(super) fn companion_portrait(area: Rect) -> Rect {
     Rect::new(
-        area.x + 1,
+        area.x + 2,
         area.y + 3,
-        area.width.saturating_sub(2),
-        area.height.saturating_sub(6).min(10),
+        area.width.saturating_sub(4),
+        area.height.saturating_sub(6).min(9),
     )
 }
 

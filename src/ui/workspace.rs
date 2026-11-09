@@ -48,7 +48,8 @@ pub(super) fn workspace(frame: &mut Frame, area: Rect, app: &App, paint: &Paint)
     lines.extend([
         Line::styled(paint.hint(Message::CoreRequestContext), paint.muted),
         Line::styled(paint.hint(Message::CoreRequestTasks), paint.muted),
-        Line::styled(paint.hint(Message::CoreRequestSave), paint.muted),
+        Line::styled(paint.hint(Message::CoreRequestAttach), paint.muted),
+        Line::styled(paint.hint(Message::CoreRequestHelp), paint.muted),
     ]);
     if app
         .drafts
@@ -88,11 +89,17 @@ pub(super) fn compact_companion(
         " PARTNER ",
         if focused { paint.accent } else { paint.muted },
     );
-    text(frame, row(content, 0, 1), &app.lead_label(), paint.accent);
+    // Name and species on separate rows so a long nickname never hides the form.
+    text(
+        frame,
+        row(content, 0, 1),
+        &clipped(&App::partner_label(app.lead()), content.width as usize),
+        paint.accent,
+    );
     text(
         frame,
         row(content, 1, 1),
-        FORMS[app.form()].element,
+        &format!("{} · {}", FORMS[app.form()].name, FORMS[app.form()].element),
         paint.muted,
     );
     let image = companion_portrait(area);

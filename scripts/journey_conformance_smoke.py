@@ -234,7 +234,7 @@ class Journey:
             'File / command approvals': [('No pending approvals or questions', 'Permission required', 'one-shot execution'), ('Enter', 'a/y')],
             'Todo progress': [('edit',), ('adopt',), ('Esc',)],
             'Follow-up / continue': [('Request',), ('Continue explaining',), ('Ctrl+S',)],
-            'Cancel': [('cancel', 'interrupt', 'unknown', 'Local work idle'), ('Enter Send', '/response', 'Esc')],
+            'Cancel': [('cancel', 'interrupt', 'unknown', 'Ready'), ('Enter Send', '/response', 'Esc')],
             'Resume / new session': [('Route:',), ('Cancel',), ('Details',), ('Esc',)],
             'Handoff': [('Portable task handoff',), ('export-json',), ('import-handoff',), ('Esc',)],
             'Receipt': [('Outgoing receipts',), ('Route:',), ('Model:',), ('Effort:',), ('Todo:',), ('Usage:',), ('Outcome:',), ('s source',), ('p purge',), ('r retry',), ('Esc',)],

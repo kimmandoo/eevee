@@ -490,7 +490,7 @@ impl State {
         if self.journal_saving {
             return "Saving local journal";
         }
-        "Local work idle"
+        "Ready"
     }
     pub fn visible(&self) -> bool {
         self.shown

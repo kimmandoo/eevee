@@ -551,7 +551,7 @@ class Journey:
             response = any(re.search(r'\bResponse(?: \d+/\d+)? · ' + expected_state + r'\b', line)
                            for line in view.splitlines())
             unknown = re.search(r'\b(?:Provider )?[Oo]utcome unknown\b', view) is not None
-            activity_settled = unknown if mode != 'complete' else ('Local work idle' in view or unknown)
+            activity_settled = unknown if mode != 'complete' else (re.search(r'· Ready\b', view) is not None or unknown)
             return (not state['claims'] and 'Storage: saved' in view
                     and activity_settled and response)
 

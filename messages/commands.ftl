@@ -1,8 +1,8 @@
-cmd-provider = { "Provider families and connections; nothing sent" }
+cmd-provider = { "Connect or switch AI provider" }
 
-cmd-new = { "Start a fresh session; keep saved work, send nothing" }
+cmd-new = { "Start a new session" }
 
-cmd-resume = { "Choose a saved session in this project; send nothing" }
+cmd-resume = { "Open a saved session" }
 
 cmd-session-new = { "Advanced: review exact fresh-session payload" }
 
@@ -18,27 +18,27 @@ cmd-reset = { "Fresh local task; keep old task and drafts" }
 
 cmd-init = { "Draft project guide request; review before sending" }
 
-cmd-model = { "Choose model / optional exact ID" }
+cmd-model = { "Choose model" }
 
-cmd-effort = { "Reasoning level / optional value" }
+cmd-effort = { "Reasoning level" }
 
 cmd-role = { "Choose Plan / Implement / Review role" }
 
-cmd-forms = { "Choose evolution" }
+cmd-forms = { "Choose evolution (specialist form)" }
 
 cmd-back-form = { "Return to the previous form (Backspace)" }
 
-cmd-suggestion-dismiss = { "Dismiss this task's current suggestion; no work" }
+cmd-suggestion-dismiss = { "Dismiss this task's current suggestion" }
 
-cmd-carry-over = { "Reopen the last form carry-over; no work" }
+cmd-carry-over = { "Reopen the last form carry-over" }
 
-cmd-files = { "Attach files / inspect source context" }
+cmd-files = { "Attach files" }
 
 cmd-tasks = { "Saved tasks" }
 
 cmd-party = { "Party roster" }
 
-cmd-move = { "This partner's four learned moves; nothing executed" }
+cmd-move = { "This partner's four learned moves" }
 
 cmd-teach-move = { "Review teaching the current approved action" }
 
@@ -116,7 +116,7 @@ cmd-refresh = { "Refresh repository inspection" }
 
 cmd-storage-retry = { "Retry failed storage" }
 
-cmd-help = { "Navigation help" }
+cmd-help = { "Keys and how to use Eevee" }
 
 cmd-verbose = { "Toggle brief / full explanations" }
 
@@ -124,7 +124,7 @@ cmd-quit = { "Leave Eevee" }
 
 cmd-command-edit = { "Edit explicit local command" }
 
-cmd-execute = { "Review exact prepared command; nothing executed yet" }
+cmd-execute = { "Review exact prepared command" }
 
 cmd-runs = { "Inspect retained local run history" }
 
@@ -394,4 +394,4 @@ cmd-search-files = attachment files context
 cmd-search-cancellation = stop cancel
 cmd-search-evidence = evidence journal history
 
-cmd-evolution-preview = Explain next evolution and operation; nothing sent
+cmd-evolution-preview = Explain the next evolution

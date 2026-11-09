@@ -606,11 +606,11 @@ impl App {
                     .any(|(name, _, _)| *name == choice.command)
         });
         for (name, label) in [
-            ("provider", "Connect or switch provider; nothing sent"),
+            ("provider", "Connect or switch AI provider"),
             ("connect", "Provider connections; nothing sent"),
-            ("model", "Choose model / optional exact ID"),
-            ("effort", "Reasoning level / optional value"),
-            ("files", "Attach files / inspect source context"),
+            ("model", "Choose model"),
+            ("effort", "Reasoning level"),
+            ("files", "Attach files"),
             ("tasks", "Saved tasks"),
             ("todo", "Todo steps that guide the next evolution"),
             ("bag", "Bag: Potions, Berries, TMs and held items"),
@@ -656,21 +656,15 @@ impl App {
                 "evolution-preview",
                 "Explain next evolution and operation; nothing sent",
             ),
-            ("forms", "Choose evolution"),
-            ("help", "Navigation help"),
+            ("forms", "Choose evolution (specialist form)"),
+            ("help", "Keys and how to use Eevee"),
             (
                 "response",
                 "Read continuous response / inspect pending request",
             ),
             ("approvals", "Focus oldest pending approval or question"),
-            (
-                "new",
-                "Start a fresh session; keep saved work, send nothing",
-            ),
-            (
-                "resume",
-                "Choose a saved session in this project; send nothing",
-            ),
+            ("new", "Start a new session"),
+            ("resume", "Open a saved session"),
             (
                 "chat-new",
                 "Reset local native conversation; keep draft and journal",

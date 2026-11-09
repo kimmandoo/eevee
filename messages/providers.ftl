@@ -85,19 +85,19 @@ providers-status-missing = CLI installation needed
 providers-status-signed-in = Sign-in reported · unchecked
 providers-status-signed-out = Sign in needed
 providers-status-unknown = Status unknown
-providers-next-setup = Choose a connection method; no task is sent.
-providers-next-model = Choose model; eligibility is not yet checked.
+providers-next-setup = Press Enter to connect.
+providers-next-model = Press Enter to choose a model.
 providers-next-install = Install the CLI, then Enter to refresh.
 providers-login-retry = Sign-in incomplete. Reopen the chosen method; old codes/URLs cannot be reused.
 providers-login-stale = Login continuation expired; settings unchanged.
-providers-login-saved = Login saved; choose model metadata. No task sent.
-providers-setup-cancelled = Setup cancelled; settings unchanged.
+providers-login-saved = Signed in. Choose a model.
+providers-setup-cancelled = Setup cancelled.
 providers-family-methods = Choose OpenAI connection method
 providers-account-expiry = Reconnect when login expires; no auto-renewal.
 providers-login-unknown = Login status unknown; check status or choose model.
-providers-preparing-review = Preparing review; no login or task sent.
-providers-review-cancelled = Review cancelled; no login or task sent.
-providers-refreshing = Refreshing local configuration; no network request.
+providers-preparing-review = Preparing review…
+providers-review-cancelled = Review cancelled.
+providers-refreshing = Refreshing…
 providers-private-editing = Blank key keeps source. Ctrl+U clears; Ctrl+S saves locally.
 
 providers-agents-tab-fields-enter-ctrl-s-local-pgup = { "Tab Fields | Enter | Ctrl+S Local | PgUp/Dn | Esc" }
@@ -488,7 +488,7 @@ providers-composer-set-reasoning = { "Set reasoning" }
 
 providers-composer-choose-partner = { "Choose partner" }
 
-providers-composer-search-actions-by-name-or-description-esc = { "Search actions by name or description. Esc keeps your draft." }
+providers-composer-search-actions-by-name-or-description-esc = { "Type to filter commands." }
 
 providers-composer-no-matching-command-try-a-shorter-search = { "No matching command. Try a shorter search." }
 

@@ -179,8 +179,8 @@ fn home_keeps_partner_visible_and_primary_surfaces_usable() {
             assert!(!partner.intersects(layout.composer));
             assert!(layout.workspace.width >= 60);
             let portrait = companion_portrait(partner);
-            assert_eq!(portrait.width, 22);
-            assert_eq!(portrait.height, partner.height.saturating_sub(6).min(10));
+            assert_eq!(portrait.width, 20);
+            assert_eq!(portrait.height, partner.height.saturating_sub(6).min(9));
         } else {
             assert!(layout.rail.is_none());
             assert_eq!(layout.workspace.width, layout.composer.width);
@@ -209,8 +209,8 @@ fn home_portrait_targets_follow_layout_and_hide_under_modals() {
             companion_portrait(shell(roomy, false, Pane::Workspace).rail.unwrap())
         )]
     );
-    assert_eq!(targets[0].1.width, 22);
-    assert_eq!(targets[0].1.height, 10);
+    assert_eq!(targets[0].1.width, 20);
+    assert_eq!(targets[0].1.height, 9);
     app.command("model");
     portrait_targets(&app, roomy, &mut targets);
     assert!(
@@ -1486,7 +1486,10 @@ fn header_keeps_owner_storage_and_failures_readable_at_supported_sizes() {
             let buffer = terminal.backend().buffer();
             let line = |y: u16| -> String { (0..width).map(|x| buffer[(x, y)].symbol()).collect() };
             let (names, status) = (line(0), line(1));
-            assert!(names.contains(form.name), "{width}: {names}");
+            // With the partner card on screen the card names the form; the
+            // header names it only when the card is absent.
+            let card = if width >= 90 { line(4) } else { names.clone() };
+            assert!(card.contains(form.name), "{width}: {card}");
             assert!(status.contains("Storage: saved"), "{status}");
         }
     }
@@ -1568,11 +1571,21 @@ fn nicknames_keep_species_visible_in_header_and_composer_at_both_sizes() {
                     .composer
                     .y,
                 );
-                for visible in [&header, &composer] {
-                    assert!(
-                        visible.contains(&format!("({})", form.name)),
-                        "{width}: {visible}"
-                    );
+                // The partner card (row 3) stands in for the header identity
+                // when it is on screen.
+                // The partner card names the lead on row 3 and the species on
+                // row 4 when it is on screen.
+                let (name, species) = if width >= 90 {
+                    (line(3), line(4))
+                } else {
+                    (header.clone(), header.clone())
+                };
+                assert!(species.contains(form.name), "{width}: {species}");
+                assert!(
+                    composer.contains(&format!("({})", form.name)),
+                    "{width}: {composer}"
+                );
+                for visible in [&name, &composer] {
                     assert!(
                         visible.contains(nickname_value.chars().next().unwrap()),
                         "{width}: {visible}"

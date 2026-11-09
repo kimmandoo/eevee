@@ -146,15 +146,15 @@ impl App {
         let fits = |text: &str| Span::raw(text).width() <= usize::from(width);
         if !self.meter.launch.is_empty() {
             let launch = self.meter_summary().launch;
-            let tokens = if launch.unreported == launch.requests {
-                "tokens unreported".to_string()
-            } else {
-                format!(
-                    "{}{} tok",
-                    if launch.lower_bound() { "≥" } else { "" },
-                    pricing::tokens(launch.tokens())
-                )
-            };
+            // Nothing reported yet: the bare command is enough; /usage explains.
+            if launch.unreported == launch.requests {
+                return fits("/usage").then(|| "/usage".into());
+            }
+            let tokens = format!(
+                "{}{} tok",
+                if launch.lower_bound() { "≥" } else { "" },
+                pricing::tokens(launch.tokens())
+            );
             let cost = pricing::cost(&launch);
             let usd = if launch.priced > 0 { " USD" } else { "" };
             let compact = format!("Launch {tokens} · {cost}{usd} · /usage");

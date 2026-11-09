@@ -126,19 +126,38 @@ pub(super) fn header(frame: &mut Frame, area: Rect, app: &App, config: &Config, 
             (_, effort) => format!("/{}", clipped(effort.unwrap_or("default"), 8)),
         };
         let effort = Span::styled(effort_text, paint.muted);
-        let model_name = app.planning.selection.model.as_deref().unwrap_or("default");
+        // The partner card names the lead beside the transcript; the header
+        // repeats the identity only when that card is not on screen.
+        let card_visible = super::shell(frame.area(), app.linear, app.effective_focus())
+            .rail
+            .is_some();
+        let default_model = if card_visible {
+            "default model"
+        } else {
+            "default"
+        };
+        let model_name = app
+            .planning
+            .selection
+            .model
+            .as_deref()
+            .unwrap_or(default_model);
         let model_hint_width = Span::raw(model_name).width().min(20);
         let identity_budget = usable_width
             .saturating_sub(Span::raw(route).width() + effort.width() + model_hint_width + 6);
-        let suffix = format!(" ({}) [{mode}]", FORMS[app.form()].name);
-        let name = App::partner_label(app.lead());
-        let identity = format!(
-            "{}{suffix}",
-            clipped(
-                &name,
-                identity_budget.saturating_sub(Span::raw(suffix.as_str()).width())
+        let identity = if card_visible {
+            format!(" Evolution: {mode}")
+        } else {
+            let suffix = format!(" ({}) [{mode}]", FORMS[app.form()].name);
+            let name = App::partner_label(app.lead());
+            format!(
+                "{}{suffix}",
+                clipped(
+                    &name,
+                    identity_budget.saturating_sub(Span::raw(suffix.as_str()).width())
+                )
             )
-        );
+        };
         let spare = usable_width.saturating_sub(
             Span::raw(identity.as_str()).width()
                 + Span::raw(route).width()
@@ -155,7 +174,11 @@ pub(super) fn header(frame: &mut Frame, area: Rect, app: &App, config: &Config, 
         let model_width = usable_width.saturating_sub(context.width() + effort.width());
         let model = Span::styled(
             clipped(
-                app.planning.selection.model.as_deref().unwrap_or("default"),
+                app.planning
+                    .selection
+                    .model
+                    .as_deref()
+                    .unwrap_or(default_model),
                 model_width,
             ),
             paint.accent,

@@ -1513,11 +1513,17 @@ fn response(frame: &mut Frame, area: Rect, state: &mut State, paint: &Paint) {
         } else {
             format!("{following} {start}-{end}/{total} · Alt+End Latest · /verbose")
         };
+        // Position is secondary while following; only a paused view with
+        // unread output needs attention.
         text(
             frame,
             row(area, footer_y, 1),
             &clipped(&navigation, area.width as usize),
-            paint.accent,
+            if !state.following && state.new_output {
+                paint.accent
+            } else {
+                paint.muted
+            },
         );
         footer_y += 1;
     }

@@ -2,9 +2,10 @@ core-policy-readonly = Read-only /role
 core-policy-review = Review /role
 core-request-invitation = What would you like to do?
 core-task-prefix = { "Task: " }
-core-request-save = Ctrl+S keeps a draft without sending.
-core-request-context = @ Attach files | /connect Choose provider
-core-request-tasks = /resume Saved sessions | /new Fresh session
+core-request-context = /connect   Connect an AI provider
+core-request-tasks = /resume    Open a saved session
+core-request-attach = @          Attach files
+core-request-help = /help      Keys and how it works
 
 core-terminal-too-small =
     { "Terminal too small" }
@@ -23,20 +24,12 @@ core-return-intake-selected = { "> Return to Eevee / intake" }
 
 core-return-intake = { "  Return to Eevee / intake" }
 
-core-role-preview-control = { "Arrows Preview | /preview Role details" }
 
-core-moves-unsaved =
-    { "Moves: save a task to teach an action." }
-    { "/preview Role details" }
 
 core-moves-loading = { "Moves: loading local records…" }
 
 core-moves-unavailable = { "Moves unavailable; /move shows the storage error." }
 
-core-moves-empty =
-    { "Moves: none in this partner/form." }
-    { "/teach-move teaches approved local work." }
-    { "/preview Role details" }
 
 core-moves-heading =
     { "Moves / this partner:" }
@@ -73,65 +66,42 @@ core-release-partner-control = { "/release-partner reviews selected | /party-boa
 core-help-title = { " Help / PgUp/Dn Scroll / Esc Back " }
 
 core-help-content =
+    { "START HERE" }
+    { " 1. /connect           Connect an AI provider (once)" }
+    { " 2. Type a request     Enter sends it; the reply appears above" }
+    { " 3. Keep going         Type a follow-up; Esc always goes back" }
+    { "" }
     { "KEYS" }
-    { " / Ctrl+K   Commands (type to search)" }
-    { " Enter      Send request / select / confirm" }
-    { " Esc        Back (drafts are kept)" }
-    { " Tab        Switch pane" }
-    { " Wheel      Scroll transcript under the pointer" }
-    { " PgUp/PgDn  Scroll transcript or details" }
-    { " Alt+Home/End  Transcript start / follow latest" }
-    { " Alt+Up/Down   Inspect previous / next item" }
-    { " Shift+drag    Terminal selection (if supported)" }
-    { " Shift+Enter, Ctrl+N  Newline" }
-    { " Ctrl+S     Keep draft locally" }
-    { " @          Attach files" }
-    { " Backspace  Previous form (outside text)" }
-    { " Ctrl+C     Stop work / exit when idle" }
-    { " Ctrl+D     Delete forward; empty Request exits" }
+    { " / or Ctrl+K   Commands (type to search)" }
+    { " Enter         Send / select / confirm" }
+    { " Esc           Back (your draft is kept)" }
+    { " Shift+Enter   New line (also Ctrl+N)" }
+    { " Ctrl+S        Keep draft without sending" }
+    { " @             Attach files" }
+    { " PgUp/PgDn     Scroll the reply (or mouse wheel)" }
+    { " Alt+End       Jump to the latest output" }
+    { " Tab           Switch pane" }
+    { " Ctrl+C        Stop work / exit when idle" }
     { "" }
-    { "COMMANDS" }
-    { " /connect /provider  Provider and connection method" }
-    { " /model /effort      Model and reasoning effort" }
-    { " /new /resume        Fresh session / choose saved work; never sends" }
-    { " /session-new /session-resume" }
-    { "                     Advanced: review exact session payload" }
-    { " /task-new /tasks    Local tasks" }
-    { " /reset              Fresh task; old task/draft in /tasks" }
-    { " /init               Draft project guide request; not sent" }
-    { " /goal /criteria     Optional task facts" }
-    { " /party /lead NAME   Partners and the lead" }
-    { " /forms /role        Evolution and role" }
-    { " Eevee: automatic at Send; choosing a specialist: manual." }
-    { " /todo               Todo steps; in Auto they guide the next form" }
-    { " /evolution-preview  Why the next Send picks its form and tools" }
-    { " /files /search      Source context and filename search" }
-    { " /run /execute       Command evidence / prepared command review" }
-    { " /output-search      Search retained command output" }
-    { " /complete           Mark acceptance checklist complete" }
-    { " /verbose            Brief / full explanations" }
+    { "EVERYDAY COMMANDS" }
+    { " /model /effort       Model and reasoning level" }
+    { " /new /resume         New session / open a saved one" }
+    { " /files               Attach files as context" }
+    { " /forms               Choose a specialist (Auto picks for you)" }
+    { " /auto-approve-off    Ask before file changes and commands" }
+    { " /usage               Tokens and estimated cost" }
+    { " /verbose             Show full technical details" }
     { "" }
-    { "GAME TERMS (what each is for | how to open it)" }
-    { " Form        Specialist role for a request | /forms" }
-    { " Move        Saved instruction you reuse (4 per form) | /move" }
-    { " TM          Move saved as a portable file | /move-export /move-import" }
-    { " Held item   One file or memory kept for a form | /held" }
-    { " Party       Partners that can work in parallel | /party" }
-    { " Formation   Saved party layout with drafts | /formation" }
-    { " Recipe      Reviewed multi-step plan | /load-recipe" }
-    { " Ribbon      Record of a real milestone | /ribbons" }
-    { " Todo        Steps that guide the next form | /todo" }
-    { " Bag         Potions, Berries, TMs and held items | /bag" }
-    { " Potion      Opens the review that recovers a failure | /bag" }
-    { " Berry       Attachment sent once with the next Send | /berry" }
+    { "GAME TERMS" }
+    { " Form        Specialist for a request | /forms" }
+    { " Move        Saved instruction you reuse | /move" }
+    { " Party       Partners that work in parallel | /party" }
+    { " Bag         Potions, Berries, TMs, held items | /bag" }
     { "" }
     { "SAFETY" }
-    { " Enter sends your Request to the selected provider." }
-    { " Commands and file changes follow saved Automatic/Ask mode; privilege grants need review." }
-    { " Project-supplied runtimes and unmanaged tool routes still need connection review." }
-    { " Full technical details remain inspectable." }
-    { " Pasted text never sends a request or runs commands." }
-    { " Provider output and handoffs are unverified context." }
+    { " AUTO-APPROVE runs file changes and commands without asking;" }
+    { " ASK reviews each one. The mode is shown at the top left." }
+    { " Pasted text never sends or runs anything." }
 
 core-saving-exit = { "Saving task and drafts before exit / Esc Cancel exit" }
 
@@ -157,9 +127,9 @@ core-pending-review-control = { "Alt+A Review pending request | draft kept" }
 
 core-response-queued = { "Response queued for its exact owner; waiting for acknowledgment." }
 
-core-response-request-control = { "Enter Send | Wheel/PgUp/Dn Scroll | / Commands" }
+core-response-request-control = { "Enter Send | Ctrl+S Draft | PgUp/Dn Scroll | / Commands" }
 
-core-request-control = { "Enter Send | Ctrl+N Newline | @ Files | / Commands" }
+core-request-control = { "Enter Send | Ctrl+N Newline | Ctrl+S Draft | / Commands" }
 
 core-task-fact-control = { "Enter Save fact | Ctrl+N Newline | Esc Draft" }
 
@@ -271,5 +241,5 @@ core-evolution-preview-policy = Explicit policy: { $policy }
 core-evolution-preview-none = No explicit restriction
 core-evolution-preview-guard = Appearance grants nothing. File/command effects still need their own review.
 core-evolution-preview-controls = Esc returns · Up/Down scroll · Send recomputes from the current draft.
-core-evolution-preview-stale = Draft, owner or policy changed. Reopen /evolution-preview; nothing sent.
+core-evolution-preview-stale = Draft changed. Reopen /evolution-preview.
 core-evolution-unchanged = No plan step yet: keep current appearance and operation

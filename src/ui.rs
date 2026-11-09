@@ -700,9 +700,9 @@ fn forms(
     let current = FORMS[app.form()].name;
     // The mode decides who picks the form at Send; say it and how to change it.
     let mode = if app.lead().auto_form {
-        "Auto (Eevee picks at Send)".to_owned()
+        "Auto".to_owned()
     } else {
-        format!("Pinned: {current} · a Auto")
+        "Pinned".to_owned()
     };
     let heading = match (app.visible_suggestion(), grid) {
         (Some(suggestion), false) => format!(
@@ -871,8 +871,17 @@ fn form_details(
     } else {
         String::new()
     };
+    // Keys live in the footer; artwork status is shown only when it needs action.
+    let artwork_status = artwork.status(index);
+    let artwork_status = if !VERBOSE.get()
+        && (artwork_status.starts_with("Artwork off") || artwork_status.contains("verified"))
+    {
+        ""
+    } else {
+        artwork_status
+    };
     let value = format!(
-        "{} / {} · {}\n\n{}\nGood for: {}\n\n{}\n{}\n{technical}\n{}\n{}",
+        "{} / {} · {}\n\n{}\nGood for: {}\n\n{}{}{technical}\n{}",
         form.name,
         form.element,
         form.role,
@@ -884,8 +893,7 @@ fn form_details(
         } else {
             records::marker(app.record_form_marker(index), &paint)
         },
-        artwork.status(index),
-        paint.hint(Message::CoreRolePreviewControl)
+        artwork_status,
     );
     frame.render_widget(
         Paragraph::new(value)
@@ -906,13 +914,14 @@ fn picker_marker(app: &App, form: usize, paint: &Paint) -> String {
 }
 
 fn picker_moves(app: &App, form: usize, width: u16, paint: &Paint) -> String {
+    // No saved moves is the normal state; say nothing rather than explain.
     if app.task_id <= 0 {
-        return paint.hint(Message::CoreMovesUnsaved).into();
+        return String::new();
     }
     match app.picker_move_names(form) {
         None => paint.hint(Message::CoreMovesLoading).into(),
         Some(Err(_)) => paint.hint(Message::CoreMovesUnavailable).into(),
-        Some(Ok(names)) if names.is_empty() => paint.hint(Message::CoreMovesEmpty).into(),
+        Some(Ok(names)) if names.is_empty() => String::new(),
         Some(Ok(names)) => {
             let mut value = paint.hint(Message::CoreMovesHeading).to_owned();
             for name in names {
@@ -1723,14 +1732,16 @@ fn composer_input(frame: &mut Frame, area: Rect, app: &App, config: &Config, pai
     frame.render_widget(block, area);
     // The footer owns key hints; the panel keeps only the input-limit warning.
     let hint_rows = u16::from(editing && app.input_truncated);
-    let profile_rows = u16::from(app.composer_is_request() && content.height > hint_rows + 1);
+    // The default enabled profile is routine; show the row only when it is
+    // off, skipped or failing, or when /verbose asks for every detail.
+    let profile = app.profile_chip();
+    let profile_rows = u16::from(
+        app.composer_is_request()
+            && (VERBOSE.get() || !profile.starts_with("Profile: on"))
+            && content.height > hint_rows + 1,
+    );
     if profile_rows != 0 {
-        text(
-            frame,
-            row(content, 0, profile_rows),
-            &app.profile_chip(),
-            paint.muted,
-        );
+        text(frame, row(content, 0, profile_rows), &profile, paint.muted);
     }
     let content = row(
         content,
