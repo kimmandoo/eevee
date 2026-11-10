@@ -431,7 +431,7 @@ dependencies = [
 
 [[package]]
 name = "eevee"
-version = "0.1.51"
+version = "0.1.52"
 dependencies = [
  "base64-simd",
  "crossterm",

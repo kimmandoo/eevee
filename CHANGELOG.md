@@ -2,6 +2,12 @@
 
 ## 2026-11-10
 
+### 0.1.52
+
+- chore(release): advanced the package to 0.1.52 with SQL20, complete SDK bridge13, TM2 and formation2; required replacing SDK main, policy and dependencies together.
+- feat(release): bundled native web search/page reading, Codex dynamic web tools, reviewed Claude SDK web tools and ACP web reviews under the existing Automatic/Ask policy and private-address protections.
+- feat(release): bundled the simpler Help/home/header/composer, smaller portrait, settled one-key approvals with truthful hints and mouse-wheel scrolling across overlays, reviews, pickers and the home response.
+
 - fix(ui): made the mouse wheel scroll every overlay, review and picker (as three Up/Down presses per notch) instead of only the response viewport, and let it scroll the home response from anywhere on screen.
 - fix(permissions): let auto-presented permission reviews scroll before Enter, so a long review can be read to the end and its one-key allow becomes available.
 - fix(ui): renamed the footer scroll position from "Detail line N" to "Line N".

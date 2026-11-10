@@ -1,3 +1,11 @@
+## 2026-11-10 — 0.1.52 release (active)
+
+- **Request / baseline:** User requested a release update. Started clean main249c7b9; latest public release wasv0.1.51/release436066030. Included the six completed source deliveries since that tag: simplified UI, web tools, one-key approvals, truthful approval hints and mouse scrolling.
+- **Changed:** Cargo.toml/Cargo.lock advanced to0.1.52; CHANGELOG gained dated version-specific notes; IMPLEMENTATION_PLAN recorded exact-source native qualification, immutable promotion and public/runtime/update verification. SQL20/TM2/formation2 stayed unchanged; complete SDK bridge13 requires replacing main/policy/dependencies together.
+- **Verification:** Previous source checks remain recorded under their own completed entries below, not relabelled as this release's checks. The new candidate still requires current-source native qualification.
+- **Exact next action:** Commit/push the candidate, require successful Check/all five native rows/every required step from its newest same-source main push, then annotate/pushv0.1.52 and verify the public release and genuine previous-version update before completing this entry.
+- **Limits / blockers:** Localgh is absent; SSH Git publication and public read-only API evidence remain available. Do not change old tags/assets, user credentials, global installations or unrelated roadmap tasks.
+
 ## 2026-11-10 — Mouse wheel everywhere and scrollable auto reviews (completed in source)
 
 - **Request:** Make mouse scrolling work properly and improve similar UX.

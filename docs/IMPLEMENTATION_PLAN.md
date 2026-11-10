@@ -1,8 +1,15 @@
 # Eevee Implementation Plan
 
-Updated2026-11-06. Completed readable agent output, durable Windows command discovery and scoped usage/cost presentation, then the explicitly requested immutable0.1.51 release. Published0.1.50 and earlier assets stayed unchanged.
+Updated2026-11-10. Active delivery: qualify and publish immutable0.1.52 with the completed UI, web-tool, approval and mouse-scroll changes. Published0.1.51 and earlier tags/assets must stay unchanged.
 
 Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPATIBILITY.md). Live-provider conformance remains distinct from implemented transports and deterministic runtime proof.
+
+## Current delivery — 0.1.52 release (2026-11-10)
+
+1. Advance Cargo/lock and dated version notes, record the source candidate and commit/push it to main. Use the existing Check and five-target native workflow for exact-source tests, lint, SDK policy, builds, offline installation and runtime qualification.
+2. Require the newest same-source main push run's Check, all five native rows and every required step in one successful attempt; retain immutable package identities. Do not tag a failed or partially qualified source.
+3. Push a new annotatedv0.1.52 tag at that exact source and let the existing release workflow promote only its qualified packages without rebuilding or changing previous releases.
+4. Verify public tag/latest identity, all eight asset digests, seven checksum rows, five archive layouts and source-identical installers; exercise the downloaded Linux response/permission surfaces and genuine0.1.51→0.1.52 update/data/draft retention. Record exact evidence and limits, then commit/push the completed handoff without retagging.
 
 ## Completed delivery — Readable output, Windows command discovery and usage (2026-11-06)
 
