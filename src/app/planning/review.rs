@@ -826,6 +826,33 @@ impl State {
                 }
                 return true;
             }
+            // Reading needs no engagement: scrolling reaches the end of a long
+            // review (which unlocks one-key allow) and never answers.
+            if large_enough
+                && key.kind != KeyEventKind::Release
+                && key.modifiers.is_empty()
+                && matches!(
+                    key.code,
+                    KeyCode::Up
+                        | KeyCode::Down
+                        | KeyCode::PageUp
+                        | KeyCode::PageDown
+                        | KeyCode::Home
+                        | KeyCode::End
+                )
+            {
+                let page = 5;
+                self.scroll = match key.code {
+                    KeyCode::Up => self.scroll.saturating_sub(1),
+                    KeyCode::Down => self.scroll.saturating_add(1),
+                    KeyCode::PageUp => self.scroll.saturating_sub(page),
+                    KeyCode::PageDown => self.scroll.saturating_add(page),
+                    KeyCode::Home => 0,
+                    _ => self.scroll_max,
+                }
+                .min(self.scroll_max);
+                return true;
+            }
             // Request typing cannot become an answer on asynchronous arrival:
             // any other key keeps this review on the explicit Enter path.
             // App owns Esc deferral and its exact request identity.
@@ -837,6 +864,8 @@ impl State {
                     | KeyCode::Down
                     | KeyCode::PageUp
                     | KeyCode::PageDown
+                    | KeyCode::Home
+                    | KeyCode::End
                     | KeyCode::Char('d')
             ) {
                 self.direct_answer.disturb();

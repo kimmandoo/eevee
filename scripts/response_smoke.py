@@ -276,8 +276,13 @@ def run(binary, output, root, size, ascii_mode, ):
             session.capture("wheel-paused-draft-caret-kept")
             cases.append("wheel scroll paused the transcript without moving draft caret or focus")
 
+            # On home the response is the only scrollable surface, so the
+            # wheel scrolls it wherever the pointer is.
             wheel(session, "up", (0, 0), 3)
+            assert response_view(session)["body"] != paused["body"]
+            wheel(session, "down", (0, 0), 3)
             assert response_view(session)["body"] == paused["body"]
+            assert (session.screen.cursor.x, session.screen.cursor.y) == caret
             session.command("help")
             wait_for(session, surface["help"])
             wheel(session, "up", paused["point"], 3)
@@ -285,7 +290,7 @@ def run(binary, output, root, size, ascii_mode, ):
             session.send(ESC)
             assert response_view(session)["body"] == paused["body"]
             assert (session.screen.cursor.x, session.screen.cursor.y) == caret
-            cases.append("outside and overlaid wheel gestures neither scrolled hidden output nor dispatched work")
+            cases.append("home wheel scrolled the transcript from anywhere; overlaid wheel gestures neither scrolled hidden output nor dispatched work")
 
             session.send(PAGE_UP)
             page = response_view(session)

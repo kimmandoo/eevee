@@ -203,7 +203,7 @@ core-delete-control =
 
 core-detail-position =
     { $value }
-    Detail line { $line }
+    Line { $line }
 
 core-composer-title = { $title }{ $owner }{ $attached }{ $status }{ " " }{ $pairing }
 core-composer-attached = · { $count } attached{ " " }

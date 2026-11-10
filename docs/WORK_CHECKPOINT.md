@@ -1,3 +1,11 @@
+## 2026-11-10 — Mouse wheel everywhere and scrollable auto reviews (completed in source)
+
+- **Request:** Make mouse scrolling work properly and improve similar UX.
+- **Found:** Mouse capture is always on (so the terminal's own scrolling is off), yet the wheel only moved the response when the pointer was inside its viewport; Help, Usage, Bag, Connect, the command picker, permission/command reviews and every other overlay ignored it. Auto-presented permission reviews could not scroll at all before Enter, so a long summary never counted as shown and one-key allow never unlocked. The footer showed jargon "Detail line N".
+- **Changed:** `src/app/keys.rs` (wheel routing), `src/app/planning/review.rs` (auto-review scrolling), `messages/core.ftl`, tests in `src/app/tests.rs` and `src/app/planning/tests.rs`, `scripts/response_smoke.py` (new home-wheel contract), DESIGN_RULES, CHANGELOG.
+- **Verification:** `cargo fmt`; `cargo clippy --all-targets -- -D warnings` clean; `cargo test` 2077 passed/3 ignored; `response_smoke.py`, `file_permission_smoke.py`, `sdk_command_smoke.py --compiler "$(rustup which rustc)"` passed; a PTY probe confirmed wheel scrolling in Help, Usage, Bag, Connect and the command picker (Forms/Tasks/Tools/Party had nothing to scroll in an empty profile).
+- **Next / blockers:** none; no release cut. Not checked on a physical trackpad or Windows console.
+
 ## 2026-11-10 — Honest one-key approval hints (completed in source)
 
 - **Request:** Fix odd UX or logic.

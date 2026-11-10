@@ -2,6 +2,9 @@
 
 ## 2026-11-10
 
+- fix(ui): made the mouse wheel scroll every overlay, review and picker (as three Up/Down presses per notch) instead of only the response viewport, and let it scroll the home response from anywhere on screen.
+- fix(permissions): let auto-presented permission reviews scroll before Enter, so a long review can be read to the end and its one-key allow becomes available.
+- fix(ui): renamed the footer scroll position from "Detail line N" to "Line N".
 - fix(permissions): showed the `a`/`n` hint on auto-presented reviews only while those keys actually answer, falling back to the Enter review hint during the 800 ms settle, after other typing or before the summary was shown, and repainted the hint the moment the keys unlock.
 - fix(permissions): kept scrolling and `d` from disabling one-key answers on permission reviews, matching command reviews, so reading a long review no longer forces the Enter path.
 

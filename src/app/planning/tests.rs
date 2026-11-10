@@ -4358,3 +4358,26 @@ fn direct_keys_are_advertised_only_while_they_answer_and_survive_scrolling() {
     press(&mut state, KeyCode::Char('a'), true);
     assert!(state.pending.is_none() && state.auto_permission_review);
 }
+
+#[test]
+fn auto_presented_review_scrolls_without_engaging_or_answering() {
+    let mut state = file_review_state();
+    state.auto_permission_review = true;
+    state.scroll_max = 8;
+    state.direct_answer.present();
+    press(&mut state, KeyCode::Down, true);
+    press(&mut state, KeyCode::PageDown, true);
+    assert_eq!(state.scroll, 6);
+    press(&mut state, KeyCode::End, true);
+    assert_eq!(state.scroll, 8);
+    press(&mut state, KeyCode::Home, true);
+    assert_eq!(state.scroll, 0);
+    assert!(state.auto_permission_review && state.pending.is_none());
+    // Reading is not typing: the one-key path stays available once settled.
+    state
+        .direct_answer
+        .present_at(std::time::Instant::now() - crate::app::arrival::SETTLE);
+    press(&mut state, KeyCode::End, true);
+    state.reviewed = true;
+    assert!(state.direct_keys_ready());
+}

@@ -4121,13 +4121,19 @@ fn response_reading_arrows_scroll_lines_and_mouse_cannot_reach_occluded_output()
         ["row35", "row36", "row37", "row38"]
     );
     assert_eq!(app.planning.items[app.planning.selected].item_id, "newer");
-    let held = app.planning.scroll;
-    assert!(!response_wheel(
+    // On home the response is the only scrollable surface, so the wheel
+    // scrolls it wherever the pointer is.
+    assert!(response_wheel(
         &mut app,
         crossterm::event::MouseEventKind::ScrollUp,
         0,
         0
     ));
+    assert_eq!(
+        app.planning.response_rows(40, 4, false).collect::<Vec<_>>(),
+        ["row32", "row33", "row34", "row35"]
+    );
+    let held = app.planning.scroll;
     app.command("help");
     assert!(!response_wheel(
         &mut app,
@@ -4137,6 +4143,39 @@ fn response_reading_arrows_scroll_lines_and_mouse_cannot_reach_occluded_output()
     ));
     assert_eq!(app.planning.scroll, held);
     assert_eq!(app.overlay, Some(Overlay::Help));
+    assert!(app.pending_request.is_none() && app.planning.pending.is_none());
+}
+
+#[test]
+fn wheel_scrolls_overlays_like_arrows_without_sending_anything() {
+    let mut app = response_scroll_app();
+    app.command("help");
+    assert_eq!(app.overlay, Some(Overlay::Help));
+    let draft = (app.input.clone(), app.cursor);
+    let surface = app.scroll_surface().index();
+    app.surface_scroll_max[surface] = 20;
+    assert!(response_wheel(
+        &mut app,
+        crossterm::event::MouseEventKind::ScrollDown,
+        10,
+        10
+    ));
+    assert_eq!(app.surface_scroll[surface], 3);
+    assert!(response_wheel(
+        &mut app,
+        crossterm::event::MouseEventKind::ScrollUp,
+        10,
+        10
+    ));
+    assert_eq!(app.surface_scroll[surface], 0);
+    // Horizontal or other mouse events do nothing.
+    assert!(!response_wheel(
+        &mut app,
+        crossterm::event::MouseEventKind::ScrollLeft,
+        10,
+        10
+    ));
+    assert_eq!((app.input.clone(), app.cursor), draft);
     assert!(app.pending_request.is_none() && app.planning.pending.is_none());
 }
 

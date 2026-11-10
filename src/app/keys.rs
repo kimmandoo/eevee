@@ -246,34 +246,65 @@ impl App {
             || item_hidden
     }
 
+    /// Lines one wheel notch moves, matching common terminal scrolling.
+    const WHEEL_LINES: i32 = 3;
+
+    /// The wheel scrolls whatever is on screen. Inside the retained response
+    /// it scrolls that transcript; on any other surface it acts exactly like
+    /// the same number of Up/Down presses, which only scroll or move a
+    /// selection and can never answer, send or confirm anything.
     fn response_mouse(&mut self, mouse: MouseEvent) -> bool {
-        if self.width < 60
-            || self.height < 18
-            || self.transitioning
+        let lines = match mouse.kind {
+            MouseEventKind::ScrollUp => -Self::WHEEL_LINES,
+            MouseEventKind::ScrollDown => Self::WHEEL_LINES,
+            _ => return false,
+        };
+        if self.transitioning
             || self.reset_after_save
             || self.quit_after_save
             || self.confirmation.is_some()
-            || self.command_popup.is_some()
             || self.nickname_editor.is_some()
             || self.cooperation_ui.release.is_some()
             || self.cooperation.journal_discard.is_some()
-            || !matches!(self.overlay, None | Some(Overlay::Planning))
-            || self.overlay.is_none()
-                && (self.composer_menu.is_some()
-                    || self.editing
-                        && matches!(
-                            self.editor_field,
-                            store::EditorField::Criteria | store::EditorField::Command
-                        ))
         {
             return false;
         }
-        let lines = match mouse.kind {
-            MouseEventKind::ScrollUp => -3,
-            MouseEventKind::ScrollDown => 3,
-            _ => return false,
+        let roomy = self.width >= 60 && self.height >= 18;
+        let composer_text = self.overlay.is_none()
+            && self.editing
+            && matches!(
+                self.editor_field,
+                store::EditorField::Criteria | store::EditorField::Command
+            );
+        if roomy
+            && self.command_popup.is_none()
+            && matches!(self.overlay, None | Some(Overlay::Planning))
+            && !(self.overlay.is_none() && (self.composer_menu.is_some() || composer_text))
+            && self.planning.response_wheel(mouse.column, mouse.row, lines)
+        {
+            return true;
+        }
+        if self.overlay.is_none() && self.command_popup.is_none() && self.composer_menu.is_none() {
+            // Home: arrows belong to the draft (caret and history), so the
+            // wheel only ever scrolls the retained response there.
+            return roomy
+                && !composer_text
+                && self.response_on_home()
+                && self.planning.scroll_response_lines(lines);
+        }
+        let code = if lines < 0 {
+            KeyCode::Up
+        } else {
+            KeyCode::Down
         };
-        self.planning.response_wheel(mouse.column, mouse.row, lines)
+        let mut changed = false;
+        for _ in 0..lines.unsigned_abs() {
+            changed |= self.key(
+                KeyEvent::new(code, KeyModifiers::NONE),
+                std::time::Instant::now(),
+            );
+        }
+        changed
     }
 
     pub(super) fn handoff_key(&mut self, key: KeyEvent) -> bool {
