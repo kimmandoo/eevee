@@ -1,3 +1,11 @@
+## 2026-11-10 — Honest one-key approval hints (completed in source)
+
+- **Request:** Fix odd UX or logic.
+- **Found:** (1) Auto-presented reviews advertised `a Allow once · n Deny` / `a Run once · n Not now` from the first frame, but the keys did nothing for 800 ms, and an early press silently disabled them for good while the hint kept offering them. (2) On permission reviews, PgUp/PgDn/arrows/`d` counted as "other typing" and disabled one-key answers (command reviews already exempted them), so reading a long review forced the Enter path.
+- **Changed:** `src/app/arrival.rs` (settle announce + `App::arrival_wait`/`tick_arrival`), `src/main.rs` (wake/repaint at settle), `direct_keys_ready()` in `src/app/execution.rs` and `src/app/planning/review.rs`, fallback hints in `messages/providers.ftl`, `src/ui/execution.rs`, `src/ui/planning.rs`; tests; DESIGN_RULES, CHANGELOG.
+- **Verification:** `cargo fmt`; `cargo clippy --all-targets -- -D warnings` clean; `cargo test` 2075 passed/3 ignored; `file_permission_smoke.py` and `sdk_command_smoke.py --compiler "$(rustup which rustc)"` passed against `target/debug/ev`.
+- **Next / blockers:** none; no release cut.
+
 ## 2026-11-09 — One-key approvals and web tools on every route (completed in source)
 
 - **Request:** Improve the two open items: (1) web tools missing on Codex CLI, Claude SDK and ACP; (2) the Enter → choose → confirm approval sequence.

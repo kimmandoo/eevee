@@ -581,6 +581,10 @@ providers-execution-auto-review-actions =
     { "Command approval required · a Run once · n Not now" }
     { "Enter to review (not approve) · d Details · Esc later" }
 
+providers-execution-auto-review-enter-actions =
+    { "Command approval required · Enter to review (not approve)" }
+    { "d Details · Esc later · no approval" }
+
 providers-execution-requested-action-stay-keeps-this-task-and =
     { "Requested: " }{ $action }
     { "Stay keeps this task and all drafts. Cancel-and-wait first denies any unstarted approval or cancels the owned run, then waits for process-tree exit, after-source observation, and committed journal metadata." }
@@ -758,9 +762,17 @@ providers-planning-permission-auto-review-actions =
     { "a Allow once · n Deny" }
     { "Enter to review (not approve) · Esc later" }
 
+providers-planning-permission-auto-review-enter-actions =
+    { "Permission required · Enter to review (not approve)" }
+    { "Esc later · no approval" }
+
 providers-planning-file-auto-review-actions =
     { "a Allow once · n Deny · Left/Right choose" }
     { "Enter inspects the change · Esc later" }
+
+providers-planning-file-auto-review-enter-actions =
+    { "Left/Right choose · Enter inspects the change" }
+    { "Esc later; request stays pending" }
 
 providers-planning-file-generating = { "Generating · not saved" }
 

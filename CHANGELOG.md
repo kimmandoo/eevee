@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-11-10
+
+- fix(permissions): showed the `a`/`n` hint on auto-presented reviews only while those keys actually answer, falling back to the Enter review hint during the 800 ms settle, after other typing or before the summary was shown, and repainted the hint the moment the keys unlock.
+- fix(permissions): kept scrolling and `d` from disabling one-key answers on permission reviews, matching command reviews, so reading a long review no longer forces the Enter path.
+
 ## 2026-11-09
 
 - feat(permissions): accepted `a`/`n` directly on a settled auto-presented permission or command review (800 ms on screen, no other key since, summary shown), replacing the Enter → choose → confirm sequence while keeping typing-in-progress from ever counting as consent.

@@ -725,6 +725,15 @@ impl State {
         }
     }
 
+    /// Whether `a`/`n` would answer the auto-presented review right now; the
+    /// hint advertises them only then, never before they work.
+    pub fn direct_keys_ready(&self) -> bool {
+        self.auto_permission_review
+            && self.direct_answer.ready()
+            && self.required_permission_review()
+            && self.direct_answer(true).is_some()
+    }
+
     /// Answers the current owned permission with one of its own options; used
     /// by a user-created approval rule (XC01). Questions are never answered.
     pub(in crate::app) fn answer_permission(&mut self, index: usize) -> bool {
@@ -820,7 +829,16 @@ impl State {
             // Request typing cannot become an answer on asynchronous arrival:
             // any other key keeps this review on the explicit Enter path.
             // App owns Esc deferral and its exact request identity.
-            if key.code != KeyCode::Esc {
+            // Inspection keys only read the review, matching command approvals.
+            if !matches!(
+                key.code,
+                KeyCode::Esc
+                    | KeyCode::Up
+                    | KeyCode::Down
+                    | KeyCode::PageUp
+                    | KeyCode::PageDown
+                    | KeyCode::Char('d')
+            ) {
                 self.direct_answer.disturb();
             }
             return false;

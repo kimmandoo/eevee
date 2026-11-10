@@ -4330,3 +4330,31 @@ fn settled_auto_presented_review_accepts_direct_allow_and_deny() {
     );
     assert!(state.pending.is_none());
 }
+
+#[test]
+fn direct_keys_are_advertised_only_while_they_answer_and_survive_scrolling() {
+    use std::time::{Duration, Instant};
+    let mut state = file_review_state();
+    state.auto_permission_review = true;
+    state.reviewed = true;
+    state.direct_answer.present();
+    // Still settling: the hint must not offer keys that do nothing yet.
+    assert!(!state.direct_keys_ready());
+    state
+        .direct_answer
+        .present_at(Instant::now() - crate::app::arrival::SETTLE - Duration::from_millis(1));
+    assert!(state.direct_keys_ready());
+    // Reading the review keeps the one-key path.
+    press(&mut state, KeyCode::PageDown, true);
+    press(&mut state, KeyCode::Up, true);
+    assert!(state.direct_keys_ready());
+    // Unshown summary: allow is unavailable, so the hint falls back.
+    state.reviewed = false;
+    assert!(!state.direct_keys_ready());
+    state.reviewed = true;
+    // Other typing locks the one-key path and the hint follows.
+    press(&mut state, KeyCode::Char('x'), true);
+    assert!(!state.direct_keys_ready());
+    press(&mut state, KeyCode::Char('a'), true);
+    assert!(state.pending.is_none() && state.auto_permission_review);
+}

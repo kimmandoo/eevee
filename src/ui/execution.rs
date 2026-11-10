@@ -414,15 +414,15 @@ fn confirmation(
     text(
         frame,
         row(area, area.height.saturating_sub(2), 2),
-        paint.hint(
-            if state.auto_presented && matches!(confirm, Confirmation::Approval) {
-                Message::ProvidersExecutionAutoReviewActions
-            } else if allow_all && matches!(confirm, Confirmation::Approval) {
-                Message::ProvidersExecutionAllowAllReviewActions
-            } else {
-                Message::ProvidersExecutionYConfirmNStayTabChooseEnter
-            },
-        ),
+        paint.hint(if state.direct_keys_ready() {
+            Message::ProvidersExecutionAutoReviewActions
+        } else if state.auto_presented && matches!(confirm, Confirmation::Approval) {
+            Message::ProvidersExecutionAutoReviewEnterActions
+        } else if allow_all && matches!(confirm, Confirmation::Approval) {
+            Message::ProvidersExecutionAllowAllReviewActions
+        } else {
+            Message::ProvidersExecutionYConfirmNStayTabChooseEnter
+        }),
         paint.muted,
     );
 }

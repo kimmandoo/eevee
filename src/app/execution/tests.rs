@@ -1622,6 +1622,17 @@ fn agent_command_review_opens_itself_but_arriving_keys_cannot_answer() {
             - std::time::Duration::from_millis(1),
     );
     app.execution.shown = true;
+    assert!(
+        app.execution.direct_keys_ready(),
+        "hint offers a/n only now"
+    );
+    app.execution.direct_answer.present();
+    assert!(!app.execution.direct_keys_ready(), "not while settling");
+    app.execution.direct_answer.present_at(
+        std::time::Instant::now()
+            - crate::app::arrival::SETTLE
+            - std::time::Duration::from_millis(1),
+    );
     app.execution.key(key(KeyCode::Char('a')));
     assert!(app.execution.reserving);
 }

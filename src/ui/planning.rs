@@ -1102,16 +1102,18 @@ fn review_controls(frame: &mut Frame, area: Rect, state: &State, paint: &Paint) 
     {
         paint.hint(Message::ProvidersPlanningRunBlockedNCancelEscCancelD)
     } else if state.auto_permission_review {
-        paint.hint(
-            if matches!(
-                state.request.as_ref().map(|request| &request.kind),
-                Some(PromptKind::Permission { file: Some(_), .. })
-            ) {
-                Message::ProvidersPlanningFileAutoReviewActions
-            } else {
-                Message::ProvidersPlanningPermissionAutoReviewActions
-            },
-        )
+        let file = matches!(
+            state.request.as_ref().map(|request| &request.kind),
+            Some(PromptKind::Permission { file: Some(_), .. })
+        );
+        // Advertise a/n only once they work; before that, or after typing
+        // disturbed the review, the Enter path is the only way in.
+        paint.hint(match (file, state.direct_keys_ready()) {
+            (true, true) => Message::ProvidersPlanningFileAutoReviewActions,
+            (true, false) => Message::ProvidersPlanningFileAutoReviewEnterActions,
+            (false, true) => Message::ProvidersPlanningPermissionAutoReviewActions,
+            (false, false) => Message::ProvidersPlanningPermissionAutoReviewEnterActions,
+        })
     } else if file_summary && !state.reviewed {
         paint.hint(Message::ProvidersPlanningFileUnavailable)
     } else if file_details {
@@ -1600,7 +1602,11 @@ fn file_style(phase: FilePhase, paint: &Paint) -> Style {
 
 fn controls(state: &State, paint: &Paint) -> &'static str {
     if state.auto_permission_review {
-        return paint.hint(Message::ProvidersPlanningPermissionAutoReviewActions);
+        return paint.hint(if state.direct_keys_ready() {
+            Message::ProvidersPlanningPermissionAutoReviewActions
+        } else {
+            Message::ProvidersPlanningPermissionAutoReviewEnterActions
+        });
     }
     if let Some(preview) = &state.preview {
         return if !preview.blockers.is_empty() {

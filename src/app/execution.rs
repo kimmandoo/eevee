@@ -1802,6 +1802,16 @@ impl State {
         self.ready.take()
     }
 
+    /// Whether `a`/`y`/`n` would answer the auto-presented review right now;
+    /// the hint advertises them only then.
+    pub fn direct_keys_ready(&self) -> bool {
+        self.auto_presented
+            && matches!(self.confirmation, Some(Confirmation::Approval))
+            && self.direct_answer.ready()
+            && self.confirmation_visible
+            && self.shown
+    }
+
     pub fn key(&mut self, mut key: KeyEvent) -> Option<Action> {
         if key.kind == KeyEventKind::Release {
             return None;
@@ -1820,9 +1830,7 @@ impl State {
                 // A settled, fully shown review accepts its one-shot keys directly.
                 if key.modifiers.is_empty()
                     && matches!(key.code, KeyCode::Char('a' | 'y' | 'n'))
-                    && self.direct_answer.ready()
-                    && self.confirmation_visible
-                    && self.shown
+                    && self.direct_keys_ready()
                 {
                     self.auto_presented = false;
                     self.direct_answer.clear();

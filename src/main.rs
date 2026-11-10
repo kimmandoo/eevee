@@ -405,6 +405,7 @@ fn run(config: Config) -> io::Result<()> {
             dirty |= app.drive_records();
             dirty |= app.records_restore_pairing();
             animation_dirty |= app.tick_evolution(std::time::Instant::now());
+            animation_dirty |= app.tick_arrival(std::time::Instant::now());
             if dirty || animation_dirty {
                 ui::portrait_targets(
                     &app,
@@ -583,6 +584,10 @@ fn run(config: Config) -> io::Result<()> {
             let wait = match (wait, app.evolution_wait(std::time::Instant::now())) {
                 (Some(ordinary), Some(motion)) => Some(ordinary.min(motion)),
                 (ordinary, motion) => ordinary.or(motion),
+            };
+            let wait = match (wait, app.arrival_wait(std::time::Instant::now())) {
+                (Some(ordinary), Some(arrival)) => Some(ordinary.min(arrival)),
+                (ordinary, arrival) => ordinary.or(arrival),
             };
             let event = if let Some(wait) = wait {
                 input.read_timeout(wait)?
