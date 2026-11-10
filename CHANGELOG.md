@@ -4,6 +4,8 @@
 
 ### 0.1.52
 
+- chore(release): published v0.1.52 from exact sourceda139ce after native42759985772/all six jobs and immutable promotion42761976207; verified eight public assets, downloaded Linux response/permission journeys and genuine0.1.51→0.1.52 data/Unicode-caret-preserving update without changing previous releases.
+- fix(test): waited for the follow-up marker inside the rendered transcript viewport before inspection instead of treating durable request settlement as visible completion.
 - chore(release): advanced the package to 0.1.52 with SQL20, complete SDK bridge13, TM2 and formation2; required replacing SDK main, policy and dependencies together.
 - feat(release): bundled native web search/page reading, Codex dynamic web tools, reviewed Claude SDK web tools and ACP web reviews under the existing Automatic/Ask policy and private-address protections.
 - feat(release): bundled the simpler Help/home/header/composer, smaller portrait, settled one-key approvals with truthful hints and mouse-wheel scrolling across overlays, reviews, pickers and the home response.

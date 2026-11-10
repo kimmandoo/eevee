@@ -348,6 +348,8 @@ def run(binary, output, root, size, ascii_mode, ):
             session.send("\r")
             until(session, lambda: len(peer.snapshot("POST")) == 2 and not journey.snapshot()["claims"],
                   "one deliberately submitted follow-up")
+            until(session, lambda: SECOND_ANSWER in "\n".join(response_view(session)["body"]),
+                  "follow-up response rendered inside the transcript viewport")
             latest = response_view(session)
             assert latest["following"], "accepted Enter did not resume latest output"
             assert SECOND_ANSWER in "\n".join(latest["body"]), latest
@@ -356,7 +358,6 @@ def run(binary, output, root, size, ascii_mode, ):
             _, messages = decoded_payload("chat_completions", peer.snapshot("POST")[-1]["body"])
             assert messages == [("user", FIRST_REQUEST), ("assistant", peer.prefix + peer.suffix),
                                 ("user", expected_draft)], messages
-            wait_for(session, SECOND_ANSWER)
             boundary_rows = list(response_view(session)["body"])
             # No response-selection key: ordinary pages must cross both ways
             # through the segment boundary, including its attribution rows.

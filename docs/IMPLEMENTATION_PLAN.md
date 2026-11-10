@@ -1,15 +1,17 @@
 # Eevee Implementation Plan
 
-Updated2026-11-10. Active delivery: qualify and publish immutable0.1.52 with the completed UI, web-tool, approval and mouse-scroll changes. Published0.1.51 and earlier tags/assets must stay unchanged.
+Updated2026-11-10. Completed immutable0.1.52 publication with the UI, web-tool, approval and mouse-scroll changes. Published0.1.51 and earlier tags/assets stayed unchanged.
 
 Contract: [design rules](DESIGN_RULES.md) and [agent compatibility](AGENT_COMPATIBILITY.md). Live-provider conformance remains distinct from implemented transports and deterministic runtime proof.
 
-## Current delivery — 0.1.52 release (2026-11-10)
+## Completed delivery — 0.1.52 release (2026-11-10)
 
 1. Advance Cargo/lock and dated version notes, record the source candidate and commit/push it to main. Use the existing Check and five-target native workflow for exact-source tests, lint, SDK policy, builds, offline installation and runtime qualification.
 2. Require the newest same-source main push run's Check, all five native rows and every required step in one successful attempt; retain immutable package identities. Do not tag a failed or partially qualified source.
 3. Push a new annotatedv0.1.52 tag at that exact source and let the existing release workflow promote only its qualified packages without rebuilding or changing previous releases.
 4. Verify public tag/latest identity, all eight asset digests, seven checksum rows, five archive layouts and source-identical installers; exercise the downloaded Linux response/permission surfaces and genuine0.1.51→0.1.52 update/data/draft retention. Record exact evidence and limits, then commit/push the completed handoff without retagging.
+
+Steps1–4 passed. Source/tagda139ce/native42759985772 attempt1 passed Check, all five native rows and every required step; promotion42761976207 published latestv0.1.52/release439979829 from immutable package IDs without rebuilding. Eight public asset digests, seven checksum rows, five archive/CPU layouts, source-identical installers/legal text and previous0.1.51 asset identities passed. Downloaded Linux response120×36/60×18 and file-permission journeys passed; genuine0.1.51 `ev update`→0.1.52 preserved both profiles' data bytes, Unicode draft and interior caret, including actual insertion and uninstall/reinstall retention. Corrected the response driver's scoped-render wait after two retained observer failures without changing the executable. No release step or unrelated roadmap closure remains; platform/live-account/physical-device limits are in the checkpoint.
 
 ## Completed delivery — Readable output, Windows command discovery and usage (2026-11-06)
 

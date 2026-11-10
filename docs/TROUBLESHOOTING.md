@@ -1,5 +1,12 @@
 # Troubleshooting
 
+### [2026-11-10] Response smoke inspected an unsettled follow-up viewport
+
+- **Context / Symptom:** Downloaded public0.1.52 passed native qualification and genuine update/data retention, but `response_smoke.py` failed at the follow-up `SECOND_RESPONSE_MARKER` assertion while reporting `Following`. Retained terminal output contained the marker; an initial fix waiting for it anywhere on screen still sampled a clipped viewport that excluded the bottom visible row.
+- **Root Cause:** Second-request arrival and durable ownership settlement did not synchronize PTY rendering or response viewport layout. The visible-marker wait originally followed the assertion it needed to synchronize, and a general-screen marker wait did not establish the parsed transcript viewport's settled contents.
+- **Solution:** Waited, within the existing bounded terminal observer, for the marker inside the actual parsed transcript viewport before taking the snapshot. Kept the Follow-latest, literal marker, request-count, history, draft/caret and no-effect assertions; added no input, sleep or model/command retry. The unchanged public executable passed both120×36/60×18 journeys with the corrected driver.
+- **Prevention / Reference:** Wait on the actual scoped visible fact, not SQL completion or text elsewhere in the screen. Original failures remain under`target/release052-proof/public-response{,-synchronized}/`; final passing evidence is under`public-response-settled/`. No public tag or asset was replaced.
+
 ### [2026-11-09] sdk_command_smoke failed with "unexpected argument '--edition'"
 
 - **Context / Symptom:** `sdk_command_smoke.py --compiler "$(which rustc)"` failed with "real SDK tool result did not reach query: compile-failure"; the reviewed command ran `rustup --edition=2021 ...`.
